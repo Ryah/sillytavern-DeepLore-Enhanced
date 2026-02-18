@@ -1,0 +1,19 @@
+.deeplore_enhanced_settings .deeplore_enhanced_status {
+    display: inline-block;
+    margin-left: 10px;
+    font-size: 0.85em;
+}
+
+.deeplore_enhanced_settings .deeplore_enhanced_status.success {
+    color: var(--SmartThemeQuoteColor, #4caf50);
+}
+
+.deeplore_enhanced_settings .deeplore_enhanced_status.failure {
+    color: var(--warning, #f44336);
+}
+
+.deeplore_enhanced_settings .deeplore_enhanced_ai_stats {
+    font-size: 0.85em;
+    opacity: 0.8;
+    margin-top: 4px;
+}

@@ -13,6 +13,7 @@ import {
     renderExtensionTemplateAsync,
 } from '../../../extensions.js';
 import { oai_settings } from '../../../openai.js';
+import { getTokenCountAsync } from '../../../tokenizers.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
@@ -63,6 +64,38 @@ const defaultSettings = {
     aiSearchSystemPrompt: '',
 };
 
+/** Validation constraints for numeric settings */
+const settingsConstraints = {
+    obsidianPort: { min: 1, max: 65535 },
+    scanDepth: { min: 1, max: 100 },
+    maxEntries: { min: 1, max: 100 },
+    maxTokensBudget: { min: 100, max: 100000 },
+    injectionDepth: { min: 0, max: 9999 },
+    maxRecursionSteps: { min: 1, max: 10 },
+    cacheTTL: { min: 0, max: 86400 },
+    reviewResponseTokens: { min: 0, max: 100000 },
+    aiSearchMaxTokens: { min: 64, max: 4096 },
+    aiSearchTimeout: { min: 1000, max: 30000 },
+    aiSearchPriorityOffset: { min: 0, max: 1000 },
+    aiSearchScanDepth: { min: 1, max: 100 },
+};
+
+/**
+ * Validate and clamp settings to their allowed ranges.
+ * @param {object} settings
+ */
+function validateSettings(settings) {
+    for (const [key, { min, max }] of Object.entries(settingsConstraints)) {
+        if (typeof settings[key] === 'number') {
+            settings[key] = Math.max(min, Math.min(max, Math.round(settings[key])));
+        }
+    }
+    // Ensure tags are trimmed strings
+    if (typeof settings.lorebookTag === 'string') {
+        settings.lorebookTag = settings.lorebookTag.trim() || 'lorebook';
+    }
+}
+
 /** @returns {typeof defaultSettings} */
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
@@ -74,6 +107,7 @@ function getSettings() {
             extension_settings[MODULE_NAME][key] = value;
         }
     }
+    validateSettings(extension_settings[MODULE_NAME]);
     return extension_settings[MODULE_NAME];
 }
 
@@ -210,11 +244,24 @@ function extractTitle(body, filename) {
  * Build a compact manifest of vault entries for AI search.
  * Called after buildIndex() updates the vault index.
  */
+function truncateToSentence(text, maxLen) {
+    if (text.length <= maxLen) return text;
+    const truncated = text.substring(0, maxLen);
+    // Find the last sentence boundary (., !, ?) before the limit
+    const lastSentence = truncated.search(/[.!?][^.!?]*$/);
+    if (lastSentence > maxLen * 0.4) {
+        return truncated.substring(0, lastSentence + 1);
+    }
+    // No good sentence boundary found; fall back to hard cut with ellipsis
+    return truncated.trimEnd() + '...';
+}
+
 function buildManifest() {
     cachedManifest = vaultIndex
         .filter(e => !e.constant) // Constants are always injected, no need for AI to pick them
         .map(entry => {
-            const summary = entry.content.substring(0, 200).replace(/\n+/g, ' ').trim();
+            const flat = entry.content.replace(/\n+/g, ' ').trim();
+            const summary = truncateToSentence(flat, 200);
             const keysStr = entry.keys.length > 0 ? `\nKeys: ${entry.keys.join(', ')}` : '';
             return `Title: ${entry.title}${keysStr}\nSummary: ${summary}`;
         })
@@ -303,11 +350,21 @@ async function buildIndex() {
                 content,
                 priority,
                 constant,
-                tokenEstimate: Math.ceil(content.length / 3.5),
+                tokenEstimate: 0,
                 scanDepth,
                 excludeRecursion,
             });
         }
+
+        // Compute accurate token counts using SillyTavern's tokenizer
+        await Promise.all(entries.map(async (entry) => {
+            try {
+                entry.tokenEstimate = await getTokenCountAsync(entry.content);
+            } catch {
+                // Fallback to rough estimate if tokenizer unavailable
+                entry.tokenEstimate = Math.ceil(entry.content.length / 3.5);
+            }
+        }));
 
         vaultIndex = entries;
         indexTimestamp = Date.now();
@@ -432,20 +489,22 @@ function matchEntries(chat) {
 
     // Recursive scanning: scan matched entry content for more matches
     if (settings.recursiveScan && settings.maxRecursionSteps > 0) {
-        let newMatches = true;
         let step = 0;
+        /** @type {Set<VaultEntry>} Entries added in the previous step (seed with initial matches) */
+        let newlyMatched = new Set(matchedSet);
 
-        while (newMatches && step < settings.maxRecursionSteps) {
-            newMatches = false;
+        while (newlyMatched.size > 0 && step < settings.maxRecursionSteps) {
             step++;
 
-            // Build recursion scan text from all matched entries (that allow recursion)
-            const recursionText = [...matchedSet]
+            // Only scan content from entries added in the previous step
+            const recursionText = [...newlyMatched]
                 .filter(e => !e.excludeRecursion)
                 .map(e => e.content)
                 .join('\n');
 
             if (!recursionText.trim()) break;
+
+            newlyMatched = new Set();
 
             for (const entry of vaultIndex) {
                 if (matchedSet.has(entry)) continue;
@@ -454,8 +513,8 @@ function matchEntries(chat) {
                 const key = testEntryMatch(entry, recursionText, settings);
                 if (key) {
                     matchedSet.add(entry);
+                    newlyMatched.add(entry);
                     matchedKeys.set(entry.title, `${key} (recursion step ${step})`);
-                    newMatches = true;
                 }
             }
         }

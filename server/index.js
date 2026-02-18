@@ -121,12 +121,15 @@ function callProxy(proxyUrl, model, systemPrompt, userMessage, maxTokens) {
         const payload = JSON.stringify({
             model: model,
             max_tokens: maxTokens,
-            system: systemPrompt,
+            system: [{ type: 'text', text: systemPrompt }],
             messages: [{ role: 'user', content: userMessage }],
         });
 
+        // Force IPv4 for localhost to avoid ::1 ECONNREFUSED issues
+        const hostname = (url.hostname === 'localhost') ? '127.0.0.1' : url.hostname;
+
         const options = {
-            hostname: url.hostname,
+            hostname: hostname,
             port: url.port || (url.protocol === 'https:' ? 443 : 80),
             path: url.pathname,
             method: 'POST',

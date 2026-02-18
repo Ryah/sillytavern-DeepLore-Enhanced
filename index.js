@@ -599,60 +599,68 @@ function testEntryMatch(entry, scanText, settings) {
  */
 function matchEntries(chat) {
     const settings = getSettings();
-    const globalScanText = buildScanText(chat, settings.scanDepth);
     /** @type {Set<VaultEntry>} */
     const matchedSet = new Set();
     /** @type {Map<string, string>} entry title -> matched key */
     const matchedKeys = new Map();
 
-    // Initial scan pass
+    // Always collect constants regardless of scan depth
     for (const entry of vaultIndex) {
         if (entry.constant) {
             matchedSet.add(entry);
             matchedKeys.set(entry.title, '(constant)');
-            continue;
-        }
-
-        // Use per-entry scan depth if set, otherwise use global scan text
-        const scanText = entry.scanDepth !== null
-            ? buildScanText(chat, entry.scanDepth)
-            : globalScanText;
-
-        const key = testEntryMatch(entry, scanText, settings);
-        if (key) {
-            matchedSet.add(entry);
-            matchedKeys.set(entry.title, key);
         }
     }
 
-    // Recursive scanning: scan matched entry content for more matches
-    if (settings.recursiveScan && settings.maxRecursionSteps > 0) {
-        let step = 0;
-        /** @type {Set<VaultEntry>} Entries added in the previous step (seed with initial matches) */
-        let newlyMatched = new Set(matchedSet);
+    // Keyword matching: skip entirely when scanDepth is 0 (AI-only mode)
+    if (settings.scanDepth > 0) {
+        const globalScanText = buildScanText(chat, settings.scanDepth);
 
-        while (newlyMatched.size > 0 && step < settings.maxRecursionSteps) {
-            step++;
+        // Initial scan pass
+        for (const entry of vaultIndex) {
+            if (entry.constant) continue; // Already added above
 
-            // Only scan content from entries added in the previous step
-            const recursionText = [...newlyMatched]
-                .filter(e => !e.excludeRecursion)
-                .map(e => e.content)
-                .join('\n');
+            // Use per-entry scan depth if set, otherwise use global scan text
+            const scanText = entry.scanDepth !== null
+                ? buildScanText(chat, entry.scanDepth)
+                : globalScanText;
 
-            if (!recursionText.trim()) break;
+            const key = testEntryMatch(entry, scanText, settings);
+            if (key) {
+                matchedSet.add(entry);
+                matchedKeys.set(entry.title, key);
+            }
+        }
 
-            newlyMatched = new Set();
+        // Recursive scanning: scan matched entry content for more matches
+        if (settings.recursiveScan && settings.maxRecursionSteps > 0) {
+            let step = 0;
+            /** @type {Set<VaultEntry>} Entries added in the previous step (seed with initial matches) */
+            let newlyMatched = new Set(matchedSet);
 
-            for (const entry of vaultIndex) {
-                if (matchedSet.has(entry)) continue;
-                if (entry.constant) continue; // Already added
+            while (newlyMatched.size > 0 && step < settings.maxRecursionSteps) {
+                step++;
 
-                const key = testEntryMatch(entry, recursionText, settings);
-                if (key) {
-                    matchedSet.add(entry);
-                    newlyMatched.add(entry);
-                    matchedKeys.set(entry.title, `${key} (recursion step ${step})`);
+                // Only scan content from entries added in the previous step
+                const recursionText = [...newlyMatched]
+                    .filter(e => !e.excludeRecursion)
+                    .map(e => e.content)
+                    .join('\n');
+
+                if (!recursionText.trim()) break;
+
+                newlyMatched = new Set();
+
+                for (const entry of vaultIndex) {
+                    if (matchedSet.has(entry)) continue;
+                    if (entry.constant) continue; // Already added
+
+                    const key = testEntryMatch(entry, recursionText, settings);
+                    if (key) {
+                        matchedSet.add(entry);
+                        newlyMatched.add(entry);
+                        matchedKeys.set(entry.title, `${key} (recursion step ${step})`);
+                    }
                 }
             }
         }

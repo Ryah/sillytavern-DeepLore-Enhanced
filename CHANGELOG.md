@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.82-ALPHA
+
+### Bugfix: AI-only mode actually works now
+- **Fixed early return killing AI search** -- When keyword scan depth was set to 0, `onGenerate()` returned early before AI search could run. Removed the empty-scan-text guard so both pipelines always execute.
+- **Fixed `slice(-0)` returning all messages** -- `buildScanText(chat, 0)` was evaluating `chat.slice(-0)` which returns the entire array in JavaScript. Added explicit `depth <= 0` guard to `buildScanText()` and `buildAiChatContext()` to properly return empty string.
+- Bumped version to 0.82-ALPHA.
+
 ## 0.81-ALPHA
 
 ### AI Search Pipeline Overhaul

@@ -504,7 +504,16 @@ test('normalizeResults: empty array', () => {
 // buildAiChatContext (from index.js)
 // ============================================================================
 
+function buildScanText(chat, depth) {
+    if (depth <= 0) return '';
+    const recentMessages = chat.slice(-Math.min(depth, chat.length));
+    return recentMessages
+        .map(m => `${m.name || ''}: ${m.mes || ''}`)
+        .join('\n');
+}
+
 function buildAiChatContext(chat, depth) {
+    if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
         .map(m => {
@@ -541,6 +550,35 @@ test('buildAiChatContext: handles missing name', () => {
     const chat = [{ is_user: false, mes: 'Hello' }];
     const result = buildAiChatContext(chat, 10);
     assert(result.includes('Unknown (character)'), 'should use Unknown for missing name');
+});
+
+// ============================================================================
+// buildScanText / buildAiChatContext depth-0 (AI-only mode)
+// ============================================================================
+
+test('buildScanText: depth 0 returns empty string', () => {
+    const chat = [
+        { name: 'Alice', mes: 'Hello world' },
+        { name: 'Bob', mes: 'Greetings' },
+    ];
+    assertEqual(buildScanText(chat, 0), '', 'should return empty string for depth 0');
+});
+
+test('buildScanText: depth 1 returns last message', () => {
+    const chat = [
+        { name: 'Alice', mes: 'First' },
+        { name: 'Bob', mes: 'Second' },
+    ];
+    const result = buildScanText(chat, 1);
+    assert(!result.includes('First'), 'should exclude first message');
+    assert(result.includes('Second'), 'should include last message');
+});
+
+test('buildAiChatContext: depth 0 returns empty string', () => {
+    const chat = [
+        { name: 'Alice', is_user: true, mes: 'Hello' },
+    ];
+    assertEqual(buildAiChatContext(chat, 0), '', 'should return empty string for depth 0');
 });
 
 // ============================================================================

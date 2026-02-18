@@ -541,6 +541,7 @@ function escapeRegex(str) {
  * @returns {string}
  */
 function buildScanText(chat, depth) {
+    if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
         .map(m => `${m.name || ''}: ${m.mes || ''}`)
@@ -555,6 +556,7 @@ function buildScanText(chat, depth) {
  * @returns {string}
  */
 function buildAiChatContext(chat, depth) {
+    if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
         .map(m => {
@@ -918,12 +920,6 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (settings.debugMode) {
                 console.debug('[DLE] No entries indexed, skipping');
             }
-            return;
-        }
-
-        // Check scan text exists
-        const scanText = buildScanText(chat, settings.scanDepth);
-        if (!scanText.trim()) {
             return;
         }
 

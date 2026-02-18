@@ -6,6 +6,7 @@ import {
     Generate,
     amount_gen,
     main_api,
+    chat,
 } from '../../../../script.js';
 import {
     extension_settings,
@@ -14,10 +15,14 @@ import {
 import { oai_settings } from '../../../openai.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
+import { escapeHtml } from '../../../utils.js';
 
 const MODULE_NAME = 'deeplore_enhanced';
 const PROMPT_TAG = 'deeplore_enhanced';
 const PLUGIN_BASE = '/api/plugins/deeplore-enhanced';
+
+const DEFAULT_AI_SYSTEM_PROMPT = 'You are Claude Code. You are a lore librarian. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation. Consider:\n- Direct references to characters, places, items, or events\n- Thematic relevance (e.g., a conversation about betrayal should surface entries about known traitors)\n- Implied context (e.g., if characters are in a location, surface entries about that location\'s history)\n\nRespond ONLY with a JSON array of entry titles. No explanation. Example: ["Entry One", "Entry Two"]\nIf no entries are relevant, respond with: []';
 
 // ============================================================================
 // Settings
@@ -1020,6 +1025,50 @@ function bindSettingsEvents() {
         } catch (err) {
             statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success');
         }
+    });
+
+    // Preview AI Prompt button
+    $('#dle_preview_ai').on('click', async function () {
+        const settings = getSettings();
+
+        if (!chat || chat.length === 0) {
+            toastr.warning('No active chat. Start a conversation first.', 'DeepLore Enhanced');
+            return;
+        }
+
+        if (!cachedManifest) {
+            toastr.warning('No vault index. Click "Refresh Index" first.', 'DeepLore Enhanced');
+            return;
+        }
+
+        // Build chat context (same as aiSearch)
+        const chatContext = buildScanText(chat, settings.aiSearchScanDepth);
+
+        // Resolve system prompt (same logic as server)
+        let systemPrompt;
+        if (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) {
+            const userPrompt = settings.aiSearchSystemPrompt.trim();
+            systemPrompt = userPrompt.startsWith('You are Claude Code')
+                ? userPrompt
+                : 'You are Claude Code. ' + userPrompt;
+        } else {
+            systemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
+        }
+
+        // Build user message (same format as server)
+        const userMessage = `## Recent Chat\n${chatContext}\n\n## Available Lore Entries\n${cachedManifest}\n\nWhich entries are relevant to the current conversation?`;
+
+        // Build preview HTML
+        const previewHtml = `
+            <div style="text-align: left; font-family: monospace; font-size: 0.85em;">
+                <h3>System Prompt</h3>
+                <div style="background: var(--SmartThemeBlurTintColor, #1a1a2e); padding: 10px; border-radius: 5px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 15px;">${escapeHtml(systemPrompt)}</div>
+                <h3>User Message</h3>
+                <div style="background: var(--SmartThemeBlurTintColor, #1a1a2e); padding: 10px; border-radius: 5px; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">${escapeHtml(userMessage)}</div>
+            </div>
+        `;
+
+        callGenericPopup(previewHtml, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
     });
 
     // Refresh Index button

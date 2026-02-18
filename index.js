@@ -1269,7 +1269,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_scan_depth').on('input', function () {
-        settings.scanDepth = Number($(this).val()) || 4;
+        const val = Number($(this).val());
+        settings.scanDepth = isNaN(val) ? 4 : val;
         saveSettingsDebounced();
     });
 
@@ -1306,7 +1307,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_depth').on('input', function () {
-        settings.injectionDepth = Number($(this).val()) || 4;
+        const val = Number($(this).val());
+        settings.injectionDepth = isNaN(val) ? 4 : val;
         saveSettingsDebounced();
     });
 
@@ -1332,7 +1334,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_cache_ttl').on('input', function () {
-        settings.cacheTTL = Number($(this).val()) || 300;
+        const val = Number($(this).val());
+        settings.cacheTTL = isNaN(val) ? 300 : val;
         saveSettingsDebounced();
     });
 

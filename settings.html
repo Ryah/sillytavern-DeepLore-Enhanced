@@ -35,6 +35,14 @@
                     </div>
                     <span id="dle_connection_status" class="deeplore_enhanced_status"></span>
                 </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Name of your Obsidian vault (for deep links in Lore Sources popup). Must match the vault name shown in Obsidian's title bar. Leave empty to disable deep links.">
+                        <label for="dle_vault_name">
+                            <small>Obsidian Vault Name</small>
+                        </label>
+                        <input id="dle_vault_name" type="text" class="text_pole" placeholder="My Vault" />
+                    </div>
+                </div>
             </div>
 
             <hr>
@@ -197,6 +205,37 @@
             </div>
 
             <hr>
+            <h4>Session Scribe</h4>
+
+            <label class="checkbox_label" for="dle_scribe_enabled" title="Automatically summarize the roleplay session and write notes to your Obsidian vault. Summaries are generated silently using your current AI connection.">
+                <input id="dle_scribe_enabled" type="checkbox" class="checkbox">
+                <span>Enable Session Scribe</span>
+            </label>
+
+            <div class="flex-container flexFlowColumn">
+                <div class="flex-container">
+                    <div class="flex1" title="Automatically write a session note every N AI messages. Set higher for less frequent notes. Use /dle-scribe for on-demand notes anytime.">
+                        <label for="dle_scribe_interval">
+                            <small>Auto-scribe Every N Messages</small>
+                        </label>
+                        <input id="dle_scribe_interval" type="number" class="text_pole" min="1" max="50" />
+                    </div>
+                    <div class="flex1" title="Folder in your Obsidian vault where session notes are saved. Will be created if it doesn't exist.">
+                        <label for="dle_scribe_folder">
+                            <small>Session Folder</small>
+                        </label>
+                        <input id="dle_scribe_folder" type="text" class="text_pole" placeholder="Sessions" />
+                    </div>
+                </div>
+                <div title="Custom prompt for session summaries. Leave empty to use the default (summarize events, character changes, plot developments as bullet points). You can also pass a one-time focus via /dle-scribe.">
+                    <label for="dle_scribe_prompt">
+                        <small>Custom Summary Prompt (empty = default)</small>
+                    </label>
+                    <textarea id="dle_scribe_prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default. Summarizes events, character changes, and plot developments as bullet points."></textarea>
+                </div>
+            </div>
+
+            <hr>
             <h4>Injection</h4>
 
             <div class="flex-container flexFlowColumn">
@@ -233,6 +272,11 @@
                 <label class="checkbox_label" for="dle_allow_wi_scan" title="Let SillyTavern's built-in World Info system scan the injected lore for WI keyword matches. Enables cross-system triggering.">
                     <input id="dle_allow_wi_scan" type="checkbox" class="checkbox">
                     <span>Allow World Info Scan</span>
+                </label>
+
+                <label class="checkbox_label" for="dle_show_sources" title="Add a book icon button to AI messages showing which vault entries were injected and why. Click the icon to see entry details and Obsidian deep links.">
+                    <input id="dle_show_sources" type="checkbox" class="checkbox">
+                    <span>Show Lore Sources Button</span>
                 </label>
             </div>
 

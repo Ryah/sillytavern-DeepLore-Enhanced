@@ -22,17 +22,24 @@ const DEFAULT_AI_SYSTEM_PROMPT = 'You are Claude Code. You are a lore librarian.
  * @param {string} [options.accept='application/json'] - Accept header
  * @returns {Promise<{status: number, data: string}>}
  */
-function obsidianRequest({ port, apiKey, path, method = 'GET', accept = 'application/json' }) {
+function obsidianRequest({ port, apiKey, path, method = 'GET', accept = 'application/json', body = null, contentType = null }) {
     return new Promise((resolve, reject) => {
+        const headers = {
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': accept,
+        };
+
+        if (body !== null && contentType) {
+            headers['Content-Type'] = contentType;
+            headers['Content-Length'] = Buffer.byteLength(body);
+        }
+
         const req = http.request({
             hostname: '127.0.0.1',
             port: port,
             path: path,
             method: method,
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': accept,
-            },
+            headers: headers,
             timeout: 30000,
         }, (res) => {
             let data = '';
@@ -50,6 +57,10 @@ function obsidianRequest({ port, apiKey, path, method = 'GET', accept = 'applica
             req.destroy();
             reject(new Error('Request timed out'));
         });
+
+        if (body !== null) {
+            req.write(body);
+        }
 
         req.end();
     });
@@ -332,6 +343,37 @@ async function init(router) {
             return res.json({ files: results, total: mdFiles.length });
         } catch (err) {
             return res.status(500).json({ error: err.message });
+        }
+    });
+
+    /**
+     * POST /write-note - Write a markdown note to the vault
+     */
+    router.post('/write-note', async (req, res) => {
+        try {
+            const { port, apiKey, filename, content } = req.body;
+
+            if (!port || !apiKey || !filename || content === undefined) {
+                return res.status(400).json({ ok: false, error: 'Missing required fields (port, apiKey, filename, content)' });
+            }
+
+            const result = await obsidianRequest({
+                port,
+                apiKey,
+                path: `/vault/${encodeVaultPath(filename)}`,
+                method: 'PUT',
+                body: content,
+                contentType: 'text/markdown',
+                accept: 'text/markdown',
+            });
+
+            if (result.status === 200 || result.status === 204) {
+                return res.json({ ok: true });
+            }
+
+            return res.json({ ok: false, error: `HTTP ${result.status}` });
+        } catch (err) {
+            return res.json({ ok: false, error: err.message });
         }
     });
 

@@ -2,16 +2,20 @@ import {
     setExtensionPrompt,
     getRequestHeaders,
     saveSettingsDebounced,
+    saveChatDebounced,
     sendMessageAsUser,
     Generate,
+    generateQuietPrompt,
     amount_gen,
     main_api,
     chat,
+    name2,
 } from '../../../../script.js';
 import {
     extension_settings,
     renderExtensionTemplateAsync,
 } from '../../../extensions.js';
+import { eventSource, event_types } from '../../../events.js';
 import { oai_settings } from '../../../openai.js';
 import { getTokenCountAsync } from '../../../tokenizers.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
@@ -62,6 +66,14 @@ const defaultSettings = {
     aiSearchPriorityOffset: 50,
     aiSearchScanDepth: 4,
     aiSearchSystemPrompt: '',
+    // Context Cartographer settings
+    showLoreSources: true,
+    obsidianVaultName: '',
+    // Session Scribe settings
+    scribeEnabled: false,
+    scribeInterval: 5,
+    scribeFolder: 'Sessions',
+    scribePrompt: '',
 };
 
 /** Validation constraints for numeric settings */
@@ -78,6 +90,7 @@ const settingsConstraints = {
     aiSearchTimeout: { min: 1000, max: 30000 },
     aiSearchPriorityOffset: { min: 0, max: 1000 },
     aiSearchScanDepth: { min: 1, max: 100 },
+    scribeInterval: { min: 1, max: 50 },
 };
 
 /**
@@ -141,6 +154,13 @@ let aiSearchCache = { hash: '', results: [] };
 
 /** Session-scoped AI search usage stats */
 let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+
+/** Context Cartographer: sources from the last generation interceptor run */
+let lastInjectionSources = null;
+
+/** Session Scribe: counter and lock */
+let messagesSinceLastScribe = 0;
+let scribeInProgress = false;
 
 /**
  * Parse simple YAML frontmatter from markdown content.
@@ -711,6 +731,9 @@ let lastWarningRatio = 0;
 async function onGenerate(chat, contextSize, abort, type) {
     const settings = getSettings();
 
+    // Clear stale source data from any previous generation
+    lastInjectionSources = null;
+
     if (type === 'quiet' || !settings.enabled) {
         return;
     }
@@ -764,6 +787,15 @@ async function onGenerate(chat, contextSize, abort, type) {
                 settings.injectionRole,
             );
 
+            // Capture injection sources for Context Cartographer
+            lastInjectionSources = merged.slice(0, injectedCount).map(e => ({
+                title: e.title,
+                filename: e.filename,
+                matchedBy: matchedKeys.get(e.title) || '?',
+                priority: e.priority,
+                tokens: e.tokenEstimate,
+            }));
+
             // Context usage warning
             if (contextSize > 0) {
                 const ratio = totalTokens / contextSize;
@@ -799,6 +831,156 @@ async function onGenerate(chat, contextSize, abort, type) {
 
 // Register the interceptor on globalThis so SillyTavern can find it
 globalThis.deepLoreEnhanced_onGenerate = onGenerate;
+
+// ============================================================================
+// Context Cartographer
+// ============================================================================
+
+/**
+ * Build an obsidian:// URI to open a note in Obsidian.
+ * @param {string} vaultName - Name of the Obsidian vault
+ * @param {string} filename - File path within the vault
+ * @returns {string|null} URI string, or null if vault name not configured
+ */
+function buildObsidianURI(vaultName, filename) {
+    if (!vaultName) return null;
+    const encodedVault = encodeURIComponent(vaultName);
+    const encodedFile = filename.split('/').map(s => encodeURIComponent(s)).join('/');
+    return `obsidian://open?vault=${encodedVault}&file=${encodedFile}`;
+}
+
+/**
+ * Inject a "Lore Sources" button into a message's action bar.
+ * @param {number} messageId - Index in the chat array
+ */
+function injectSourcesButton(messageId) {
+    const mesEl = $(`.mes[mesid="${messageId}"]`);
+    if (mesEl.length === 0) return;
+    if (mesEl.find('.mes_deeplore_sources').length > 0) return;
+
+    const btn = $('<div title="Lore Sources" class="mes_button mes_deeplore_sources fa-solid fa-book-open"></div>');
+    mesEl.find('.extraMesButtons').prepend(btn);
+}
+
+/**
+ * Show a popup with lore source details for a message.
+ * @param {Array<{title: string, filename: string, matchedBy: string, priority: number, tokens: number}>} sources
+ */
+function showSourcesPopup(sources) {
+    const settings = getSettings();
+    const vaultName = settings.obsidianVaultName;
+    const totalTokens = sources.reduce((sum, s) => sum + s.tokens, 0);
+
+    let rows = '';
+    for (const src of sources) {
+        const uri = buildObsidianURI(vaultName, src.filename);
+        const titleHtml = uri
+            ? `<a href="${escapeHtml(uri)}" target="_blank" style="color: var(--SmartThemeQuoteColor, #aac8ff); text-decoration: none;">${escapeHtml(src.title)}</a>`
+            : escapeHtml(src.title);
+
+        rows += `<tr>
+            <td style="padding: 4px 8px;">${titleHtml}</td>
+            <td style="padding: 4px 8px;">${escapeHtml(src.matchedBy)}</td>
+            <td style="padding: 4px 8px; text-align: center;">${src.priority}</td>
+            <td style="padding: 4px 8px; text-align: right;">~${src.tokens}</td>
+        </tr>`;
+    }
+
+    const html = `
+        <div style="text-align: left;">
+            <h3>Lore Sources (${sources.length} entries, ~${totalTokens} tokens)</h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+                <thead>
+                    <tr style="border-bottom: 1px solid var(--SmartThemeBorderColor, #555);">
+                        <th style="padding: 4px 8px; text-align: left;">Entry</th>
+                        <th style="padding: 4px 8px; text-align: left;">Matched By</th>
+                        <th style="padding: 4px 8px; text-align: center;">Priority</th>
+                        <th style="padding: 4px 8px; text-align: right;">Tokens</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+            ${vaultName ? '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Click entry names to open in Obsidian.</p>' : '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Set Obsidian Vault Name in settings to enable deep links.</p>'}
+        </div>`;
+
+    callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
+}
+
+// ============================================================================
+// Session Scribe
+// ============================================================================
+
+const DEFAULT_SCRIBE_PROMPT = 'Summarize the recent events in this roleplay session. Focus on:\n- New facts established about characters, locations, or items\n- Character relationship changes\n- Plot developments and decisions made\nFormat as concise bullet points under clear headings.';
+
+/**
+ * Run Session Scribe: summarize recent chat and write to Obsidian.
+ * @param {string} [customPrompt] - Optional custom focus/question
+ */
+async function runScribe(customPrompt) {
+    if (scribeInProgress) return;
+    scribeInProgress = true;
+
+    try {
+        const settings = getSettings();
+        if (!chat || chat.length === 0) {
+            toastr.warning('No active chat to summarize.', 'DeepLore Enhanced');
+            return;
+        }
+
+        // Build context from last 20 messages
+        const contextMessages = chat.slice(-20);
+        const context = contextMessages
+            .map(m => `${m.name || 'Unknown'}: ${m.mes || ''}`)
+            .join('\n');
+
+        // Build prompt
+        const basePrompt = settings.scribePrompt?.trim() || DEFAULT_SCRIBE_PROMPT;
+        const customPart = customPrompt ? `\n\nAdditional focus: ${customPrompt}` : '';
+        const quietPrompt = `Here is the recent conversation:\n\n${context}\n\n---\n\n${basePrompt}${customPart}`;
+
+        // Generate summary silently
+        const summary = await generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: 512 });
+
+        if (!summary || !summary.trim()) {
+            toastr.warning('Scribe generated an empty summary.', 'DeepLore Enhanced');
+            return;
+        }
+
+        // Build filename and content
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10);
+        const timeStr = now.toTimeString().slice(0, 5).replace(':', '-');
+        const charName = name2 || 'Unknown';
+        const filename = `${settings.scribeFolder}/${charName} - ${dateStr} ${timeStr}.md`;
+
+        const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: ${charName}\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${summary.trim()}\n`;
+
+        // Write to Obsidian via server plugin
+        const response = await fetch(`${PLUGIN_BASE}/write-note`, {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                port: settings.obsidianPort,
+                apiKey: settings.obsidianApiKey,
+                filename,
+                content: noteContent,
+            }),
+        });
+
+        const data = await response.json();
+
+        if (data.ok) {
+            toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
+        } else {
+            toastr.error(`Failed to save session note: ${data.error}`, 'DeepLore Enhanced');
+        }
+    } catch (err) {
+        console.error('[DLE] Session Scribe error:', err);
+        toastr.error(`Scribe error: ${err.message}`, 'DeepLore Enhanced');
+    } finally {
+        scribeInProgress = false;
+    }
+}
 
 // ============================================================================
 // UI & Settings Binding
@@ -864,6 +1046,16 @@ function loadSettingsUI() {
     $('#dle_ai_priority_offset').val(settings.aiSearchPriorityOffset);
     $('#dle_ai_scan_depth').val(settings.aiSearchScanDepth);
     $('#dle_ai_system_prompt').val(settings.aiSearchSystemPrompt);
+
+    // Context Cartographer settings
+    $('#dle_show_sources').prop('checked', settings.showLoreSources);
+    $('#dle_vault_name').val(settings.obsidianVaultName);
+
+    // Session Scribe settings
+    $('#dle_scribe_enabled').prop('checked', settings.scribeEnabled);
+    $('#dle_scribe_interval').val(settings.scribeInterval);
+    $('#dle_scribe_folder').val(settings.scribeFolder);
+    $('#dle_scribe_prompt').val(settings.scribePrompt);
 
     updateIndexStats();
     updateAiStats();
@@ -1031,6 +1223,38 @@ function bindSettingsEvents() {
         saveSettingsDebounced();
     });
 
+    // Context Cartographer settings
+    $('#dle_show_sources').on('change', function () {
+        settings.showLoreSources = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#dle_vault_name').on('input', function () {
+        settings.obsidianVaultName = String($(this).val()).trim();
+        saveSettingsDebounced();
+    });
+
+    // Session Scribe settings
+    $('#dle_scribe_enabled').on('change', function () {
+        settings.scribeEnabled = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $('#dle_scribe_interval').on('input', function () {
+        settings.scribeInterval = Number($(this).val()) || 5;
+        saveSettingsDebounced();
+    });
+
+    $('#dle_scribe_folder').on('input', function () {
+        settings.scribeFolder = String($(this).val()).trim() || 'Sessions';
+        saveSettingsDebounced();
+    });
+
+    $('#dle_scribe_prompt').on('input', function () {
+        settings.scribePrompt = String($(this).val());
+        saveSettingsDebounced();
+    });
+
     // Test Connection button
     $('#dle_test_connection').on('click', async function () {
         const statusEl = $('#dle_connection_status');
@@ -1187,6 +1411,21 @@ function registerSlashCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-scribe',
+        callback: async (_args, userPrompt) => {
+            if (scribeInProgress) {
+                toastr.warning('Session scribe already in progress.', 'DeepLore Enhanced');
+                return '';
+            }
+            toastr.info('Writing session note...', 'DeepLore Enhanced');
+            await runScribe(userPrompt?.trim() || '');
+            return 'Session note written.';
+        },
+        helpString: 'Write a session summary to Obsidian. Optionally provide a focus topic, e.g. /dle-scribe What happened with the sword?',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-review',
         callback: async (_args, userPrompt) => {
             await ensureIndexFresh();
@@ -1241,6 +1480,58 @@ jQuery(async function () {
         loadSettingsUI();
         bindSettingsEvents();
         registerSlashCommands();
+
+        // Context Cartographer: click handler (event delegation — registered once)
+        $(document).on('click', '.mes_deeplore_sources', function () {
+            const messageId = $(this).closest('.mes').attr('mesid');
+            const message = chat[messageId];
+            const sources = message?.extra?.deeplore_sources;
+            if (!sources || sources.length === 0) return;
+            showSourcesPopup(sources);
+        });
+
+        // Context Cartographer + Session Scribe: post-render handler
+        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
+            const settings = getSettings();
+
+            // --- Context Cartographer: store sources and inject button ---
+            if (settings.showLoreSources && lastInjectionSources && lastInjectionSources.length > 0) {
+                const message = chat[messageId];
+                if (message && !message.is_user) {
+                    message.extra = message.extra || {};
+                    message.extra.deeplore_sources = lastInjectionSources;
+                    lastInjectionSources = null;
+                    saveChatDebounced();
+                }
+            }
+
+            if (settings.showLoreSources) {
+                injectSourcesButton(messageId);
+            }
+
+            // --- Session Scribe: count messages and auto-trigger ---
+            if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
+                messagesSinceLastScribe++;
+                if (messagesSinceLastScribe >= settings.scribeInterval && !scribeInProgress) {
+                    messagesSinceLastScribe = 0;
+                    runScribe(); // fire-and-forget
+                }
+            }
+        });
+
+        // Context Cartographer: re-inject buttons on chat load
+        eventSource.on(event_types.CHAT_CHANGED, () => {
+            messagesSinceLastScribe = 0;
+            setTimeout(() => {
+                const settings = getSettings();
+                if (!settings.showLoreSources) return;
+                for (let i = 0; i < chat.length; i++) {
+                    if (chat[i]?.extra?.deeplore_sources) {
+                        injectSourcesButton(i);
+                    }
+                }
+            }, 100);
+        });
 
         console.log('[DLE] DeepLore Enhanced client extension initialized');
     } catch (err) {

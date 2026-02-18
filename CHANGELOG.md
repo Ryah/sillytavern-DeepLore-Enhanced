@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.8-ALPHA
+
+### New Features
+- **Context Cartographer** -- Adds a book icon button to each AI message's action bar. Click it to see which vault entries were injected, why they matched, their priority, and token cost. Configurable Obsidian vault name enables clickable deep links that open entries directly in Obsidian.
+- **Session Scribe** -- Automatically summarizes roleplay sessions and writes them to your Obsidian vault as timestamped markdown notes with frontmatter. Triggers after every N AI messages (configurable). Also available on demand via `/dle-scribe`, with optional focus topics.
+- **`/dle-scribe` slash command** -- Write a session summary on demand. Optionally provide a focus topic, e.g. `/dle-scribe What happened with the sword?`
+- **Obsidian write support** -- New server plugin route (`POST /write-note`) enables writing markdown notes back to the vault.
+
+### Settings
+- New "Obsidian Vault Name" field in Connection settings for deep links.
+- New "Show Lore Sources Button" toggle in Injection settings.
+- New "Session Scribe" settings section: enable toggle, auto-scribe interval, session folder, custom summary prompt.
+
+### Internal
+- Lore source data persisted in `message.extra.deeplore_sources` for per-message tracking across sessions.
+- Bumped version to 0.8-ALPHA.
+
 ## 0.7-ALPHA
 
 ### Improvements

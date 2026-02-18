@@ -131,6 +131,7 @@ const settingsConstraints = {
     aiSearchTimeout: { min: 1000, max: 30000 },
     aiSearchPriorityOffset: { min: 0, max: 1000 },
     aiSearchScanDepth: { min: 1, max: 100 },
+    scribeInterval: { min: 1, max: 50 },
 };
 
 function validateSettings(settings) {
@@ -342,6 +343,48 @@ test('validateSettings: defaults empty lorebook tag', () => {
     const settings = { lorebookTag: '   ' };
     validateSettings(settings);
     assertEqual(settings.lorebookTag, 'lorebook', 'should default empty tag to lorebook');
+});
+
+// ============================================================================
+// buildObsidianURI (from index.js)
+// ============================================================================
+
+function buildObsidianURI(vaultName, filename) {
+    if (!vaultName) return null;
+    const encodedVault = encodeURIComponent(vaultName);
+    const encodedFile = filename.split('/').map(s => encodeURIComponent(s)).join('/');
+    return `obsidian://open?vault=${encodedVault}&file=${encodedFile}`;
+}
+
+test('buildObsidianURI: basic path', () => {
+    const uri = buildObsidianURI('My Vault', 'Characters/Alice.md');
+    assertEqual(uri, 'obsidian://open?vault=My%20Vault&file=Characters/Alice.md', 'should build URI with encoded vault and path segments');
+});
+
+test('buildObsidianURI: spaces in path', () => {
+    const uri = buildObsidianURI('TestVault', 'LA World/Main Characters/The Hero.md');
+    assertEqual(uri, 'obsidian://open?vault=TestVault&file=LA%20World/Main%20Characters/The%20Hero.md', 'should encode spaces in each segment');
+});
+
+test('buildObsidianURI: no vault name returns null', () => {
+    assertEqual(buildObsidianURI('', 'test.md'), null, 'should return null for empty vault name');
+    assertEqual(buildObsidianURI(null, 'test.md'), null, 'should return null for null vault name');
+});
+
+test('buildObsidianURI: special characters', () => {
+    const uri = buildObsidianURI('Vault & Notes', 'Lore/Items/Ring (of Power).md');
+    assertEqual(uri, 'obsidian://open?vault=Vault%20%26%20Notes&file=Lore/Items/Ring%20(of%20Power).md', 'should encode ampersands and parentheses');
+});
+
+test('buildObsidianURI: root-level file', () => {
+    const uri = buildObsidianURI('MyVault', 'README.md');
+    assertEqual(uri, 'obsidian://open?vault=MyVault&file=README.md', 'should handle root-level files');
+});
+
+test('validateSettings: clamps scribe interval', () => {
+    const settings = { scribeInterval: 100 };
+    validateSettings(settings);
+    assertEqual(settings.scribeInterval, 50, 'should clamp scribe interval to max');
 });
 
 // ============================================================================

@@ -171,7 +171,7 @@
                     </div>
                 </div>
                 <div class="flex-container">
-                    <div class="flex1" title="Priority offset for AI-only matches. Higher values push AI-found entries below keyword-matched ones in priority ordering. Set to 0 for equal priority. Default: 50">
+                    <div class="flex1" title="Priority offset for AI-only matches. Higher values push AI-found entries below keyword-matched ones in priority ordering. High-confidence AI picks use 0× offset, medium uses 1×, low uses 2×. Default: 50">
                         <label for="dle_ai_priority_offset">
                             <small>AI Priority Offset</small>
                         </label>
@@ -182,6 +182,14 @@
                             <small>AI Scan Depth</small>
                         </label>
                         <input id="dle_ai_scan_depth" type="number" class="text_pole" min="1" max="100" />
+                    </div>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Maximum characters for entry summaries in the AI search manifest. Higher values give the AI more context per entry but cost more tokens. Default: 400">
+                        <label for="dle_ai_summary_length">
+                            <small>Manifest Summary Length</small>
+                        </label>
+                        <input id="dle_ai_summary_length" type="number" class="text_pole" min="100" max="800" />
                     </div>
                 </div>
                 <div title="Override the default system prompt sent to the AI for entry selection. Leave empty to use the built-in prompt. Must describe how to evaluate relevance and return a JSON array of titles.">

@@ -6,7 +6,26 @@ const info = {
     description: 'Proxies requests to the Obsidian Local REST API with AI-powered semantic search via Claude',
 };
 
-const DEFAULT_AI_SYSTEM_PROMPT = 'You are Claude Code. You are a lore librarian. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation. Consider:\n- Direct references to characters, places, items, or events\n- Thematic relevance (e.g., a conversation about betrayal should surface entries about known traitors)\n- Implied context (e.g., if characters are in a location, surface entries about that location\'s history)\n\nRespond ONLY with a JSON array of entry titles. No explanation. Example: ["Entry One", "Entry Two"]\nIf no entries are relevant, respond with: []';
+const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation.
+
+Selection criteria (in order of importance):
+1. Direct references - Characters, places, items, or events explicitly mentioned
+2. Active context - Entries about the current location, present characters, or ongoing events
+3. Relationship chains - If entry A is relevant and links to entry B, consider B as well
+4. Thematic relevance - Entries that match the tone or themes of the conversation (betrayal, romance, combat, etc.)
+
+Guidelines:
+- Prefer fewer, highly relevant entries over many loosely related ones
+- Consider the token cost shown for each entry when making selections
+- Entries marked "Links to:" indicate relationships; use these to find connected lore
+
+Respond with a JSON array of objects. Each object has:
+- "title": exact entry title from the manifest
+- "confidence": "high", "medium", or "low"
+- "reason": brief phrase explaining why (e.g. "directly mentioned", "location of current scene", "linked from Eris entry")
+
+Example: [{"title": "Eris", "confidence": "high", "reason": "directly mentioned by name"}, {"title": "The Dark Council", "confidence": "medium", "reason": "linked from Eris, thematically relevant"}]
+If no entries are relevant, respond with: []`;
 
 // ============================================================================
 // Obsidian REST API Helpers
@@ -181,33 +200,72 @@ function callProxy(proxyUrl, model, systemPrompt, userMessage, maxTokens) {
 }
 
 /**
- * Extract a JSON array from text that may contain markdown code fences.
- * @param {string} text - Raw text from LLM response
- * @returns {string[]|null} Parsed array of strings, or null
+ * @typedef {object} AiSearchResult
+ * @property {string} title
+ * @property {string} confidence - "high", "medium", or "low"
+ * @property {string} reason - Brief explanation of why the entry was selected
  */
-function extractJsonArray(text) {
-    // Try direct parse first
+
+/**
+ * Try to parse JSON text, returning null on failure.
+ * @param {string} text
+ * @returns {Array|null}
+ */
+function tryParseJson(text) {
     try {
-        const parsed = JSON.parse(text.trim());
-        if (Array.isArray(parsed)) return parsed.map(String);
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) return parsed;
     } catch { /* fall through */ }
+    return null;
+}
+
+/**
+ * Normalize parsed array items to structured AiSearchResult format.
+ * Handles both legacy ["Title"] and new [{"title","confidence","reason"}] formats.
+ * @param {Array} arr - Parsed JSON array
+ * @returns {AiSearchResult[]}
+ */
+function normalizeResults(arr) {
+    return arr.map(item => {
+        if (typeof item === 'string') {
+            // Legacy flat format
+            return { title: item, confidence: 'medium', reason: 'AI search' };
+        }
+        if (typeof item === 'object' && item !== null && typeof item.title === 'string') {
+            return {
+                title: item.title,
+                confidence: ['high', 'medium', 'low'].includes(item.confidence) ? item.confidence : 'medium',
+                reason: typeof item.reason === 'string' ? item.reason : 'AI search',
+            };
+        }
+        // Unknown format, try to coerce
+        return { title: String(item), confidence: 'medium', reason: 'AI search' };
+    });
+}
+
+/**
+ * Extract AI search results from LLM response text.
+ * Supports structured objects, legacy flat arrays, and markdown-fenced JSON.
+ * @param {string} text - Raw text from LLM response
+ * @returns {AiSearchResult[]|null}
+ */
+function extractAiResponse(text) {
+    // Try direct parse first
+    const direct = tryParseJson(text.trim());
+    if (direct) return normalizeResults(direct);
 
     // Try extracting from markdown code fences
     const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch) {
-        try {
-            const parsed = JSON.parse(fenceMatch[1].trim());
-            if (Array.isArray(parsed)) return parsed.map(String);
-        } catch { /* fall through */ }
+        const fenced = tryParseJson(fenceMatch[1].trim());
+        if (fenced) return normalizeResults(fenced);
     }
 
-    // Try finding any JSON array in the text
-    const arrayMatch = text.match(/\[[\s\S]*?\]/);
+    // Try finding any JSON array in the text (greedy to handle nested objects)
+    const arrayMatch = text.match(/\[[\s\S]*\]/);
     if (arrayMatch) {
-        try {
-            const parsed = JSON.parse(arrayMatch[0]);
-            if (Array.isArray(parsed)) return parsed.map(String);
-        } catch { /* fall through */ }
+        const found = tryParseJson(arrayMatch[0]);
+        if (found) return normalizeResults(found);
     }
 
     return null;
@@ -382,7 +440,7 @@ async function init(router) {
      */
     router.post('/ai-search', async (req, res) => {
         try {
-            const { manifest, chatContext, proxyUrl, model, maxTokens, systemPrompt } = req.body;
+            const { manifest, manifestHeader, chatContext, proxyUrl, model, maxTokens, systemPrompt } = req.body;
 
             if (!manifest || !chatContext || !proxyUrl || !model) {
                 return res.status(400).json({ ok: false, error: 'Missing required fields (manifest, chatContext, proxyUrl, model)' });
@@ -399,7 +457,9 @@ async function init(router) {
                 finalSystemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
             }
 
-            const userMessage = `## Recent Chat\n${chatContext}\n\n## Available Lore Entries\n${manifest}\n\nWhich entries are relevant to the current conversation?`;
+            // Build user message with optional manifest header
+            const headerSection = manifestHeader ? `## Manifest Info\n${manifestHeader}\n\n` : '';
+            const userMessage = `${headerSection}## Recent Chat\n${chatContext}\n\n## Available Lore Entries\n${manifest}\n\nSelect the relevant entries as a JSON array.`;
 
             const result = await callProxy(
                 proxyUrl,
@@ -409,14 +469,14 @@ async function init(router) {
                 maxTokens || 1024,
             );
 
-            const titles = extractJsonArray(result.text);
+            const aiResults = extractAiResponse(result.text);
 
-            if (titles === null) {
+            if (aiResults === null) {
                 console.warn('[DeepLore Enhanced] AI search returned non-JSON response:', result.text.substring(0, 200));
                 return res.json({ ok: false, error: 'AI returned invalid response format', usage: result.usage });
             }
 
-            return res.json({ ok: true, titles, usage: result.usage });
+            return res.json({ ok: true, results: aiResults, usage: result.usage });
         } catch (err) {
             console.error('[DeepLore Enhanced] AI search error:', err.message);
             return res.json({ ok: false, error: err.message });

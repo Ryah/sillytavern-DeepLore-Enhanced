@@ -131,6 +131,7 @@ const settingsConstraints = {
     aiSearchTimeout: { min: 1000, max: 30000 },
     aiSearchPriorityOffset: { min: 0, max: 1000 },
     aiSearchScanDepth: { min: 1, max: 100 },
+    aiSearchManifestSummaryLength: { min: 100, max: 800 },
     scribeInterval: { min: 1, max: 50 },
 };
 
@@ -385,6 +386,161 @@ test('validateSettings: clamps scribe interval', () => {
     const settings = { scribeInterval: 100 };
     validateSettings(settings);
     assertEqual(settings.scribeInterval, 50, 'should clamp scribe interval to max');
+});
+
+test('validateSettings: clamps manifest summary length', () => {
+    const settings = { aiSearchManifestSummaryLength: 1000 };
+    validateSettings(settings);
+    assertEqual(settings.aiSearchManifestSummaryLength, 800, 'should clamp summary length to max');
+});
+
+// ============================================================================
+// extractWikiLinks (from index.js)
+// ============================================================================
+
+function extractWikiLinks(body) {
+    const links = new Set();
+    const regex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+    let match;
+    while ((match = regex.exec(body)) !== null) {
+        if (match.index > 0 && body[match.index - 1] === '!') continue;
+        links.add(match[1].trim());
+    }
+    return [...links];
+}
+
+test('extractWikiLinks: basic links', () => {
+    const links = extractWikiLinks('See [[Eris]] and [[Dark Council]].');
+    assertEqual(links.length, 2, 'should find two links');
+    assert(links.includes('Eris'), 'should include Eris');
+    assert(links.includes('Dark Council'), 'should include Dark Council');
+});
+
+test('extractWikiLinks: aliased links', () => {
+    const links = extractWikiLinks('She joined [[Dark Council|the council]] recently.');
+    assertEqual(links.length, 1, 'should find one link');
+    assertEqual(links[0], 'Dark Council', 'should extract target, not display text');
+});
+
+test('extractWikiLinks: ignores image embeds', () => {
+    const links = extractWikiLinks('![[portrait.png]] and [[Eris]] and ![[map.jpg]]');
+    assertEqual(links.length, 1, 'should skip image embeds');
+    assertEqual(links[0], 'Eris', 'should only include non-image link');
+});
+
+test('extractWikiLinks: deduplicates', () => {
+    const links = extractWikiLinks('[[Eris]] met [[Eris]] at the [[Temple]].');
+    assertEqual(links.length, 2, 'should deduplicate Eris');
+    assert(links.includes('Eris'), 'should include Eris once');
+    assert(links.includes('Temple'), 'should include Temple');
+});
+
+test('extractWikiLinks: empty body', () => {
+    assertEqual(extractWikiLinks('No links here.').length, 0, 'should return empty for no links');
+    assertEqual(extractWikiLinks('').length, 0, 'should handle empty string');
+});
+
+test('extractWikiLinks: trims whitespace in link targets', () => {
+    const links = extractWikiLinks('See [[ Eris ]] here.');
+    assertEqual(links[0], 'Eris', 'should trim whitespace from link target');
+});
+
+// ============================================================================
+// normalizeResults (from server/index.js)
+// ============================================================================
+
+function normalizeResults(arr) {
+    return arr.map(item => {
+        if (typeof item === 'string') {
+            return { title: item, confidence: 'medium', reason: 'AI search' };
+        }
+        if (typeof item === 'object' && item !== null && typeof item.title === 'string') {
+            return {
+                title: item.title,
+                confidence: ['high', 'medium', 'low'].includes(item.confidence) ? item.confidence : 'medium',
+                reason: typeof item.reason === 'string' ? item.reason : 'AI search',
+            };
+        }
+        return { title: String(item), confidence: 'medium', reason: 'AI search' };
+    });
+}
+
+test('normalizeResults: legacy flat array', () => {
+    const results = normalizeResults(['Eris', 'Dark Council']);
+    assertEqual(results.length, 2, 'should handle two items');
+    assertEqual(results[0].title, 'Eris', 'should preserve title');
+    assertEqual(results[0].confidence, 'medium', 'should default to medium');
+    assertEqual(results[0].reason, 'AI search', 'should default reason');
+});
+
+test('normalizeResults: structured format', () => {
+    const results = normalizeResults([
+        { title: 'Eris', confidence: 'high', reason: 'directly mentioned' },
+        { title: 'Temple', confidence: 'low', reason: 'thematic match' },
+    ]);
+    assertEqual(results[0].confidence, 'high', 'should preserve high confidence');
+    assertEqual(results[0].reason, 'directly mentioned', 'should preserve reason');
+    assertEqual(results[1].confidence, 'low', 'should preserve low confidence');
+});
+
+test('normalizeResults: mixed/malformed objects', () => {
+    const results = normalizeResults([
+        { title: 'Eris' },
+        { title: 'Temple', confidence: 'invalid', reason: 42 },
+        'Plain Title',
+    ]);
+    assertEqual(results[0].confidence, 'medium', 'should default missing confidence');
+    assertEqual(results[0].reason, 'AI search', 'should default missing reason');
+    assertEqual(results[1].confidence, 'medium', 'should default invalid confidence');
+    assertEqual(results[1].reason, 'AI search', 'should default non-string reason');
+    assertEqual(results[2].title, 'Plain Title', 'should handle string items');
+});
+
+test('normalizeResults: empty array', () => {
+    assertEqual(normalizeResults([]).length, 0, 'should handle empty array');
+});
+
+// ============================================================================
+// buildAiChatContext (from index.js)
+// ============================================================================
+
+function buildAiChatContext(chat, depth) {
+    const recentMessages = chat.slice(-Math.min(depth, chat.length));
+    return recentMessages
+        .map(m => {
+            const speaker = m.name || 'Unknown';
+            const role = m.is_user ? '(user)' : '(character)';
+            return `${speaker} ${role}: ${m.mes || ''}`;
+        })
+        .join('\n');
+}
+
+test('buildAiChatContext: annotates roles', () => {
+    const chat = [
+        { name: 'Alice', is_user: true, mes: 'Hello' },
+        { name: 'Bob', is_user: false, mes: 'Hi there' },
+    ];
+    const result = buildAiChatContext(chat, 10);
+    assert(result.includes('Alice (user): Hello'), 'should mark Alice as user');
+    assert(result.includes('Bob (character): Hi there'), 'should mark Bob as character');
+});
+
+test('buildAiChatContext: respects depth', () => {
+    const chat = [
+        { name: 'A', is_user: true, mes: 'msg1' },
+        { name: 'B', is_user: false, mes: 'msg2' },
+        { name: 'C', is_user: true, mes: 'msg3' },
+    ];
+    const result = buildAiChatContext(chat, 2);
+    assert(!result.includes('msg1'), 'should exclude messages beyond depth');
+    assert(result.includes('msg2'), 'should include recent messages');
+    assert(result.includes('msg3'), 'should include most recent message');
+});
+
+test('buildAiChatContext: handles missing name', () => {
+    const chat = [{ is_user: false, mes: 'Hello' }];
+    const result = buildAiChatContext(chat, 10);
+    assert(result.includes('Unknown (character)'), 'should use Unknown for missing name');
 });
 
 // ============================================================================

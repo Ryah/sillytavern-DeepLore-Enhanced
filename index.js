@@ -27,7 +27,26 @@ const MODULE_NAME = 'deeplore_enhanced';
 const PROMPT_TAG = 'deeplore_enhanced';
 const PLUGIN_BASE = '/api/plugins/deeplore-enhanced';
 
-const DEFAULT_AI_SYSTEM_PROMPT = 'You are Claude Code. You are a lore librarian. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation. Consider:\n- Direct references to characters, places, items, or events\n- Thematic relevance (e.g., a conversation about betrayal should surface entries about known traitors)\n- Implied context (e.g., if characters are in a location, surface entries about that location\'s history)\n\nRespond ONLY with a JSON array of entry titles. No explanation. Example: ["Entry One", "Entry Two"]\nIf no entries are relevant, respond with: []';
+const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation.
+
+Selection criteria (in order of importance):
+1. Direct references - Characters, places, items, or events explicitly mentioned
+2. Active context - Entries about the current location, present characters, or ongoing events
+3. Relationship chains - If entry A is relevant and links to entry B, consider B as well
+4. Thematic relevance - Entries that match the tone or themes of the conversation (betrayal, romance, combat, etc.)
+
+Guidelines:
+- Prefer fewer, highly relevant entries over many loosely related ones
+- Consider the token cost shown for each entry when making selections
+- Entries marked "Links to:" indicate relationships; use these to find connected lore
+
+Respond with a JSON array of objects. Each object has:
+- "title": exact entry title from the manifest
+- "confidence": "high", "medium", or "low"
+- "reason": brief phrase explaining why (e.g. "directly mentioned", "location of current scene", "linked from Eris entry")
+
+Example: [{"title": "Eris", "confidence": "high", "reason": "directly mentioned by name"}, {"title": "The Dark Council", "confidence": "medium", "reason": "linked from Eris, thematically relevant"}]
+If no entries are relevant, respond with: []`;
 
 // ============================================================================
 // Settings
@@ -66,6 +85,7 @@ const defaultSettings = {
     aiSearchPriorityOffset: 50,
     aiSearchScanDepth: 4,
     aiSearchSystemPrompt: '',
+    aiSearchManifestSummaryLength: 400,
     // Context Cartographer settings
     showLoreSources: true,
     obsidianVaultName: '',
@@ -90,6 +110,7 @@ const settingsConstraints = {
     aiSearchTimeout: { min: 1000, max: 30000 },
     aiSearchPriorityOffset: { min: 0, max: 1000 },
     aiSearchScanDepth: { min: 1, max: 100 },
+    aiSearchManifestSummaryLength: { min: 100, max: 800 },
     scribeInterval: { min: 1, max: 50 },
 };
 
@@ -139,6 +160,9 @@ function getSettings() {
  * @property {number} tokenEstimate - Rough token count estimate
  * @property {number|null} scanDepth - Per-entry scan depth override (null = use global)
  * @property {boolean} excludeRecursion - Don't scan this entry's content during recursion
+ * @property {string[]} links - Wiki-link targets extracted before cleaning
+ * @property {string[]} resolvedLinks - Links confirmed to match existing entry titles
+ * @property {string[]} tags - All Obsidian tags (excluding the lorebook marker tag)
  */
 
 /** @type {VaultEntry[]} */
@@ -148,6 +172,9 @@ let indexing = false;
 
 /** Cached compact manifest for AI search */
 let cachedManifest = '';
+
+/** Cached manifest header with entry count and budget info */
+let cachedManifestHeader = '';
 
 /** AI search result cache to avoid redundant API calls */
 let aiSearchCache = { hash: '', results: [] };
@@ -222,6 +249,25 @@ function parseFrontmatter(content) {
 }
 
 /**
+ * Extract wiki-link targets from raw markdown body before cleaning.
+ * Handles [[Target]] and [[Target|Display]] forms.
+ * Excludes image embeds (![[...]]).
+ * @param {string} body - Raw markdown body (before cleanContent)
+ * @returns {string[]} Deduplicated array of link target page names
+ */
+function extractWikiLinks(body) {
+    const links = new Set();
+    const regex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+    let match;
+    while ((match = regex.exec(body)) !== null) {
+        // Skip image embeds (prefixed with !)
+        if (match.index > 0 && body[match.index - 1] === '!') continue;
+        links.add(match[1].trim());
+    }
+    return [...links];
+}
+
+/**
  * Clean markdown content for prompt injection.
  * @param {string} content - Raw markdown body (frontmatter already stripped)
  * @returns {string} Cleaned content
@@ -276,16 +322,58 @@ function truncateToSentence(text, maxLen) {
     return truncated.trimEnd() + '...';
 }
 
+/**
+ * Resolve raw wiki-link targets to confirmed entry titles in the vault index.
+ * Must be called after vaultIndex is fully populated.
+ */
+function resolveLinks() {
+    const titleMap = new Map(vaultIndex.map(e => [e.title.toLowerCase(), e.title]));
+    for (const entry of vaultIndex) {
+        entry.resolvedLinks = entry.links
+            .map(l => titleMap.get(l.toLowerCase()))
+            .filter(Boolean);
+    }
+}
+
 function buildManifest() {
-    cachedManifest = vaultIndex
+    const settings = getSettings();
+    const summaryLen = settings.aiSearchManifestSummaryLength || 400;
+
+    const entries = vaultIndex
         .filter(e => !e.constant) // Constants are always injected, no need for AI to pick them
         .map(entry => {
             const flat = entry.content.replace(/\n+/g, ' ').trim();
-            const summary = truncateToSentence(flat, 200);
-            const keysStr = entry.keys.length > 0 ? `\nKeys: ${entry.keys.join(', ')}` : '';
-            return `Title: ${entry.title}${keysStr}\nSummary: ${summary}`;
+            const summary = truncateToSentence(flat, summaryLen);
+            const parts = [`Title: ${entry.title}`];
+
+            if (entry.keys.length > 0) {
+                parts.push(`Keys: ${entry.keys.join(', ')}`);
+            }
+            if (entry.tags && entry.tags.length > 0) {
+                parts.push(`Tags: ${entry.tags.join(', ')}`);
+            }
+            if (entry.resolvedLinks && entry.resolvedLinks.length > 0) {
+                parts.push(`Links to: ${entry.resolvedLinks.join(', ')}`);
+            }
+            parts.push(`Tokens: ~${entry.tokenEstimate}`);
+            parts.push(`Summary: ${summary}`);
+
+            return parts.join('\n');
         })
         .join('\n---\n');
+
+    cachedManifest = entries;
+
+    // Build header with metadata the AI can use for context
+    const constantCount = vaultIndex.filter(e => e.constant).length;
+    const constantTokens = vaultIndex.filter(e => e.constant).reduce((s, e) => s + e.tokenEstimate, 0);
+    const budgetInfo = settings.unlimitedBudget
+        ? ''
+        : `\nToken budget: ~${settings.maxTokensBudget} tokens total.`;
+
+    cachedManifestHeader = `Entry count: ${vaultIndex.filter(e => !e.constant).length} selectable entries.`
+        + (constantCount > 0 ? `\n${constantCount} entries are always included (~${constantTokens} tokens).` : '')
+        + budgetInfo;
 
     // Invalidate AI search cache when manifest changes
     aiSearchCache = { hash: '', results: [] };
@@ -357,11 +445,15 @@ async function buildIndex() {
                 : [];
 
             const title = extractTitle(body, file.filename);
+            const links = extractWikiLinks(body);
             const content = cleanContent(body);
             const priority = typeof frontmatter.priority === 'number' ? frontmatter.priority : 100;
             const constant = frontmatter.constant === true || (constantTagToMatch && tags.includes(constantTagToMatch));
             const scanDepth = typeof frontmatter.scanDepth === 'number' ? frontmatter.scanDepth : null;
             const excludeRecursion = frontmatter.excludeRecursion === true;
+
+            // Preserve all tags except the lorebook marker tag itself
+            const entryTags = tags.filter(t => t !== tagToMatch);
 
             entries.push({
                 filename: file.filename,
@@ -373,6 +465,9 @@ async function buildIndex() {
                 tokenEstimate: 0,
                 scanDepth,
                 excludeRecursion,
+                links,
+                resolvedLinks: [],
+                tags: entryTags,
             });
         }
 
@@ -388,6 +483,9 @@ async function buildIndex() {
 
         vaultIndex = entries;
         indexTimestamp = Date.now();
+
+        // Resolve wiki-links to confirmed entry titles
+        resolveLinks();
 
         // Build manifest for AI search
         buildManifest();
@@ -446,6 +544,24 @@ function buildScanText(chat, depth) {
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
         .map(m => `${m.name || ''}: ${m.mes || ''}`)
+        .join('\n');
+}
+
+/**
+ * Build annotated chat context for AI search.
+ * Marks speakers as (user) or (character) to clarify conversation roles.
+ * @param {object[]} chat - Chat messages array
+ * @param {number} depth - Number of recent messages to scan
+ * @returns {string}
+ */
+function buildAiChatContext(chat, depth) {
+    const recentMessages = chat.slice(-Math.min(depth, chat.length));
+    return recentMessages
+        .map(m => {
+            const speaker = m.name || 'Unknown';
+            const role = m.is_user ? '(user)' : '(character)';
+            return `${speaker} ${role}: ${m.mes || ''}`;
+        })
         .join('\n');
 }
 
@@ -566,9 +682,16 @@ function simpleHash(text) {
 }
 
 /**
+ * @typedef {object} AiSearchMatch
+ * @property {VaultEntry} entry
+ * @property {string} confidence - "high", "medium", or "low"
+ * @property {string} reason - Brief explanation
+ */
+
+/**
  * Perform AI-powered semantic search using Claude Haiku via the proxy.
  * @param {object[]} chat - Chat messages array
- * @returns {Promise<VaultEntry[]>} Matched entries from AI search
+ * @returns {Promise<AiSearchMatch[]>} Matched entries with confidence and reason
  */
 async function aiSearch(chat) {
     const settings = getSettings();
@@ -577,7 +700,7 @@ async function aiSearch(chat) {
         return [];
     }
 
-    const chatContext = buildScanText(chat, settings.aiSearchScanDepth);
+    const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
     if (!chatContext.trim()) return [];
 
     // Check cache - skip API call if chat context hasn't changed
@@ -600,6 +723,7 @@ async function aiSearch(chat) {
             headers: getRequestHeaders(),
             body: JSON.stringify({
                 manifest: cachedManifest,
+                manifestHeader: cachedManifestHeader,
                 chatContext: chatContext,
                 proxyUrl: settings.aiSearchProxyUrl,
                 model: settings.aiSearchModel,
@@ -626,22 +750,49 @@ async function aiSearch(chat) {
         }
         updateAiStats();
 
-        if (!data.ok || !Array.isArray(data.titles)) {
+        // Handle new structured format (data.results) with backward compat (data.titles)
+        let aiResults;
+        if (data.ok && Array.isArray(data.results)) {
+            aiResults = data.results;
+        } else if (data.ok && Array.isArray(data.titles)) {
+            // Legacy server response — normalize to structured format
+            aiResults = data.titles.map(t => ({ title: t, confidence: 'medium', reason: 'AI search' }));
+        } else {
             if (settings.debugMode) {
                 console.warn('[DLE] AI search returned error:', data.error || 'unknown');
             }
             return [];
         }
 
-        // Map returned titles back to VaultEntry objects
-        const titleSet = new Set(data.titles.map(t => t.toLowerCase()));
-        const results = vaultIndex.filter(e => titleSet.has(e.title.toLowerCase()));
+        // Map returned results back to VaultEntry objects with confidence/reason
+        const aiResultMap = new Map();
+        for (const r of aiResults) {
+            aiResultMap.set(r.title.toLowerCase(), r);
+        }
+
+        /** @type {AiSearchMatch[]} */
+        const results = [];
+        for (const entry of vaultIndex) {
+            const aiResult = aiResultMap.get(entry.title.toLowerCase());
+            if (aiResult) {
+                results.push({
+                    entry,
+                    confidence: aiResult.confidence || 'medium',
+                    reason: aiResult.reason || 'AI search',
+                });
+            }
+        }
 
         // Cache the results
         aiSearchCache = { hash: cacheKey, results };
 
         if (settings.debugMode) {
-            console.log(`[DLE] AI search found ${data.titles.length} titles, matched ${results.length} entries`);
+            console.log(`[DLE] AI search found ${aiResults.length} titles, matched ${results.length} entries`);
+            console.table(results.map(r => ({
+                title: r.entry.title,
+                confidence: r.confidence,
+                reason: r.reason,
+            })));
         }
 
         return results;
@@ -657,27 +808,45 @@ async function aiSearch(chat) {
 
 /**
  * Merge keyword matching results with AI search results.
+ * Uses confidence levels to adjust AI entry priority offsets:
+ * - high: offset × 0 (treated same as keyword matches)
+ * - medium: offset × 1 (default behavior)
+ * - low: offset × 2 (pushed further down)
  * @param {{ matched: VaultEntry[], matchedKeys: Map<string, string> }} keywordResult
- * @param {VaultEntry[]} aiEntries
+ * @param {AiSearchMatch[]} aiResults
  * @param {typeof defaultSettings} settings
  * @returns {{ merged: VaultEntry[], matchedKeys: Map<string, string> }}
  */
-function mergeResults(keywordResult, aiEntries, settings) {
+function mergeResults(keywordResult, aiResults, settings) {
     const { matched: keywordMatched, matchedKeys } = keywordResult;
     const keywordTitles = new Set(keywordMatched.map(e => e.title));
 
-    // AI-only entries (not already found by keyword matching)
-    const aiOnly = aiEntries.filter(e => !keywordTitles.has(e.title));
+    // AI-only results (not already found by keyword matching)
+    const aiOnly = aiResults.filter(r => !keywordTitles.has(r.entry.title));
 
-    // Tag AI-only entries in matchedKeys for debug logging
-    for (const entry of aiOnly) {
-        matchedKeys.set(entry.title, '(AI search)');
+    // Tag AI-only entries in matchedKeys with their reason and confidence
+    for (const r of aiOnly) {
+        matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
     }
+
+    // For entries found by BOTH keywords and AI, enrich the matchedKeys info
+    for (const r of aiResults) {
+        if (keywordTitles.has(r.entry.title)) {
+            const existing = matchedKeys.get(r.entry.title);
+            matchedKeys.set(r.entry.title, `${existing} + AI: ${r.reason}`);
+        }
+    }
+
+    // Confidence-based priority offset: high=0×, medium=1×, low=2×
+    const confidenceMultiplier = { high: 0, medium: 1, low: 2 };
 
     // Build combined array with effective priority
     const combined = [
         ...keywordMatched.map(e => ({ entry: e, effectivePriority: e.priority })),
-        ...aiOnly.map(e => ({ entry: e, effectivePriority: e.priority + settings.aiSearchPriorityOffset })),
+        ...aiOnly.map(r => ({
+            entry: r.entry,
+            effectivePriority: r.entry.priority + settings.aiSearchPriorityOffset * (confidenceMultiplier[r.confidence] ?? 1),
+        })),
     ];
 
     // Sort by effective priority (ascending - lower = higher priority)
@@ -880,7 +1049,7 @@ function showSourcesPopup(sources) {
 
         rows += `<tr>
             <td style="padding: 4px 8px;">${titleHtml}</td>
-            <td style="padding: 4px 8px;">${escapeHtml(src.matchedBy)}</td>
+            <td style="padding: 4px 8px; max-width: 280px; word-wrap: break-word;">${escapeHtml(src.matchedBy)}</td>
             <td style="padding: 4px 8px; text-align: center;">${src.priority}</td>
             <td style="padding: 4px 8px; text-align: right;">~${src.tokens}</td>
         </tr>`;
@@ -1046,6 +1215,7 @@ function loadSettingsUI() {
     $('#dle_ai_priority_offset').val(settings.aiSearchPriorityOffset);
     $('#dle_ai_scan_depth').val(settings.aiSearchScanDepth);
     $('#dle_ai_system_prompt').val(settings.aiSearchSystemPrompt);
+    $('#dle_ai_summary_length').val(settings.aiSearchManifestSummaryLength);
 
     // Context Cartographer settings
     $('#dle_show_sources').prop('checked', settings.showLoreSources);
@@ -1223,6 +1393,11 @@ function bindSettingsEvents() {
         saveSettingsDebounced();
     });
 
+    $('#dle_ai_summary_length').on('input', function () {
+        settings.aiSearchManifestSummaryLength = Number($(this).val()) || 400;
+        saveSettingsDebounced();
+    });
+
     // Context Cartographer settings
     $('#dle_show_sources').on('change', function () {
         settings.showLoreSources = $(this).prop('checked');
@@ -1325,7 +1500,7 @@ function bindSettingsEvents() {
         }
 
         // Build chat context (same as aiSearch)
-        const chatContext = buildScanText(chat, settings.aiSearchScanDepth);
+        const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
 
         // Resolve system prompt (same logic as server)
         let systemPrompt;

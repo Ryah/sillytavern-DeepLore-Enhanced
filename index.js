@@ -99,7 +99,7 @@ const defaultSettings = {
 /** Validation constraints for numeric settings */
 const settingsConstraints = {
     obsidianPort: { min: 1, max: 65535 },
-    scanDepth: { min: 1, max: 100 },
+    scanDepth: { min: 0, max: 100 },
     maxEntries: { min: 1, max: 100 },
     maxTokensBudget: { min: 100, max: 100000 },
     injectionDepth: { min: 0, max: 9999 },

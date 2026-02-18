@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9-ALPHA
+## 0.81-ALPHA
 
 ### AI Search Pipeline Overhaul
 - **Richer manifest entries** -- Each entry now includes tags, wiki-link cross-references ("Links to:"), token cost, and longer summaries (400 chars, configurable up to 800). Gives the AI dramatically more context per entry.
@@ -12,12 +12,13 @@
 - **Manifest header** -- AI receives entry count and budget context alongside the manifest.
 - **Configurable summary length** -- New "Manifest Summary Length" setting (100-800 chars) in AI Search section.
 - **Backward compatible** -- Legacy flat array responses still work. Old server responses with `titles` field handled gracefully alongside new `results` field.
+- **AI-only mode** -- Keyword scan depth can now be set to 0 to disable keyword matching entirely, running only AI search (plus constants). The two scan depths are fully independent.
 
 ### Internal
 - New functions: `extractWikiLinks()`, `resolveLinks()`, `buildAiChatContext()`
 - VaultEntry now carries `links`, `resolvedLinks`, and `tags` fields
 - Server: `extractJsonArray` replaced with `extractAiResponse` + `normalizeResults` supporting both formats
-- Bumped version to 0.9-ALPHA
+- Bumped version to 0.81-ALPHA
 
 ## 0.8-ALPHA
 

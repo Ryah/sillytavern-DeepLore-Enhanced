@@ -72,11 +72,11 @@
                     </div>
                 </div>
                 <div class="flex-container">
-                    <div class="flex1" title="Number of recent chat messages to scan for keyword matches. Higher values scan more conversation history but may match more entries. Default: 4">
+                    <div class="flex1" title="Number of recent chat messages to scan for keyword matches. Set to 0 to disable keyword matching entirely (AI search only mode). Default: 4">
                         <label for="dle_scan_depth">
-                            <small>Scan Depth</small>
+                            <small>Scan Depth (0 = keywords off)</small>
                         </label>
-                        <input id="dle_scan_depth" type="number" class="text_pole" min="1" max="100" />
+                        <input id="dle_scan_depth" type="number" class="text_pole" min="0" max="100" />
                     </div>
                 </div>
                 <div class="flex-container">

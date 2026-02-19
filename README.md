@@ -16,6 +16,11 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 - **Configurable system prompt** -- Customize how the AI evaluates relevance for your specific world.
 - **Session usage tracking** -- See how many AI calls, cache hits, and estimated tokens used in the settings panel.
 - **Graceful degradation** -- If the proxy is down or slow, generation proceeds with keyword-only results. AI search has a configurable timeout and never blocks your chat.
+- **Context Cartographer** -- Click the book icon on any AI message to see which vault entries were injected, why they matched, their priority, and token cost. With an Obsidian vault name configured, entries link directly into Obsidian.
+- **Session Scribe** -- Automatically summarizes roleplay sessions and writes them to your Obsidian vault as timestamped markdown notes. Triggers after every N AI messages or on demand via `/dle-scribe`.
+- **Conditional Gating** -- Entries can declare dependencies (`requires`) and blockers (`excludes`) on other entries. Cascading dependencies resolve automatically.
+- **Per-Entry Injection Position** -- Override the global injection position, depth, and role on a per-entry basis via frontmatter. Entries are grouped and injected separately.
+- **Vault Change Detection** -- Detects added, removed, and modified entries when the index rebuilds. Optional toast notifications and configurable auto-sync polling.
 
 ## Prerequisites
 
@@ -134,6 +139,11 @@ and gods alike.
 | `enabled` | boolean | `true` | Set to `false` to skip this note |
 | `scanDepth` | number | (global) | Override the global scan depth for this entry |
 | `excludeRecursion` | boolean | `false` | Don't scan this entry's content during recursive matching |
+| `requires` | array | `[]` | Entry titles that must ALL be matched for this entry to activate |
+| `excludes` | array | `[]` | Entry titles that, if ANY are matched, block this entry |
+| `position` | string | (global) | Injection position override: `before`, `after`, or `in_chat` |
+| `depth` | number | (global) | Injection depth override (for `in_chat` position) |
+| `role` | string | (global) | Message role override: `system`, `user`, or `assistant` |
 
 ### Special Tags
 
@@ -150,6 +160,60 @@ and gods alike.
 5. The merged set goes through the existing budget/template system and gets injected into the prompt.
 6. **Caching:** The chat context is hashed. If it hasn't changed (regenerations, swipes), cached AI results are reused without another API call.
 
+### Conditional Gating Example
+
+```markdown
+---
+tags:
+  - lorebook
+keys:
+  - secret ritual
+requires:
+  - Eris
+  - Dark Council
+excludes:
+  - Draft Notes
+---
+
+# The Forbidden Ritual
+
+This entry only injects when both "Eris" and "Dark Council" entries are also
+matched, and is blocked if "Draft Notes" is matched. Cascading works: if Eris
+gets removed by its own gating rules, this entry is removed too.
+```
+
+### Per-Entry Injection Position Example
+
+```markdown
+---
+tags:
+  - lorebook
+keys:
+  - world setting
+position: before
+---
+
+# World Setting
+
+This entry injects before the system prompt instead of the global default.
+```
+
+```markdown
+---
+tags:
+  - lorebook
+keys:
+  - dialogue hint
+position: in_chat
+depth: 1
+role: user
+---
+
+# Dialogue Style
+
+This entry injects as a user message at depth 1 in the chat history.
+```
+
 ## Slash Commands
 
 | Command | Description |
@@ -157,6 +221,7 @@ and gods alike.
 | `/dle-refresh` | Force rebuild the vault index cache |
 | `/dle-status` | Show connection info, entry counts, AI search stats, and cache status |
 | `/dle-review [question]` | Send all entries to the AI for review. Optionally provide a custom question. |
+| `/dle-scribe [topic]` | Write a session summary on demand. Optionally provide a focus topic. |
 
 ## Settings Reference
 
@@ -190,13 +255,24 @@ and gods alike.
 
 ### Injection
 - **Injection Template** -- Format string with `{{title}}` and `{{content}}` macros
-- **Injection Position** -- Where in the prompt to insert lore (before/after system prompt, or in-chat at depth)
+- **Injection Position** -- Where in the prompt to insert lore (before/after system prompt, or in-chat at depth). Entries can override via frontmatter.
+- **Injection Depth** -- Chat depth for in-chat injection. Entries can override via frontmatter.
+- **Injection Role** -- Message role (system/user/assistant). Entries can override via frontmatter.
 - **Allow World Info Scan** -- Let ST's World Info system scan injected lore
+- **Show Lore Sources Button** -- Add a book icon to AI messages showing which entries were injected (Context Cartographer)
+
+### Session Scribe
+- **Enable Session Scribe** -- Auto-summarize sessions to your Obsidian vault
+- **Auto-Scribe Interval** -- Number of AI messages between automatic summaries (default: 5)
+- **Session Folder** -- Vault folder for session summaries (default: `Sessions`)
+- **Custom Summary Prompt** -- Override the default session summary prompt
 
 ### Index & Debug
 - **Cache TTL** -- How long (seconds) to cache the vault index before re-fetching (default: 300)
 - **Review Response Tokens** -- Token limit for `/dle-review` responses (0 = auto)
-- **Debug Mode** -- Log match details to browser console (F12). Shows keyword matches, AI search results, merge info, token counts.
+- **Auto-Sync Interval** -- Seconds between automatic vault re-checks (0 = disabled). Detects changes without manual refresh.
+- **Show Sync Change Toasts** -- Show toast notifications when vault changes are detected
+- **Debug Mode** -- Log match details to browser console (F12). Shows keyword matches, AI search results, gating, merge info, token counts.
 
 ## License
 

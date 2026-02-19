@@ -582,6 +582,362 @@ test('buildAiChatContext: depth 0 returns empty string', () => {
 });
 
 // ============================================================================
+// applyGating (Feature 5: Conditional Gating)
+// ============================================================================
+
+function applyGating(entries) {
+    let result = [...entries];
+    let changed = true;
+    let iterations = 0;
+    const MAX_ITERATIONS = 10;
+
+    while (changed && iterations < MAX_ITERATIONS) {
+        changed = false;
+        iterations++;
+        const activeTitles = new Set(result.map(e => e.title.toLowerCase()));
+
+        result = result.filter(entry => {
+            if (entry.requires.length > 0) {
+                const allPresent = entry.requires.every(r => activeTitles.has(r.toLowerCase()));
+                if (!allPresent) {
+                    changed = true;
+                    return false;
+                }
+            }
+            if (entry.excludes.length > 0) {
+                const anyPresent = entry.excludes.some(r => activeTitles.has(r.toLowerCase()));
+                if (anyPresent) {
+                    changed = true;
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
+
+    return result;
+}
+
+function makeEntry(title, opts = {}) {
+    return {
+        title,
+        requires: opts.requires || [],
+        excludes: opts.excludes || [],
+        constant: opts.constant || false,
+        keys: opts.keys || [],
+        content: opts.content || '',
+        priority: opts.priority || 100,
+        tokenEstimate: opts.tokenEstimate || 50,
+        injectionPosition: opts.injectionPosition ?? null,
+        injectionDepth: opts.injectionDepth ?? null,
+        injectionRole: opts.injectionRole ?? null,
+    };
+}
+
+test('applyGating: all requires present passes', () => {
+    const entries = [
+        makeEntry('Eris'),
+        makeEntry('Dark Council'),
+        makeEntry('Secret', { requires: ['Eris', 'Dark Council'] }),
+    ];
+    const result = applyGating(entries);
+    assertEqual(result.length, 3, 'all three should pass');
+});
+
+test('applyGating: missing requires removes entry', () => {
+    const entries = [
+        makeEntry('Eris'),
+        makeEntry('Secret', { requires: ['Eris', 'Dark Council'] }),
+    ];
+    const result = applyGating(entries);
+    assertEqual(result.length, 1, 'Secret should be removed (Dark Council missing)');
+    assertEqual(result[0].title, 'Eris', 'Eris should remain');
+});
+
+test('applyGating: excludes blocks entry', () => {
+    const entries = [
+        makeEntry('Eris'),
+        makeEntry('Draft Notes'),
+        makeEntry('Secret', { excludes: ['Draft Notes'] }),
+    ];
+    const result = applyGating(entries);
+    assertEqual(result.length, 2, 'Secret should be excluded');
+    assert(!result.find(e => e.title === 'Secret'), 'Secret should not be in results');
+});
+
+test('applyGating: cascading removal', () => {
+    // A requires B, B requires C. Only A and B present -> B removed -> A removed
+    const entries = [
+        makeEntry('A', { requires: ['B'] }),
+        makeEntry('B', { requires: ['C'] }),
+    ];
+    const result = applyGating(entries);
+    assertEqual(result.length, 0, 'both should be removed by cascading');
+});
+
+test('applyGating: empty requires/excludes passes', () => {
+    const entries = [
+        makeEntry('Eris'),
+        makeEntry('Plain Entry'),
+    ];
+    const result = applyGating(entries);
+    assertEqual(result.length, 2, 'entries without gating rules should pass');
+});
+
+test('applyGating: case insensitive title matching', () => {
+    const entries = [
+        makeEntry('Eris'),
+        makeEntry('Secret', { requires: ['eris'] }),
+    ];
+    const result = applyGating(entries);
+    assertEqual(result.length, 2, 'should match case-insensitively');
+});
+
+test('applyGating: constants still subject to gating', () => {
+    const entries = [
+        makeEntry('Draft Notes'),
+        makeEntry('Always Entry', { constant: true, excludes: ['Draft Notes'] }),
+    ];
+    const result = applyGating(entries);
+    assertEqual(result.length, 1, 'constant entry should still be gated');
+    assertEqual(result[0].title, 'Draft Notes', 'Draft Notes should remain');
+});
+
+// ============================================================================
+// formatAndGroup (Feature 6: Per-Entry Injection Position)
+// ============================================================================
+
+const PROMPT_TAG_PREFIX_TEST = 'deeplore_';
+
+function formatAndGroupTest(entries, settings) {
+    const template = settings.injectionTemplate || '<{{title}}>\n{{content}}\n</{{title}}>';
+    let totalTokens = 0;
+    let count = 0;
+    const accepted = [];
+
+    for (const entry of entries) {
+        if (!settings.unlimitedEntries && count >= settings.maxEntries) break;
+        if (!settings.unlimitedBudget && totalTokens + entry.tokenEstimate > settings.maxTokensBudget && count > 0) break;
+
+        accepted.push({
+            entry,
+            position: entry.injectionPosition ?? settings.injectionPosition,
+            depth: entry.injectionDepth ?? settings.injectionDepth,
+            role: entry.injectionRole ?? settings.injectionRole,
+        });
+        totalTokens += entry.tokenEstimate;
+        count++;
+    }
+
+    const groupMap = new Map();
+    for (const item of accepted) {
+        const key = `${PROMPT_TAG_PREFIX_TEST}p${item.position}_d${item.depth}_r${item.role}`;
+        if (!groupMap.has(key)) {
+            groupMap.set(key, { tag: key, position: item.position, depth: item.depth, role: item.role, texts: [] });
+        }
+        const text = template
+            .replace(/\{\{title\}\}/g, item.entry.title)
+            .replace(/\{\{content\}\}/g, item.entry.content);
+        groupMap.get(key).texts.push(text);
+    }
+
+    const groups = [...groupMap.values()].map(g => ({
+        tag: g.tag, text: g.texts.join('\n\n'), position: g.position, depth: g.depth, role: g.role,
+    }));
+
+    return { groups, count, totalTokens };
+}
+
+const defaultTestSettings = {
+    injectionPosition: 1,
+    injectionDepth: 4,
+    injectionRole: 0,
+    injectionTemplate: '<{{title}}>\n{{content}}\n</{{title}}>',
+    unlimitedEntries: true,
+    unlimitedBudget: true,
+    maxEntries: 10,
+    maxTokensBudget: 2048,
+};
+
+test('formatAndGroup: single group when no overrides', () => {
+    const entries = [
+        makeEntry('Eris', { content: 'A goddess' }),
+        makeEntry('Temple', { content: 'A sacred place' }),
+    ];
+    const result = formatAndGroupTest(entries, defaultTestSettings);
+    assertEqual(result.groups.length, 1, 'should produce one group');
+    assertEqual(result.groups[0].tag, 'deeplore_p1_d4_r0', 'should use global settings in tag');
+    assertEqual(result.count, 2, 'should count 2 entries');
+});
+
+test('formatAndGroup: multiple groups with different positions', () => {
+    const entries = [
+        makeEntry('World Lore', { content: 'Background', injectionPosition: 2 }),
+        makeEntry('Eris', { content: 'A goddess' }),
+        makeEntry('Dialogue Hint', { content: 'Speak softly', injectionPosition: 1, injectionDepth: 0, injectionRole: 1 }),
+    ];
+    const result = formatAndGroupTest(entries, defaultTestSettings);
+    assertEqual(result.groups.length, 3, 'should produce three groups');
+    assert(result.groups.some(g => g.tag === 'deeplore_p2_d4_r0'), 'should have before_prompt group');
+    assert(result.groups.some(g => g.tag === 'deeplore_p1_d4_r0'), 'should have default in_chat group');
+    assert(result.groups.some(g => g.tag === 'deeplore_p1_d0_r1'), 'should have custom in_chat group');
+});
+
+test('formatAndGroup: budget applied globally across groups', () => {
+    const entries = [
+        makeEntry('A', { content: 'Content A', tokenEstimate: 500, injectionPosition: 2 }),
+        makeEntry('B', { content: 'Content B', tokenEstimate: 500 }),
+        makeEntry('C', { content: 'Content C', tokenEstimate: 500 }),
+    ];
+    const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 1200 };
+    const result = formatAndGroupTest(entries, settings);
+    assertEqual(result.count, 2, 'should only accept 2 entries within budget');
+    assertEqual(result.totalTokens, 1000, 'total should be 1000');
+});
+
+test('formatAndGroup: per-entry depth override', () => {
+    const entries = [
+        makeEntry('Near', { content: 'Close to action', injectionDepth: 1 }),
+        makeEntry('Far', { content: 'Background info', injectionDepth: 8 }),
+    ];
+    const result = formatAndGroupTest(entries, defaultTestSettings);
+    assertEqual(result.groups.length, 2, 'should produce two groups at different depths');
+    assert(result.groups.some(g => g.depth === 1), 'should have depth 1 group');
+    assert(result.groups.some(g => g.depth === 8), 'should have depth 8 group');
+});
+
+test('formatAndGroup: fallback to global settings', () => {
+    const entries = [makeEntry('Test', { content: 'Body' })];
+    const result = formatAndGroupTest(entries, defaultTestSettings);
+    assertEqual(result.groups[0].position, 1, 'should use global position');
+    assertEqual(result.groups[0].depth, 4, 'should use global depth');
+    assertEqual(result.groups[0].role, 0, 'should use global role');
+});
+
+// ============================================================================
+// detectChanges (Feature 10: Vault Change Detection)
+// ============================================================================
+
+function detectChanges(oldSnapshot, newSnapshot) {
+    const changes = { added: [], removed: [], modified: [], keysChanged: [], hasChanges: false };
+    if (!oldSnapshot) return changes;
+
+    const oldFiles = new Set(oldSnapshot.contentHashes.keys());
+    const newFiles = new Set(newSnapshot.contentHashes.keys());
+
+    for (const file of newFiles) {
+        if (!oldFiles.has(file)) {
+            changes.added.push(newSnapshot.titleMap.get(file) || file);
+        }
+    }
+    for (const file of oldFiles) {
+        if (!newFiles.has(file)) {
+            changes.removed.push(oldSnapshot.titleMap.get(file) || file);
+        }
+    }
+    for (const file of newFiles) {
+        if (oldFiles.has(file)) {
+            if (oldSnapshot.contentHashes.get(file) !== newSnapshot.contentHashes.get(file)) {
+                changes.modified.push(newSnapshot.titleMap.get(file) || file);
+            }
+            if (oldSnapshot.keyMap.get(file) !== newSnapshot.keyMap.get(file)) {
+                const title = newSnapshot.titleMap.get(file) || file;
+                if (!changes.modified.includes(title)) {
+                    changes.keysChanged.push(title);
+                }
+            }
+        }
+    }
+
+    changes.hasChanges = changes.added.length > 0 || changes.removed.length > 0
+        || changes.modified.length > 0 || changes.keysChanged.length > 0;
+    return changes;
+}
+
+function makeSnapshot(entries) {
+    const snapshot = {
+        contentHashes: new Map(),
+        titleMap: new Map(),
+        keyMap: new Map(),
+        timestamp: Date.now(),
+    };
+    for (const e of entries) {
+        snapshot.contentHashes.set(e.filename, simpleHash(e.content));
+        snapshot.titleMap.set(e.filename, e.title);
+        snapshot.keyMap.set(e.filename, JSON.stringify(e.keys || []));
+    }
+    return snapshot;
+}
+
+test('detectChanges: no previous snapshot returns empty', () => {
+    const newSnap = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'hello', keys: [] }]);
+    const changes = detectChanges(null, newSnap);
+    assertEqual(changes.hasChanges, false, 'should report no changes');
+});
+
+test('detectChanges: detects new entries', () => {
+    const old = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'hello', keys: [] }]);
+    const now = makeSnapshot([
+        { filename: 'a.md', title: 'A', content: 'hello', keys: [] },
+        { filename: 'b.md', title: 'B', content: 'world', keys: [] },
+    ]);
+    const changes = detectChanges(old, now);
+    assertEqual(changes.added, ['B'], 'should detect B as new');
+    assertEqual(changes.hasChanges, true, 'should report changes');
+});
+
+test('detectChanges: detects removed entries', () => {
+    const old = makeSnapshot([
+        { filename: 'a.md', title: 'A', content: 'hello', keys: [] },
+        { filename: 'b.md', title: 'B', content: 'world', keys: [] },
+    ]);
+    const now = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'hello', keys: [] }]);
+    const changes = detectChanges(old, now);
+    assertEqual(changes.removed, ['B'], 'should detect B as removed');
+});
+
+test('detectChanges: detects modified content', () => {
+    const old = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'hello', keys: [] }]);
+    const now = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'hello changed', keys: [] }]);
+    const changes = detectChanges(old, now);
+    assertEqual(changes.modified, ['A'], 'should detect A as modified');
+});
+
+test('detectChanges: detects keyword changes', () => {
+    const old = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'same', keys: ['foo'] }]);
+    const now = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'same', keys: ['foo', 'bar'] }]);
+    const changes = detectChanges(old, now);
+    assertEqual(changes.keysChanged, ['A'], 'should detect keyword change');
+    assertEqual(changes.modified.length, 0, 'should not appear in modified (content unchanged)');
+});
+
+test('detectChanges: no changes returns hasChanges false', () => {
+    const old = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'hello', keys: ['x'] }]);
+    const now = makeSnapshot([{ filename: 'a.md', title: 'A', content: 'hello', keys: ['x'] }]);
+    const changes = detectChanges(old, now);
+    assertEqual(changes.hasChanges, false, 'should report no changes');
+});
+
+// ============================================================================
+// Frontmatter parsing for new fields
+// ============================================================================
+
+test('parseFrontmatter: requires and excludes arrays', () => {
+    const input = '---\nrequires:\n  - Eris\n  - Dark Council\nexcludes:\n  - Draft\n---\nContent';
+    const result = parseFrontmatter(input);
+    assertEqual(result.frontmatter.requires, ['Eris', 'Dark Council'], 'should parse requires array');
+    assertEqual(result.frontmatter.excludes, ['Draft'], 'should parse excludes array');
+});
+
+test('parseFrontmatter: position, depth, role fields', () => {
+    const input = '---\nposition: before\ndepth: 2\nrole: user\n---\nContent';
+    const result = parseFrontmatter(input);
+    assertEqual(result.frontmatter.position, 'before', 'should parse position string');
+    assertEqual(result.frontmatter.depth, 2, 'should parse depth number');
+    assertEqual(result.frontmatter.role, 'user', 'should parse role string');
+});
+
+// ============================================================================
 // Results
 // ============================================================================
 

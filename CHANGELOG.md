@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.9-ALPHA
+
+### New Features
+- **Conditional Gating (requires/excludes)** -- Entries can now declare dependencies on other entries. `requires: [Eris, Dark Council]` means ALL listed entries must be matched for this entry to inject. `excludes: [Draft Notes]` blocks this entry if ANY listed entry is matched. Gating resolves iteratively, so cascading dependencies work correctly.
+- **Per-Entry Injection Position** -- Entries can override the global injection position via frontmatter: `position` (before/after/in_chat), `depth` (injection depth for in_chat), and `role` (system/user/assistant). Entries are grouped by their effective position and each group is injected separately. Entries without overrides use the global settings.
+- **Vault Change Detection** -- When the index rebuilds, DeepLore now compares the new index against the previous one and reports what changed: new entries, removed entries, modified content, and changed keywords. Optional toast notifications summarize changes.
+- **Auto-Sync Polling** -- New setting to automatically rebuild the index on a configurable interval (0-3600 seconds, 0 = disabled). Detects vault changes without manual refresh.
+
+### Settings
+- New "Sync Polling Interval" setting in Index & Debug section (seconds between auto-refresh, 0 to disable).
+- New "Show Sync Toasts" toggle in Index & Debug section.
+- Note added to Injection section about per-entry frontmatter overrides.
+
+### New Frontmatter Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `requires` | string[] | Entry titles that must all be matched for this entry to activate |
+| `excludes` | string[] | Entry titles that, if any matched, block this entry |
+| `position` | string | Injection position: `before`, `after`, or `in_chat` |
+| `depth` | number | Injection depth (for `in_chat` position) |
+| `role` | string | Message role: `system`, `user`, or `assistant` |
+
+### Internal
+- New functions: `applyGating()`, `clearDeeplorePrompts()`, `formatAndGroup()`, `takeIndexSnapshot()`, `detectChanges()`, `showChangesToast()`, `setupSyncPolling()`
+- `formatWithBudget()` replaced by `formatAndGroup()` which returns grouped prompt data
+- Pipeline now: clearPrompts → match → merge → gate → formatAndGroup → inject per group
+- Added `extension_prompts` import for multi-key prompt management
+- 20 new unit tests covering gating, grouping, and change detection
+- Bumped version to 0.9-ALPHA
+
 ## 0.82-ALPHA
 
 ### Bugfix: AI-only mode actually works now

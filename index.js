@@ -1,5 +1,6 @@
 import {
     setExtensionPrompt,
+    extension_prompts,
     getRequestHeaders,
     saveSettingsDebounced,
     saveChatDebounced,
@@ -25,6 +26,7 @@ import { escapeHtml } from '../../../utils.js';
 
 const MODULE_NAME = 'deeplore_enhanced';
 const PROMPT_TAG = 'deeplore_enhanced';
+const PROMPT_TAG_PREFIX = 'deeplore_';
 const PLUGIN_BASE = '/api/plugins/deeplore-enhanced';
 
 const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation.
@@ -94,6 +96,9 @@ const defaultSettings = {
     scribeInterval: 5,
     scribeFolder: 'Sessions',
     scribePrompt: '',
+    // Vault Sync settings
+    syncPollingInterval: 0,
+    showSyncToasts: true,
 };
 
 /** Validation constraints for numeric settings */
@@ -112,6 +117,7 @@ const settingsConstraints = {
     aiSearchScanDepth: { min: 1, max: 100 },
     aiSearchManifestSummaryLength: { min: 100, max: 800 },
     scribeInterval: { min: 1, max: 50 },
+    syncPollingInterval: { min: 0, max: 3600 },
 };
 
 /**
@@ -163,6 +169,11 @@ function getSettings() {
  * @property {string[]} links - Wiki-link targets extracted before cleaning
  * @property {string[]} resolvedLinks - Links confirmed to match existing entry titles
  * @property {string[]} tags - All Obsidian tags (excluding the lorebook marker tag)
+ * @property {string[]} requires - Entry titles that must all be matched for this entry to activate
+ * @property {string[]} excludes - Entry titles that, if any matched, prevent this entry from activating
+ * @property {number|null} injectionPosition - Per-entry injection position override (null = use global)
+ * @property {number|null} injectionDepth - Per-entry injection depth override (null = use global)
+ * @property {number|null} injectionRole - Per-entry injection role override (null = use global)
  */
 
 /** @type {VaultEntry[]} */
@@ -188,6 +199,12 @@ let lastInjectionSources = null;
 /** Session Scribe: counter and lock */
 let messagesSinceLastScribe = 0;
 let scribeInProgress = false;
+
+/** Vault Sync: previous index snapshot for change detection */
+let previousIndexSnapshot = null;
+
+/** Vault Sync: polling interval ID */
+let syncIntervalId = null;
 
 /**
  * Parse simple YAML frontmatter from markdown content.
@@ -379,6 +396,133 @@ function buildManifest() {
     aiSearchCache = { hash: '', results: [] };
 }
 
+// ============================================================================
+// Vault Change Detection
+// ============================================================================
+
+/**
+ * Take a snapshot of the current vault index for change detection.
+ * @returns {{ contentHashes: Map<string, string>, titleMap: Map<string, string>, keyMap: Map<string, string>, timestamp: number }}
+ */
+function takeIndexSnapshot() {
+    const snapshot = {
+        contentHashes: new Map(),
+        titleMap: new Map(),
+        keyMap: new Map(),
+        timestamp: Date.now(),
+    };
+
+    for (const entry of vaultIndex) {
+        snapshot.contentHashes.set(entry.filename, simpleHash(entry.content));
+        snapshot.titleMap.set(entry.filename, entry.title);
+        snapshot.keyMap.set(entry.filename, JSON.stringify(entry.keys));
+    }
+
+    return snapshot;
+}
+
+/**
+ * Detect changes between two vault index snapshots.
+ * @param {{ contentHashes: Map, titleMap: Map, keyMap: Map }|null} oldSnapshot
+ * @param {{ contentHashes: Map, titleMap: Map, keyMap: Map }} newSnapshot
+ * @returns {{ added: string[], removed: string[], modified: string[], keysChanged: string[], hasChanges: boolean }}
+ */
+function detectChanges(oldSnapshot, newSnapshot) {
+    const changes = { added: [], removed: [], modified: [], keysChanged: [], hasChanges: false };
+
+    if (!oldSnapshot) return changes;
+
+    const oldFiles = new Set(oldSnapshot.contentHashes.keys());
+    const newFiles = new Set(newSnapshot.contentHashes.keys());
+
+    // New entries
+    for (const file of newFiles) {
+        if (!oldFiles.has(file)) {
+            changes.added.push(newSnapshot.titleMap.get(file) || file);
+        }
+    }
+
+    // Removed entries
+    for (const file of oldFiles) {
+        if (!newFiles.has(file)) {
+            changes.removed.push(oldSnapshot.titleMap.get(file) || file);
+        }
+    }
+
+    // Modified entries (exist in both, content hash differs)
+    for (const file of newFiles) {
+        if (oldFiles.has(file)) {
+            if (oldSnapshot.contentHashes.get(file) !== newSnapshot.contentHashes.get(file)) {
+                changes.modified.push(newSnapshot.titleMap.get(file) || file);
+            }
+            // Keyword changes (separate from content)
+            if (oldSnapshot.keyMap.get(file) !== newSnapshot.keyMap.get(file)) {
+                const title = newSnapshot.titleMap.get(file) || file;
+                if (!changes.modified.includes(title)) {
+                    changes.keysChanged.push(title);
+                }
+            }
+        }
+    }
+
+    changes.hasChanges = changes.added.length > 0 || changes.removed.length > 0
+        || changes.modified.length > 0 || changes.keysChanged.length > 0;
+
+    return changes;
+}
+
+/**
+ * Show a toast notification summarizing vault changes.
+ * @param {{ added: string[], removed: string[], modified: string[], keysChanged: string[] }} changes
+ */
+function showChangesToast(changes) {
+    const truncList = (arr, max = 3) => {
+        const shown = arr.slice(0, max).join(', ');
+        return arr.length > max ? shown + '...' : shown;
+    };
+
+    const parts = [];
+    if (changes.added.length > 0) {
+        parts.push(`+${changes.added.length} new: ${truncList(changes.added)}`);
+    }
+    if (changes.removed.length > 0) {
+        parts.push(`-${changes.removed.length} removed: ${truncList(changes.removed)}`);
+    }
+    if (changes.modified.length > 0) {
+        parts.push(`~${changes.modified.length} modified: ${truncList(changes.modified)}`);
+    }
+    if (changes.keysChanged.length > 0) {
+        parts.push(`Keys changed: ${truncList(changes.keysChanged)}`);
+    }
+
+    toastr.info(parts.join('<br>'), 'DeepLore Enhanced - Vault Updated', {
+        timeOut: 8000,
+        extendedTimeOut: 12000,
+        progressBar: true,
+        closeButton: true,
+        enableHtml: true,
+    });
+}
+
+/**
+ * Set up or tear down periodic vault sync polling.
+ */
+function setupSyncPolling() {
+    const settings = getSettings();
+
+    if (syncIntervalId) {
+        clearInterval(syncIntervalId);
+        syncIntervalId = null;
+    }
+
+    if (settings.syncPollingInterval > 0 && settings.enabled) {
+        syncIntervalId = setInterval(async () => {
+            if (!settings.enabled || indexing) return;
+            await buildIndex();
+        }, settings.syncPollingInterval * 1000);
+    }
+}
+
 /**
  * Build the vault index by fetching all files from the server plugin.
  */
@@ -452,6 +596,23 @@ async function buildIndex() {
             const scanDepth = typeof frontmatter.scanDepth === 'number' ? frontmatter.scanDepth : null;
             const excludeRecursion = frontmatter.excludeRecursion === true;
 
+            // Conditional gating
+            const requires = Array.isArray(frontmatter.requires)
+                ? frontmatter.requires.map(r => String(r).trim()).filter(Boolean) : [];
+            const excludes = Array.isArray(frontmatter.excludes)
+                ? frontmatter.excludes.map(r => String(r).trim()).filter(Boolean) : [];
+
+            // Per-entry injection position overrides
+            const positionMap = { before: 2, after: 0, in_chat: 1 };
+            const roleMap = { system: 0, user: 1, assistant: 2 };
+
+            const injectionPosition = typeof frontmatter.position === 'string'
+                ? (positionMap[frontmatter.position.toLowerCase()] ?? null) : null;
+            const injectionDepth = typeof frontmatter.depth === 'number'
+                ? frontmatter.depth : null;
+            const injectionRole = typeof frontmatter.role === 'string'
+                ? (roleMap[frontmatter.role.toLowerCase()] ?? null) : null;
+
             // Preserve all tags except the lorebook marker tag itself
             const entryTags = tags.filter(t => t !== tagToMatch);
 
@@ -468,6 +629,11 @@ async function buildIndex() {
                 links,
                 resolvedLinks: [],
                 tags: entryTags,
+                requires,
+                excludes,
+                injectionPosition,
+                injectionDepth,
+                injectionRole,
             });
         }
 
@@ -489,6 +655,21 @@ async function buildIndex() {
 
         // Build manifest for AI search
         buildManifest();
+
+        // Vault change detection
+        const newSnapshot = takeIndexSnapshot();
+        if (previousIndexSnapshot) {
+            const changes = detectChanges(previousIndexSnapshot, newSnapshot);
+            if (changes.hasChanges) {
+                if (settings.showSyncToasts) {
+                    showChangesToast(changes);
+                }
+                if (settings.debugMode) {
+                    console.log('[DLE] Vault changes detected:', changes);
+                }
+            }
+        }
+        previousIndexSnapshot = newSnapshot;
 
         console.log(`[DLE] Indexed ${entries.length} entries from ${data.total} vault files`);
         updateIndexStats();
@@ -866,31 +1047,125 @@ function mergeResults(keywordResult, aiResults, settings) {
 }
 
 /**
- * Format matched entries for injection, respecting budget limits.
- * @param {VaultEntry[]} entries - Matched entries sorted by priority
- * @returns {{ text: string, count: number, totalTokens: number }} Injection text and stats
+ * Apply conditional gating rules (requires/excludes) to matched entries.
+ * Iterates until stable since removing a gated entry may affect another's requires.
+ * @param {VaultEntry[]} entries - Matched entries (already merged)
+ * @returns {VaultEntry[]}
  */
-function formatWithBudget(entries) {
+function applyGating(entries) {
+    let result = [...entries];
+    let changed = true;
+    let iterations = 0;
+    const MAX_ITERATIONS = 10;
+
+    while (changed && iterations < MAX_ITERATIONS) {
+        changed = false;
+        iterations++;
+        const activeTitles = new Set(result.map(e => e.title.toLowerCase()));
+
+        result = result.filter(entry => {
+            // Check requires: ALL must be in the active set
+            if (entry.requires.length > 0) {
+                const allPresent = entry.requires.every(r => activeTitles.has(r.toLowerCase()));
+                if (!allPresent) {
+                    changed = true;
+                    return false;
+                }
+            }
+            // Check excludes: NONE should be in the active set
+            if (entry.excludes.length > 0) {
+                const anyPresent = entry.excludes.some(r => activeTitles.has(r.toLowerCase()));
+                if (anyPresent) {
+                    changed = true;
+                    return false;
+                }
+            }
+            return true;
+        });
+    }
+
+    return result;
+}
+
+/**
+ * @typedef {object} PromptGroup
+ * @property {string} tag - Prompt tag key for setExtensionPrompt
+ * @property {string} text - Combined formatted text for this group
+ * @property {number} position - extension_prompt_types value
+ * @property {number} depth - Injection depth
+ * @property {number} role - extension_prompt_roles value
+ */
+
+/**
+ * Format matched entries for injection, respecting budget limits, grouped by injection position.
+ * Entries can override the global injection position/depth/role via frontmatter.
+ * @param {VaultEntry[]} entries - Matched entries sorted by priority
+ * @returns {{ groups: PromptGroup[], count: number, totalTokens: number }}
+ */
+function formatAndGroup(entries) {
     const settings = getSettings();
     const template = settings.injectionTemplate || '<{{title}}>\n{{content}}\n</{{title}}>';
-    const parts = [];
     let totalTokens = 0;
     let count = 0;
+
+    /** @type {{ entry: VaultEntry, position: number, depth: number, role: number }[]} */
+    const accepted = [];
 
     for (const entry of entries) {
         if (!settings.unlimitedEntries && count >= settings.maxEntries) break;
         if (!settings.unlimitedBudget && totalTokens + entry.tokenEstimate > settings.maxTokensBudget && count > 0) break;
 
-        const text = template
-            .replace(/\{\{title\}\}/g, entry.title)
-            .replace(/\{\{content\}\}/g, entry.content);
-
-        parts.push(text);
+        accepted.push({
+            entry,
+            position: entry.injectionPosition ?? settings.injectionPosition,
+            depth: entry.injectionDepth ?? settings.injectionDepth,
+            role: entry.injectionRole ?? settings.injectionRole,
+        });
         totalTokens += entry.tokenEstimate;
         count++;
     }
 
-    return { text: parts.join('\n\n'), count, totalTokens };
+    // Group by (position, depth, role)
+    /** @type {Map<string, { tag: string, position: number, depth: number, role: number, texts: string[] }>} */
+    const groupMap = new Map();
+    for (const item of accepted) {
+        const key = `${PROMPT_TAG_PREFIX}p${item.position}_d${item.depth}_r${item.role}`;
+        if (!groupMap.has(key)) {
+            groupMap.set(key, {
+                tag: key,
+                position: item.position,
+                depth: item.depth,
+                role: item.role,
+                texts: [],
+            });
+        }
+        const text = template
+            .replace(/\{\{title\}\}/g, item.entry.title)
+            .replace(/\{\{content\}\}/g, item.entry.content);
+        groupMap.get(key).texts.push(text);
+    }
+
+    const groups = [...groupMap.values()].map(g => ({
+        tag: g.tag,
+        text: g.texts.join('\n\n'),
+        position: g.position,
+        depth: g.depth,
+        role: g.role,
+    }));
+
+    return { groups, count, totalTokens };
+}
+
+/**
+ * Clear all DeepLore-managed extension prompts from the prompt dictionary.
+ * Uses the same pattern as SillyTavern's flushWIInjections() in script.js.
+ */
+function clearDeeplorePrompts() {
+    for (const key of Object.keys(extension_prompts)) {
+        if (key.startsWith(PROMPT_TAG_PREFIX) || key === PROMPT_TAG) {
+            delete extension_prompts[key];
+        }
+    }
 }
 
 // ============================================================================
@@ -917,8 +1192,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         return;
     }
 
-    // Clear previous injection
-    setExtensionPrompt(PROMPT_TAG, '', settings.injectionPosition, settings.injectionDepth, false, settings.injectionRole);
+    // Clear all previous DeepLore prompts
+    clearDeeplorePrompts();
 
     try {
         // Ensure index is fresh
@@ -947,21 +1222,39 @@ async function onGenerate(chat, contextSize, abort, type) {
             return;
         }
 
-        // Format with budget
-        const { text: injectionText, count: injectedCount, totalTokens } = formatWithBudget(merged);
+        // Apply conditional gating (requires/excludes)
+        const gated = applyGating(merged);
 
-        if (injectionText) {
-            setExtensionPrompt(
-                PROMPT_TAG,
-                injectionText,
-                settings.injectionPosition,
-                settings.injectionDepth,
-                settings.allowWIScan,
-                settings.injectionRole,
-            );
+        if (settings.debugMode && gated.length < merged.length) {
+            const removed = merged.filter(e => !gated.includes(e));
+            console.log(`[DLE] Gating removed ${removed.length} entries:`,
+                removed.map(e => ({ title: e.title, requires: e.requires, excludes: e.excludes })));
+        }
+
+        if (gated.length === 0) {
+            if (settings.debugMode) {
+                console.debug('[DLE] All entries removed by gating rules');
+            }
+            return;
+        }
+
+        // Format with budget, grouped by injection position
+        const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated);
+
+        if (groups.length > 0) {
+            for (const group of groups) {
+                setExtensionPrompt(
+                    group.tag,
+                    group.text,
+                    group.position,
+                    group.depth,
+                    settings.allowWIScan,
+                    group.role,
+                );
+            }
 
             // Capture injection sources for Context Cartographer
-            lastInjectionSources = merged.slice(0, injectedCount).map(e => ({
+            lastInjectionSources = gated.slice(0, injectedCount).map(e => ({
                 title: e.title,
                 filename: e.filename,
                 matchedBy: matchedKeys.get(e.title) || '?',
@@ -986,15 +1279,19 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (settings.debugMode) {
                 const aiCount = aiEntries.length;
                 const kwCount = keywordResult.matched.length;
-                console.log(`[DLE] ${merged.length} total (${kwCount} keyword, ${aiCount} AI), ${injectedCount} injected, ~${totalTokens} tokens` +
+                console.log(`[DLE] ${merged.length} matched, ${gated.length} after gating, ${injectedCount} injected (~${totalTokens} tokens) in ${groups.length} group(s)` +
                     (contextSize > 0 ? ` (${Math.round(totalTokens / contextSize * 100)}% of ${contextSize} context)` : ''));
-                console.table(merged.slice(0, injectedCount).map(e => ({
+                console.table(gated.slice(0, injectedCount).map(e => ({
                     title: e.title,
                     matchedBy: matchedKeys.get(e.title) || '?',
                     priority: e.priority,
                     tokens: e.tokenEstimate,
                     constant: e.constant,
                 })));
+                if (groups.length > 1) {
+                    console.log('[DLE] Injection groups:', groups.map(g =>
+                        `${g.tag}: pos=${g.position} depth=${g.depth} role=${g.role}`));
+                }
             }
         }
     } catch (err) {
@@ -1231,6 +1528,10 @@ function loadSettingsUI() {
     $('#dle_scribe_folder').val(settings.scribeFolder);
     $('#dle_scribe_prompt').val(settings.scribePrompt);
 
+    // Vault Sync settings
+    $('#dle_sync_interval').val(settings.syncPollingInterval);
+    $('#dle_show_sync_toasts').prop('checked', settings.showSyncToasts);
+
     updateIndexStats();
     updateAiStats();
 }
@@ -1437,6 +1738,19 @@ function bindSettingsEvents() {
         saveSettingsDebounced();
     });
 
+    // Vault Sync settings
+    $('#dle_sync_interval').on('input', function () {
+        const val = Number($(this).val());
+        settings.syncPollingInterval = isNaN(val) ? 0 : val;
+        saveSettingsDebounced();
+        setupSyncPolling();
+    });
+
+    $('#dle_show_sync_toasts').on('change', function () {
+        settings.showSyncToasts = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
     // Test Connection button
     $('#dle_test_connection').on('click', async function () {
         const statusEl = $('#dle_connection_status');
@@ -1583,6 +1897,7 @@ function registerSlashCommands() {
                 `Cache: ${indexTimestamp ? Math.round((Date.now() - indexTimestamp) / 1000) + 's old' : 'none'} / TTL ${settings.cacheTTL}s`,
                 `AI Search: ${settings.aiSearchEnabled ? 'on' : 'off'}`,
                 `AI Stats: ${aiSearchStats.calls} calls, ${aiSearchStats.cachedHits} cache hits, ~${aiSearchStats.totalInputTokens} in / ~${aiSearchStats.totalOutputTokens} out tokens`,
+                `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
             ];
             const msg = lines.join('\n');
             toastr.info(msg, 'DeepLore Enhanced', { timeOut: 10000 });
@@ -1662,6 +1977,7 @@ jQuery(async function () {
         loadSettingsUI();
         bindSettingsEvents();
         registerSlashCommands();
+        setupSyncPolling();
 
         // Context Cartographer: click handler (event delegation — registered once)
         $(document).on('click', '.mes_deeplore_sources', function () {

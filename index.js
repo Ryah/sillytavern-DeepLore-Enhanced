@@ -249,6 +249,17 @@ function parseFrontmatter(content) {
                 // Value will come as array items on next lines, or is empty
                 frontmatter[currentKey] = [];
                 currentArray = frontmatter[currentKey];
+            } else if (rawValue.startsWith('[') && rawValue.endsWith(']')) {
+                // Inline YAML array: [value1, value2, "quoted value"]
+                const inner = rawValue.slice(1, -1).trim();
+                if (inner === '') {
+                    frontmatter[currentKey] = [];
+                } else {
+                    frontmatter[currentKey] = inner.split(',').map(item => {
+                        return item.trim().replace(/^['"]|['"]$/g, '');
+                    });
+                }
+                currentArray = frontmatter[currentKey];
             } else if (rawValue === 'true') {
                 frontmatter[currentKey] = true;
             } else if (rawValue === 'false') {
@@ -291,6 +302,18 @@ function extractWikiLinks(body) {
  */
 function cleanContent(content) {
     let cleaned = content;
+
+    // Strip %%deeplore-exclude%%...%%/deeplore-exclude%% regions (user-controlled exclusion)
+    cleaned = cleaned.replace(/%%deeplore-exclude%%[\s\S]*?%%\/deeplore-exclude%%/g, '');
+
+    // Strip remaining Obsidian %%...%% comment/plugin blocks (timeline annotations, dataview, etc.)
+    cleaned = cleaned.replace(/%%[\s\S]*?%%/g, '');
+
+    // Strip HTML div tags (keep content inside)
+    cleaned = cleaned.replace(/<\/?div[^>]*>/g, '');
+
+    // Strip the first H1 heading (already used as entry title in XML wrapper)
+    cleaned = cleaned.replace(/^#\s+.+$/m, '');
 
     // Strip image embeds: ![[image.png]] or ![alt](url)
     cleaned = cleaned.replace(/!\[\[.*?\]\]/g, '');
@@ -697,7 +720,7 @@ async function ensureIndexFresh() {
     const ttlMs = settings.cacheTTL * 1000;
     const now = Date.now();
 
-    if (vaultIndex.length === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
+    if (vaultIndex.length === 0 || ttlMs === 0 || now - indexTimestamp > ttlMs) {
         await buildIndex();
     }
 }
@@ -1856,6 +1879,148 @@ function bindSettingsEvents() {
         vaultIndex = [];
         indexTimestamp = 0;
         await buildIndex();
+    });
+
+    // Test Match button — simulate matching pipeline and show results
+    $('#dle_test_match').on('click', async function () {
+        const settings = getSettings();
+
+        if (!chat || chat.length === 0) {
+            toastr.warning('No active chat. Start a conversation first.', 'DeepLore Enhanced');
+            return;
+        }
+
+        try {
+            toastr.info('Running match simulation...', 'DeepLore Enhanced', { timeOut: 2000 });
+
+            // Ensure index is fresh
+            await ensureIndexFresh();
+
+            if (vaultIndex.length === 0) {
+                toastr.warning('No entries indexed. Check your Obsidian connection and lorebook tag.', 'DeepLore Enhanced');
+                return;
+            }
+
+            // Run the full matching pipeline (same as onGenerate but without injection)
+            const [keywordResult, aiEntries] = await Promise.all([
+                Promise.resolve(matchEntries(chat)),
+                aiSearch(chat),
+            ]);
+
+            const { merged, matchedKeys } = mergeResults(keywordResult, aiEntries, settings);
+            const gated = applyGating(merged);
+            const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated);
+
+            // Compute what was removed at each stage
+            const gatedRemoved = merged.filter(e => !gated.includes(e));
+            const budgetRemoved = gated.slice(injectedCount);
+            const injected = gated.slice(0, injectedCount);
+
+            // Build popup HTML
+            const positionLabels = { 0: 'After', 1: 'In-chat', 2: 'Before' };
+            const roleLabels = { 0: 'System', 1: 'User', 2: 'Assistant' };
+
+            let html = '<div style="text-align: left; font-family: monospace; font-size: 0.85em;">';
+
+            // Summary
+            html += `<h3>Match Summary</h3>`;
+            html += `<div style="margin-bottom: 10px;">`;
+            html += `<b>${vaultIndex.length}</b> indexed &rarr; `;
+            html += `<b>${merged.length}</b> matched &rarr; `;
+            html += `<b>${gated.length}</b> after gating &rarr; `;
+            html += `<b style="color: #4caf50;">${injectedCount}</b> would inject (~${totalTokens} tokens)`;
+            html += `</div>`;
+
+            // Injected entries table
+            if (injected.length > 0) {
+                html += `<h3>Would Inject (${injectedCount} entries, ~${totalTokens} tokens)</h3>`;
+                html += `<table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">`;
+                html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.2);">`;
+                html += `<th style="text-align: left; padding: 4px;">Title</th>`;
+                html += `<th style="text-align: left; padding: 4px;">Matched By</th>`;
+                html += `<th style="text-align: right; padding: 4px;">Priority</th>`;
+                html += `<th style="text-align: right; padding: 4px;">Tokens</th>`;
+                html += `<th style="text-align: left; padding: 4px;">Position</th>`;
+                html += `</tr>`;
+                for (const entry of injected) {
+                    const pos = entry.injectionPosition ?? settings.injectionPosition;
+                    const depth = entry.injectionDepth ?? settings.injectionDepth;
+                    const role = entry.injectionRole ?? settings.injectionRole;
+                    const posLabel = pos === 1
+                        ? `In-chat @${depth} (${roleLabels[role] || '?'})`
+                        : (positionLabels[pos] || '?');
+                    html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">`;
+                    html += `<td style="padding: 4px;">${escapeHtml(entry.title)}</td>`;
+                    html += `<td style="padding: 4px; opacity: 0.8;">${escapeHtml(matchedKeys.get(entry.title) || '?')}</td>`;
+                    html += `<td style="text-align: right; padding: 4px;">${entry.priority}</td>`;
+                    html += `<td style="text-align: right; padding: 4px;">${entry.tokenEstimate}</td>`;
+                    html += `<td style="padding: 4px; opacity: 0.8;">${posLabel}</td>`;
+                    html += `</tr>`;
+                }
+                html += `</table>`;
+            } else {
+                html += `<p style="color: #ff9800;">No entries would be injected.</p>`;
+            }
+
+            // Gating removed
+            if (gatedRemoved.length > 0) {
+                html += `<h3 style="color: #ff9800;">Removed by Gating (${gatedRemoved.length})</h3>`;
+                html += `<ul style="margin: 0 0 15px 20px;">`;
+                for (const entry of gatedRemoved) {
+                    const reasons = [];
+                    if (entry.requires.length > 0) reasons.push(`requires: ${entry.requires.join(', ')}`);
+                    if (entry.excludes.length > 0) reasons.push(`excludes: ${entry.excludes.join(', ')}`);
+                    html += `<li>${escapeHtml(entry.title)} — ${escapeHtml(reasons.join('; ') || 'dependency chain')}</li>`;
+                }
+                html += `</ul>`;
+            }
+
+            // Budget/max removed
+            if (budgetRemoved.length > 0) {
+                html += `<h3 style="color: #ff9800;">Cut by Budget/Max (${budgetRemoved.length})</h3>`;
+                html += `<ul style="margin: 0 0 15px 20px;">`;
+                for (const entry of budgetRemoved) {
+                    html += `<li>${escapeHtml(entry.title)} (pri ${entry.priority}, ~${entry.tokenEstimate} tokens)</li>`;
+                }
+                html += `</ul>`;
+            }
+
+            // Unmatched entries with keys (diagnostic aid)
+            const matchedTitles = new Set(merged.map(e => e.title));
+            const unmatchedWithKeys = vaultIndex.filter(e => !matchedTitles.has(e.title) && !e.constant && e.keys.length > 0);
+            if (unmatchedWithKeys.length > 0) {
+                html += `<details style="margin-top: 10px;"><summary style="cursor: pointer; opacity: 0.7;">Unmatched entries with keywords (${unmatchedWithKeys.length})</summary>`;
+                html += `<ul style="margin: 5px 0 0 20px;">`;
+                for (const entry of unmatchedWithKeys.slice(0, 30)) {
+                    html += `<li>${escapeHtml(entry.title)} — keys: ${escapeHtml(entry.keys.join(', '))}</li>`;
+                }
+                if (unmatchedWithKeys.length > 30) {
+                    html += `<li>...and ${unmatchedWithKeys.length - 30} more</li>`;
+                }
+                html += `</ul></details>`;
+            }
+
+            // Entries with no keys (potential misconfiguration)
+            const noKeys = vaultIndex.filter(e => e.keys.length === 0 && !e.constant);
+            if (noKeys.length > 0) {
+                html += `<details style="margin-top: 10px;"><summary style="cursor: pointer; color: #ff9800;">Entries with no keywords (${noKeys.length})</summary>`;
+                html += `<ul style="margin: 5px 0 0 20px;">`;
+                for (const entry of noKeys.slice(0, 30)) {
+                    html += `<li>${escapeHtml(entry.title)} (${escapeHtml(entry.filename)})</li>`;
+                }
+                if (noKeys.length > 30) {
+                    html += `<li>...and ${noKeys.length - 30} more</li>`;
+                }
+                html += `</ul></details>`;
+            }
+
+            html += `</div>`;
+
+            callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+        } catch (err) {
+            console.error('[DLE] Test Match error:', err);
+            toastr.error(String(err), 'DeepLore Enhanced');
+        }
     });
 }
 

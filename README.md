@@ -10,8 +10,8 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 
 ## What's New (vs DeepLore)
 
-- **AI-powered entry selection** -- Claude Haiku reads your recent chat context alongside a compact manifest of all vault entries and identifies which ones are relevant. Catches thematic connections that keyword matching misses entirely.
-- **Runs alongside keyword matching** -- AI search and keyword matching run in parallel. Results are merged and deduplicated. Keyword matches keep higher priority by default.
+- **AI-powered entry selection** -- Claude Haiku reads your recent chat context alongside a compact manifest of vault entries and selects which ones are relevant. Catches thematic connections that keyword matching misses entirely.
+- **Two-stage pipeline** -- Keywords run first as a broad pre-filter, then only keyword-matched candidates are sent to Haiku for smart selection. Reduces token cost and improves relevance. An "AI Only" mode is also available for full-vault evaluation.
 - **Smart caching** -- AI results are cached by chat context hash. Regenerations and swipes reuse cached results without making another API call.
 - **Configurable system prompt** -- Customize how the AI evaluates relevance for your specific world.
 - **Session usage tracking** -- See how many AI calls, cache hits, and estimated tokens used in the settings panel.
@@ -153,12 +153,18 @@ and gods alike.
 
 ## How AI Search Works
 
-1. When the vault is indexed, a **compact manifest** is built -- just the title, keywords, and a short summary (~200 chars) of each entry. This is cached and only rebuilds when the index rebuilds.
-2. On each generation, the manifest and recent chat messages are sent to Claude Haiku via the proxy.
-3. Haiku returns a JSON array of entry titles it considers relevant to the current conversation.
-4. These AI-selected entries are merged with keyword-matched entries. Duplicates (found by both methods) are collapsed. AI-only entries get a lower priority by default (configurable with **AI Priority Offset**).
-5. The merged set goes through the existing budget/template system and gets injected into the prompt.
-6. **Caching:** The chat context is hashed. If it hasn't changed (regenerations, swipes), cached AI results are reused without another API call.
+**Two-Stage mode** (default):
+1. On each generation, **keyword matching** runs first against recent chat messages, producing a set of candidate entries.
+2. A **compact manifest** is built from those candidates only -- title, keywords, tags, links, token cost, and a short summary per entry.
+3. The candidate manifest and recent chat are sent to Claude Haiku via the proxy.
+4. Haiku returns a JSON array selecting the most relevant entries from the candidates. This is the final selection (plus constants).
+5. The selected set goes through gating (requires/excludes), budget/template formatting, and gets injected into the prompt.
+6. **Caching:** The chat context + candidate manifest are hashed. Regenerations and swipes reuse cached results without another API call.
+
+**AI Only mode:**
+- Skips keyword matching entirely. A manifest of all non-constant vault entries is sent to Haiku for evaluation. More thorough but uses more tokens.
+
+**Error fallback:** If the AI proxy is down or returns an error, the pipeline falls back to keyword-only results (two-stage mode) or the full vault sorted by priority (AI-only mode). If the AI intentionally returns an empty selection, only constant entries are injected.
 
 ### Conditional Gating Example
 
@@ -244,14 +250,15 @@ This entry injects as a user message at depth 1 in the chat history.
 - **Max Recursion Steps** -- Limit on recursive scan passes (default: 3)
 
 ### AI Search
-- **Enable AI Search** -- Toggle AI-powered semantic search alongside keyword matching
+- **Enable AI Search** -- Toggle AI-powered semantic search
+- **AI Search Mode** -- "Two-Stage (keywords → AI)" pre-filters with keywords first, then AI picks from candidates. "AI Only (full vault)" sends the entire manifest to Haiku directly.
 - **Proxy URL** -- URL of the claude-code-proxy (default: `http://localhost:42069`)
 - **Model** -- Claude model to use (default: `claude-haiku-4-5-20251001`)
 - **Max Response Tokens** -- Token limit for the AI response (default: 1024). Keep low -- we only need a JSON array of titles.
 - **Timeout (ms)** -- How long to wait for the AI before falling back to keyword-only results (default: 10000)
-- **AI Priority Offset** -- Added to AI-only entries' priority values. Higher = AI entries rank lower vs keyword matches. Set to 0 for equal priority. (default: 50)
 - **AI Scan Depth** -- How many recent messages to send as context to the AI (default: 4). Can differ from keyword scan depth.
-- **System Prompt Override** -- Custom system prompt for the AI. Leave empty for the built-in default. `"You are Claude Code."` is always prepended (proxy requirement).
+- **Manifest Summary Length** -- Maximum characters for entry summaries in the AI manifest (default: 400). Higher gives more context but costs more tokens.
+- **System Prompt Override** -- Custom system prompt for the AI. Leave empty for the built-in default. Supports `{{maxEntries}}` placeholder. `"You are Claude Code."` is always prepended (proxy requirement).
 
 ### Injection
 - **Injection Template** -- Format string with `{{title}}` and `{{content}}` macros
@@ -272,7 +279,7 @@ This entry injects as a user message at depth 1 in the chat history.
 - **Review Response Tokens** -- Token limit for `/dle-review` responses (0 = auto)
 - **Auto-Sync Interval** -- Seconds between automatic vault re-checks (0 = disabled). Detects changes without manual refresh.
 - **Show Sync Change Toasts** -- Show toast notifications when vault changes are detected
-- **Debug Mode** -- Log match details to browser console (F12). Shows keyword matches, AI search results, gating, merge info, token counts.
+- **Debug Mode** -- Log match details to browser console (F12). Shows keyword matches, AI search results, gating, token counts.
 
 ## License
 

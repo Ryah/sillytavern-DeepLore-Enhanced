@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.93-ALPHA
+
+### Pipeline Overhaul: Two-Stage Keyword → AI Selection
+- **Sequential pre-filter pipeline** -- Keywords now run first as a broad pre-filter (Stage 1), then only keyword-matched candidates are sent to Haiku for smart selection (Stage 2). Previously both ran in parallel with the full vault manifest sent to AI.
+- **AI Search Mode setting** -- New radio toggle: "Two-Stage (keywords → AI)" for the pre-filter pipeline, or "AI Only (full vault)" for sending the entire manifest to Haiku directly. Replaces the old scanDepth=0 workaround.
+- **Error-aware AI fallback** -- AI search now distinguishes errors from intentional empty results. On error, falls back to keyword results (two-stage) or full vault (ai-only). On intentional empty, keeps constants only.
+- **{{maxEntries}} in system prompt** -- AI system prompt now includes the configured max entries limit so Haiku knows how many to select.
+- **Removed merge step** -- `mergeResults()` deleted. AI output IS the final selection (plus constants). No more confidence-based priority offset merging.
+
+### Settings
+- New "AI Search Mode" radio (Two-Stage / AI Only) in AI Search section.
+- Removed "AI Priority Offset" setting (no longer applicable without merge).
+
+### Internal
+- New function: `buildCandidateManifest()` -- builds manifest from filtered entries
+- Deleted: `mergeResults()`, `buildManifest()`, `cachedManifest`/`cachedManifestHeader` globals
+- `aiSearch()` signature changed: accepts candidate manifest/header, returns `{results, error}`
+- `onGenerate()` rewritten for sequential pipeline with three modes
+- Test Match and Preview AI Prompt handlers updated for new pipeline
+- Bumped version to 0.93-ALPHA
+
 ## 0.9-ALPHA
 
 ### New Features

@@ -6,7 +6,9 @@ const info = {
     description: 'Proxies requests to the Obsidian Local REST API with AI-powered semantic search via Claude',
 };
 
-const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation.
+const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a set of candidate lore entries, select which entries are most relevant to inject into the current conversation context.
+
+You may select up to {{maxEntries}} entries. Select fewer if not all candidates are relevant.
 
 Selection criteria (in order of importance):
 1. Direct references - Characters, places, items, or events explicitly mentioned
@@ -15,6 +17,7 @@ Selection criteria (in order of importance):
 4. Thematic relevance - Entries that match the tone or themes of the conversation (betrayal, romance, combat, etc.)
 
 Guidelines:
+- Focus on which entries are most relevant RIGHT NOW
 - Prefer fewer, highly relevant entries over many loosely related ones
 - Consider the token cost shown for each entry when making selections
 - Entries marked "Links to:" indicate relationships; use these to find connected lore

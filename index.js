@@ -29,7 +29,9 @@ const PROMPT_TAG = 'deeplore_enhanced';
 const PROMPT_TAG_PREFIX = 'deeplore_';
 const PLUGIN_BASE = '/api/plugins/deeplore-enhanced';
 
-const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of available lore entries, identify which entries are relevant to the current conversation.
+const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a set of candidate lore entries, select which entries are most relevant to inject into the current conversation context.
+
+You may select up to {{maxEntries}} entries. Select fewer if not all candidates are relevant.
 
 Selection criteria (in order of importance):
 1. Direct references - Characters, places, items, or events explicitly mentioned
@@ -38,6 +40,7 @@ Selection criteria (in order of importance):
 4. Thematic relevance - Entries that match the tone or themes of the conversation (betrayal, romance, combat, etc.)
 
 Guidelines:
+- Focus on which entries are most relevant RIGHT NOW
 - Prefer fewer, highly relevant entries over many loosely related ones
 - Consider the token cost shown for each entry when making selections
 - Entries marked "Links to:" indicate relationships; use these to find connected lore
@@ -84,7 +87,7 @@ const defaultSettings = {
     aiSearchModel: 'claude-haiku-4-5-20251001',
     aiSearchMaxTokens: 1024,
     aiSearchTimeout: 10000,
-    aiSearchPriorityOffset: 50,
+    aiSearchMode: 'two-stage',
     aiSearchScanDepth: 4,
     aiSearchSystemPrompt: '',
     aiSearchManifestSummaryLength: 400,
@@ -113,7 +116,6 @@ const settingsConstraints = {
     reviewResponseTokens: { min: 0, max: 100000 },
     aiSearchMaxTokens: { min: 64, max: 4096 },
     aiSearchTimeout: { min: 1000, max: 30000 },
-    aiSearchPriorityOffset: { min: 0, max: 1000 },
     aiSearchScanDepth: { min: 1, max: 100 },
     aiSearchManifestSummaryLength: { min: 100, max: 800 },
     scribeInterval: { min: 1, max: 50 },
@@ -180,12 +182,6 @@ function getSettings() {
 let vaultIndex = [];
 let indexTimestamp = 0;
 let indexing = false;
-
-/** Cached compact manifest for AI search */
-let cachedManifest = '';
-
-/** Cached manifest header with entry count and budget info */
-let cachedManifestHeader = '';
 
 /** AI search result cache to avoid redundant API calls */
 let aiSearchCache = { hash: '', results: [] };
@@ -375,12 +371,21 @@ function resolveLinks() {
     }
 }
 
-function buildManifest() {
+/**
+ * Build a compact manifest from a specific set of candidate entries (for AI search).
+ * Same format as the old buildManifest() but only includes the provided entries.
+ * @param {VaultEntry[]} candidates - Entries to include (constants are filtered out)
+ * @returns {{ manifest: string, header: string }}
+ */
+function buildCandidateManifest(candidates) {
     const settings = getSettings();
     const summaryLen = settings.aiSearchManifestSummaryLength || 400;
 
-    const entries = vaultIndex
-        .filter(e => !e.constant) // Constants are always injected, no need for AI to pick them
+    const nonConstant = candidates.filter(e => !e.constant);
+
+    if (nonConstant.length === 0) return { manifest: '', header: '' };
+
+    const manifest = nonConstant
         .map(entry => {
             const flat = entry.content.replace(/\n+/g, ' ').trim();
             const summary = truncateToSentence(flat, summaryLen);
@@ -402,21 +407,18 @@ function buildManifest() {
         })
         .join('\n---\n');
 
-    cachedManifest = entries;
-
-    // Build header with metadata the AI can use for context
-    const constantCount = vaultIndex.filter(e => e.constant).length;
-    const constantTokens = vaultIndex.filter(e => e.constant).reduce((s, e) => s + e.tokenEstimate, 0);
+    const totalNonConstant = vaultIndex.filter(e => !e.constant).length;
+    const constantCount = candidates.filter(e => e.constant).length;
+    const constantTokens = candidates.filter(e => e.constant).reduce((s, e) => s + e.tokenEstimate, 0);
     const budgetInfo = settings.unlimitedBudget
         ? ''
         : `\nToken budget: ~${settings.maxTokensBudget} tokens total.`;
 
-    cachedManifestHeader = `Entry count: ${vaultIndex.filter(e => !e.constant).length} selectable entries.`
+    const header = `Candidate entries: ${nonConstant.length} (from ${totalNonConstant} total).`
         + (constantCount > 0 ? `\n${constantCount} entries are always included (~${constantTokens} tokens).` : '')
         + budgetInfo;
 
-    // Invalidate AI search cache when manifest changes
-    aiSearchCache = { hash: '', results: [] };
+    return { manifest, header };
 }
 
 // ============================================================================
@@ -676,8 +678,8 @@ async function buildIndex() {
         // Resolve wiki-links to confirmed entry titles
         resolveLinks();
 
-        // Build manifest for AI search
-        buildManifest();
+        // Invalidate AI search cache on re-index
+        aiSearchCache = { hash: '', results: [] };
 
         // Vault change detection
         const newSnapshot = takeIndexSnapshot();
@@ -905,44 +907,59 @@ function simpleHash(text) {
 /**
  * Perform AI-powered semantic search using Claude Haiku via the proxy.
  * @param {object[]} chat - Chat messages array
- * @returns {Promise<AiSearchMatch[]>} Matched entries with confidence and reason
+ * @param {string} candidateManifest - Manifest string of candidate entries
+ * @param {string} candidateHeader - Header with metadata about candidates
+ * @returns {Promise<{ results: AiSearchMatch[], error: boolean }>}
  */
-async function aiSearch(chat) {
+async function aiSearch(chat, candidateManifest, candidateHeader) {
     const settings = getSettings();
 
-    if (!settings.aiSearchEnabled || !cachedManifest) {
-        return [];
+    if (!settings.aiSearchEnabled || !candidateManifest) {
+        return { results: [], error: false };
     }
 
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
-    if (!chatContext.trim()) return [];
+    if (!chatContext.trim()) return { results: [], error: false };
 
-    // Check cache - skip API call if chat context hasn't changed
-    const cacheKey = simpleHash(chatContext + cachedManifest);
+    // Check cache - skip API call if inputs haven't changed
+    const cacheKey = simpleHash(chatContext + candidateManifest);
     if (cacheKey === aiSearchCache.hash && aiSearchCache.results.length >= 0) {
         aiSearchStats.cachedHits++;
         updateAiStats();
         if (settings.debugMode) {
             console.debug('[DLE] AI search cache hit, skipping API call');
         }
-        return aiSearchCache.results;
+        return { results: aiSearchCache.results, error: false };
     }
 
     try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), settings.aiSearchTimeout);
 
+        // Resolve system prompt with {{maxEntries}} placeholder
+        const maxEntries = settings.unlimitedEntries ? 'as many as are relevant' : String(settings.maxEntries);
+        let systemPrompt;
+        if (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) {
+            const userPrompt = settings.aiSearchSystemPrompt.trim();
+            systemPrompt = userPrompt.startsWith('You are Claude Code')
+                ? userPrompt
+                : 'You are Claude Code. ' + userPrompt;
+        } else {
+            systemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
+        }
+        systemPrompt = systemPrompt.replace(/\{\{maxEntries\}\}/g, maxEntries);
+
         const response = await fetch(`${PLUGIN_BASE}/ai-search`, {
             method: 'POST',
             headers: getRequestHeaders(),
             body: JSON.stringify({
-                manifest: cachedManifest,
-                manifestHeader: cachedManifestHeader,
+                manifest: candidateManifest,
+                manifestHeader: candidateHeader,
                 chatContext: chatContext,
                 proxyUrl: settings.aiSearchProxyUrl,
                 model: settings.aiSearchModel,
                 maxTokens: settings.aiSearchMaxTokens,
-                systemPrompt: settings.aiSearchSystemPrompt,
+                systemPrompt: systemPrompt,
             }),
             signal: controller.signal,
         });
@@ -951,7 +968,7 @@ async function aiSearch(chat) {
 
         if (!response.ok) {
             console.warn('[DLE] AI search server error:', response.status);
-            return [];
+            return { results: [], error: true };
         }
 
         const data = await response.json();
@@ -975,7 +992,7 @@ async function aiSearch(chat) {
             if (settings.debugMode) {
                 console.warn('[DLE] AI search returned error:', data.error || 'unknown');
             }
-            return [];
+            return { results: [], error: true };
         }
 
         // Map returned results back to VaultEntry objects with confidence/reason
@@ -1009,64 +1026,15 @@ async function aiSearch(chat) {
             })));
         }
 
-        return results;
+        return { results, error: false };
     } catch (err) {
         if (err.name === 'AbortError') {
             console.warn('[DLE] AI search timed out');
         } else {
             console.error('[DLE] AI search error:', err);
         }
-        return [];
+        return { results: [], error: true };
     }
-}
-
-/**
- * Merge keyword matching results with AI search results.
- * Uses confidence levels to adjust AI entry priority offsets:
- * - high: offset × 0 (treated same as keyword matches)
- * - medium: offset × 1 (default behavior)
- * - low: offset × 2 (pushed further down)
- * @param {{ matched: VaultEntry[], matchedKeys: Map<string, string> }} keywordResult
- * @param {AiSearchMatch[]} aiResults
- * @param {typeof defaultSettings} settings
- * @returns {{ merged: VaultEntry[], matchedKeys: Map<string, string> }}
- */
-function mergeResults(keywordResult, aiResults, settings) {
-    const { matched: keywordMatched, matchedKeys } = keywordResult;
-    const keywordTitles = new Set(keywordMatched.map(e => e.title));
-
-    // AI-only results (not already found by keyword matching)
-    const aiOnly = aiResults.filter(r => !keywordTitles.has(r.entry.title));
-
-    // Tag AI-only entries in matchedKeys with their reason and confidence
-    for (const r of aiOnly) {
-        matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
-    }
-
-    // For entries found by BOTH keywords and AI, enrich the matchedKeys info
-    for (const r of aiResults) {
-        if (keywordTitles.has(r.entry.title)) {
-            const existing = matchedKeys.get(r.entry.title);
-            matchedKeys.set(r.entry.title, `${existing} + AI: ${r.reason}`);
-        }
-    }
-
-    // Confidence-based priority offset: high=0×, medium=1×, low=2×
-    const confidenceMultiplier = { high: 0, medium: 1, low: 2 };
-
-    // Build combined array with effective priority
-    const combined = [
-        ...keywordMatched.map(e => ({ entry: e, effectivePriority: e.priority })),
-        ...aiOnly.map(r => ({
-            entry: r.entry,
-            effectivePriority: r.entry.priority + settings.aiSearchPriorityOffset * (confidenceMultiplier[r.confidence] ?? 1),
-        })),
-    ];
-
-    // Sort by effective priority (ascending - lower = higher priority)
-    combined.sort((a, b) => a.effectivePriority - b.effectivePriority);
-
-    return { merged: combined.map(c => c.entry), matchedKeys };
 }
 
 /**
@@ -1229,27 +1197,108 @@ async function onGenerate(chat, contextSize, abort, type) {
             return;
         }
 
-        // Run keyword matching and AI search in parallel
-        const [keywordResult, aiEntries] = await Promise.all([
-            Promise.resolve(matchEntries(chat)),
-            aiSearch(chat),
-        ]);
+        let finalEntries;
+        let matchedKeys = new Map();
 
-        // Merge results
-        const { merged, matchedKeys } = mergeResults(keywordResult, aiEntries, settings);
+        if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
+            // ── AI-only mode: send full vault to Haiku ──
+            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex);
+            const constants = vaultIndex.filter(e => e.constant);
 
-        if (merged.length === 0) {
+            if (candidateManifest) {
+                const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+
+                if (aiResult.error) {
+                    // AI failed — fall back to keyword matching
+                    console.warn('[DLE] AI search failed (ai-only mode), falling back to keyword results');
+                    const keywordResult = matchEntries(chat);
+                    finalEntries = keywordResult.matched;
+                    matchedKeys = keywordResult.matchedKeys;
+                } else if (aiResult.results.length === 0) {
+                    // AI intentionally returned empty — keep constants only
+                    finalEntries = constants;
+                    if (settings.debugMode) {
+                        console.log('[DLE] AI-only mode: selected 0 entries (AI decision), keeping constants only');
+                    }
+                } else {
+                    finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+                    for (const r of aiResult.results) {
+                        matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
+                    }
+                    if (settings.debugMode) {
+                        console.log(`[DLE] AI-only mode: selected ${aiResult.results.length} from ${vaultIndex.filter(e => !e.constant).length} entries`);
+                    }
+                }
+            } else {
+                // All entries are constants
+                finalEntries = constants;
+            }
+
+        } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
+            // ── Two-stage mode: keywords → AI ──
+            const keywordResult = matchEntries(chat);
+            matchedKeys = keywordResult.matchedKeys;
+
             if (settings.debugMode) {
-                console.debug('[DLE] No entries matched (keyword + AI)');
+                const nonConstant = keywordResult.matched.filter(e => !e.constant);
+                console.log(`[DLE] Stage 1 (keywords): ${nonConstant.length} keyword matches + ${keywordResult.matched.length - nonConstant.length} constants`);
+            }
+
+            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched);
+
+            if (!candidateManifest) {
+                // Only constants matched — no candidates for AI
+                finalEntries = keywordResult.matched;
+            } else {
+                const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+
+                if (aiResult.error) {
+                    // AI failed — fall back to keyword results
+                    console.warn('[DLE] AI search failed, falling back to keyword results');
+                    finalEntries = keywordResult.matched;
+                } else if (aiResult.results.length === 0) {
+                    // AI intentionally returned empty — keep constants only
+                    finalEntries = keywordResult.matched.filter(e => e.constant);
+                    if (settings.debugMode) {
+                        console.log('[DLE] Stage 2 (AI): selected 0 entries (AI decision), keeping constants only');
+                    }
+                } else {
+                    const constants = keywordResult.matched.filter(e => e.constant);
+                    finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+
+                    // Update matchedKeys with AI reasons
+                    for (const r of aiResult.results) {
+                        const existing = matchedKeys.get(r.entry.title);
+                        matchedKeys.set(r.entry.title, existing
+                            ? `${existing} → AI: ${r.reason} (${r.confidence})`
+                            : `AI: ${r.reason} (${r.confidence})`);
+                    }
+
+                    if (settings.debugMode) {
+                        console.log(`[DLE] Stage 2 (AI): selected ${aiResult.results.length} from ${keywordResult.matched.filter(e => !e.constant).length} candidates`);
+                    }
+                }
+            }
+
+        } else {
+            // ── Keywords-only mode (AI disabled) ──
+            const keywordResult = matchEntries(chat);
+            finalEntries = keywordResult.matched;
+            matchedKeys = keywordResult.matchedKeys;
+        }
+
+        if (finalEntries.length === 0) {
+            if (settings.debugMode) {
+                console.debug('[DLE] No entries matched');
             }
             return;
         }
 
         // Apply conditional gating (requires/excludes)
-        const gated = applyGating(merged);
+        const gated = applyGating(finalEntries);
 
-        if (settings.debugMode && gated.length < merged.length) {
-            const removed = merged.filter(e => !gated.includes(e));
+        if (settings.debugMode && gated.length < finalEntries.length) {
+            const removed = finalEntries.filter(e => !gated.includes(e));
             console.log(`[DLE] Gating removed ${removed.length} entries:`,
                 removed.map(e => ({ title: e.title, requires: e.requires, excludes: e.excludes })));
         }
@@ -1300,9 +1349,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
 
             if (settings.debugMode) {
-                const aiCount = aiEntries.length;
-                const kwCount = keywordResult.matched.length;
-                console.log(`[DLE] ${merged.length} matched, ${gated.length} after gating, ${injectedCount} injected (~${totalTokens} tokens) in ${groups.length} group(s)` +
+                console.log(`[DLE] ${finalEntries.length} selected, ${gated.length} after gating, ${injectedCount} injected (~${totalTokens} tokens) in ${groups.length} group(s)` +
                     (contextSize > 0 ? ` (${Math.round(totalTokens / contextSize * 100)}% of ${contextSize} context)` : ''));
                 console.table(gated.slice(0, injectedCount).map(e => ({
                     title: e.title,
@@ -1536,7 +1583,7 @@ function loadSettingsUI() {
     $('#dle_ai_model').val(settings.aiSearchModel);
     $('#dle_ai_max_tokens').val(settings.aiSearchMaxTokens);
     $('#dle_ai_timeout').val(settings.aiSearchTimeout);
-    $('#dle_ai_priority_offset').val(settings.aiSearchPriorityOffset);
+    $('input[name="dle_ai_mode"][value="' + settings.aiSearchMode + '"]').prop('checked', true);
     $('#dle_ai_scan_depth').val(settings.aiSearchScanDepth);
     $('#dle_ai_system_prompt').val(settings.aiSearchSystemPrompt);
     $('#dle_ai_summary_length').val(settings.aiSearchManifestSummaryLength);
@@ -1709,8 +1756,8 @@ function bindSettingsEvents() {
         saveSettingsDebounced();
     });
 
-    $('#dle_ai_priority_offset').on('input', function () {
-        settings.aiSearchPriorityOffset = Number($(this).val()) || 0;
+    $('input[name="dle_ai_mode"]').on('change', function () {
+        settings.aiSearchMode = $('input[name="dle_ai_mode"]:checked').val();
         saveSettingsDebounced();
     });
 
@@ -1838,15 +1885,37 @@ function bindSettingsEvents() {
             return;
         }
 
-        if (!cachedManifest) {
+        await ensureIndexFresh();
+        if (vaultIndex.length === 0) {
             toastr.warning('No vault index. Click "Refresh Index" first.', 'DeepLore Enhanced');
             return;
+        }
+
+        // Build candidate manifest based on mode
+        let candidateManifest, candidateHeader, modeLabel;
+        if (settings.aiSearchMode === 'ai-only') {
+            const result = buildCandidateManifest(vaultIndex);
+            candidateManifest = result.manifest;
+            candidateHeader = result.header;
+            modeLabel = 'AI-only (full vault)';
+        } else {
+            const keywordResult = matchEntries(chat);
+            const nonConstant = keywordResult.matched.filter(e => !e.constant);
+            if (nonConstant.length === 0) {
+                toastr.warning('No keyword matches found. The AI would receive no candidates.', 'DeepLore Enhanced');
+                return;
+            }
+            const result = buildCandidateManifest(keywordResult.matched);
+            candidateManifest = result.manifest;
+            candidateHeader = result.header;
+            modeLabel = `Two-stage (${nonConstant.length} keyword candidates)`;
         }
 
         // Build chat context (same as aiSearch)
         const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
 
-        // Resolve system prompt (same logic as server)
+        // Resolve system prompt with {{maxEntries}}
+        const maxEntries = settings.unlimitedEntries ? 'as many as are relevant' : String(settings.maxEntries);
         let systemPrompt;
         if (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) {
             const userPrompt = settings.aiSearchSystemPrompt.trim();
@@ -1856,13 +1925,16 @@ function bindSettingsEvents() {
         } else {
             systemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
         }
+        systemPrompt = systemPrompt.replace(/\{\{maxEntries\}\}/g, maxEntries);
 
         // Build user message (same format as server)
-        const userMessage = `## Recent Chat\n${chatContext}\n\n## Available Lore Entries\n${cachedManifest}\n\nWhich entries are relevant to the current conversation?`;
+        const headerSection = candidateHeader ? `## Manifest Info\n${candidateHeader}\n\n` : '';
+        const userMessage = `${headerSection}## Recent Chat\n${chatContext}\n\n## Candidate Lore Entries\n${candidateManifest}\n\nSelect the relevant entries as a JSON array.`;
 
         // Build preview HTML
         const previewHtml = `
             <div style="text-align: left; font-family: monospace; font-size: 0.85em;">
+                <h3>Mode: ${escapeHtml(modeLabel)}</h3>
                 <h3>System Prompt</h3>
                 <div style="background: var(--SmartThemeBlurTintColor, #1a1a2e); padding: 10px; border-radius: 5px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 15px;">${escapeHtml(systemPrompt)}</div>
                 <h3>User Message</h3>
@@ -1893,7 +1965,6 @@ function bindSettingsEvents() {
         try {
             toastr.info('Running match simulation...', 'DeepLore Enhanced', { timeOut: 2000 });
 
-            // Ensure index is fresh
             await ensureIndexFresh();
 
             if (vaultIndex.length === 0) {
@@ -1902,17 +1973,79 @@ function bindSettingsEvents() {
             }
 
             // Run the full matching pipeline (same as onGenerate but without injection)
-            const [keywordResult, aiEntries] = await Promise.all([
-                Promise.resolve(matchEntries(chat)),
-                aiSearch(chat),
-            ]);
+            let finalEntries;
+            let matchedKeys = new Map();
+            let keywordCount = 0;
+            let aiUsed = false;
+            let aiError = false;
+            let aiSelectedCount = 0;
 
-            const { merged, matchedKeys } = mergeResults(keywordResult, aiEntries, settings);
-            const gated = applyGating(merged);
+            if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
+                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex);
+                const constants = vaultIndex.filter(e => e.constant);
+                aiUsed = true;
+
+                if (candidateManifest) {
+                    const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+                    if (aiResult.error) {
+                        aiError = true;
+                        const kwResult = matchEntries(chat);
+                        finalEntries = kwResult.matched;
+                        matchedKeys = kwResult.matchedKeys;
+                    } else if (aiResult.results.length === 0) {
+                        finalEntries = constants;
+                    } else {
+                        finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+                        aiSelectedCount = aiResult.results.length;
+                        for (const r of aiResult.results) {
+                            matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
+                        }
+                    }
+                } else {
+                    finalEntries = constants;
+                }
+
+            } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
+                const keywordResult = matchEntries(chat);
+                matchedKeys = keywordResult.matchedKeys;
+                keywordCount = keywordResult.matched.filter(e => !e.constant).length;
+
+                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched);
+
+                if (!candidateManifest) {
+                    finalEntries = keywordResult.matched;
+                } else {
+                    aiUsed = true;
+                    const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+                    if (aiResult.error) {
+                        aiError = true;
+                        finalEntries = keywordResult.matched;
+                    } else if (aiResult.results.length === 0) {
+                        finalEntries = keywordResult.matched.filter(e => e.constant);
+                    } else {
+                        const constants = keywordResult.matched.filter(e => e.constant);
+                        finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+                        aiSelectedCount = aiResult.results.length;
+                        for (const r of aiResult.results) {
+                            const existing = matchedKeys.get(r.entry.title);
+                            matchedKeys.set(r.entry.title, existing
+                                ? `${existing} → AI: ${r.reason} (${r.confidence})`
+                                : `AI: ${r.reason} (${r.confidence})`);
+                        }
+                    }
+                }
+
+            } else {
+                const keywordResult = matchEntries(chat);
+                finalEntries = keywordResult.matched;
+                matchedKeys = keywordResult.matchedKeys;
+                keywordCount = keywordResult.matched.filter(e => !e.constant).length;
+            }
+
+            const gated = applyGating(finalEntries);
             const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated);
 
-            // Compute what was removed at each stage
-            const gatedRemoved = merged.filter(e => !gated.includes(e));
+            const gatedRemoved = finalEntries.filter(e => !gated.includes(e));
             const budgetRemoved = gated.slice(injectedCount);
             const injected = gated.slice(0, injectedCount);
 
@@ -1926,7 +2059,20 @@ function bindSettingsEvents() {
             html += `<h3>Match Summary</h3>`;
             html += `<div style="margin-bottom: 10px;">`;
             html += `<b>${vaultIndex.length}</b> indexed &rarr; `;
-            html += `<b>${merged.length}</b> matched &rarr; `;
+            if (settings.aiSearchMode === 'ai-only' && settings.aiSearchEnabled) {
+                html += aiError
+                    ? `<b style="color: #ff9800;">AI error (fallback to keywords)</b> &rarr; `
+                    : `<b>${aiSelectedCount}</b> AI selected &rarr; `;
+            } else if (settings.aiSearchEnabled) {
+                html += `<b>${keywordCount}</b> keyword matched &rarr; `;
+                if (aiUsed) {
+                    html += aiError
+                        ? `<b style="color: #ff9800;">AI error (fallback)</b> &rarr; `
+                        : `<b>${aiSelectedCount}</b> AI selected &rarr; `;
+                }
+            } else {
+                html += `<b>${keywordCount}</b> keyword matched &rarr; `;
+            }
             html += `<b>${gated.length}</b> after gating &rarr; `;
             html += `<b style="color: #4caf50;">${injectedCount}</b> would inject (~${totalTokens} tokens)`;
             html += `</div>`;
@@ -1986,7 +2132,7 @@ function bindSettingsEvents() {
             }
 
             // Unmatched entries with keys (diagnostic aid)
-            const matchedTitles = new Set(merged.map(e => e.title));
+            const matchedTitles = new Set(finalEntries.map(e => e.title));
             const unmatchedWithKeys = vaultIndex.filter(e => !matchedTitles.has(e.title) && !e.constant && e.keys.length > 0);
             if (unmatchedWithKeys.length > 0) {
                 html += `<details style="margin-top: 10px;"><summary style="cursor: pointer; opacity: 0.7;">Unmatched entries with keywords (${unmatchedWithKeys.length})</summary>`;

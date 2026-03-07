@@ -170,21 +170,26 @@
                         <input id="dle_ai_timeout" type="number" class="text_pole" min="1000" max="30000" />
                     </div>
                 </div>
-                <div class="flex-container">
-                    <div class="flex1" title="Priority offset for AI-only matches. Higher values push AI-found entries below keyword-matched ones in priority ordering. High-confidence AI picks use 0× offset, medium uses 1×, low uses 2×. Default: 50">
-                        <label for="dle_ai_priority_offset">
-                            <small>AI Priority Offset</small>
+                <div style="margin: 8px 0;">
+                    <small>AI Search Mode</small>
+                    <div class="radio_group">
+                        <label class="checkbox_label" title="Keywords pre-filter the vault, then AI picks the best from those candidates. Requires entries to have good keywords.">
+                            <input type="radio" name="dle_ai_mode" value="two-stage" />
+                            <span>Two-Stage (keywords &rarr; AI)</span>
                         </label>
-                        <input id="dle_ai_priority_offset" type="number" class="text_pole" min="0" max="1000" />
+                        <label class="checkbox_label" title="AI evaluates the full vault manifest directly. More thorough but uses more tokens.">
+                            <input type="radio" name="dle_ai_mode" value="ai-only" />
+                            <span>AI Only (full vault)</span>
+                        </label>
                     </div>
+                </div>
+                <div class="flex-container">
                     <div class="flex1" title="Number of recent chat messages to include as context for AI search. Can differ from keyword scan depth. Default: 4">
                         <label for="dle_ai_scan_depth">
                             <small>AI Scan Depth</small>
                         </label>
                         <input id="dle_ai_scan_depth" type="number" class="text_pole" min="1" max="100" />
                     </div>
-                </div>
-                <div class="flex-container">
                     <div class="flex1" title="Maximum characters for entry summaries in the AI search manifest. Higher values give the AI more context per entry but cost more tokens. Default: 400">
                         <label for="dle_ai_summary_length">
                             <small>Manifest Summary Length</small>

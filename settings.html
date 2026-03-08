@@ -190,11 +190,11 @@
                         </label>
                         <input id="dle_ai_scan_depth" type="number" class="text_pole" min="1" max="100" />
                     </div>
-                    <div class="flex1" title="Maximum characters for entry summaries in the AI search manifest. Higher values give the AI more context per entry but cost more tokens. Default: 400">
+                    <div class="flex1" title="Maximum characters for entry summaries in the AI search manifest. Higher values give the AI more context per entry but cost more tokens. Default: 600">
                         <label for="dle_ai_summary_length">
                             <small>Manifest Summary Length</small>
                         </label>
-                        <input id="dle_ai_summary_length" type="number" class="text_pole" min="100" max="800" />
+                        <input id="dle_ai_summary_length" type="number" class="text_pole" min="100" max="1000" />
                     </div>
                 </div>
                 <div title="Override the default system prompt sent to the AI for entry selection. Leave empty to use the built-in prompt. Must describe how to evaluate relevance and return a JSON array of titles.">

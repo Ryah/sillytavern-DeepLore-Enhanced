@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.94-ALPHA
+
+### Manifest Format Optimization
+- **Compressed manifest format** -- Manifest entries sent to Haiku now use a compact format: `EntryName (Ntok) → LinkedEntries` followed by the summary text. Removed redundant Keys, Tags, and labels. ~30% token reduction per manifest.
+- **Increased default summary length** -- Default summary length increased from 400 to 600 characters, capturing more of each entry's structured meta-block data (Triggers, Related, Who Knows, etc.) that helps Haiku make better selections.
+- **Updated AI system prompt** -- System prompt now describes the new manifest format, including how to interpret `→` links and `[bracketed]` metadata fields like Triggers and Related.
+- **Summary length max increased** -- Settings slider now allows up to 1000 characters (was 800).
+- **Summary frontmatter field** -- Entries can now include a `summary:` field in frontmatter, written specifically for AI selection. The manifest uses this instead of truncating entry content. Entries without a summary fall back to content truncation.
+
 ## 0.93-ALPHA
 
 ### Pipeline Overhaul: Two-Stage Keyword → AI Selection

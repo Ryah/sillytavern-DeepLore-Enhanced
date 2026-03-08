@@ -144,6 +144,7 @@ and gods alike.
 | `position` | string | (global) | Injection position override: `before`, `after`, or `in_chat` |
 | `depth` | number | (global) | Injection depth override (for `in_chat` position) |
 | `role` | string | (global) | Message role override: `system`, `user`, or `assistant` |
+| `summary` | string | `""` | AI selection summary — a short description (up to 600 chars) used in the manifest to help Haiku decide relevance. Not injected into the writing AI. |
 
 ### Special Tags
 
@@ -155,7 +156,7 @@ and gods alike.
 
 **Two-Stage mode** (default):
 1. On each generation, **keyword matching** runs first against recent chat messages, producing a set of candidate entries.
-2. A **compact manifest** is built from those candidates only -- title, keywords, tags, links, token cost, and a short summary per entry.
+2. A **compact manifest** is built from those candidates only -- entry name, token cost, linked entries, and a summary per entry (from the `summary` frontmatter field, or truncated content as fallback).
 3. The candidate manifest and recent chat are sent to Claude Haiku via the proxy.
 4. Haiku returns a JSON array selecting the most relevant entries from the candidates. This is the final selection (plus constants).
 5. The selected set goes through gating (requires/excludes), budget/template formatting, and gets injected into the prompt.
@@ -257,7 +258,7 @@ This entry injects as a user message at depth 1 in the chat history.
 - **Max Response Tokens** -- Token limit for the AI response (default: 1024). Keep low -- we only need a JSON array of titles.
 - **Timeout (ms)** -- How long to wait for the AI before falling back to keyword-only results (default: 10000)
 - **AI Scan Depth** -- How many recent messages to send as context to the AI (default: 4). Can differ from keyword scan depth.
-- **Manifest Summary Length** -- Maximum characters for entry summaries in the AI manifest (default: 400). Higher gives more context but costs more tokens.
+- **Manifest Summary Length** -- Maximum characters for entry summaries in the AI manifest (default: 600). Only applies to entries without a `summary` frontmatter field (which are used as-is). Higher gives more context but costs more tokens.
 - **System Prompt Override** -- Custom system prompt for the AI. Leave empty for the built-in default. Supports `{{maxEntries}}` placeholder. `"You are Claude Code."` is always prepended (proxy requirement).
 
 ### Injection

@@ -29,26 +29,31 @@ const PROMPT_TAG = 'deeplore_enhanced';
 const PROMPT_TAG_PREFIX = 'deeplore_';
 const PLUGIN_BASE = '/api/plugins/deeplore-enhanced';
 
-const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a set of candidate lore entries, select which entries are most relevant to inject into the current conversation context.
+const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of lore entries, select which entries are most relevant to inject into the current conversation context.
 
-You may select up to {{maxEntries}} entries. Select fewer if not all candidates are relevant.
+You may select up to {{maxEntries}} entries. Select fewer if not all are relevant.
+
+Each entry in the manifest is formatted as:
+  EntryName (Ntok) → LinkedEntry1, LinkedEntry2
+  Description text. May include structured metadata in [brackets] with fields like Triggers, Related, Who Knows, Category.
 
 Selection criteria (in order of importance):
 1. Direct references - Characters, places, items, or events explicitly mentioned
 2. Active context - Entries about the current location, present characters, or ongoing events
-3. Relationship chains - If entry A is relevant and links to entry B, consider B as well
-4. Thematic relevance - Entries that match the tone or themes of the conversation (betrayal, romance, combat, etc.)
+3. Relationship chains - The → arrow shows linked entries; if entry A is relevant, consider linked entries too
+4. Metadata triggers - If an entry's [Triggers: ...] field matches what's happening in the conversation, select it
+5. Thematic relevance - Entries matching the tone or themes (betrayal, romance, combat, etc.)
 
 Guidelines:
-- Focus on which entries are most relevant RIGHT NOW
+- Focus on what is relevant RIGHT NOW in the conversation
 - Prefer fewer, highly relevant entries over many loosely related ones
-- Consider the token cost shown for each entry when making selections
-- Entries marked "Links to:" indicate relationships; use these to find connected lore
+- Consider the token cost (Ntok) shown for each entry when making selections
+- Use [Related: ...] and → links to find connected lore
 
 Respond with a JSON array of objects. Each object has:
-- "title": exact entry title from the manifest
+- "title": exact entry name from the manifest
 - "confidence": "high", "medium", or "low"
-- "reason": brief phrase explaining why (e.g. "directly mentioned", "location of current scene", "linked from Eris entry")
+- "reason": brief phrase explaining why
 
 Example: [{"title": "Eris", "confidence": "high", "reason": "directly mentioned by name"}, {"title": "The Dark Council", "confidence": "medium", "reason": "linked from Eris, thematically relevant"}]
 If no entries are relevant, respond with: []`;
@@ -90,7 +95,7 @@ const defaultSettings = {
     aiSearchMode: 'two-stage',
     aiSearchScanDepth: 4,
     aiSearchSystemPrompt: '',
-    aiSearchManifestSummaryLength: 400,
+    aiSearchManifestSummaryLength: 600,
     // Context Cartographer settings
     showLoreSources: true,
     obsidianVaultName: '',
@@ -387,23 +392,14 @@ function buildCandidateManifest(candidates) {
 
     const manifest = nonConstant
         .map(entry => {
-            const flat = entry.content.replace(/\n+/g, ' ').trim();
-            const summary = truncateToSentence(flat, summaryLen);
-            const parts = [`Title: ${entry.title}`];
+            const summaryText = entry.summary
+                || truncateToSentence(entry.content.replace(/\n+/g, ' ').trim(), summaryLen);
+            const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
+                ? ` → ${entry.resolvedLinks.join(', ')}`
+                : '';
+            const header = `${entry.title} (${entry.tokenEstimate}tok)${links}`;
 
-            if (entry.keys.length > 0) {
-                parts.push(`Keys: ${entry.keys.join(', ')}`);
-            }
-            if (entry.tags && entry.tags.length > 0) {
-                parts.push(`Tags: ${entry.tags.join(', ')}`);
-            }
-            if (entry.resolvedLinks && entry.resolvedLinks.length > 0) {
-                parts.push(`Links to: ${entry.resolvedLinks.join(', ')}`);
-            }
-            parts.push(`Tokens: ~${entry.tokenEstimate}`);
-            parts.push(`Summary: ${summary}`);
-
-            return parts.join('\n');
+            return `${header}\n${summaryText}`;
         })
         .join('\n---\n');
 
@@ -638,6 +634,9 @@ async function buildIndex() {
             const injectionRole = typeof frontmatter.role === 'string'
                 ? (roleMap[frontmatter.role.toLowerCase()] ?? null) : null;
 
+            // AI selection summary (dedicated frontmatter field, separate from injected content)
+            const summary = typeof frontmatter.summary === 'string' ? frontmatter.summary.trim() : '';
+
             // Preserve all tags except the lorebook marker tag itself
             const entryTags = tags.filter(t => t !== tagToMatch);
 
@@ -646,6 +645,7 @@ async function buildIndex() {
                 title,
                 keys,
                 content,
+                summary,
                 priority,
                 constant,
                 tokenEstimate: 0,

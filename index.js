@@ -122,7 +122,7 @@ const settingsConstraints = {
     aiSearchMaxTokens: { min: 64, max: 4096 },
     aiSearchTimeout: { min: 1000, max: 30000 },
     aiSearchScanDepth: { min: 1, max: 100 },
-    aiSearchManifestSummaryLength: { min: 100, max: 800 },
+    aiSearchManifestSummaryLength: { min: 100, max: 1000 },
     scribeInterval: { min: 1, max: 50 },
     syncPollingInterval: { min: 0, max: 3600 },
 };

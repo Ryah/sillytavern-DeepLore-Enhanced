@@ -119,6 +119,7 @@ keys:
   - Eris
   - goddess of discord
 priority: 10
+summary: "Goddess of discord and strife. Select when chaos, golden apple, divine rivalry, or conflicts among gods come up."
 ---
 
 # Eris
@@ -127,6 +128,8 @@ Eris is the goddess of discord and strife. She carries a golden apple
 inscribed "To the Fairest" which she uses to sow chaos among mortals
 and gods alike.
 ```
+
+The `summary` field is optional but recommended when AI Search is enabled. It tells Haiku *when* to select this entry without sending the full content. Write it for the selection AI, not the writing AI — focus on what the entry is and what situations should trigger it. Up to 600 characters. Entries without a `summary` fall back to truncated content.
 
 ### Frontmatter Fields
 
@@ -268,6 +271,7 @@ This entry injects as a user message at depth 1 in the chat history.
 - **Injection Role** -- Message role (system/user/assistant). Entries can override via frontmatter.
 - **Allow World Info Scan** -- Let ST's World Info system scan injected lore
 - **Show Lore Sources Button** -- Add a book icon to AI messages showing which entries were injected (Context Cartographer)
+- **Obsidian Vault Name** -- Your vault name for Context Cartographer deep links. When set, entry names in the lore sources popup link directly into Obsidian.
 
 ### Session Scribe
 - **Enable Session Scribe** -- Auto-summarize sessions to your Obsidian vault

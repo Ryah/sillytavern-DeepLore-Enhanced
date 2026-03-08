@@ -1,4 +1,5 @@
 const http = require('node:http');
+const https = require('node:https');
 
 const info = {
     id: 'deeplore-enhanced',
@@ -112,7 +113,10 @@ function encodeVaultPath(vaultPath) {
  * @param {string} directory - Directory path (e.g. '' for root, 'LA World')
  * @returns {Promise<string[]>} Array of full file paths
  */
-async function listAllFiles(port, apiKey, directory = '') {
+async function listAllFiles(port, apiKey, directory = '', depth = 0) {
+    if (depth > 20) {
+        throw new Error(`Directory nesting too deep at "${directory}"`);
+    }
     const urlPath = directory ? `/vault/${encodeVaultPath(directory)}/` : '/vault/';
     const res = await obsidianRequest({ port, apiKey, path: urlPath });
 
@@ -130,7 +134,7 @@ async function listAllFiles(port, apiKey, directory = '') {
             // It's a directory, recurse with the full path
             const dirName = file.slice(0, -1); // Remove trailing /
             const fullDirPath = prefix + dirName;
-            const subFiles = await listAllFiles(port, apiKey, fullDirPath);
+            const subFiles = await listAllFiles(port, apiKey, fullDirPath, depth + 1);
             allFiles.push(...subFiles);
         } else {
             allFiles.push(prefix + file);
@@ -153,9 +157,9 @@ async function listAllFiles(port, apiKey, directory = '') {
  * @param {number} maxTokens - Max tokens for response
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
-function callProxy(proxyUrl, model, systemPrompt, userMessage, maxTokens) {
+function callProxy(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000) {
     return new Promise((resolve, reject) => {
-        const url = new URL(proxyUrl + '/v1/messages');
+        const url = new URL(proxyUrl.replace(/\/+$/, '') + '/v1/messages');
         const payload = JSON.stringify({
             model: model,
             max_tokens: maxTokens,
@@ -178,10 +182,14 @@ function callProxy(proxyUrl, model, systemPrompt, userMessage, maxTokens) {
             },
         };
 
-        const req = http.request(options, (res) => {
+        const transport = url.protocol === 'https:' ? https : http;
+        const req = transport.request(options, (res) => {
             let data = '';
             res.on('data', chunk => { data += chunk; });
             res.on('end', () => {
+                if (res.statusCode < 200 || res.statusCode >= 300) {
+                    return reject(new Error(`Proxy returned HTTP ${res.statusCode}: ${data.substring(0, 200)}`));
+                }
                 try {
                     const parsed = JSON.parse(data);
 
@@ -199,8 +207,8 @@ function callProxy(proxyUrl, model, systemPrompt, userMessage, maxTokens) {
         });
 
         req.on('error', reject);
-        req.setTimeout(15000, () => {
-            req.destroy(new Error('Proxy request timed out (15s)'));
+        req.setTimeout(timeout, () => {
+            req.destroy(new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`));
         });
         req.write(payload);
         req.end();
@@ -248,7 +256,7 @@ function normalizeResults(arr) {
         }
         // Unknown format, try to coerce
         return { title: String(item), confidence: 'medium', reason: 'AI search' };
-    });
+    }).filter(r => r.title && r.title !== 'null' && r.title !== 'undefined' && r.title.trim() !== '');
 }
 
 /**
@@ -269,8 +277,8 @@ function extractAiResponse(text) {
         if (fenced) return normalizeResults(fenced);
     }
 
-    // Try finding any JSON array in the text (greedy to handle nested objects)
-    const arrayMatch = text.match(/\[[\s\S]*\]/);
+    // Try finding any JSON array in the text (lazy to avoid spanning multiple arrays)
+    const arrayMatch = text.match(/\[[\s\S]*?\]/);
     if (arrayMatch) {
         const found = tryParseJson(arrayMatch[0]);
         if (found) return normalizeResults(found);
@@ -348,6 +356,10 @@ async function init(router) {
                 return res.status(400).json({ error: 'Missing port, apiKey, or filename' });
             }
 
+            if (filename.includes('..')) {
+                return res.status(400).json({ error: 'Invalid filename: path traversal not allowed' });
+            }
+
             const result = await obsidianRequest({
                 port,
                 apiKey,
@@ -423,6 +435,10 @@ async function init(router) {
                 return res.status(400).json({ ok: false, error: 'Missing required fields (port, apiKey, filename, content)' });
             }
 
+            if (filename.includes('..')) {
+                return res.status(400).json({ ok: false, error: 'Invalid filename: path traversal not allowed' });
+            }
+
             const result = await obsidianRequest({
                 port,
                 apiKey,
@@ -448,7 +464,7 @@ async function init(router) {
      */
     router.post('/ai-search', async (req, res) => {
         try {
-            const { manifest, manifestHeader, chatContext, proxyUrl, model, maxTokens, systemPrompt } = req.body;
+            const { manifest, manifestHeader, chatContext, proxyUrl, model, maxTokens, systemPrompt, timeout } = req.body;
 
             if (!manifest || !chatContext || !proxyUrl || !model) {
                 return res.status(400).json({ ok: false, error: 'Missing required fields (manifest, chatContext, proxyUrl, model)' });
@@ -469,12 +485,14 @@ async function init(router) {
             const headerSection = manifestHeader ? `## Manifest Info\n${manifestHeader}\n\n` : '';
             const userMessage = `${headerSection}## Recent Chat\n${chatContext}\n\n## Available Lore Entries\n${manifest}\n\nSelect the relevant entries as a JSON array.`;
 
+            const proxyTimeout = Math.min(Math.max(timeout || 15000, 5000), 60000);
             const result = await callProxy(
                 proxyUrl,
                 model,
                 finalSystemPrompt,
                 userMessage,
                 maxTokens || 1024,
+                proxyTimeout,
             );
 
             const aiResults = extractAiResponse(result.text);

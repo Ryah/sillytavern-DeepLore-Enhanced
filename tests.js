@@ -59,8 +59,8 @@ function parseFrontmatter(content) {
                 frontmatter[currentKey] = true;
             } else if (rawValue === 'false') {
                 frontmatter[currentKey] = false;
-            } else if (/^\d+$/.test(rawValue)) {
-                frontmatter[currentKey] = parseInt(rawValue, 10);
+            } else if (/^-?\d+(\.\d+)?$/.test(rawValue)) {
+                frontmatter[currentKey] = Number(rawValue);
             } else {
                 frontmatter[currentKey] = rawValue.replace(/^['"]|['"]$/g, '');
             }
@@ -144,10 +144,10 @@ const settingsConstraints = {
     reviewResponseTokens: { min: 0, max: 100000 },
     aiSearchMaxTokens: { min: 64, max: 4096 },
     aiSearchTimeout: { min: 1000, max: 30000 },
-    aiSearchPriorityOffset: { min: 0, max: 1000 },
     aiSearchScanDepth: { min: 1, max: 100 },
-    aiSearchManifestSummaryLength: { min: 100, max: 800 },
+    aiSearchManifestSummaryLength: { min: 100, max: 1000 },
     scribeInterval: { min: 1, max: 50 },
+    syncPollingInterval: { min: 0, max: 3600 },
 };
 
 function validateSettings(settings) {
@@ -378,11 +378,11 @@ test('validateSettings: clamps values', () => {
 });
 
 test('validateSettings: clamps AI settings', () => {
-    const settings = { aiSearchMaxTokens: 10000, aiSearchTimeout: 500, aiSearchPriorityOffset: 5000 };
+    const settings = { aiSearchMaxTokens: 10000, aiSearchTimeout: 500, syncPollingInterval: 5000 };
     validateSettings(settings);
     assertEqual(settings.aiSearchMaxTokens, 4096, 'should clamp AI max tokens');
     assertEqual(settings.aiSearchTimeout, 1000, 'should clamp AI timeout to min');
-    assertEqual(settings.aiSearchPriorityOffset, 1000, 'should clamp AI priority offset');
+    assertEqual(settings.syncPollingInterval, 3600, 'should clamp sync interval to max');
 });
 
 test('validateSettings: rounds floats', () => {
@@ -446,9 +446,9 @@ test('validateSettings: clamps scribe interval', () => {
 });
 
 test('validateSettings: clamps manifest summary length', () => {
-    const settings = { aiSearchManifestSummaryLength: 1000 };
+    const settings = { aiSearchManifestSummaryLength: 2000 };
     validateSettings(settings);
-    assertEqual(settings.aiSearchManifestSummaryLength, 800, 'should clamp summary length to max');
+    assertEqual(settings.aiSearchManifestSummaryLength, 1000, 'should clamp summary length to max');
 });
 
 // ============================================================================

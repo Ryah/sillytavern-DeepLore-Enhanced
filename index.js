@@ -265,8 +265,8 @@ function parseFrontmatter(content) {
                 frontmatter[currentKey] = true;
             } else if (rawValue === 'false') {
                 frontmatter[currentKey] = false;
-            } else if (/^\d+$/.test(rawValue)) {
-                frontmatter[currentKey] = parseInt(rawValue, 10);
+            } else if (/^-?\d+(\.\d+)?$/.test(rawValue)) {
+                frontmatter[currentKey] = Number(rawValue);
             } else {
                 // Strip surrounding quotes if present
                 frontmatter[currentKey] = rawValue.replace(/^['"]|['"]$/g, '');
@@ -384,7 +384,7 @@ function resolveLinks() {
  */
 function buildCandidateManifest(candidates) {
     const settings = getSettings();
-    const summaryLen = settings.aiSearchManifestSummaryLength || 400;
+    const summaryLen = settings.aiSearchManifestSummaryLength || 600;
 
     const nonConstant = candidates.filter(e => !e.constant);
 
@@ -498,7 +498,7 @@ function detectChanges(oldSnapshot, newSnapshot) {
  */
 function showChangesToast(changes) {
     const truncList = (arr, max = 3) => {
-        const shown = arr.slice(0, max).join(', ');
+        const shown = arr.slice(0, max).map(s => escapeHtml(s)).join(', ');
         return arr.length > max ? shown + '...' : shown;
     };
 
@@ -923,7 +923,7 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
 
     // Check cache - skip API call if inputs haven't changed
     const cacheKey = simpleHash(chatContext + candidateManifest);
-    if (cacheKey === aiSearchCache.hash && aiSearchCache.results.length >= 0) {
+    if (cacheKey === aiSearchCache.hash && aiSearchCache.results.length > 0) {
         aiSearchStats.cachedHits++;
         updateAiStats();
         if (settings.debugMode) {
@@ -960,6 +960,7 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
                 model: settings.aiSearchModel,
                 maxTokens: settings.aiSearchMaxTokens,
                 systemPrompt: systemPrompt,
+                timeout: settings.aiSearchTimeout,
             }),
             signal: controller.signal,
         });
@@ -1028,6 +1029,7 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
 
         return { results, error: false };
     } catch (err) {
+        clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
             console.warn('[DLE] AI search timed out');
         } else {
@@ -1176,12 +1178,12 @@ let lastWarningRatio = 0;
 async function onGenerate(chat, contextSize, abort, type) {
     const settings = getSettings();
 
-    // Clear stale source data from any previous generation
-    lastInjectionSources = null;
-
     if (type === 'quiet' || !settings.enabled) {
         return;
     }
+
+    // Clear stale source data (after quiet check so Scribe doesn't wipe real sources)
+    lastInjectionSources = null;
 
     // Clear all previous DeepLore prompts
     clearDeeplorePrompts();
@@ -1507,6 +1509,10 @@ async function runScribe(customPrompt) {
             }),
         });
 
+        if (!response.ok) {
+            throw new Error(`Server returned HTTP ${response.status}`);
+        }
+
         const data = await response.json();
 
         if (data.ok) {
@@ -1772,7 +1778,7 @@ function bindSettingsEvents() {
     });
 
     $('#dle_ai_summary_length').on('input', function () {
-        settings.aiSearchManifestSummaryLength = Number($(this).val()) || 400;
+        settings.aiSearchManifestSummaryLength = Number($(this).val()) || 600;
         saveSettingsDebounced();
     });
 
@@ -1836,6 +1842,10 @@ function bindSettingsEvents() {
                 }),
             });
 
+            if (!response.ok) {
+                throw new Error(`Server returned HTTP ${response.status}`);
+            }
+
             const data = await response.json();
 
             if (data.ok) {
@@ -1863,6 +1873,10 @@ function bindSettingsEvents() {
                     model: settings.aiSearchModel,
                 }),
             });
+
+            if (!response.ok) {
+                throw new Error(`Server returned HTTP ${response.status}`);
+            }
 
             const data = await response.json();
 

@@ -1374,6 +1374,33 @@ async function onGenerate(chat, contextSize, abort, type) {
 // Register the interceptor on globalThis so SillyTavern can find it
 globalThis.deepLoreEnhanced_onGenerate = onGenerate;
 
+/**
+ * External API: match vault entries against arbitrary text.
+ * Used by other extensions (e.g. BurnerPhone) to get lore without going through the interceptor.
+ * @param {string|object[]} scanInput - Text string or array of {name, mes, is_user} chat objects
+ * @returns {Promise<{text: string, count: number, tokens: number}>}
+ */
+async function matchTextForExternal(scanInput) {
+    const settings = getSettings();
+    if (!settings.enabled) return { text: '', count: 0, tokens: 0 };
+
+    await ensureIndexFresh();
+    if (vaultIndex.length === 0) return { text: '', count: 0, tokens: 0 };
+
+    const fakeChat = typeof scanInput === 'string'
+        ? [{ name: 'context', mes: scanInput, is_user: true }]
+        : scanInput;
+
+    const { matched } = matchEntries(fakeChat);
+    const gated = applyGating(matched);
+    const { groups, count, totalTokens } = formatAndGroup(gated);
+
+    const combinedText = groups.map(g => g.text).join('\n\n');
+    return { text: combinedText, count, tokens: totalTokens };
+}
+
+globalThis.deepLoreEnhanced_matchText = matchTextForExternal;
+
 // ============================================================================
 // Context Cartographer
 // ============================================================================

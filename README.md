@@ -8,6 +8,8 @@
 
 DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) that adds **AI-powered semantic search** on top of the existing keyword matching system. It uses Claude Haiku (via [claude-code-proxy](https://github.com/horselock/claude-code-proxy)) to find vault entries that are *contextually relevant* to the conversation, even when no exact keywords match.
 
+> **Upgrading?** Make sure to install the new server `index.js`. New since 0.10: shared core refactor (no behavior changes), active character boost. See the [changelog](CHANGELOG.md) for details.
+
 ## What's New (vs DeepLore)
 
 - **AI-powered entry selection** -- Claude Haiku reads your recent chat context alongside a compact manifest of vault entries and selects which ones are relevant. Catches thematic connections that keyword matching misses entirely.

@@ -72,6 +72,28 @@
                     </div>
                 </div>
                 <div class="flex-container">
+                    <div class="flex1" title="Obsidian tag (without #) for entries whose content is sent to the AI as story context on new chats, helping it make better entry selections. These entries are NOT injected — they only inform the AI's decision-making. Leave empty to disable.">
+                        <label for="dle_seed_tag">
+                            <small>Seed Tag</small>
+                        </label>
+                        <input id="dle_seed_tag" type="text" class="text_pole" placeholder="lorebook-seed" />
+                    </div>
+                    <div class="flex1" title="Obsidian tag (without #) for entries that are force-injected when the chat is short (below the New Chat Threshold), then become regular entries once the chat grows. Useful for writing instructions or foundational lore needed early on.">
+                        <label for="dle_bootstrap_tag">
+                            <small>Bootstrap Tag</small>
+                        </label>
+                        <input id="dle_bootstrap_tag" type="text" class="text_pole" placeholder="lorebook-bootstrap" />
+                    </div>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Message count threshold for new chat features. When the chat has this many messages or fewer, seed context is sent to the AI and bootstrap entries are force-injected. Once the chat exceeds this, both features deactivate. Default: 3">
+                        <label for="dle_new_chat_threshold">
+                            <small>New Chat Threshold</small>
+                        </label>
+                        <input id="dle_new_chat_threshold" type="number" class="text_pole" min="1" max="20" />
+                    </div>
+                </div>
+                <div class="flex-container">
                     <div class="flex1" title="Number of recent chat messages to scan for keyword matches. Set to 0 to disable keyword matching entirely (AI search only mode). Default: 4">
                         <label for="dle_scan_depth">
                             <small>Scan Depth (0 = keywords off)</small>
@@ -130,6 +152,14 @@
                         <small>Max Recursion Steps</small>
                     </label>
                     <input id="dle_max_recursion" type="number" class="text_pole" min="1" max="10" />
+                </div>
+            </div>
+            <div class="flex-container">
+                <div class="flex1" title="Skip re-injecting an entry for N generations after it was last injected. Helps save context by avoiding repeating the same lore. 0 = disabled (always re-inject when matched).">
+                    <label for="dle_reinjection_cooldown">
+                        <small>Re-injection Cooldown (0 = off)</small>
+                    </label>
+                    <input id="dle_reinjection_cooldown" type="number" class="text_pole" min="0" max="50" />
                 </div>
             </div>
 

@@ -69,6 +69,9 @@ const defaultSettings = {
     lorebookTag: 'lorebook',
     constantTag: 'lorebook-always',
     neverInsertTag: 'lorebook-never',
+    seedTag: 'lorebook-seed',
+    bootstrapTag: 'lorebook-bootstrap',
+    newChatThreshold: 3,
     scanDepth: 4,
     maxEntries: 10,
     unlimitedEntries: true,
@@ -107,6 +110,10 @@ const defaultSettings = {
     // Vault Sync settings
     syncPollingInterval: 0,
     showSyncToasts: true,
+    // Chat History Tracking
+    reinjectionCooldown: 0,
+    // Analytics
+    analyticsData: {},
 };
 
 /** Validation constraints for numeric settings */
@@ -124,7 +131,9 @@ const settingsConstraints = {
     aiSearchScanDepth: { min: 1, max: 100 },
     aiSearchManifestSummaryLength: { min: 100, max: 1000 },
     scribeInterval: { min: 1, max: 50 },
+    newChatThreshold: { min: 1, max: 20 },
     syncPollingInterval: { min: 0, max: 3600 },
+    reinjectionCooldown: { min: 0, max: 50 },
 };
 
 /**
@@ -181,6 +190,8 @@ function getSettings() {
  * @property {number|null} injectionPosition - Per-entry injection position override (null = use global)
  * @property {number|null} injectionDepth - Per-entry injection depth override (null = use global)
  * @property {number|null} injectionRole - Per-entry injection role override (null = use global)
+ * @property {number|null} cooldown - Generations to skip after triggering (null = no cooldown)
+ * @property {number|null} warmup - Keyword hit count required before triggering (null = no warmup)
  */
 
 /** @type {VaultEntry[]} */
@@ -203,6 +214,15 @@ let scribeInProgress = false;
 
 /** Vault Sync: previous index snapshot for change detection */
 let previousIndexSnapshot = null;
+
+/** Cooldown tracking: title → remaining generations to skip */
+let cooldownTracker = new Map();
+
+/** Generation counter (reset per chat) */
+let generationCount = 0;
+
+/** Re-injection tracking: title → generation number when last injected */
+let injectionHistory = new Map();
 
 /** Vault Sync: polling interval ID */
 let syncIntervalId = null;
@@ -380,17 +400,19 @@ function resolveLinks() {
  * Build a compact manifest from a specific set of candidate entries (for AI search).
  * Same format as the old buildManifest() but only includes the provided entries.
  * @param {VaultEntry[]} candidates - Entries to include (constants are filtered out)
+ * @param {boolean} [excludeBootstrap=false] - Also exclude bootstrap entries (when they're being force-injected)
  * @returns {{ manifest: string, header: string }}
  */
-function buildCandidateManifest(candidates) {
+function buildCandidateManifest(candidates, excludeBootstrap = false) {
     const settings = getSettings();
     const summaryLen = settings.aiSearchManifestSummaryLength || 600;
 
-    const nonConstant = candidates.filter(e => !e.constant);
+    const isForceInjected = e => e.constant || (excludeBootstrap && e.bootstrap);
+    const selectable = candidates.filter(e => !isForceInjected(e));
 
-    if (nonConstant.length === 0) return { manifest: '', header: '' };
+    if (selectable.length === 0) return { manifest: '', header: '' };
 
-    const manifest = nonConstant
+    const manifest = selectable
         .map(entry => {
             const summaryText = entry.summary
                 || truncateToSentence(entry.content.replace(/\n+/g, ' ').trim(), summaryLen);
@@ -403,15 +425,15 @@ function buildCandidateManifest(candidates) {
         })
         .join('\n---\n');
 
-    const totalNonConstant = vaultIndex.filter(e => !e.constant).length;
-    const constantCount = candidates.filter(e => e.constant).length;
-    const constantTokens = candidates.filter(e => e.constant).reduce((s, e) => s + e.tokenEstimate, 0);
+    const totalSelectable = vaultIndex.filter(e => !isForceInjected(e)).length;
+    const forcedCount = candidates.filter(e => isForceInjected(e)).length;
+    const forcedTokens = candidates.filter(e => isForceInjected(e)).reduce((s, e) => s + e.tokenEstimate, 0);
     const budgetInfo = settings.unlimitedBudget
         ? ''
         : `\nToken budget: ~${settings.maxTokensBudget} tokens total.`;
 
-    const header = `Candidate entries: ${nonConstant.length} (from ${totalNonConstant} total).`
-        + (constantCount > 0 ? `\n${constantCount} entries are always included (~${constantTokens} tokens).` : '')
+    const header = `Candidate entries: ${selectable.length} (from ${totalSelectable} total).`
+        + (forcedCount > 0 ? `\n${forcedCount} entries are always included (~${forcedTokens} tokens).` : '')
         + budgetInfo;
 
     return { manifest, header };
@@ -581,6 +603,8 @@ async function buildIndex() {
         const tagToMatch = settings.lorebookTag.toLowerCase();
         const constantTagToMatch = settings.constantTag ? settings.constantTag.toLowerCase() : '';
         const neverInsertTagToMatch = settings.neverInsertTag ? settings.neverInsertTag.toLowerCase() : '';
+        const seedTagToMatch = settings.seedTag ? settings.seedTag.toLowerCase() : '';
+        const bootstrapTagToMatch = settings.bootstrapTag ? settings.bootstrapTag.toLowerCase() : '';
 
         for (const file of data.files) {
             const { frontmatter, body } = parseFrontmatter(file.content);
@@ -614,6 +638,8 @@ async function buildIndex() {
             const content = cleanContent(body);
             const priority = typeof frontmatter.priority === 'number' ? frontmatter.priority : 100;
             const constant = frontmatter.constant === true || (constantTagToMatch && tags.includes(constantTagToMatch));
+            const seed = seedTagToMatch && tags.includes(seedTagToMatch);
+            const bootstrap = bootstrapTagToMatch && tags.includes(bootstrapTagToMatch);
             const scanDepth = typeof frontmatter.scanDepth === 'number' ? frontmatter.scanDepth : null;
             const excludeRecursion = frontmatter.excludeRecursion === true;
 
@@ -634,6 +660,10 @@ async function buildIndex() {
             const injectionRole = typeof frontmatter.role === 'string'
                 ? (roleMap[frontmatter.role.toLowerCase()] ?? null) : null;
 
+            // Per-entry cooldown and warmup
+            const cooldown = typeof frontmatter.cooldown === 'number' && frontmatter.cooldown > 0 ? frontmatter.cooldown : null;
+            const warmup = typeof frontmatter.warmup === 'number' && frontmatter.warmup > 1 ? frontmatter.warmup : null;
+
             // AI selection summary (dedicated frontmatter field, separate from injected content)
             const summary = typeof frontmatter.summary === 'string' ? frontmatter.summary.trim() : '';
 
@@ -648,6 +678,8 @@ async function buildIndex() {
                 summary,
                 priority,
                 constant,
+                seed,
+                bootstrap,
                 tokenEstimate: 0,
                 scanDepth,
                 excludeRecursion,
@@ -659,6 +691,8 @@ async function buildIndex() {
                 injectionPosition,
                 injectionDepth,
                 injectionRole,
+                cooldown,
+                warmup,
             });
         }
 
@@ -818,6 +852,16 @@ function matchEntries(chat) {
         }
     }
 
+    // Collect bootstrap entries when chat is short (cold-start injection)
+    if (chat.length <= settings.newChatThreshold) {
+        for (const entry of vaultIndex) {
+            if (entry.bootstrap && !matchedSet.has(entry)) {
+                matchedSet.add(entry);
+                matchedKeys.set(entry.title, '(bootstrap)');
+            }
+        }
+    }
+
     // Keyword matching: skip entirely when scanDepth is 0 (AI-only mode)
     if (settings.scanDepth > 0) {
         const globalScanText = buildScanText(chat, settings.scanDepth);
@@ -833,6 +877,26 @@ function matchEntries(chat) {
 
             const key = testEntryMatch(entry, scanText, settings);
             if (key) {
+                // Warmup check: require N keyword occurrences before triggering
+                if (entry.warmup !== null) {
+                    const occurrences = countKeywordOccurrences(entry, scanText, settings);
+                    if (occurrences < entry.warmup) {
+                        if (settings.debugMode) {
+                            console.debug(`[DLE] Warmup: "${entry.title}" needs ${entry.warmup} occurrences, found ${occurrences} — skipping`);
+                        }
+                        continue;
+                    }
+                }
+
+                // Cooldown check: skip entries still on cooldown
+                const remaining = cooldownTracker.get(entry.title);
+                if (remaining !== undefined && remaining > 0) {
+                    if (settings.debugMode) {
+                        console.debug(`[DLE] Cooldown: "${entry.title}" has ${remaining} generations remaining — skipping`);
+                    }
+                    continue;
+                }
+
                 matchedSet.add(entry);
                 matchedKeys.set(entry.title, key);
             }
@@ -898,6 +962,35 @@ function simpleHash(text) {
 }
 
 /**
+ * Count how many times an entry's keywords appear in the scan text.
+ * Respects case sensitivity and whole-word matching settings.
+ * @param {VaultEntry} entry
+ * @param {string} scanText
+ * @param {typeof defaultSettings} settings
+ * @returns {number} Total keyword occurrence count
+ */
+function countKeywordOccurrences(entry, scanText, settings) {
+    let count = 0;
+    const text = settings.caseSensitive ? scanText : scanText.toLowerCase();
+    for (const rawKey of entry.keys) {
+        const key = settings.caseSensitive ? rawKey : rawKey.toLowerCase();
+        if (settings.matchWholeWords) {
+            const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`\\b${escaped}\\b`, settings.caseSensitive ? 'g' : 'gi');
+            const matches = scanText.match(regex);
+            if (matches) count += matches.length;
+        } else {
+            let idx = 0;
+            while ((idx = text.indexOf(key, idx)) !== -1) {
+                count++;
+                idx += key.length;
+            }
+        }
+    }
+    return count;
+}
+
+/**
  * @typedef {object} AiSearchMatch
  * @property {VaultEntry} entry
  * @property {string} confidence - "high", "medium", or "low"
@@ -918,8 +1011,21 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
         return { results: [], error: false };
     }
 
-    const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
+    let chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
     if (!chatContext.trim()) return { results: [], error: false };
+
+    // Prepend seed entry content as story context on new chats
+    const isNewChat = chat.length <= settings.newChatThreshold;
+    if (isNewChat) {
+        const seedEntries = vaultIndex.filter(e => e.seed);
+        if (seedEntries.length > 0) {
+            const seedContext = seedEntries.map(e => e.content).join('\n\n');
+            chatContext = `[STORY CONTEXT — use this to understand the setting and make better selections]\n${seedContext}\n\n[RECENT CHAT]\n${chatContext}`;
+            if (settings.debugMode) {
+                console.log(`[DLE] New chat: injecting ${seedEntries.length} seed entries as AI context`);
+            }
+        }
+    }
 
     // Check cache - skip API call if inputs haven't changed
     const cacheKey = simpleHash(chatContext + candidateManifest);
@@ -932,9 +1038,10 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
         return { results: aiSearchCache.results, error: false };
     }
 
+    let timeoutId;
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), settings.aiSearchTimeout);
+        timeoutId = setTimeout(() => controller.abort(), settings.aiSearchTimeout);
 
         // Resolve system prompt with {{maxEntries}} placeholder
         const maxEntries = settings.unlimitedEntries ? 'as many as are relevant' : String(settings.maxEntries);
@@ -948,6 +1055,16 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
             systemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
         }
         systemPrompt = systemPrompt.replace(/\{\{maxEntries\}\}/g, maxEntries);
+
+        // On new chats, tell AI to always fill to max selections
+        if (isNewChat) {
+            const constantCount = vaultIndex.filter(e => e.constant).length;
+            const selectCount = Math.max(1, settings.maxEntries - constantCount);
+            systemPrompt += '\n\nIMPORTANT: The conversation just started. You have story context above to help you understand the setting. Select exactly ' + selectCount + ' entries from the manifest — always fill to this count. The user needs rich context for the conversation start. Do not return fewer entries or an empty array.';
+            if (settings.debugMode) {
+                console.log(`[DLE] New chat: requesting ${selectCount} AI selections (${settings.maxEntries} max - ${constantCount} constants)`);
+            }
+        }
 
         const response = await fetch(`${PLUGIN_BASE}/ai-search`, {
             method: 'POST',
@@ -1058,7 +1175,7 @@ function applyGating(entries) {
 
         result = result.filter(entry => {
             // Check requires: ALL must be in the active set
-            if (entry.requires.length > 0) {
+            if (entry.requires && entry.requires.length > 0) {
                 const allPresent = entry.requires.every(r => activeTitles.has(r.toLowerCase()));
                 if (!allPresent) {
                     changed = true;
@@ -1066,7 +1183,7 @@ function applyGating(entries) {
                 }
             }
             // Check excludes: NONE should be in the active set
-            if (entry.excludes.length > 0) {
+            if (entry.excludes && entry.excludes.length > 0) {
                 const anyPresent = entry.excludes.some(r => activeTitles.has(r.toLowerCase()));
                 if (anyPresent) {
                     changed = true;
@@ -1204,8 +1321,18 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
             // ── AI-only mode: send full vault to Haiku ──
-            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex);
-            const constants = vaultIndex.filter(e => e.constant);
+            const bootstrapActive = chat.length <= settings.newChatThreshold;
+            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex, bootstrapActive);
+            const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+
+            // Mark bootstrap entries in matchedKeys
+            if (bootstrapActive) {
+                for (const e of alwaysInject) {
+                    if (e.bootstrap && !e.constant) {
+                        matchedKeys.set(e.title, '(bootstrap)');
+                    }
+                }
+            }
 
             if (candidateManifest) {
                 const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
@@ -1217,39 +1344,43 @@ async function onGenerate(chat, contextSize, abort, type) {
                     finalEntries = keywordResult.matched;
                     matchedKeys = keywordResult.matchedKeys;
                 } else if (aiResult.results.length === 0) {
-                    // AI intentionally returned empty — keep constants only
-                    finalEntries = constants;
+                    // AI intentionally returned empty — keep always-inject entries only
+                    finalEntries = alwaysInject;
                     if (settings.debugMode) {
-                        console.log('[DLE] AI-only mode: selected 0 entries (AI decision), keeping constants only');
+                        console.log('[DLE] AI-only mode: selected 0 entries (AI decision), keeping constants' + (bootstrapActive ? ' + bootstraps' : '') + ' only');
                     }
                 } else {
-                    finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+                    const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                    finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
                     for (const r of aiResult.results) {
                         matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
                     }
                     if (settings.debugMode) {
-                        console.log(`[DLE] AI-only mode: selected ${aiResult.results.length} from ${vaultIndex.filter(e => !e.constant).length} entries`);
+                        const selectableCount = vaultIndex.filter(e => !isForceInjected(e)).length;
+                        console.log(`[DLE] AI-only mode: selected ${aiResult.results.length} from ${selectableCount} entries` + (bootstrapActive ? ` (bootstrap active, ${alwaysInject.length} force-injected)` : ''));
                     }
                 }
             } else {
-                // All entries are constants
-                finalEntries = constants;
+                // All entries are constants/bootstraps
+                finalEntries = alwaysInject;
             }
 
         } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
             // ── Two-stage mode: keywords → AI ──
+            const bootstrapActive = chat.length <= settings.newChatThreshold;
             const keywordResult = matchEntries(chat);
             matchedKeys = keywordResult.matchedKeys;
 
             if (settings.debugMode) {
-                const nonConstant = keywordResult.matched.filter(e => !e.constant);
-                console.log(`[DLE] Stage 1 (keywords): ${nonConstant.length} keyword matches + ${keywordResult.matched.length - nonConstant.length} constants`);
+                const nonConstant = keywordResult.matched.filter(e => !e.constant && !e.bootstrap);
+                const bootstrapCount = keywordResult.matched.filter(e => e.bootstrap && !e.constant).length;
+                console.log(`[DLE] Stage 1 (keywords): ${nonConstant.length} keyword matches + ${keywordResult.matched.length - nonConstant.length - bootstrapCount} constants` + (bootstrapActive && bootstrapCount > 0 ? ` + ${bootstrapCount} bootstraps` : ''));
             }
 
-            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched);
+            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched, bootstrapActive);
 
             if (!candidateManifest) {
-                // Only constants matched — no candidates for AI
+                // Only constants/bootstraps matched — no candidates for AI
                 finalEntries = keywordResult.matched;
             } else {
                 const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
@@ -1259,14 +1390,15 @@ async function onGenerate(chat, contextSize, abort, type) {
                     console.warn('[DLE] AI search failed, falling back to keyword results');
                     finalEntries = keywordResult.matched;
                 } else if (aiResult.results.length === 0) {
-                    // AI intentionally returned empty — keep constants only
-                    finalEntries = keywordResult.matched.filter(e => e.constant);
+                    // AI intentionally returned empty — keep constants + bootstraps only
+                    finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
                     if (settings.debugMode) {
-                        console.log('[DLE] Stage 2 (AI): selected 0 entries (AI decision), keeping constants only');
+                        console.log('[DLE] Stage 2 (AI): selected 0 entries (AI decision), keeping constants' + (bootstrapActive ? ' + bootstraps' : '') + ' only');
                     }
                 } else {
-                    const constants = keywordResult.matched.filter(e => e.constant);
-                    finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+                    const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                    const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
+                    finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
 
                     // Update matchedKeys with AI reasons
                     for (const r of aiResult.results) {
@@ -1277,7 +1409,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                     }
 
                     if (settings.debugMode) {
-                        console.log(`[DLE] Stage 2 (AI): selected ${aiResult.results.length} from ${keywordResult.matched.filter(e => !e.constant).length} candidates`);
+                        console.log(`[DLE] Stage 2 (AI): selected ${aiResult.results.length} from ${keywordResult.matched.filter(e => !isForceInjected(e)).length} candidates`);
                     }
                 }
             }
@@ -1292,6 +1424,32 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (finalEntries.length === 0) {
             if (settings.debugMode) {
                 console.debug('[DLE] No entries matched');
+            }
+            return;
+        }
+
+        // Re-injection cooldown: filter out recently injected entries
+        if (settings.reinjectionCooldown > 0) {
+            const before = finalEntries.length;
+            finalEntries = finalEntries.filter(e => {
+                if (e.constant) return true; // Constants always pass
+                const lastGen = injectionHistory.get(e.title);
+                if (lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown) {
+                    if (settings.debugMode) {
+                        console.debug(`[DLE] Re-injection cooldown: "${e.title}" was injected ${generationCount - lastGen} gens ago (cooldown: ${settings.reinjectionCooldown}) — skipping`);
+                    }
+                    return false;
+                }
+                return true;
+            });
+            if (settings.debugMode && finalEntries.length < before) {
+                console.log(`[DLE] Re-injection cooldown removed ${before - finalEntries.length} entries`);
+            }
+        }
+
+        if (finalEntries.length === 0) {
+            if (settings.debugMode) {
+                console.debug('[DLE] All entries removed by re-injection cooldown');
             }
             return;
         }
@@ -1335,6 +1493,48 @@ async function onGenerate(chat, contextSize, abort, type) {
                 priority: e.priority,
                 tokens: e.tokenEstimate,
             }));
+
+            // Post-injection tracking
+            generationCount++;
+
+            // Decrement cooldown counters; remove expired ones
+            for (const [title, remaining] of cooldownTracker) {
+                if (remaining <= 1) {
+                    cooldownTracker.delete(title);
+                } else {
+                    cooldownTracker.set(title, remaining - 1);
+                }
+            }
+
+            // Set cooldown for newly injected entries that have a cooldown value
+            const injectedEntries = gated.slice(0, injectedCount);
+            for (const entry of injectedEntries) {
+                if (entry.cooldown !== null && entry.cooldown > 0) {
+                    cooldownTracker.set(entry.title, entry.cooldown);
+                }
+            }
+
+            // Record injection history for re-injection cooldown
+            for (const entry of injectedEntries) {
+                injectionHistory.set(entry.title, generationCount);
+            }
+
+            // Update analytics data
+            const analytics = settings.analyticsData;
+            for (const entry of finalEntries) {
+                if (!analytics[entry.title]) {
+                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+                }
+                analytics[entry.title].matched++;
+                analytics[entry.title].lastTriggered = Date.now();
+            }
+            for (const entry of injectedEntries) {
+                if (!analytics[entry.title]) {
+                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+                }
+                analytics[entry.title].injected++;
+            }
+            saveSettingsDebounced();
 
             // Context usage warning
             if (contextSize > 0) {
@@ -1589,6 +1789,9 @@ function loadSettingsUI() {
     $('#dle_tag').val(settings.lorebookTag);
     $('#dle_constant_tag').val(settings.constantTag);
     $('#dle_never_insert_tag').val(settings.neverInsertTag);
+    $('#dle_seed_tag').val(settings.seedTag);
+    $('#dle_bootstrap_tag').val(settings.bootstrapTag);
+    $('#dle_new_chat_threshold').val(settings.newChatThreshold);
     $('#dle_scan_depth').val(settings.scanDepth);
     $('#dle_max_entries').val(settings.maxEntries);
     $('#dle_unlimited_entries').prop('checked', settings.unlimitedEntries);
@@ -1635,6 +1838,9 @@ function loadSettingsUI() {
     $('#dle_sync_interval').val(settings.syncPollingInterval);
     $('#dle_show_sync_toasts').prop('checked', settings.showSyncToasts);
 
+    // Chat History Tracking
+    $('#dle_reinjection_cooldown').val(settings.reinjectionCooldown);
+
     updateIndexStats();
     updateAiStats();
 }
@@ -1669,6 +1875,21 @@ function bindSettingsEvents() {
 
     $('#dle_never_insert_tag').on('input', function () {
         settings.neverInsertTag = String($(this).val()).trim();
+        saveSettingsDebounced();
+    });
+
+    $('#dle_seed_tag').on('input', function () {
+        settings.seedTag = String($(this).val()).trim();
+        saveSettingsDebounced();
+    });
+
+    $('#dle_bootstrap_tag').on('input', function () {
+        settings.bootstrapTag = String($(this).val()).trim();
+        saveSettingsDebounced();
+    });
+
+    $('#dle_new_chat_threshold').on('input', function () {
+        settings.newChatThreshold = Number($(this).val()) || 3;
         saveSettingsDebounced();
     });
 
@@ -1854,6 +2075,13 @@ function bindSettingsEvents() {
         saveSettingsDebounced();
     });
 
+    // Chat History Tracking
+    $('#dle_reinjection_cooldown').on('input', function () {
+        const val = Number($(this).val());
+        settings.reinjectionCooldown = isNaN(val) ? 0 : val;
+        saveSettingsDebounced();
+    });
+
     // Test Connection button
     $('#dle_test_connection').on('click', async function () {
         const statusEl = $('#dle_connection_status');
@@ -2022,9 +2250,18 @@ function bindSettingsEvents() {
             let aiSelectedCount = 0;
 
             if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
-                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex);
-                const constants = vaultIndex.filter(e => e.constant);
+                const bootstrapActive = chat.length <= settings.newChatThreshold;
+                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex, bootstrapActive);
+                const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
                 aiUsed = true;
+
+                if (bootstrapActive) {
+                    for (const e of alwaysInject) {
+                        if (e.bootstrap && !e.constant) {
+                            matchedKeys.set(e.title, '(bootstrap)');
+                        }
+                    }
+                }
 
                 if (candidateManifest) {
                     const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
@@ -2034,24 +2271,26 @@ function bindSettingsEvents() {
                         finalEntries = kwResult.matched;
                         matchedKeys = kwResult.matchedKeys;
                     } else if (aiResult.results.length === 0) {
-                        finalEntries = constants;
+                        finalEntries = alwaysInject;
                     } else {
-                        finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+                        const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                        finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
                         aiSelectedCount = aiResult.results.length;
                         for (const r of aiResult.results) {
                             matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
                         }
                     }
                 } else {
-                    finalEntries = constants;
+                    finalEntries = alwaysInject;
                 }
 
             } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
+                const bootstrapActive = chat.length <= settings.newChatThreshold;
                 const keywordResult = matchEntries(chat);
                 matchedKeys = keywordResult.matchedKeys;
-                keywordCount = keywordResult.matched.filter(e => !e.constant).length;
+                keywordCount = keywordResult.matched.filter(e => !e.constant && !e.bootstrap).length;
 
-                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched);
+                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched, bootstrapActive);
 
                 if (!candidateManifest) {
                     finalEntries = keywordResult.matched;
@@ -2062,10 +2301,11 @@ function bindSettingsEvents() {
                         aiError = true;
                         finalEntries = keywordResult.matched;
                     } else if (aiResult.results.length === 0) {
-                        finalEntries = keywordResult.matched.filter(e => e.constant);
+                        finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
                     } else {
-                        const constants = keywordResult.matched.filter(e => e.constant);
-                        finalEntries = [...constants, ...aiResult.results.map(r => r.entry).filter(e => !e.constant)];
+                        const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                        const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
+                        finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
                         aiSelectedCount = aiResult.results.length;
                         for (const r of aiResult.results) {
                             const existing = matchedKeys.get(r.entry.title);
@@ -2235,6 +2475,8 @@ function registerSlashCommands() {
         callback: async () => {
             const settings = getSettings();
             const constants = vaultIndex.filter(e => e.constant).length;
+            const seeds = vaultIndex.filter(e => e.seed).length;
+            const bootstraps = vaultIndex.filter(e => e.bootstrap).length;
             const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
             const lines = [
                 `Enabled: ${settings.enabled}`,
@@ -2242,7 +2484,9 @@ function registerSlashCommands() {
                 `Lorebook Tag: #${settings.lorebookTag}`,
                 `Always-Send Tag: ${settings.constantTag ? '#' + settings.constantTag : '(none)'}`,
                 `Never-Insert Tag: ${settings.neverInsertTag ? '#' + settings.neverInsertTag : '(none)'}`,
-                `Entries: ${vaultIndex.length} (${constants} always-send, ~${totalTokens} tokens)`,
+                `Seed Tag: ${settings.seedTag ? '#' + settings.seedTag : '(none)'}`,
+                `Bootstrap Tag: ${settings.bootstrapTag ? '#' + settings.bootstrapTag : '(none)'} (threshold: ${settings.newChatThreshold} messages)`,
+                `Entries: ${vaultIndex.length} (${constants} always-send, ${seeds} seed, ${bootstraps} bootstrap, ~${totalTokens} tokens)`,
                 `Budget: ${settings.unlimitedBudget ? 'unlimited' : settings.maxTokensBudget + ' tokens'}`,
                 `Max Entries: ${settings.unlimitedEntries ? 'unlimited' : settings.maxEntries}`,
                 `Recursive: ${settings.recursiveScan ? 'on (max ' + settings.maxRecursionSteps + ' steps)' : 'off'}`,
@@ -2312,6 +2556,129 @@ function registerSlashCommands() {
         helpString: 'Send the entire Obsidian vault to the AI for review. Optionally provide a custom question, e.g. /dle-review What inconsistencies do you see?',
         returns: 'AI review posted to chat',
     }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-analytics',
+        callback: async () => {
+            const settings = getSettings();
+            const analytics = settings.analyticsData || {};
+            const titles = Object.keys(analytics).sort((a, b) => (analytics[b].injected || 0) - (analytics[a].injected || 0));
+
+            let html = '<table style="width:100%;border-collapse:collapse;font-size:0.9em;">';
+            html += '<tr><th style="text-align:left;border-bottom:1px solid #666;padding:4px;">Entry</th><th style="border-bottom:1px solid #666;padding:4px;">Matched</th><th style="border-bottom:1px solid #666;padding:4px;">Injected</th><th style="border-bottom:1px solid #666;padding:4px;">Last Used</th></tr>';
+
+            for (const title of titles) {
+                const d = analytics[title];
+                const lastUsed = d.lastTriggered ? new Date(d.lastTriggered).toLocaleString() : 'Never';
+                html += `<tr><td style="padding:4px;">${escapeHtml(title)}</td><td style="text-align:center;padding:4px;">${d.matched || 0}</td><td style="text-align:center;padding:4px;">${d.injected || 0}</td><td style="text-align:center;padding:4px;">${lastUsed}</td></tr>`;
+            }
+            html += '</table>';
+
+            // Dead entries: indexed but never injected
+            const neverInjected = vaultIndex.filter(e => !analytics[e.title] || (analytics[e.title].injected || 0) === 0);
+            if (neverInjected.length > 0) {
+                html += '<hr><h4>Never Injected</h4><ul>';
+                for (const e of neverInjected) {
+                    html += `<li>${escapeHtml(e.title)} (${e.keys.length} keys, priority ${e.priority})</li>`;
+                }
+                html += '</ul>';
+            }
+
+            if (titles.length === 0 && neverInjected.length === 0) {
+                html = '<p>No analytics data yet. Generate some messages first.</p>';
+            }
+
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true });
+            return '';
+        },
+        helpString: 'Show entry usage analytics: how often each entry was matched and injected.',
+        returns: 'Analytics popup',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-health',
+        callback: async () => {
+            await ensureIndexFresh();
+            if (vaultIndex.length === 0) {
+                toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            const issues = [];
+            const allTitles = new Set(vaultIndex.map(e => e.title));
+            const keywordMap = new Map(); // keyword → [titles]
+
+            for (const entry of vaultIndex) {
+                // Empty keys on non-constant entries
+                if (!entry.constant && entry.keys.length === 0) {
+                    issues.push({ type: 'Empty Keys', entry: entry.title, detail: 'No trigger keywords defined' });
+                }
+
+                // Orphaned requires
+                for (const req of entry.requires) {
+                    if (!allTitles.has(req)) {
+                        issues.push({ type: 'Orphaned Requires', entry: entry.title, detail: `References "${req}" which doesn't exist` });
+                    }
+                }
+
+                // Orphaned excludes
+                for (const exc of entry.excludes) {
+                    if (!allTitles.has(exc)) {
+                        issues.push({ type: 'Orphaned Excludes', entry: entry.title, detail: `References "${exc}" which doesn't exist` });
+                    }
+                }
+
+                // Oversized entries
+                if (entry.tokenEstimate > 1500) {
+                    issues.push({ type: 'Oversized', entry: entry.title, detail: `~${entry.tokenEstimate} tokens (>1500)` });
+                }
+
+                // Missing summary (Enhanced-specific)
+                if ('summary' in entry && !entry.summary) {
+                    issues.push({ type: 'Missing Summary', entry: entry.title, detail: 'No AI selection summary defined' });
+                }
+
+                // Build keyword map for duplicate detection
+                for (const key of entry.keys) {
+                    const lower = key.toLowerCase();
+                    if (!keywordMap.has(lower)) keywordMap.set(lower, []);
+                    keywordMap.get(lower).push(entry.title);
+                }
+            }
+
+            // Duplicate keywords
+            for (const [keyword, titles] of keywordMap) {
+                if (titles.length > 1) {
+                    issues.push({ type: 'Duplicate Keywords', entry: titles.join(', '), detail: `Keyword "${keyword}" shared by ${titles.length} entries` });
+                }
+            }
+
+            let html;
+            if (issues.length === 0) {
+                html = '<p>No issues found! All entries look healthy.</p>';
+            } else {
+                const grouped = {};
+                for (const issue of issues) {
+                    if (!grouped[issue.type]) grouped[issue.type] = [];
+                    grouped[issue.type].push(issue);
+                }
+
+                html = '';
+                for (const [type, items] of Object.entries(grouped)) {
+                    html += `<h4>${escapeHtml(type)} (${items.length})</h4><ul>`;
+                    for (const item of items) {
+                        html += `<li><strong>${escapeHtml(item.entry)}</strong>: ${escapeHtml(item.detail)}</li>`;
+                    }
+                    html += '</ul>';
+                }
+            }
+
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true });
+            return '';
+        },
+        helpString: 'Audit vault entries for common issues: empty keys, orphaned requires/excludes, oversized entries, duplicate keywords, missing summaries.',
+        returns: 'Health check popup',
+    }));
 }
 
 // ============================================================================
@@ -2372,6 +2739,10 @@ jQuery(async function () {
         // Context Cartographer: re-inject buttons on chat load
         eventSource.on(event_types.CHAT_CHANGED, () => {
             messagesSinceLastScribe = 0;
+            // Reset session-scoped tracking on chat change
+            injectionHistory.clear();
+            cooldownTracker.clear();
+            generationCount = 0;
             setTimeout(() => {
                 const settings = getSettings();
                 if (!settings.showLoreSources) return;

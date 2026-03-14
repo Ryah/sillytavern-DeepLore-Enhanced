@@ -21,6 +21,10 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 - **Conditional Gating** -- Entries can declare dependencies (`requires`) and blockers (`excludes`) on other entries. Cascading dependencies resolve automatically.
 - **Per-Entry Injection Position** -- Override the global injection position, depth, and role on a per-entry basis via frontmatter. Entries are grouped and injected separately.
 - **Vault Change Detection** -- Detects added, removed, and modified entries when the index rebuilds. Optional toast notifications and configurable auto-sync polling.
+- **Cooldown & Warmup Tags** -- Per-entry `cooldown` skips injection for N generations after triggering. Per-entry `warmup` requires N keyword occurrences before first trigger.
+- **Re-injection Cooldown** -- Global setting to skip re-injecting entries for N generations after last injection, saving context.
+- **Entry Analytics** -- Track how often each entry is matched and injected. View with `/dle-analytics`.
+- **Entry Health Check** -- Audit entries for common issues (empty keys, orphaned requires/excludes, oversized, duplicate keywords, missing summaries) with `/dle-health`.
 
 ## Prerequisites
 
@@ -148,12 +152,16 @@ The `summary` field is optional but recommended when AI Search is enabled. It te
 | `depth` | number | (global) | Injection depth override (for `in_chat` position) |
 | `role` | string | (global) | Message role override: `system`, `user`, or `assistant` |
 | `summary` | string | `""` | AI selection summary — a short description (up to 600 chars) used in the manifest to help Haiku decide relevance. Not injected into the writing AI. |
+| `cooldown` | number | (none) | After triggering, skip this entry for N generations |
+| `warmup` | number | (none) | Require keyword to appear N times before triggering (must be >1) |
 
 ### Special Tags
 
 - **`#lorebook`** -- Marks a note as a lorebook entry (configurable in settings)
 - **`#lorebook-always`** -- Forces the note to always be injected, like `constant: true`
 - **`#lorebook-never`** -- Prevents the note from ever being injected, even if keywords match
+- **`#lorebook-seed`** -- Entry content is sent to the AI as story context on new chats (below the New Chat Threshold), helping it make better selections. Not injected into the writing AI. See [New Chat Features](#new-chat-features).
+- **`#lorebook-bootstrap`** -- Force-injects the entry when the chat is short (below the New Chat Threshold), then becomes a regular entry once the chat grows. See [New Chat Features](#new-chat-features).
 
 ## How AI Search Works
 
@@ -169,6 +177,22 @@ The `summary` field is optional but recommended when AI Search is enabled. It te
 - Skips keyword matching entirely. A manifest of all non-constant vault entries is sent to Haiku for evaluation. More thorough but uses more tokens.
 
 **Error fallback:** If the AI proxy is down or returns an error, the pipeline falls back to keyword-only results (two-stage mode) or the full vault sorted by priority (AI-only mode). If the AI intentionally returns an empty selection, only constant entries are injected.
+
+## New Chat Features
+
+On a brand new chat, the AI has very little context to work with (just 1-2 messages). Two features help bootstrap the conversation:
+
+### Seed Entries (`#lorebook-seed`)
+
+Tag entries like "The Story So Far" with `#lorebook-seed`. When the chat is below the **New Chat Threshold** (default: 3 messages), the content of seed entries is sent to the AI as additional story context alongside the chat. This helps the AI understand your setting and make much better entry selections, even from a single message. Seed entries are NOT injected into the writing AI's context -- they only inform the AI's decision-making.
+
+Additionally, when seed mode is active, the AI is instructed to always fill to `maxEntries - constantCount` selections instead of being conservative.
+
+### Bootstrap Entries (`#lorebook-bootstrap`)
+
+Tag entries like writing instructions or foundational lore with `#lorebook-bootstrap`. When the chat is below the New Chat Threshold, these entries are force-injected (like constants). Once the chat grows past the threshold, they become regular entries managed by normal AI/keyword selection.
+
+An entry can have both tags: its content feeds the AI (seed) AND it force-injects (bootstrap).
 
 ### Conditional Gating Example
 
@@ -232,6 +256,8 @@ This entry injects as a user message at depth 1 in the chat history.
 | `/dle-status` | Show connection info, entry counts, AI search stats, and cache status |
 | `/dle-review [question]` | Send all entries to the AI for review. Optionally provide a custom question. |
 | `/dle-scribe [topic]` | Write a session summary on demand. Optionally provide a focus topic. |
+| `/dle-analytics` | Show entry usage analytics: match and injection counts per entry |
+| `/dle-health` | Audit entries for common issues (empty keys, orphaned references, oversized, duplicates, missing summaries) |
 
 ## Settings Reference
 
@@ -243,6 +269,9 @@ This entry injects as a user message at depth 1 in the chat history.
 - **Lorebook Tag** -- Tag that identifies lorebook notes (default: `lorebook`)
 - **Always-Send Tag** -- Tag for entries that always inject (default: `lorebook-always`)
 - **Never-Insert Tag** -- Tag for entries that never inject (default: `lorebook-never`)
+- **Seed Tag** -- Tag for entries whose content is sent to the AI as story context on new chats (default: `lorebook-seed`)
+- **Bootstrap Tag** -- Tag for entries that force-inject when chat is short, then become regular entries (default: `lorebook-bootstrap`)
+- **New Chat Threshold** -- Message count below which seed context and bootstrap injection are active (default: 3)
 - **Scan Depth** -- How many recent messages to scan for keywords (default: 4)
 - **Max Entries / Unlimited** -- Cap on injected entries per generation
 - **Token Budget / Unlimited** -- Cap on total injected tokens per generation
@@ -252,6 +281,7 @@ This entry injects as a user message at depth 1 in the chat history.
 - **Match Whole Words** -- Use word boundaries so "war" won't match "warning"
 - **Recursive Scanning** -- Scan matched entry content for more keyword triggers
 - **Max Recursion Steps** -- Limit on recursive scan passes (default: 3)
+- **Re-injection Cooldown** -- Skip re-injecting an entry for N generations after it was last injected (0 = disabled)
 
 ### AI Search
 - **Enable AI Search** -- Toggle AI-powered semantic search

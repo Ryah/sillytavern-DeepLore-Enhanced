@@ -5,7 +5,7 @@
 }
 
 .deeplore_enhanced_settings .deeplore_enhanced_status.success {
-    color: #4caf50;
+    color: var(--SmartThemeQuoteColor, #4caf50);
 }
 
 .deeplore_enhanced_settings .deeplore_enhanced_status.failure {

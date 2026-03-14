@@ -120,6 +120,8 @@ const defaultSettings = {
     showSyncToasts: true,
     // Chat History Tracking
     reinjectionCooldown: 0,
+    // Matching extras
+    characterContextScan: false,
     // Analytics
     analyticsData: {},
 };
@@ -167,6 +169,10 @@ function getSettings() {
 let vaultIndex = [];
 let indexTimestamp = 0;
 let indexing = false;
+/** @type {Promise<void>|null} In-progress build promise for deduplication */
+let buildPromise = null;
+/** Whether vault has ever successfully loaded */
+let indexEverLoaded = false;
 
 /** AI search result cache to avoid redundant API calls */
 let aiSearchCache = { hash: '', results: [] };
@@ -300,15 +306,14 @@ function setupSyncPolling() {
  * Build the vault index by fetching all files from the server plugin.
  */
 async function buildIndex() {
-    const settings = getSettings();
-
     if (indexing) {
-        console.debug('[DLE] Index build already in progress');
-        return;
+        console.debug('[DLE] Index build already in progress, awaiting existing build');
+        return buildPromise;
     }
 
     indexing = true;
-
+    buildPromise = (async () => {
+    const settings = getSettings();
     try {
         const response = await fetch(`${PLUGIN_BASE}/index`, {
             method: 'POST',
@@ -379,6 +384,17 @@ async function buildIndex() {
         }
         previousIndexSnapshot = newSnapshot;
 
+        indexEverLoaded = true;
+
+        // Prune analytics data for entries no longer in the vault
+        const analytics = settings.analyticsData;
+        if (analytics) {
+            const activeTitles = new Set(vaultIndex.map(e => e.title));
+            for (const title of Object.keys(analytics)) {
+                if (!activeTitles.has(title)) delete analytics[title];
+            }
+        }
+
         console.log(`[DLE] Indexed ${entries.length} entries from ${data.total} vault files`);
         updateIndexStats();
     } catch (err) {
@@ -386,7 +402,10 @@ async function buildIndex() {
         toastr.error(String(err), 'DeepLore Enhanced', { preventDuplicates: true });
     } finally {
         indexing = false;
+        buildPromise = null;
     }
+    })();
+    return buildPromise;
 }
 
 /**
@@ -484,6 +503,32 @@ function matchEntries(chat) {
             }
         }
 
+        // Active Character Boost: auto-match active character's vault entry
+        if (settings.characterContextScan && name2) {
+            const charEntry = vaultIndex.find(e =>
+                e.title.toLowerCase() === name2.toLowerCase() ||
+                e.keys.some(k => k.toLowerCase() === name2.toLowerCase())
+            );
+            if (charEntry && !matchedSet.has(charEntry)) {
+                matchedSet.add(charEntry);
+                matchedKeys.set(charEntry.title, '(active character)');
+            }
+        }
+
+        // Cascade links: explicitly pull in linked entries from matched entries
+        const titleMap = new Map(vaultIndex.map(e => [e.title.toLowerCase(), e]));
+        const cascadeSource = [...matchedSet];
+        for (const entry of cascadeSource) {
+            if (!entry.cascadeLinks || entry.cascadeLinks.length === 0) continue;
+            for (const linkTitle of entry.cascadeLinks) {
+                const linked = titleMap.get(linkTitle.toLowerCase());
+                if (linked && !matchedSet.has(linked)) {
+                    matchedSet.add(linked);
+                    matchedKeys.set(linked.title, `(cascade from: ${entry.title})`);
+                }
+            }
+        }
+
         // Recursive scanning: scan matched entry content for more matches
         if (settings.recursiveScan && settings.maxRecursionSteps > 0) {
             let step = 0;
@@ -494,10 +539,15 @@ function matchEntries(chat) {
                 step++;
 
                 // Only scan content from entries added in the previous step
-                const recursionText = [...newlyMatched]
+                const MAX_RECURSION_TEXT = 50000;
+                let recursionText = [...newlyMatched]
                     .filter(e => !e.excludeRecursion)
                     .map(e => e.content)
                     .join('\n');
+                if (recursionText.length > MAX_RECURSION_TEXT) {
+                    if (settings.debugMode) console.debug('[DLE] Recursion text truncated from', recursionText.length, 'to', MAX_RECURSION_TEXT, 'chars');
+                    recursionText = recursionText.substring(0, MAX_RECURSION_TEXT);
+                }
 
                 if (!recursionText.trim()) break;
 
@@ -566,8 +616,8 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
         }
     }
 
-    // Check cache - skip API call if inputs haven't changed
-    const cacheKey = simpleHash(chatContext + candidateManifest);
+    // Check cache - skip API call if inputs haven't changed (include mode in key to avoid collisions)
+    const cacheKey = simpleHash(settings.aiSearchMode + chatContext + candidateManifest);
     if (cacheKey === aiSearchCache.hash && aiSearchCache.results.length > 0) {
         aiSearchStats.cachedHits++;
         updateAiStats();
@@ -699,11 +749,122 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
 // clearPrompts imported from ./core/pipeline.js
 
 // ============================================================================
+// Pipeline Runner (shared by onGenerate and Test Match)
+// ============================================================================
+
+/**
+ * Run the full entry selection pipeline (3-mode branching: keywords-only, two-stage, ai-only).
+ * Records a trace for the Pipeline Inspector (/dle-inspect).
+ * @param {object[]} chat - Chat messages array
+ * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
+ */
+async function runPipeline(chat) {
+    const settings = getSettings();
+    const bootstrapActive = chat.length <= settings.newChatThreshold;
+
+    const trace = {
+        mode: settings.aiSearchEnabled
+            ? settings.aiSearchMode
+            : 'keywords-only',
+        indexed: vaultIndex.length,
+        keywordMatched: [],
+        aiSelected: [],
+        gatedOut: [],
+        budgetCut: [],
+        injected: [],
+        bootstrapActive,
+        aiFallback: false,
+    };
+
+    let finalEntries;
+    let matchedKeys = new Map();
+
+    if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
+        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex, bootstrapActive);
+        const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+
+        if (bootstrapActive) {
+            for (const e of alwaysInject) {
+                if (e.bootstrap && !e.constant) matchedKeys.set(e.title, '(bootstrap)');
+            }
+        }
+        // Always label constants in matchedKeys
+        for (const e of alwaysInject) {
+            if (e.constant && !matchedKeys.has(e.title)) matchedKeys.set(e.title, '(constant)');
+        }
+
+        if (candidateManifest) {
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+            if (aiResult.error) {
+                trace.aiFallback = true;
+                const kwResult = matchEntries(chat);
+                finalEntries = kwResult.matched;
+                matchedKeys = kwResult.matchedKeys;
+                trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
+            } else if (aiResult.results.length === 0) {
+                finalEntries = alwaysInject;
+            } else {
+                const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
+                for (const r of aiResult.results) {
+                    matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
+                    trace.aiSelected.push({ title: r.entry.title, reason: r.reason, confidence: r.confidence });
+                }
+            }
+        } else {
+            finalEntries = alwaysInject;
+        }
+
+    } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
+        const keywordResult = matchEntries(chat);
+        matchedKeys = keywordResult.matchedKeys;
+        trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
+
+        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched, bootstrapActive);
+
+        if (!candidateManifest) {
+            finalEntries = keywordResult.matched;
+        } else {
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+            if (aiResult.error) {
+                trace.aiFallback = true;
+                finalEntries = keywordResult.matched;
+            } else if (aiResult.results.length === 0) {
+                finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+            } else {
+                const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
+                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
+                for (const r of aiResult.results) {
+                    const existing = matchedKeys.get(r.entry.title);
+                    matchedKeys.set(r.entry.title, existing
+                        ? `${existing} → AI: ${r.reason} (${r.confidence})`
+                        : `AI: ${r.reason} (${r.confidence})`);
+                    trace.aiSelected.push({ title: r.entry.title, reason: r.reason, confidence: r.confidence });
+                }
+            }
+        }
+
+    } else {
+        const keywordResult = matchEntries(chat);
+        finalEntries = keywordResult.matched;
+        matchedKeys = keywordResult.matchedKeys;
+        trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
+    }
+
+    lastPipelineTrace = trace;
+    return { finalEntries, matchedKeys, trace };
+}
+
+// ============================================================================
 // Generation Interceptor
 // ============================================================================
 
 /** Track last warning ratio to avoid spamming toasts */
 let lastWarningRatio = 0;
+
+/** Last pipeline trace for /dle-inspect command */
+let lastPipelineTrace = null;
 
 /**
  * Called by SillyTavern's generation interceptor system.
@@ -730,115 +891,26 @@ async function onGenerate(chat, contextSize, abort, type) {
         await ensureIndexFresh();
 
         if (vaultIndex.length === 0) {
+            if (!indexEverLoaded) {
+                toastr.warning('No vault entries loaded. Check Obsidian connection.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+            }
             if (settings.debugMode) {
                 console.debug('[DLE] No entries indexed, skipping');
             }
             return;
         }
 
-        let finalEntries;
-        let matchedKeys = new Map();
+        const { finalEntries: pipelineEntries, matchedKeys } = await runPipeline(chat);
+        let finalEntries = pipelineEntries;
 
-        if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
-            // ── AI-only mode: send full vault to Haiku ──
-            const bootstrapActive = chat.length <= settings.newChatThreshold;
-            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex, bootstrapActive);
-            const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+        if (lastPipelineTrace?.aiFallback) {
+            console.warn('[DLE] AI search failed, using fallback results');
+            toastr.warning('AI search unavailable — using keyword fallback', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+        }
 
-            // Mark bootstrap entries in matchedKeys
-            if (bootstrapActive) {
-                for (const e of alwaysInject) {
-                    if (e.bootstrap && !e.constant) {
-                        matchedKeys.set(e.title, '(bootstrap)');
-                    }
-                }
-            }
-
-            if (candidateManifest) {
-                const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
-
-                if (aiResult.error) {
-                    // AI failed — fall back to keyword matching
-                    console.warn('[DLE] AI search failed (ai-only mode), falling back to keyword results');
-                    const keywordResult = matchEntries(chat);
-                    finalEntries = keywordResult.matched;
-                    matchedKeys = keywordResult.matchedKeys;
-                } else if (aiResult.results.length === 0) {
-                    // AI intentionally returned empty — keep always-inject entries only
-                    finalEntries = alwaysInject;
-                    if (settings.debugMode) {
-                        console.log('[DLE] AI-only mode: selected 0 entries (AI decision), keeping constants' + (bootstrapActive ? ' + bootstraps' : '') + ' only');
-                    }
-                } else {
-                    const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
-                    finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
-                    for (const r of aiResult.results) {
-                        matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
-                    }
-                    if (settings.debugMode) {
-                        const selectableCount = vaultIndex.filter(e => !isForceInjected(e)).length;
-                        console.log(`[DLE] AI-only mode: selected ${aiResult.results.length} from ${selectableCount} entries` + (bootstrapActive ? ` (bootstrap active, ${alwaysInject.length} force-injected)` : ''));
-                    }
-                }
-            } else {
-                // All entries are constants/bootstraps
-                finalEntries = alwaysInject;
-            }
-
-        } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
-            // ── Two-stage mode: keywords → AI ──
-            const bootstrapActive = chat.length <= settings.newChatThreshold;
-            const keywordResult = matchEntries(chat);
-            matchedKeys = keywordResult.matchedKeys;
-
-            if (settings.debugMode) {
-                const nonConstant = keywordResult.matched.filter(e => !e.constant && !e.bootstrap);
-                const bootstrapCount = keywordResult.matched.filter(e => e.bootstrap && !e.constant).length;
-                console.log(`[DLE] Stage 1 (keywords): ${nonConstant.length} keyword matches + ${keywordResult.matched.length - nonConstant.length - bootstrapCount} constants` + (bootstrapActive && bootstrapCount > 0 ? ` + ${bootstrapCount} bootstraps` : ''));
-            }
-
-            const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched, bootstrapActive);
-
-            if (!candidateManifest) {
-                // Only constants/bootstraps matched — no candidates for AI
-                finalEntries = keywordResult.matched;
-            } else {
-                const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
-
-                if (aiResult.error) {
-                    // AI failed — fall back to keyword results
-                    console.warn('[DLE] AI search failed, falling back to keyword results');
-                    finalEntries = keywordResult.matched;
-                } else if (aiResult.results.length === 0) {
-                    // AI intentionally returned empty — keep constants + bootstraps only
-                    finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
-                    if (settings.debugMode) {
-                        console.log('[DLE] Stage 2 (AI): selected 0 entries (AI decision), keeping constants' + (bootstrapActive ? ' + bootstraps' : '') + ' only');
-                    }
-                } else {
-                    const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
-                    const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
-                    finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
-
-                    // Update matchedKeys with AI reasons
-                    for (const r of aiResult.results) {
-                        const existing = matchedKeys.get(r.entry.title);
-                        matchedKeys.set(r.entry.title, existing
-                            ? `${existing} → AI: ${r.reason} (${r.confidence})`
-                            : `AI: ${r.reason} (${r.confidence})`);
-                    }
-
-                    if (settings.debugMode) {
-                        console.log(`[DLE] Stage 2 (AI): selected ${aiResult.results.length} from ${keywordResult.matched.filter(e => !isForceInjected(e)).length} candidates`);
-                    }
-                }
-            }
-
-        } else {
-            // ── Keywords-only mode (AI disabled) ──
-            const keywordResult = matchEntries(chat);
-            finalEntries = keywordResult.matched;
-            matchedKeys = keywordResult.matchedKeys;
+        if (settings.debugMode && lastPipelineTrace) {
+            const t = lastPipelineTrace;
+            console.log(`[DLE] Pipeline (${t.mode}): ${t.keywordMatched.length} keyword matches, ${t.aiSelected.length} AI selected` + (t.aiFallback ? ' (AI FALLBACK)' : ''));
         }
 
         if (finalEntries.length === 0) {
@@ -893,6 +965,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Format with budget, grouped by injection position
         const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
 
+        const injectedEntries = gated.slice(0, injectedCount);
+
         if (groups.length > 0) {
             for (const group of groups) {
                 setExtensionPrompt(
@@ -906,56 +980,57 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
 
             // Capture injection sources for Context Cartographer
-            lastInjectionSources = gated.slice(0, injectedCount).map(e => ({
+            lastInjectionSources = injectedEntries.map(e => ({
                 title: e.title,
                 filename: e.filename,
                 matchedBy: matchedKeys.get(e.title) || '?',
                 priority: e.priority,
                 tokens: e.tokenEstimate,
             }));
+        }
 
-            // Post-injection tracking
-            generationCount++;
+        // Post-injection tracking — always runs regardless of budget/groups
+        generationCount++;
 
-            // Decrement cooldown counters; remove expired ones
-            for (const [title, remaining] of cooldownTracker) {
-                if (remaining <= 1) {
-                    cooldownTracker.delete(title);
-                } else {
-                    cooldownTracker.set(title, remaining - 1);
-                }
+        // Decrement cooldown counters; remove expired ones
+        for (const [title, remaining] of cooldownTracker) {
+            if (remaining <= 1) {
+                cooldownTracker.delete(title);
+            } else {
+                cooldownTracker.set(title, remaining - 1);
             }
+        }
 
-            // Set cooldown for newly injected entries that have a cooldown value
-            const injectedEntries = gated.slice(0, injectedCount);
-            for (const entry of injectedEntries) {
-                if (entry.cooldown !== null && entry.cooldown > 0) {
-                    cooldownTracker.set(entry.title, entry.cooldown);
-                }
+        // Set cooldown for injected entries that have a cooldown value
+        for (const entry of injectedEntries) {
+            if (entry.cooldown !== null && entry.cooldown > 0) {
+                cooldownTracker.set(entry.title, entry.cooldown);
             }
+        }
 
-            // Record injection history for re-injection cooldown
-            for (const entry of injectedEntries) {
-                injectionHistory.set(entry.title, generationCount);
-            }
+        // Record injection history for re-injection cooldown
+        for (const entry of injectedEntries) {
+            injectionHistory.set(entry.title, generationCount);
+        }
 
-            // Update analytics data
-            const analytics = settings.analyticsData;
-            for (const entry of finalEntries) {
-                if (!analytics[entry.title]) {
-                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
-                }
-                analytics[entry.title].matched++;
-                analytics[entry.title].lastTriggered = Date.now();
+        // Update analytics data
+        const analytics = settings.analyticsData;
+        for (const entry of finalEntries) {
+            if (!analytics[entry.title]) {
+                analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
             }
-            for (const entry of injectedEntries) {
-                if (!analytics[entry.title]) {
-                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
-                }
-                analytics[entry.title].injected++;
+            analytics[entry.title].matched++;
+            analytics[entry.title].lastTriggered = Date.now();
+        }
+        for (const entry of injectedEntries) {
+            if (!analytics[entry.title]) {
+                analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
             }
-            saveSettingsDebounced();
+            analytics[entry.title].injected++;
+        }
+        saveSettingsDebounced();
 
+        if (groups.length > 0) {
             // Context usage warning
             if (contextSize > 0) {
                 const ratio = totalTokens / contextSize;
@@ -973,7 +1048,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (settings.debugMode) {
                 console.log(`[DLE] ${finalEntries.length} selected, ${gated.length} after gating, ${injectedCount} injected (~${totalTokens} tokens) in ${groups.length} group(s)` +
                     (contextSize > 0 ? ` (${Math.round(totalTokens / contextSize * 100)}% of ${contextSize} context)` : ''));
-                console.table(gated.slice(0, injectedCount).map(e => ({
+                console.table(injectedEntries.map(e => ({
                     title: e.title,
                     matchedBy: matchedKeys.get(e.title) || '?',
                     priority: e.priority,
@@ -1204,6 +1279,7 @@ function loadSettingsUI() {
     const settings = getSettings();
 
     $('#dle_enabled').prop('checked', settings.enabled);
+    $('#dle_enabled').closest('.inline-drawer-content').find('> :not(:first-child)').css('opacity', settings.enabled ? 1 : 0.5);
     $('#dle_port').val(settings.obsidianPort);
     $('#dle_api_key').val(settings.obsidianApiKey);
     $('#dle_tag').val(settings.lorebookTag);
@@ -1223,6 +1299,9 @@ function loadSettingsUI() {
     $(`input[name="dle_position"][value="${settings.injectionPosition}"]`).prop('checked', true);
     $('#dle_depth').val(settings.injectionDepth);
     $('#dle_role').val(settings.injectionRole);
+    // Depth/role only apply for in-chat position (value 1)
+    const isInChat = settings.injectionPosition === 1;
+    $('#dle_depth, #dle_role').prop('disabled', !isInChat).css('opacity', isInChat ? 1 : 0.4);
     $('#dle_allow_wi_scan').prop('checked', settings.allowWIScan);
     $('#dle_recursive_scan').prop('checked', settings.recursiveScan);
     $('#dle_max_recursion').val(settings.maxRecursionSteps);
@@ -1231,10 +1310,14 @@ function loadSettingsUI() {
     $('#dle_review_tokens').val(settings.reviewResponseTokens);
     $('#dle_case_sensitive').prop('checked', settings.caseSensitive);
     $('#dle_match_whole_words').prop('checked', settings.matchWholeWords);
+    $('#dle_char_context_scan').prop('checked', settings.characterContextScan);
     $('#dle_debug').prop('checked', settings.debugMode);
 
     // AI Search settings
     $('#dle_ai_enabled').prop('checked', settings.aiSearchEnabled);
+    $('#dle_ai_controls').find('input:not(#dle_ai_enabled), textarea, select, .menu_button')
+        .prop('disabled', !settings.aiSearchEnabled)
+        .toggleClass('disabled', !settings.aiSearchEnabled);
     $('#dle_ai_proxy_url').val(settings.aiSearchProxyUrl);
     $('#dle_ai_model').val(settings.aiSearchModel);
     $('#dle_ai_max_tokens').val(settings.aiSearchMaxTokens);
@@ -1250,6 +1333,9 @@ function loadSettingsUI() {
 
     // Session Scribe settings
     $('#dle_scribe_enabled').prop('checked', settings.scribeEnabled);
+    $('#dle_scribe_controls').find('input, textarea, select, .menu_button')
+        .prop('disabled', !settings.scribeEnabled)
+        .toggleClass('disabled', !settings.scribeEnabled);
     $('#dle_scribe_interval').val(settings.scribeInterval);
     $('#dle_scribe_folder').val(settings.scribeFolder);
     $('#dle_scribe_prompt').val(settings.scribePrompt);
@@ -1271,16 +1357,21 @@ function bindSettingsEvents() {
     $('#dle_enabled').on('change', function () {
         settings.enabled = $(this).prop('checked');
         saveSettingsDebounced();
+        setupSyncPolling(); // Stop/start polling based on enabled state
+        $(this).closest('.inline-drawer-content').find('> :not(:first-child)').css('opacity', settings.enabled ? 1 : 0.5);
     });
 
     $('#dle_port').on('input', function () {
-        settings.obsidianPort = Number($(this).val()) || 27123;
+        const val = Number($(this).val());
+        settings.obsidianPort = isNaN(val) ? 27123 : val;
         saveSettingsDebounced();
+        $('#dle_connection_status').text('').removeClass('success failure');
     });
 
     $('#dle_api_key').on('input', function () {
         settings.obsidianApiKey = String($(this).val());
         saveSettingsDebounced();
+        $('#dle_connection_status').text('').removeClass('success failure');
     });
 
     $('#dle_tag').on('input', function () {
@@ -1309,7 +1400,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_new_chat_threshold').on('input', function () {
-        settings.newChatThreshold = Number($(this).val()) || 3;
+        const val = Number($(this).val());
+        settings.newChatThreshold = isNaN(val) ? 3 : val;
         saveSettingsDebounced();
     });
 
@@ -1320,7 +1412,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_max_entries').on('input', function () {
-        settings.maxEntries = Number($(this).val()) || 10;
+        const val = Number($(this).val());
+        settings.maxEntries = isNaN(val) ? 10 : val;
         saveSettingsDebounced();
     });
 
@@ -1331,7 +1424,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_token_budget').on('input', function () {
-        settings.maxTokensBudget = Number($(this).val()) || 2048;
+        const val = Number($(this).val());
+        settings.maxTokensBudget = isNaN(val) ? 2048 : val;
         saveSettingsDebounced();
     });
 
@@ -1348,6 +1442,8 @@ function bindSettingsEvents() {
 
     $('input[name="dle_position"]').on('change', function () {
         settings.injectionPosition = Number($(this).val());
+        const inChat = settings.injectionPosition === 1;
+        $('#dle_depth, #dle_role').prop('disabled', !inChat).css('opacity', inChat ? 1 : 0.4);
         saveSettingsDebounced();
     });
 
@@ -1374,7 +1470,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_max_recursion').on('input', function () {
-        settings.maxRecursionSteps = Number($(this).val()) || 3;
+        const val = Number($(this).val());
+        settings.maxRecursionSteps = isNaN(val) ? 3 : val;
         saveSettingsDebounced();
     });
 
@@ -1385,7 +1482,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_review_tokens').on('input', function () {
-        settings.reviewResponseTokens = Number($(this).val()) || 0;
+        const val = Number($(this).val());
+        settings.reviewResponseTokens = isNaN(val) ? 0 : val;
         saveSettingsDebounced();
     });
 
@@ -1399,6 +1497,11 @@ function bindSettingsEvents() {
         saveSettingsDebounced();
     });
 
+    $('#dle_char_context_scan').on('change', function () {
+        settings.characterContextScan = $(this).is(':checked');
+        saveSettingsDebounced();
+    });
+
     $('#dle_debug').on('change', function () {
         settings.debugMode = $(this).prop('checked');
         saveSettingsDebounced();
@@ -1408,6 +1511,9 @@ function bindSettingsEvents() {
     $('#dle_ai_enabled').on('change', function () {
         settings.aiSearchEnabled = $(this).prop('checked');
         saveSettingsDebounced();
+        $('#dle_ai_controls').find('input:not(#dle_ai_enabled), textarea, select, .menu_button')
+            .prop('disabled', !settings.aiSearchEnabled)
+            .toggleClass('disabled', !settings.aiSearchEnabled);
     });
 
     $('#dle_ai_proxy_url').on('input', function () {
@@ -1421,12 +1527,14 @@ function bindSettingsEvents() {
     });
 
     $('#dle_ai_max_tokens').on('input', function () {
-        settings.aiSearchMaxTokens = Number($(this).val()) || 1024;
+        const val = Number($(this).val());
+        settings.aiSearchMaxTokens = isNaN(val) ? 1024 : val;
         saveSettingsDebounced();
     });
 
     $('#dle_ai_timeout').on('input', function () {
-        settings.aiSearchTimeout = Number($(this).val()) || 10000;
+        const val = Number($(this).val());
+        settings.aiSearchTimeout = isNaN(val) ? 10000 : val;
         saveSettingsDebounced();
     });
 
@@ -1436,7 +1544,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_ai_scan_depth').on('input', function () {
-        settings.aiSearchScanDepth = Number($(this).val()) || 4;
+        const val = Number($(this).val());
+        settings.aiSearchScanDepth = isNaN(val) ? 4 : val;
         saveSettingsDebounced();
     });
 
@@ -1446,7 +1555,8 @@ function bindSettingsEvents() {
     });
 
     $('#dle_ai_summary_length').on('input', function () {
-        settings.aiSearchManifestSummaryLength = Number($(this).val()) || 600;
+        const val = Number($(this).val());
+        settings.aiSearchManifestSummaryLength = isNaN(val) ? 600 : val;
         saveSettingsDebounced();
     });
 
@@ -1465,10 +1575,14 @@ function bindSettingsEvents() {
     $('#dle_scribe_enabled').on('change', function () {
         settings.scribeEnabled = $(this).prop('checked');
         saveSettingsDebounced();
+        $('#dle_scribe_controls').find('input, textarea, select, .menu_button')
+            .prop('disabled', !settings.scribeEnabled)
+            .toggleClass('disabled', !settings.scribeEnabled);
     });
 
     $('#dle_scribe_interval').on('input', function () {
-        settings.scribeInterval = Number($(this).val()) || 5;
+        const val = Number($(this).val());
+        settings.scribeInterval = isNaN(val) ? 5 : val;
         saveSettingsDebounced();
     });
 
@@ -1636,10 +1750,18 @@ function bindSettingsEvents() {
 
     // Refresh Index button
     $('#dle_refresh').on('click', async function () {
-        $('#dle_index_stats').text('Refreshing...');
-        vaultIndex = [];
-        indexTimestamp = 0;
-        await buildIndex();
+        const $btn = $(this);
+        const $icon = $btn.find('i');
+        $btn.prop('disabled', true);
+        $icon.removeClass('fa-rotate').addClass('fa-spinner fa-spin');
+        try {
+            vaultIndex = [];
+            indexTimestamp = 0;
+            await buildIndex();
+        } finally {
+            $btn.prop('disabled', false);
+            $icon.removeClass('fa-spinner fa-spin').addClass('fa-rotate');
+        }
     });
 
     // Test Match button — simulate matching pipeline and show results
@@ -1661,94 +1783,32 @@ function bindSettingsEvents() {
                 return;
             }
 
-            // Run the full matching pipeline (same as onGenerate but without injection)
-            let finalEntries;
-            let matchedKeys = new Map();
-            let keywordCount = 0;
-            let aiUsed = false;
-            let aiError = false;
-            let aiSelectedCount = 0;
-
-            if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
-                const bootstrapActive = chat.length <= settings.newChatThreshold;
-                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex, bootstrapActive);
-                const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
-                aiUsed = true;
-
-                if (bootstrapActive) {
-                    for (const e of alwaysInject) {
-                        if (e.bootstrap && !e.constant) {
-                            matchedKeys.set(e.title, '(bootstrap)');
-                        }
-                    }
-                }
-
-                if (candidateManifest) {
-                    const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
-                    if (aiResult.error) {
-                        aiError = true;
-                        const kwResult = matchEntries(chat);
-                        finalEntries = kwResult.matched;
-                        matchedKeys = kwResult.matchedKeys;
-                    } else if (aiResult.results.length === 0) {
-                        finalEntries = alwaysInject;
-                    } else {
-                        const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
-                        finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
-                        aiSelectedCount = aiResult.results.length;
-                        for (const r of aiResult.results) {
-                            matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
-                        }
-                    }
-                } else {
-                    finalEntries = alwaysInject;
-                }
-
-            } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
-                const bootstrapActive = chat.length <= settings.newChatThreshold;
-                const keywordResult = matchEntries(chat);
-                matchedKeys = keywordResult.matchedKeys;
-                keywordCount = keywordResult.matched.filter(e => !e.constant && !e.bootstrap).length;
-
-                const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched, bootstrapActive);
-
-                if (!candidateManifest) {
-                    finalEntries = keywordResult.matched;
-                } else {
-                    aiUsed = true;
-                    const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
-                    if (aiResult.error) {
-                        aiError = true;
-                        finalEntries = keywordResult.matched;
-                    } else if (aiResult.results.length === 0) {
-                        finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
-                    } else {
-                        const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
-                        const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
-                        finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
-                        aiSelectedCount = aiResult.results.length;
-                        for (const r of aiResult.results) {
-                            const existing = matchedKeys.get(r.entry.title);
-                            matchedKeys.set(r.entry.title, existing
-                                ? `${existing} → AI: ${r.reason} (${r.confidence})`
-                                : `AI: ${r.reason} (${r.confidence})`);
-                        }
-                    }
-                }
-
-            } else {
-                const keywordResult = matchEntries(chat);
-                finalEntries = keywordResult.matched;
-                matchedKeys = keywordResult.matchedKeys;
-                keywordCount = keywordResult.matched.filter(e => !e.constant).length;
-            }
+            // Run the full matching pipeline via shared runPipeline()
+            const { finalEntries, matchedKeys, trace } = await runPipeline(chat);
+            const keywordCount = trace.keywordMatched.filter(m => !m.matchedBy.startsWith('(constant') && !m.matchedBy.startsWith('(bootstrap')).length;
+            const aiUsed = trace.aiSelected.length > 0 || trace.aiFallback;
+            const aiError = trace.aiFallback;
+            const aiSelectedCount = trace.aiSelected.length;
 
             const gated = applyGating(finalEntries);
-            const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
-
             const gatedRemoved = finalEntries.filter(e => !gated.includes(e));
-            const budgetRemoved = gated.slice(injectedCount);
-            const injected = gated.slice(0, injectedCount);
+
+            // Simulate re-injection cooldown (same logic as onGenerate)
+            let cooldownBlocked = [];
+            let gatedAfterCooldown = gated;
+            if (settings.reinjectionCooldown > 0) {
+                cooldownBlocked = gated.filter(e => {
+                    if (e.constant) return false;
+                    const lastGen = injectionHistory.get(e.title);
+                    return lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown;
+                });
+                gatedAfterCooldown = gated.filter(e => !cooldownBlocked.includes(e));
+            }
+
+            const { groups, count: injectedCount, totalTokens } = formatAndGroup(gatedAfterCooldown, getSettings(), PROMPT_TAG_PREFIX);
+
+            const budgetRemoved = gatedAfterCooldown.slice(injectedCount);
+            const injected = gatedAfterCooldown.slice(0, injectedCount);
 
             // Build popup HTML
             const positionLabels = { 0: 'After', 1: 'In-chat', 2: 'Before' };
@@ -1762,27 +1822,27 @@ function bindSettingsEvents() {
             html += `<b>${vaultIndex.length}</b> indexed &rarr; `;
             if (settings.aiSearchMode === 'ai-only' && settings.aiSearchEnabled) {
                 html += aiError
-                    ? `<b style="color: #ff9800;">AI error (fallback to keywords)</b> &rarr; `
+                    ? `<b style="color: var(--warning, #ff9800);">AI error (fallback to keywords)</b> &rarr; `
                     : `<b>${aiSelectedCount}</b> AI selected &rarr; `;
             } else if (settings.aiSearchEnabled) {
                 html += `<b>${keywordCount}</b> keyword matched &rarr; `;
                 if (aiUsed) {
                     html += aiError
-                        ? `<b style="color: #ff9800;">AI error (fallback)</b> &rarr; `
+                        ? `<b style="color: var(--warning, #ff9800);">AI error (fallback)</b> &rarr; `
                         : `<b>${aiSelectedCount}</b> AI selected &rarr; `;
                 }
             } else {
                 html += `<b>${keywordCount}</b> keyword matched &rarr; `;
             }
             html += `<b>${gated.length}</b> after gating &rarr; `;
-            html += `<b style="color: #4caf50;">${injectedCount}</b> would inject (~${totalTokens} tokens)`;
+            html += `<b style="color: var(--SmartThemeQuoteColor, #4caf50);">${injectedCount}</b> would inject (~${totalTokens} tokens)`;
             html += `</div>`;
 
             // Injected entries table
             if (injected.length > 0) {
                 html += `<h3>Would Inject (${injectedCount} entries, ~${totalTokens} tokens)</h3>`;
                 html += `<table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">`;
-                html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.2);">`;
+                html += `<tr style="border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));">`;
                 html += `<th style="text-align: left; padding: 4px;">Title</th>`;
                 html += `<th style="text-align: left; padding: 4px;">Matched By</th>`;
                 html += `<th style="text-align: right; padding: 4px;">Priority</th>`;
@@ -1796,7 +1856,7 @@ function bindSettingsEvents() {
                     const posLabel = pos === 1
                         ? `In-chat @${depth} (${roleLabels[role] || '?'})`
                         : (positionLabels[pos] || '?');
-                    html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.1);">`;
+                    html += `<tr style="border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));">`;
                     html += `<td style="padding: 4px;">${escapeHtml(entry.title)}</td>`;
                     html += `<td style="padding: 4px; opacity: 0.8;">${escapeHtml(matchedKeys.get(entry.title) || '?')}</td>`;
                     html += `<td style="text-align: right; padding: 4px;">${entry.priority}</td>`;
@@ -1806,12 +1866,12 @@ function bindSettingsEvents() {
                 }
                 html += `</table>`;
             } else {
-                html += `<p style="color: #ff9800;">No entries would be injected.</p>`;
+                html += `<p style="color: var(--warning, #ff9800);">No entries would be injected.</p>`;
             }
 
             // Gating removed
             if (gatedRemoved.length > 0) {
-                html += `<h3 style="color: #ff9800;">Removed by Gating (${gatedRemoved.length})</h3>`;
+                html += `<h3 style="color: var(--warning, #ff9800);">Removed by Gating (${gatedRemoved.length})</h3>`;
                 html += `<ul style="margin: 0 0 15px 20px;">`;
                 for (const entry of gatedRemoved) {
                     const reasons = [];
@@ -1822,9 +1882,20 @@ function bindSettingsEvents() {
                 html += `</ul>`;
             }
 
+            // Cooldown blocked
+            if (cooldownBlocked.length > 0) {
+                html += `<h3 style="color: var(--warning, #ff9800);">Cooldown Blocked (${cooldownBlocked.length})</h3>`;
+                html += `<ul style="margin: 0 0 15px 20px;">`;
+                for (const entry of cooldownBlocked) {
+                    const lastGen = injectionHistory.get(entry.title);
+                    html += `<li>${escapeHtml(entry.title)} — injected ${generationCount - lastGen} gen(s) ago (cooldown: ${settings.reinjectionCooldown})</li>`;
+                }
+                html += `</ul>`;
+            }
+
             // Budget/max removed
             if (budgetRemoved.length > 0) {
-                html += `<h3 style="color: #ff9800;">Cut by Budget/Max (${budgetRemoved.length})</h3>`;
+                html += `<h3 style="color: var(--warning, #ff9800);">Cut by Budget/Max (${budgetRemoved.length})</h3>`;
                 html += `<ul style="margin: 0 0 15px 20px;">`;
                 for (const entry of budgetRemoved) {
                     html += `<li>${escapeHtml(entry.title)} (pri ${entry.priority}, ~${entry.tokenEstimate} tokens)</li>`;
@@ -1850,7 +1921,7 @@ function bindSettingsEvents() {
             // Entries with no keys (potential misconfiguration)
             const noKeys = vaultIndex.filter(e => e.keys.length === 0 && !e.constant);
             if (noKeys.length > 0) {
-                html += `<details style="margin-top: 10px;"><summary style="cursor: pointer; color: #ff9800;">Entries with no keywords (${noKeys.length})</summary>`;
+                html += `<details style="margin-top: 10px;"><summary style="cursor: pointer; color: var(--warning, #ff9800);">Entries with no keywords (${noKeys.length})</summary>`;
                 html += `<ul style="margin: 5px 0 0 20px;">`;
                 for (const entry of noKeys.slice(0, 30)) {
                     html += `<li>${escapeHtml(entry.title)} (${escapeHtml(entry.filename)})</li>`;
@@ -1916,7 +1987,8 @@ function registerSlashCommands() {
                 `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
             ];
             const msg = lines.join('\n');
-            toastr.info(msg, 'DeepLore Enhanced', { timeOut: 10000 });
+            const html = `<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(msg)}</pre>`;
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true });
             return msg;
         },
         helpString: 'Show DeepLore Enhanced connection status and index stats.',
@@ -1948,12 +2020,19 @@ function registerSlashCommands() {
                 return '';
             }
 
+            const settings = getSettings();
+            const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
+
+            const confirmed = await callGenericPopup(
+                `<p>This will send <b>${vaultIndex.length}</b> entries (~${totalTokens} tokens) as a message and generate an AI response.</p><p>This may be expensive. Continue?</p>`,
+                POPUP_TYPE.CONFIRM, '', {},
+            );
+            if (!confirmed) return '';
+
             const loreDump = vaultIndex.map(entry => {
                 return `## ${entry.title}\n${entry.content}`;
             }).join('\n\n---\n\n');
 
-            const settings = getSettings();
-            const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
             const responseTokens = settings.reviewResponseTokens > 0
                 ? settings.reviewResponseTokens
                 : getMaxResponseTokens();
@@ -1985,7 +2064,7 @@ function registerSlashCommands() {
             const titles = Object.keys(analytics).sort((a, b) => (analytics[b].injected || 0) - (analytics[a].injected || 0));
 
             let html = '<table style="width:100%;border-collapse:collapse;font-size:0.9em;">';
-            html += '<tr><th style="text-align:left;border-bottom:1px solid #666;padding:4px;">Entry</th><th style="border-bottom:1px solid #666;padding:4px;">Matched</th><th style="border-bottom:1px solid #666;padding:4px;">Injected</th><th style="border-bottom:1px solid #666;padding:4px;">Last Used</th></tr>';
+            html += '<tr><th style="text-align:left;border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Entry</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Matched</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Injected</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Last Used</th></tr>';
 
             for (const title of titles) {
                 const d = analytics[title];
@@ -2008,7 +2087,7 @@ function registerSlashCommands() {
                 html = '<p>No analytics data yet. Generate some messages first.</p>';
             }
 
-            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true });
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
             return '';
         },
         helpString: 'Show entry usage analytics: how often each entry was matched and injected.',
@@ -2058,8 +2137,11 @@ function registerSlashCommands() {
                     issues.push({ type: 'Missing Summary', entry: entry.title, detail: 'No AI selection summary defined' });
                 }
 
-                // Build keyword map for duplicate detection
+                // Build keyword map for duplicate detection; also flag short keywords
                 for (const key of entry.keys) {
+                    if (key.length <= 2) {
+                        issues.push({ type: 'Short Keywords', entry: entry.title, detail: `Keyword "${key}" is ${key.length} char(s) — may match too aggressively` });
+                    }
                     const lower = key.toLowerCase();
                     if (!keywordMap.has(lower)) keywordMap.set(lower, []);
                     keywordMap.get(lower).push(entry.title);
@@ -2093,11 +2175,52 @@ function registerSlashCommands() {
                 }
             }
 
-            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true });
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
             return '';
         },
         helpString: 'Audit vault entries for common issues: empty keys, orphaned requires/excludes, oversized entries, duplicate keywords, missing summaries.',
         returns: 'Health check popup',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-inspect',
+        callback: async () => {
+            if (!lastPipelineTrace) {
+                toastr.info('No pipeline trace yet. Send a message first to populate the inspector.', 'DeepLore Enhanced');
+                return '';
+            }
+            const t = lastPipelineTrace;
+            const statusIcon = (ok) => ok ? '✓' : '✗';
+            let html = `<div style="text-align: left; font-family: monospace; font-size: 0.85em;">`;
+            html += `<h3>Pipeline Inspector</h3>`;
+            html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
+
+            if (t.keywordMatched.length > 0) {
+                html += `<h4>${statusIcon(true)} Keyword Matched (${t.keywordMatched.length})</h4><ul>`;
+                for (const m of t.keywordMatched) {
+                    html += `<li>${escapeHtml(m.title)} — ${escapeHtml(m.matchedBy)}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            if (t.aiSelected.length > 0) {
+                html += `<h4>${statusIcon(true)} AI Selected (${t.aiSelected.length})</h4><ul>`;
+                for (const m of t.aiSelected) {
+                    html += `<li>${escapeHtml(m.title)} [${escapeHtml(m.confidence)}] — ${escapeHtml(m.reason)}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            if (t.aiFallback) {
+                html += `<p style="color: var(--warning, #ff9800);">⚠ AI search failed — keyword results used as fallback</p>`;
+            }
+
+            html += '</div>';
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
+            return '';
+        },
+        helpString: 'Show the last pipeline trace: which entries matched, why, and what the AI selected.',
+        returns: 'Pipeline inspector popup',
     }));
 }
 
@@ -2163,6 +2286,7 @@ jQuery(async function () {
             injectionHistory.clear();
             cooldownTracker.clear();
             generationCount = 0;
+            lastWarningRatio = 0;
             setTimeout(() => {
                 const settings = getSettings();
                 if (!settings.showLoreSources) return;

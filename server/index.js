@@ -1,5 +1,6 @@
 const http = require('node:http');
 const https = require('node:https');
+const path = require('node:path');
 const { obsidianRequest, encodeVaultPath, listAllFiles } = require('./core/obsidian');
 
 const info = {
@@ -8,34 +9,8 @@ const info = {
     description: 'Proxies requests to Obsidian Local REST API with AI-powered semantic search via Claude',
 };
 
-const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of lore entries, select which entries are most relevant to inject into the current conversation context.
-
-You may select up to {{maxEntries}} entries. Select fewer if not all are relevant.
-
-Each entry in the manifest is formatted as:
-  EntryName (Ntok) → LinkedEntry1, LinkedEntry2
-  Description text. May include structured metadata in [brackets] with fields like Triggers, Related, Who Knows, Category.
-
-Selection criteria (in order of importance):
-1. Direct references - Characters, places, items, or events explicitly mentioned
-2. Active context - Entries about the current location, present characters, or ongoing events
-3. Relationship chains - The → arrow shows linked entries; if entry A is relevant, consider linked entries too
-4. Metadata triggers - If an entry's [Triggers: ...] field matches what's happening in the conversation, select it
-5. Thematic relevance - Entries matching the tone or themes (betrayal, romance, combat, etc.)
-
-Guidelines:
-- Focus on what is relevant RIGHT NOW in the conversation
-- Prefer fewer, highly relevant entries over many loosely related ones
-- Consider the token cost (Ntok) shown for each entry when making selections
-- Use [Related: ...] and → links to find connected lore
-
-Respond with a JSON array of objects. Each object has:
-- "title": exact entry name from the manifest
-- "confidence": "high", "medium", or "low"
-- "reason": brief phrase explaining why
-
-Example: [{"title": "Eris", "confidence": "high", "reason": "directly mentioned by name"}, {"title": "The Dark Council", "confidence": "medium", "reason": "linked from Eris, thematically relevant"}]
-If no entries are relevant, respond with: []`;
+// Fallback system prompt used only when client sends none
+const FALLBACK_SYSTEM_PROMPT = 'You are a lorebook search assistant. Return a JSON array of relevant entries.';
 
 // Obsidian REST API helpers imported from ./core/obsidian.js
 
@@ -105,8 +80,13 @@ function callProxy(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeou
         req.setTimeout(timeout, () => {
             req.destroy(new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`));
         });
-        req.write(payload);
-        req.end();
+        try {
+            req.write(payload);
+            req.end();
+        } catch (e) {
+            req.destroy();
+            reject(new Error(`Failed to send proxy request: ${e.message}`));
+        }
     });
 }
 
@@ -172,11 +152,13 @@ function extractAiResponse(text) {
         if (fenced) return normalizeResults(fenced);
     }
 
-    // Try finding any JSON array in the text (lazy to avoid spanning multiple arrays)
-    const arrayMatch = text.match(/\[[\s\S]*?\]/);
-    if (arrayMatch) {
-        const found = tryParseJson(arrayMatch[0]);
-        if (found) return normalizeResults(found);
+    // Try all JSON arrays, searching from the last one (most likely to be the actual result)
+    const arrayMatches = [...text.matchAll(/\[[\s\S]*?\]/g)];
+    for (let i = arrayMatches.length - 1; i >= 0; i--) {
+        const found = tryParseJson(arrayMatches[i][0]);
+        if (found && Array.isArray(found) && found.length > 0 && (typeof found[0] === 'object' ? found[0].name || found[0].title : typeof found[0] === 'string')) {
+            return normalizeResults(found);
+        }
     }
 
     return null;
@@ -251,14 +233,15 @@ async function init(router) {
                 return res.status(400).json({ error: 'Missing port, apiKey, or filename' });
             }
 
-            if (filename.includes('..')) {
+            const normalizedFile = path.normalize(filename).replace(/\\/g, '/');
+            if (normalizedFile.startsWith('..') || path.isAbsolute(normalizedFile) || normalizedFile.includes('/../')) {
                 return res.status(400).json({ error: 'Invalid filename: path traversal not allowed' });
             }
 
             const result = await obsidianRequest({
                 port,
                 apiKey,
-                path: `/vault/${encodeVaultPath(filename)}`,
+                path: `/vault/${encodeVaultPath(normalizedFile)}`,
                 accept: 'text/markdown',
             });
 
@@ -335,14 +318,15 @@ async function init(router) {
                 return res.status(400).json({ ok: false, error: 'Missing required fields (port, apiKey, filename, content)' });
             }
 
-            if (filename.includes('..')) {
+            const normalizedWrite = path.normalize(filename).replace(/\\/g, '/');
+            if (normalizedWrite.startsWith('..') || path.isAbsolute(normalizedWrite) || normalizedWrite.includes('/../')) {
                 return res.status(400).json({ ok: false, error: 'Invalid filename: path traversal not allowed' });
             }
 
             const result = await obsidianRequest({
                 port,
                 apiKey,
-                path: `/vault/${encodeVaultPath(filename)}`,
+                path: `/vault/${encodeVaultPath(normalizedWrite)}`,
                 method: 'PUT',
                 body: content,
                 contentType: 'text/markdown',
@@ -370,16 +354,8 @@ async function init(router) {
                 return res.status(400).json({ ok: false, error: 'Missing required fields (manifest, chatContext, proxyUrl, model)' });
             }
 
-            // Build system prompt - always ensure "You are Claude Code" is present (proxy requirement)
-            let finalSystemPrompt;
-            if (systemPrompt && systemPrompt.trim()) {
-                const userPrompt = systemPrompt.trim();
-                finalSystemPrompt = userPrompt.startsWith('You are Claude Code')
-                    ? userPrompt
-                    : 'You are Claude Code. ' + userPrompt;
-            } else {
-                finalSystemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
-            }
+            // Use system prompt from client; fall back to minimal fallback
+            const finalSystemPrompt = (systemPrompt && systemPrompt.trim()) ? systemPrompt.trim() : FALLBACK_SYSTEM_PROMPT;
 
             // Build user message with optional manifest header
             const headerSection = manifestHeader ? `## Manifest Info\n${manifestHeader}\n\n` : '';

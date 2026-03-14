@@ -23,6 +23,8 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 - **Vault Change Detection** -- Detects added, removed, and modified entries when the index rebuilds. Optional toast notifications and configurable auto-sync polling.
 - **Cooldown & Warmup Tags** -- Per-entry `cooldown` skips injection for N generations after triggering. Per-entry `warmup` requires N keyword occurrences before first trigger.
 - **Re-injection Cooldown** -- Global setting to skip re-injecting entries for N generations after last injection, saving context.
+- **Active Character Boost** -- Optionally auto-match the active character's vault entry by name, ensuring their lore is always available when they're in the conversation.
+- **Pipeline Inspector** -- View a detailed trace of the last generation pipeline with `/dle-inspect`: keyword matches with trigger keywords, AI selections with confidence and reasons, fallback status, and mode info.
 - **Entry Analytics** -- Track how often each entry is matched and injected. View with `/dle-analytics`.
 - **Entry Health Check** -- Audit entries for common issues (empty keys, orphaned requires/excludes, oversized, duplicate keywords, missing summaries) with `/dle-health`.
 
@@ -258,6 +260,7 @@ This entry injects as a user message at depth 1 in the chat history.
 | `/dle-scribe [topic]` | Write a session summary on demand. Optionally provide a focus topic. |
 | `/dle-analytics` | Show entry usage analytics: match and injection counts per entry |
 | `/dle-health` | Audit entries for common issues (empty keys, orphaned references, oversized, duplicates, missing summaries) |
+| `/dle-inspect` | Show the last pipeline trace: keyword matches, AI selections, fallback status, and mode |
 
 ## Settings Reference
 
@@ -279,6 +282,7 @@ This entry injects as a user message at depth 1 in the chat history.
 ### Matching
 - **Case Sensitive** -- Whether keyword matching respects case
 - **Match Whole Words** -- Use word boundaries so "war" won't match "warning"
+- **Active Character Boost** -- Auto-match the active character's vault entry by name or keyword
 - **Recursive Scanning** -- Scan matched entry content for more keyword triggers
 - **Max Recursion Steps** -- Limit on recursive scan passes (default: 3)
 - **Re-injection Cooldown** -- Skip re-injecting an entry for N generations after it was last injected (0 = disabled)

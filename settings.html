@@ -228,24 +228,49 @@
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-                    <label class="checkbox_label" for="dle_ai_enabled" title="Enable AI-powered semantic search using Claude Haiku alongside keyword matching. Requires claude-code-proxy running at the configured URL. Makes one API call per generation (cached on regenerations).">
+                    <label class="checkbox_label" for="dle_ai_enabled" title="Enable AI-powered semantic search alongside keyword matching. Uses a SillyTavern Connection Profile or a custom proxy. Makes one API call per generation (cached on regenerations).">
                         <input id="dle_ai_enabled" type="checkbox" class="checkbox">
                         <span>Enable AI Search</span>
                     </label>
 
                     <div class="flex-container flexFlowColumn" id="dle_ai_controls">
-                        <div class="flex-container">
+                        <div style="margin: 8px 0;">
+                            <small>Connection</small>
+                            <div class="radio_group">
+                                <label class="checkbox_label" title="Use a saved SillyTavern Connection Manager profile. No separate proxy needed.">
+                                    <input type="radio" name="dle_ai_connection_mode" value="profile" />
+                                    <span>Connection Profile</span>
+                                </label>
+                                <label class="checkbox_label" title="Use a separate proxy server (claude-code-proxy or compatible Anthropic Messages API endpoint).">
+                                    <input type="radio" name="dle_ai_connection_mode" value="proxy" />
+                                    <span>Custom Proxy</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="flex-container" id="dle_ai_profile_row">
+                            <div class="flex1" title="Select a saved Connection Manager profile to use for AI search requests.">
+                                <label for="dle_ai_profile_select">
+                                    <small>Connection Profile</small>
+                                </label>
+                                <select id="dle_ai_profile_select" class="text_pole">
+                                    <option value="">— Select a profile —</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex-container" id="dle_ai_proxy_row">
                             <div class="flex1" title="URL of the claude-code-proxy. Must expose an Anthropic-compatible Messages API at /v1/messages.">
                                 <label for="dle_ai_proxy_url">
                                     <small>Proxy URL</small>
                                 </label>
                                 <input id="dle_ai_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
                             </div>
-                            <div class="flex1" title="Model to use for AI search. Must be available through the proxy.">
+                        </div>
+                        <div class="flex-container">
+                            <div class="flex1" title="Model override for AI search. Leave empty to use the profile's model (profile mode) or specify the model name (proxy mode).">
                                 <label for="dle_ai_model">
-                                    <small>Model</small>
+                                    <small>Model Override</small>
                                 </label>
-                                <input id="dle_ai_model" type="text" class="text_pole" placeholder="claude-haiku-4-5-20251001" />
+                                <input id="dle_ai_model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
                             </div>
                         </div>
                         <div class="flex-container">

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.13-ALPHA
+
+### New Features
+- **Connection Profile Support** -- AI search can now use saved SillyTavern Connection Manager profiles instead of requiring a separate proxy server. Select any saved profile from a dropdown in AI Search settings. All API providers supported by Connection Manager work (Anthropic, OpenAI, OpenRouter, etc.). Custom proxy mode preserved as a toggle for claude-code-proxy users.
+- **Model Override** -- AI search model field is now an optional override. In profile mode, it defaults to the profile's model. In proxy mode, it defaults to claude-haiku-4-5.
+
+### Settings
+- New "Connection" radio: "Connection Profile" (default) or "Custom Proxy" in AI Search section.
+- New "Connection Profile" dropdown to select a saved Connection Manager profile.
+- "Model" field renamed to "Model Override" — leave empty to auto-use profile/default model.
+
+### Internal
+- New import: `ConnectionManagerRequestService` from ST's `shared.js`
+- New functions: `callViaProfile()`, `extractAiResponseClient()`, `getProfileModelHint()`, `populateProfileDropdown()`, `updateAiConnectionVisibility()`
+- `aiSearch()` now routes through either `callViaProfile()` (profile mode) or server proxy (proxy mode)
+- Profile dropdown auto-refreshes on Connection Manager profile events
+- Bumped version to 0.13-ALPHA
+
 ## 0.12-ALPHA
 
 ### New Features

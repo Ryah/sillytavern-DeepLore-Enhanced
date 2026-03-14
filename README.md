@@ -6,9 +6,9 @@
 
 > **Do NOT run this alongside DeepLore.** Running both DeepLore and DeepLore Enhanced at the same time is not supported and will cause conflicts. Disable or uninstall DeepLore before using this extension. If you run into issues with both installed, the fix is to pick one and remove the other.
 
-DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) that adds **AI-powered semantic search** on top of the existing keyword matching system. It uses Claude Haiku (via [claude-code-proxy](https://github.com/horselock/claude-code-proxy)) to find vault entries that are *contextually relevant* to the conversation, even when no exact keywords match.
+DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) that adds **AI-powered semantic search** on top of the existing keyword matching system. It uses any AI provider configured in SillyTavern's Connection Manager (or a custom proxy like [claude-code-proxy](https://github.com/horselock/claude-code-proxy)) to find vault entries that are *contextually relevant* to the conversation, even when no exact keywords match.
 
-> **Upgrading?** Make sure to install the new server `index.js`. New since 0.10: shared core refactor (no behavior changes), active character boost. See the [changelog](CHANGELOG.md) for details.
+> **Upgrading?** Make sure to install the new server `index.js`. New since 0.12: Connection Profile support for AI search (no proxy needed). See the [changelog](CHANGELOG.md) for details.
 
 ## What's New (vs DeepLore)
 
@@ -36,11 +36,12 @@ This is a fairly specific stack. You need all of these:
 
 - [SillyTavern](https://github.com/SillyTavern/SillyTavern) (1.12.0+)
 - [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) community plugin installed and enabled
-- [claude-code-proxy](https://github.com/horselock/claude-code-proxy) running locally (for AI search features)
-- A Claude subscription that gives you access to Claude Haiku through the proxy
 - Server plugins enabled in SillyTavern (`enableServerPlugins: true` in `config.yaml`)
+- **For AI search (one of):**
+  - A saved **Connection Manager profile** in SillyTavern (any provider: Anthropic, OpenAI, OpenRouter, etc.) — **recommended, no extra setup**
+  - OR [claude-code-proxy](https://github.com/horselock/claude-code-proxy) running locally (legacy/advanced)
 
-If you only want keyword matching (no AI search), you can skip the claude-code-proxy prerequisite and just leave AI Search disabled in settings.
+If you only want keyword matching (no AI search), you can skip the AI search prerequisites and just leave AI Search disabled in settings.
 
 ## Installation
 
@@ -108,12 +109,25 @@ Restart the SillyTavern server so it picks up the new plugin, then refresh the b
 
 ### AI Search Setup
 
+**Option A: Connection Profile (recommended)**
+
+1. In SillyTavern, set up an API connection (Anthropic, OpenAI, OpenRouter, etc.) and save it as a **Connection Manager profile**
+2. In the DeepLore Enhanced settings, scroll to the **AI Search** section
+3. Check **Enable AI Search**
+4. Select **Connection Profile** mode (default)
+5. Choose your saved profile from the dropdown
+6. Optionally set a **Model Override** (leave empty to use the profile's model)
+7. Click **Test AI Search** to verify the connection
+
+**Option B: Custom Proxy (claude-code-proxy)**
+
 1. Install and run [claude-code-proxy](https://github.com/horselock/claude-code-proxy) (defaults to `http://localhost:42069`)
 2. In the DeepLore Enhanced settings, scroll to the **AI Search** section
 3. Check **Enable AI Search**
-4. Set the **Proxy URL** (default: `http://localhost:42069`)
-5. Set the **Model** (default: `claude-haiku-4-5-20251001`)
-6. Click **Test AI Search** to verify the connection
+4. Select **Custom Proxy** mode
+5. Set the **Proxy URL** (default: `http://localhost:42069`)
+6. Set the **Model Override** (e.g. `claude-haiku-4-5-20251001`)
+7. Click **Test AI Search** to verify the connection
 
 ## Writing Lorebook Notes
 
@@ -172,13 +186,13 @@ The `summary` field is optional but recommended when AI Search is enabled. It te
 **Two-Stage mode** (default):
 1. On each generation, **keyword matching** runs first against recent chat messages, producing a set of candidate entries.
 2. A **compact manifest** is built from those candidates only -- entry name, token cost, linked entries, and a summary per entry (from the `summary` frontmatter field, or truncated content as fallback).
-3. The candidate manifest and recent chat are sent to Claude Haiku via the proxy.
-4. Haiku returns a JSON array selecting the most relevant entries from the candidates. This is the final selection (plus constants).
+3. The candidate manifest and recent chat are sent to the AI via the configured connection (Connection Manager profile or custom proxy).
+4. The AI returns a JSON array selecting the most relevant entries from the candidates. This is the final selection (plus constants).
 5. The selected set goes through gating (requires/excludes), budget/template formatting, and gets injected into the prompt.
 6. **Caching:** The chat context + candidate manifest are hashed. Regenerations and swipes reuse cached results without another API call.
 
 **AI Only mode:**
-- Skips keyword matching entirely. A manifest of all non-constant vault entries is sent to Haiku for evaluation. More thorough but uses more tokens.
+- Skips keyword matching entirely. A manifest of all non-constant vault entries is sent to the AI for evaluation. More thorough but uses more tokens.
 
 **Error fallback:** If the AI proxy is down or returns an error, the pipeline falls back to keyword-only results (two-stage mode) or the full vault sorted by priority (AI-only mode). If the AI intentionally returns an empty selection, only constant entries are injected.
 
@@ -291,14 +305,16 @@ This entry injects as a user message at depth 1 in the chat history.
 
 ### AI Search
 - **Enable AI Search** -- Toggle AI-powered semantic search
-- **AI Search Mode** -- "Two-Stage (keywords → AI)" pre-filters with keywords first, then AI picks from candidates. "AI Only (full vault)" sends the entire manifest to Haiku directly.
-- **Proxy URL** -- URL of the claude-code-proxy (default: `http://localhost:42069`)
-- **Model** -- Claude model to use (default: `claude-haiku-4-5-20251001`)
+- **Connection** -- "Connection Profile" uses a saved SillyTavern Connection Manager profile (recommended). "Custom Proxy" uses a separate proxy server like claude-code-proxy.
+- **Connection Profile** -- (Profile mode) Select a saved Connection Manager profile from the dropdown. Any provider works (Anthropic, OpenAI, OpenRouter, etc.).
+- **Proxy URL** -- (Proxy mode) URL of the claude-code-proxy (default: `http://localhost:42069`)
+- **Model Override** -- Optional model override. In profile mode, leave empty to use the profile's model. In proxy mode, specify the model name (e.g. `claude-haiku-4-5-20251001`).
+- **AI Search Mode** -- "Two-Stage (keywords → AI)" pre-filters with keywords first, then AI picks from candidates. "AI Only (full vault)" sends the entire manifest to the AI directly.
 - **Max Response Tokens** -- Token limit for the AI response (default: 1024). Keep low -- we only need a JSON array of titles.
 - **Timeout (ms)** -- How long to wait for the AI before falling back to keyword-only results (default: 10000)
 - **AI Scan Depth** -- How many recent messages to send as context to the AI (default: 4). Can differ from keyword scan depth.
 - **Manifest Summary Length** -- Maximum characters for entry summaries in the AI manifest (default: 600). Only applies to entries without a `summary` frontmatter field (which are used as-is). Higher gives more context but costs more tokens.
-- **System Prompt Override** -- Custom system prompt for the AI. Leave empty for the built-in default. Supports `{{maxEntries}}` placeholder. `"You are Claude Code."` is always prepended (proxy requirement).
+- **System Prompt Override** -- Custom system prompt for the AI. Leave empty for the built-in default. Supports `{{maxEntries}}` placeholder.
 
 ### Injection
 - **Injection Template** -- Format string with `{{title}}` and `{{content}}` macros

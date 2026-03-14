@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.10-ALPHA
+
+### New Features
+- **Cooldown Tags** -- Per-entry `cooldown: N` frontmatter field. After an entry triggers, it's skipped for the next N generations before becoming eligible again.
+- **Warmup Tags** -- Per-entry `warmup: N` frontmatter field. An entry's keywords must appear N or more times in the scan text before it triggers for the first time.
+- **Re-injection Cooldown** -- New global setting to skip re-injecting an entry for N generations after it was last injected. Helps save context by avoiding redundant lore repetition. Constants are exempt.
+- **Entry Usage Analytics** -- Tracks how often each entry is matched and injected across generations. View with `/dle-analytics`. Shows a table sorted by injection count plus a "Never Injected" section for dead entry detection.
+- **Entry Health Check** -- `/dle-health` audits all vault entries for common issues: empty keys on non-constant entries, orphaned requires/excludes references, oversized entries (>1500 tokens), duplicate keywords shared across entries, and missing AI selection summaries.
+
+### Bug Fixes
+- **Gating null guards** -- `applyGating()` now checks `entry.requires && entry.requires.length` before iterating, preventing errors on entries with undefined gating fields.
+
+### Settings
+- New "Re-injection Cooldown" setting in Matching section (0 = disabled, N = skip for N generations).
+
+### New Frontmatter Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `cooldown` | number | Generations to skip after triggering |
+| `warmup` | number | Keyword occurrence count required before first trigger |
+
+### New Slash Commands
+| Command | Description |
+|---------|-------------|
+| `/dle-analytics` | Show entry usage analytics popup |
+| `/dle-health` | Audit entries for common issues |
+
+### Internal
+- New function: `countKeywordOccurrences()`
+- New globals: `cooldownTracker`, `generationCount`, `injectionHistory`
+- Session state (cooldownTracker, injectionHistory, generationCount) resets on CHAT_CHANGED
+- Analytics data persisted in `settings.analyticsData` via SillyTavern settings save
+- 136 passing tests
+- Bumped version to 0.10-ALPHA
+
 ## 0.94-ALPHA
 
 ### Manifest Format Optimization

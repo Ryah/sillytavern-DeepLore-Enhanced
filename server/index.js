@@ -1,3 +1,4 @@
+const http = require('node:http');
 const https = require('node:https');
 const { obsidianRequest, encodeVaultPath, listAllFiles } = require('./core/obsidian');
 
@@ -289,6 +290,7 @@ async function init(router) {
             const BATCH_SIZE = 10;
             const results = [];
 
+            let failed = 0;
             for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
                 const batch = mdFiles.slice(i, i + BATCH_SIZE);
                 const batchResults = await Promise.all(
@@ -303,8 +305,12 @@ async function init(router) {
                             if (result.status === 200) {
                                 return { filename, content: result.data };
                             }
+                            console.warn(`[DeepLore] Failed to fetch "${filename}": HTTP ${result.status}`);
+                            failed++;
                             return null;
-                        } catch {
+                        } catch (err) {
+                            console.warn(`[DeepLore] Failed to fetch "${filename}": ${err.message}`);
+                            failed++;
                             return null;
                         }
                     }),
@@ -312,7 +318,7 @@ async function init(router) {
                 results.push(...batchResults.filter(Boolean));
             }
 
-            return res.json({ files: results, total: mdFiles.length });
+            return res.json({ files: results, total: mdFiles.length, failed });
         } catch (err) {
             return res.status(500).json({ error: err.message });
         }

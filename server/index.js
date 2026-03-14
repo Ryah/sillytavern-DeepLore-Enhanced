@@ -5,7 +5,7 @@ const { obsidianRequest, encodeVaultPath, listAllFiles } = require('./core/obsid
 const info = {
     id: 'deeplore-enhanced',
     name: 'DeepLore Enhanced',
-    description: 'Proxies requests to the Obsidian Local REST API with AI-powered semantic search via Claude',
+    description: 'Proxies requests to Obsidian Local REST API with AI-powered semantic search via Claude',
 };
 
 const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of lore entries, select which entries are most relevant to inject into the current conversation context.

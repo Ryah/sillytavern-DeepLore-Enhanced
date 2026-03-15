@@ -14,12 +14,12 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 
 ## What's New (vs DeepLore)
 
-- **AI-powered entry selection** -- Claude Haiku reads your recent chat context alongside a compact manifest of vault entries and selects which ones are relevant. Catches thematic connections that keyword matching misses entirely.
-- **Two-stage pipeline** -- Keywords run first as a broad pre-filter, then only keyword-matched candidates are sent to Haiku for smart selection. Reduces token cost and improves relevance. An "AI Only" mode is also available for full-vault evaluation.
+- **AI-powered entry selection** -- An AI model reads your recent chat context alongside a compact manifest of vault entries and selects which ones are relevant. Works with any provider (Anthropic, OpenAI, OpenRouter, local models). A fast, cheap model like Haiku handles this well. Catches thematic connections that keyword matching misses entirely.
+- **Two-stage pipeline** -- Keywords run first as a broad pre-filter, then only keyword-matched candidates are sent to the AI for smart selection. Reduces token cost and improves relevance. An "AI Only" mode is also available for full-vault evaluation.
 - **Smart caching** -- AI results are cached by chat context hash. Regenerations and swipes reuse cached results without making another API call.
 - **Configurable system prompt** -- Customize how the AI evaluates relevance for your specific world.
 - **Session usage tracking** -- See how many AI calls, cache hits, and estimated tokens used in the settings panel.
-- **Graceful degradation** -- If the proxy is down or slow, generation proceeds with keyword-only results. AI search has a configurable timeout and never blocks your chat.
+- **Graceful degradation** -- If the AI connection fails or times out, generation proceeds with keyword-only results. AI search has a configurable timeout and never blocks your chat.
 - **Context Cartographer** -- Click the book icon on any AI message to see which vault entries were injected, why they matched, their priority, and token cost. With an Obsidian vault name configured, entries link directly into Obsidian.
 - **Session Scribe** -- Automatically summarizes roleplay sessions and writes them to your Obsidian vault as timestamped markdown notes. Triggers after every N AI messages or on demand via `/dle-scribe`.
 - **Conditional Gating** -- Entries can declare dependencies (`requires`) and blockers (`excludes`) on other entries. Cascading dependencies resolve automatically.
@@ -155,7 +155,7 @@ inscribed "To the Fairest" which she uses to sow chaos among mortals
 and gods alike.
 ```
 
-The `summary` field is optional but recommended when AI Search is enabled. It tells Haiku *when* to select this entry without sending the full content. Write it for the selection AI, not the writing AI — focus on what the entry is and what situations should trigger it. Up to 600 characters. Entries without a `summary` fall back to truncated content.
+The `summary` field is optional but recommended when AI Search is enabled. It tells the selection AI *when* to select this entry without sending the full content. Write it for the selection AI, not the writing AI. Focus on what the entry is and what situations should trigger it. Up to 600 characters. Entries without a `summary` fall back to truncated content.
 
 ### Frontmatter Fields
 
@@ -173,7 +173,7 @@ The `summary` field is optional but recommended when AI Search is enabled. It te
 | `position` | string | (global) | Injection position override: `before`, `after`, or `in_chat` |
 | `depth` | number | (global) | Injection depth override (for `in_chat` position) |
 | `role` | string | (global) | Message role override: `system`, `user`, or `assistant` |
-| `summary` | string | `""` | AI selection summary — a short description (up to 600 chars) used in the manifest to help Haiku decide relevance. Not injected into the writing AI. |
+| `summary` | string | `""` | AI selection summary — a short description (up to 600 chars) used in the manifest to help the AI decide relevance. Not injected into the writing AI. |
 | `cooldown` | number | (none) | After triggering, skip this entry for N generations |
 | `warmup` | number | (none) | Require keyword to appear N times before triggering (must be >1) |
 
@@ -198,7 +198,7 @@ The `summary` field is optional but recommended when AI Search is enabled. It te
 **AI Only mode:**
 - Skips keyword matching entirely. A manifest of all non-constant vault entries is sent to the AI for evaluation. More thorough but uses more tokens.
 
-**Error fallback:** If the AI proxy is down or returns an error, the pipeline falls back to keyword-only results (two-stage mode) or the full vault sorted by priority (AI-only mode). If the AI intentionally returns an empty selection, only constant entries are injected.
+**Error fallback:** If the AI connection fails or returns an error, the pipeline falls back to keyword-only results (two-stage mode) or the full vault sorted by priority (AI-only mode). If the AI intentionally returns an empty selection, only constant entries are injected.
 
 ## New Chat Features
 

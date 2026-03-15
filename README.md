@@ -10,6 +10,8 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 
 > **Upgrading?** Make sure to install the new server `index.js`. New since 0.12: Connection Profile support for AI search (no proxy needed). See the [changelog](CHANGELOG.md) for details.
 
+> **📖 [Wiki](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki)** — Full documentation with copy-paste templates, setup walkthroughs, pipeline details, and a complete settings reference. Start there if you're setting up for the first time.
+
 ## What's New (vs DeepLore)
 
 - **AI-powered entry selection** -- Claude Haiku reads your recent chat context alongside a compact manifest of vault entries and selects which ones are relevant. Catches thematic connections that keyword matching misses entirely.

@@ -589,7 +589,7 @@ function matchEntries(chat) {
  * @returns {Array} Parsed JSON array of results
  */
 function extractAiResponseClient(text) {
-    if (!text || typeof text !== 'string') return [];
+    if (!text || typeof text !== 'string') return null;
     // Try direct JSON parse
     try { return JSON.parse(text); } catch { /* noop */ }
     // Try markdown code fence
@@ -602,7 +602,7 @@ function extractAiResponseClient(text) {
     if (arrayMatch) {
         try { return JSON.parse(arrayMatch[0]); } catch { /* noop */ }
     }
-    return [];
+    return null;
 }
 
 /**
@@ -802,12 +802,13 @@ async function aiSearch(chat, candidateManifest, candidateHeader) {
         if (settings.aiSearchConnectionMode === 'profile') {
             // ── Profile mode: call via ConnectionManagerRequestService ──
             const aiResult = await callViaProfile(systemPrompt, userMessage, settings.aiSearchMaxTokens, settings.aiSearchTimeout);
+            clearTimeout(timeoutId);
 
             aiSearchStats.calls++;
             updateAiStats();
 
             const parsed = extractAiResponseClient(aiResult.text);
-            if (!Array.isArray(parsed)) {
+            if (!parsed) {
                 if (settings.debugMode) console.warn('[DLE] AI search: could not parse response as JSON array');
                 return { results: [], error: true };
             }

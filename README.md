@@ -79,10 +79,12 @@ If the extension isn't installed inside SillyTavern's directory, pass the SillyT
 **Option B: Manual copy**
 
 1. Find the `server` folder at `SillyTavern/public/scripts/extensions/third-party/sillytavern-DeepLore-Enhanced/server`
-2. Copy it into `SillyTavern/plugins/`
+2. Copy the entire `server` folder into `SillyTavern/plugins/`
 3. Rename it to `deeplore-enhanced`
 
-The result should be: `SillyTavern/plugins/deeplore-enhanced/index.js`
+The result should be:
+- `SillyTavern/plugins/deeplore-enhanced/index.js`
+- `SillyTavern/plugins/deeplore-enhanced/core/obsidian.js`
 
 ### Step 3: Enable server plugins
 

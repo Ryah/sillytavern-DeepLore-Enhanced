@@ -23,6 +23,8 @@ TARGET="$PLUGINS_DIR/$PLUGIN_ID"
 
 mkdir -p "$TARGET"
 cp "$SCRIPT_DIR/server/index.js" "$TARGET/index.js"
+mkdir -p "$TARGET/core"
+cp -r "$SCRIPT_DIR/server/core/"* "$TARGET/core/"
 
 echo "Server plugin installed to: $TARGET"
 echo "Restart SillyTavern to load the plugin."

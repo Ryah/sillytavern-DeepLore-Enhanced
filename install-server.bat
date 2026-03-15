@@ -21,6 +21,8 @@ set TARGET=%ST_ROOT%\plugins\%PLUGIN_ID%
 
 if not exist "%TARGET%" mkdir "%TARGET%"
 copy /Y "%SCRIPT_DIR%server\index.js" "%TARGET%\index.js"
+if not exist "%TARGET%\core" mkdir "%TARGET%\core"
+xcopy /Y /E "%SCRIPT_DIR%server\core\*" "%TARGET%\core\"
 
 echo.
 echo Server plugin installed to: %TARGET%

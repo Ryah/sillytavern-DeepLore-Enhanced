@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.14-ALPHA
+
+### Session Scribe Overhaul
+- **Connection Manager Support** -- Session Scribe can now use saved Connection Manager profiles or a custom proxy, independent from your main AI connection. Three modes: SillyTavern (default, uses active connection), Connection Profile, or Custom Proxy.
+- **Chat Position Tracking** -- Auto-scribe now tracks actual chat position (`chat.length`) instead of an internal counter. More reliable across swipes and edge cases.
+- **Prior Note Context** -- Each summary receives the previous session note as context, so the AI builds on prior summaries instead of repeating content.
+- **Better Default Prompt** -- New default prompt produces richer summaries: covers events, character dynamics, revelations, and state changes in past tense with specific details.
+- **Configurable Message Window** -- New "Messages to Include" setting (default: 20, range: 5-100) replaces the hardcoded 20-message limit.
+- **Higher Token Limit** -- Default max response tokens increased from 512 to 1024, configurable up to 4096.
+
+### Settings
+- New "Connection" radio in Session Scribe: "SillyTavern" (default), "Connection Profile", or "Custom Proxy"
+- New "Connection Profile" dropdown for Scribe (independent from AI Search profile)
+- New "Proxy URL", "Model Override", "Max Response Tokens", "Timeout" fields for Scribe
+- New "Messages to Include" field (replaces hardcoded 20-message context window)
+- Model/tokens/timeout fields hidden in SillyTavern mode for cleaner UI
+
+### Internal
+- Refactored `callViaProfile()` to accept optional `profileId` and `modelOverride` params (shared by AI Search and Scribe)
+- New `callScribe()` routing function for connection mode dispatch
+- New `populateScribeProfileDropdown()` and `updateScribeConnectionVisibility()` UI helpers
+- New server endpoint `POST /scribe` for proxy mode summary generation
+- `runScribe()` now uses `buildAiChatContext()` from `core/utils.js` for consistent message formatting
+- Scribe profile dropdown auto-refreshes on Connection Manager profile events
+- Bumped version to 0.14-ALPHA
+
 ## 0.13-ALPHA
 
 ### New Features

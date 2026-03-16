@@ -118,6 +118,13 @@ const defaultSettings = {
     scribeInterval: 5,
     scribeFolder: 'Sessions',
     scribePrompt: '',
+    scribeConnectionMode: 'st',
+    scribeProfileId: '',
+    scribeProxyUrl: 'http://localhost:42069',
+    scribeModel: '',
+    scribeMaxTokens: 1024,
+    scribeTimeout: 30000,
+    scribeScanDepth: 20,
     // Vault Sync settings
     syncPollingInterval: 0,
     showSyncToasts: true,
@@ -144,6 +151,9 @@ const settingsConstraints = {
     aiSearchScanDepth: { min: 1, max: 100 },
     aiSearchManifestSummaryLength: { min: 100, max: 1000 },
     scribeInterval: { min: 1, max: 50 },
+    scribeMaxTokens: { min: 256, max: 4096 },
+    scribeTimeout: { min: 5000, max: 60000 },
+    scribeScanDepth: { min: 5, max: 100 },
     newChatThreshold: { min: 1, max: 20 },
     syncPollingInterval: { min: 0, max: 3600 },
     reinjectionCooldown: { min: 0, max: 50 },
@@ -186,9 +196,10 @@ let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputT
 /** Context Cartographer: sources from the last generation interceptor run */
 let lastInjectionSources = null;
 
-/** Session Scribe: counter and lock */
-let messagesSinceLastScribe = 0;
+/** Session Scribe: chat position tracking, lock, and prior note context */
+let lastScribeChatLength = 0;
 let scribeInProgress = false;
+let lastScribeSummary = '';
 
 /** Vault Sync: previous index snapshot for change detection */
 let previousIndexSnapshot = null;
@@ -621,17 +632,21 @@ function getProfileModelHint() {
 }
 
 /**
- * Make an AI search call via a SillyTavern Connection Manager profile.
+ * Make an API call via a SillyTavern Connection Manager profile.
+ * Used by both AI Search and Session Scribe.
  * @param {string} systemPrompt - System prompt text
  * @param {string} userMessage - User message content
  * @param {number} maxTokens - Max tokens for response
  * @param {number} timeout - Timeout in milliseconds
+ * @param {string} [profileId] - Profile ID (defaults to aiSearchProfileId)
+ * @param {string} [modelOverride] - Model override (defaults to aiSearchModel)
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
-async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout) {
+async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, modelOverride) {
     const settings = getSettings();
-    const profileId = settings.aiSearchProfileId;
-    if (!profileId) throw new Error('No connection profile selected. Select one in AI Search settings.');
+    const resolvedProfileId = profileId || settings.aiSearchProfileId;
+    const resolvedModel = modelOverride !== undefined ? modelOverride : settings.aiSearchModel;
+    if (!resolvedProfileId) throw new Error('No connection profile selected.');
 
     const messages = [
         { role: 'system', content: systemPrompt },
@@ -643,7 +658,7 @@ async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout) {
 
     try {
         const result = await ConnectionManagerRequestService.sendRequest(
-            profileId,
+            resolvedProfileId,
             messages,
             maxTokens,
             {
@@ -654,7 +669,7 @@ async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout) {
                 includeInstruct: false,
             },
             // Override model if user specified one
-            settings.aiSearchModel ? { model: settings.aiSearchModel } : {},
+            resolvedModel ? { model: resolvedModel } : {},
         );
 
         return {
@@ -710,6 +725,66 @@ function updateAiConnectionVisibility() {
         const hint = getProfileModelHint();
         modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
     } else {
+        modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
+    }
+}
+
+/**
+ * Populate the Scribe profile dropdown with saved Connection Manager profiles.
+ */
+function populateScribeProfileDropdown() {
+    const select = document.getElementById('dle_scribe_profile_select');
+    if (!select) return;
+
+    const settings = getSettings();
+    const currentId = settings.scribeProfileId;
+
+    select.innerHTML = '<option value="">— Select a profile —</option>';
+    try {
+        const profiles = ConnectionManagerRequestService.getSupportedProfiles();
+        for (const p of profiles) {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.name} (${p.api}${p.model ? ' / ' + p.model : ''})`;
+            if (p.id === currentId) opt.selected = true;
+            select.appendChild(opt);
+        }
+    } catch {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Connection Manager not available';
+        opt.disabled = true;
+        select.appendChild(opt);
+    }
+}
+
+/**
+ * Update the visibility of Scribe connection fields based on selected mode.
+ */
+function updateScribeConnectionVisibility() {
+    const settings = getSettings();
+    const mode = settings.scribeConnectionMode || 'st';
+    const isProfile = mode === 'profile';
+    const isProxy = mode === 'proxy';
+    const isExternal = isProfile || isProxy;
+
+    $('#dle_scribe_profile_row').toggle(isProfile);
+    $('#dle_scribe_proxy_row').toggle(isProxy);
+    $('#dle_scribe_model_row').toggle(isExternal);
+    $('#dle_scribe_advanced_row').toggle(isExternal);
+
+    // Update model placeholder based on mode
+    const modelInput = $('#dle_scribe_model');
+    if (isProfile) {
+        let hint = '';
+        try {
+            if (settings.scribeProfileId) {
+                const profile = ConnectionManagerRequestService.getProfile(settings.scribeProfileId);
+                hint = profile.model || '';
+            }
+        } catch { /* noop */ }
+        modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
+    } else if (isProxy) {
         modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
     }
 }
@@ -1338,7 +1413,69 @@ function showSourcesPopup(sources) {
 // Session Scribe
 // ============================================================================
 
-const DEFAULT_SCRIBE_PROMPT = 'Summarize the recent events in this roleplay session. Focus on:\n- New facts established about characters, locations, or items\n- Character relationship changes\n- Plot developments and decisions made\nFormat as concise bullet points under clear headings.';
+const DEFAULT_SCRIBE_PROMPT = `Summarize this roleplay session segment. Write in past tense, third person.
+
+Cover:
+- Key events and plot developments (what happened, decisions made, consequences)
+- Character dynamics (relationship shifts, emotional moments, conflicts, alliances)
+- New information revealed (world-building, backstory, secrets, lore)
+- State changes (injuries, location moves, items gained/lost, powers used)
+
+If a previous session note is provided, do NOT repeat what it already covers — only add new developments since then.
+
+Format with markdown headings and bullet points. Be specific — use character names and concrete details, not vague summaries.`;
+
+/**
+ * Route a Scribe AI call based on the configured connection mode.
+ * @param {string} systemPrompt - System prompt text
+ * @param {string} userMessage - User message content (chat context + instructions)
+ * @param {typeof defaultSettings} settings - Current settings
+ * @returns {Promise<string>} Generated summary text
+ */
+async function callScribe(systemPrompt, userMessage, settings) {
+    const mode = settings.scribeConnectionMode || 'st';
+
+    if (mode === 'profile') {
+        const result = await callViaProfile(
+            systemPrompt,
+            userMessage,
+            settings.scribeMaxTokens,
+            settings.scribeTimeout,
+            settings.scribeProfileId,
+            settings.scribeModel,
+        );
+        return result.text || '';
+    }
+
+    if (mode === 'proxy') {
+        const response = await fetch(`${PLUGIN_BASE}/scribe`, {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({
+                proxyUrl: settings.scribeProxyUrl,
+                model: settings.scribeModel || 'claude-haiku-4-5-20251001',
+                systemPrompt,
+                userMessage,
+                maxTokens: settings.scribeMaxTokens,
+                timeout: settings.scribeTimeout,
+            }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`Server returned HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.ok) {
+            throw new Error(data.error || 'Proxy scribe call failed');
+        }
+        return data.text || '';
+    }
+
+    // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
+    const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
+    return await generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens });
+}
 
 /**
  * Run Session Scribe: summarize recent chat and write to Obsidian.
@@ -1355,19 +1492,29 @@ async function runScribe(customPrompt) {
             return;
         }
 
-        // Build context from last 20 messages
-        const contextMessages = chat.slice(-20);
-        const context = contextMessages
-            .map(m => `${m.name || 'Unknown'}: ${m.mes || ''}`)
-            .join('\n');
+        // Build context using shared utility with configurable depth
+        const context = buildAiChatContext(chat, settings.scribeScanDepth);
+        if (!context.trim()) {
+            toastr.warning('No messages to summarize.', 'DeepLore Enhanced');
+            return;
+        }
 
-        // Build prompt
-        const basePrompt = settings.scribePrompt?.trim() || DEFAULT_SCRIBE_PROMPT;
-        const customPart = customPrompt ? `\n\nAdditional focus: ${customPrompt}` : '';
-        const quietPrompt = `Here is the recent conversation:\n\n${context}\n\n---\n\n${basePrompt}${customPart}`;
+        // Build system prompt
+        const systemPrompt = settings.scribePrompt?.trim() || DEFAULT_SCRIBE_PROMPT;
 
-        // Generate summary silently
-        const summary = await generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: 512 });
+        // Build user message with optional prior note context and custom focus
+        const parts = [];
+        if (lastScribeSummary) {
+            parts.push(`[PREVIOUS SESSION NOTE]\n${lastScribeSummary}`);
+        }
+        parts.push(`[RECENT CONVERSATION]\n${context}`);
+        if (customPrompt) {
+            parts.push(`[ADDITIONAL FOCUS]\n${customPrompt}`);
+        }
+        const userMessage = parts.join('\n\n');
+
+        // Generate summary via configured connection
+        const summary = await callScribe(systemPrompt, userMessage, settings);
 
         if (!summary || !summary.trim()) {
             toastr.warning('Scribe generated an empty summary.', 'DeepLore Enhanced');
@@ -1402,6 +1549,8 @@ async function runScribe(customPrompt) {
         const data = await response.json();
 
         if (data.ok) {
+            lastScribeSummary = summary.trim();
+            lastScribeChatLength = chat.length;
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
         } else {
             toastr.error(`Failed to save session note: ${data.error}`, 'DeepLore Enhanced');
@@ -1505,6 +1654,14 @@ function loadSettingsUI() {
         .toggleClass('disabled', !settings.scribeEnabled);
     $('#dle_scribe_interval').val(settings.scribeInterval);
     $('#dle_scribe_folder').val(settings.scribeFolder);
+    $('input[name="dle_scribe_connection_mode"][value="' + settings.scribeConnectionMode + '"]').prop('checked', true);
+    populateScribeProfileDropdown();
+    updateScribeConnectionVisibility();
+    $('#dle_scribe_proxy_url').val(settings.scribeProxyUrl);
+    $('#dle_scribe_model').val(settings.scribeModel);
+    $('#dle_scribe_max_tokens').val(settings.scribeMaxTokens);
+    $('#dle_scribe_timeout').val(settings.scribeTimeout);
+    $('#dle_scribe_scan_depth').val(settings.scribeScanDepth);
     $('#dle_scribe_prompt').val(settings.scribePrompt);
 
     // Vault Sync settings
@@ -1704,7 +1861,10 @@ function bindSettingsEvents() {
             event_types.CONNECTION_PROFILE_UPDATED,
         ].filter(e => e !== undefined);
         for (const evt of refreshProfileEvents) {
-            eventSource.on(evt, () => populateProfileDropdown());
+            eventSource.on(evt, () => {
+                populateProfileDropdown();
+                populateScribeProfileDropdown();
+            });
         }
     }
 
@@ -1785,6 +1945,46 @@ function bindSettingsEvents() {
 
     $('#dle_scribe_prompt').on('input', function () {
         settings.scribePrompt = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('input[name="dle_scribe_connection_mode"]').on('change', function () {
+        settings.scribeConnectionMode = $('input[name="dle_scribe_connection_mode"]:checked').val();
+        saveSettingsDebounced();
+        updateScribeConnectionVisibility();
+    });
+
+    $('#dle_scribe_profile_select').on('change', function () {
+        settings.scribeProfileId = String($(this).val());
+        saveSettingsDebounced();
+        updateScribeConnectionVisibility();
+    });
+
+    $('#dle_scribe_proxy_url').on('input', function () {
+        settings.scribeProxyUrl = String($(this).val()).trim() || 'http://localhost:42069';
+        saveSettingsDebounced();
+    });
+
+    $('#dle_scribe_model').on('input', function () {
+        settings.scribeModel = String($(this).val()).trim();
+        saveSettingsDebounced();
+    });
+
+    $('#dle_scribe_max_tokens').on('input', function () {
+        const val = Number($(this).val());
+        settings.scribeMaxTokens = isNaN(val) ? 1024 : val;
+        saveSettingsDebounced();
+    });
+
+    $('#dle_scribe_timeout').on('input', function () {
+        const val = Number($(this).val());
+        settings.scribeTimeout = isNaN(val) ? 30000 : val;
+        saveSettingsDebounced();
+    });
+
+    $('#dle_scribe_scan_depth').on('input', function () {
+        const val = Number($(this).val());
+        settings.scribeScanDepth = isNaN(val) ? 20 : val;
         saveSettingsDebounced();
     });
 
@@ -2477,11 +2677,10 @@ jQuery(async function () {
                 injectSourcesButton(messageId);
             }
 
-            // --- Session Scribe: count messages and auto-trigger ---
+            // --- Session Scribe: track chat position and auto-trigger ---
             if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
-                messagesSinceLastScribe++;
-                if (messagesSinceLastScribe >= settings.scribeInterval && !scribeInProgress) {
-                    messagesSinceLastScribe = 0;
+                const newMessages = chat.length - lastScribeChatLength;
+                if (newMessages >= settings.scribeInterval && !scribeInProgress) {
                     runScribe(); // fire-and-forget
                 }
             }
@@ -2489,7 +2688,8 @@ jQuery(async function () {
 
         // Context Cartographer: re-inject buttons on chat load
         eventSource.on(event_types.CHAT_CHANGED, () => {
-            messagesSinceLastScribe = 0;
+            lastScribeChatLength = chat ? chat.length : 0;
+            lastScribeSummary = '';
             // Reset session-scoped tracking on chat change
             injectionHistory.clear();
             cooldownTracker.clear();

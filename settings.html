@@ -9,6 +9,9 @@
                 <input id="dle_enabled" type="checkbox" class="checkbox">
                 <span>Enable DeepLore Enhanced</span>
             </label>
+            <div style="margin: 4px 0;">
+                <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki" target="_blank" style="font-size: 0.85em; opacity: 0.7;">Documentation Wiki &rarr;</a>
+            </div>
 
             <hr>
             <h4>Connection</h4>
@@ -350,7 +353,7 @@
 
                     <div class="flex-container flexFlowColumn" id="dle_scribe_controls">
                         <div class="flex-container">
-                            <div class="flex1" title="Automatically write a session note every N AI messages. Set higher for less frequent notes. Use /dle-scribe for on-demand notes anytime.">
+                            <div class="flex1" title="Automatically write a session note every N AI messages (based on actual chat position). Set higher for less frequent notes. Use /dle-scribe for on-demand notes anytime.">
                                 <label for="dle_scribe_interval">
                                     <small>Auto-scribe Every N Messages</small>
                                 </label>
@@ -363,11 +366,76 @@
                                 <input id="dle_scribe_folder" type="text" class="text_pole" placeholder="Sessions" />
                             </div>
                         </div>
-                        <div title="Custom prompt for session summaries. Leave empty to use the default (summarize events, character changes, plot developments as bullet points). You can also pass a one-time focus via /dle-scribe.">
+                        <div style="margin: 8px 0;">
+                            <small>Connection</small>
+                            <div class="radio_group">
+                                <label class="checkbox_label" title="Use SillyTavern's active AI connection (generateQuietPrompt). Simplest option — uses whatever API you have selected.">
+                                    <input type="radio" name="dle_scribe_connection_mode" value="st" />
+                                    <span>SillyTavern</span>
+                                </label>
+                                <label class="checkbox_label" title="Use a saved SillyTavern Connection Manager profile. Lets you use a different model/provider than your main connection.">
+                                    <input type="radio" name="dle_scribe_connection_mode" value="profile" />
+                                    <span>Connection Profile</span>
+                                </label>
+                                <label class="checkbox_label" title="Use a separate proxy server (claude-code-proxy or compatible Anthropic Messages API endpoint).">
+                                    <input type="radio" name="dle_scribe_connection_mode" value="proxy" />
+                                    <span>Custom Proxy</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="flex-container" id="dle_scribe_profile_row">
+                            <div class="flex1" title="Select a saved Connection Manager profile to use for session summaries.">
+                                <label for="dle_scribe_profile_select">
+                                    <small>Connection Profile</small>
+                                </label>
+                                <select id="dle_scribe_profile_select" class="text_pole">
+                                    <option value="">— Select a profile —</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex-container" id="dle_scribe_proxy_row">
+                            <div class="flex1" title="URL of the proxy server. Must expose an Anthropic-compatible Messages API at /v1/messages.">
+                                <label for="dle_scribe_proxy_url">
+                                    <small>Proxy URL</small>
+                                </label>
+                                <input id="dle_scribe_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
+                            </div>
+                        </div>
+                        <div class="flex-container" id="dle_scribe_model_row">
+                            <div class="flex1" title="Model override for summaries. Leave empty to use the profile's model (profile mode) or specify the model name (proxy mode).">
+                                <label for="dle_scribe_model">
+                                    <small>Model Override</small>
+                                </label>
+                                <input id="dle_scribe_model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
+                            </div>
+                        </div>
+                        <div class="flex-container" id="dle_scribe_advanced_row">
+                            <div class="flex1" title="Maximum tokens for the summary response. Higher values allow longer, more detailed summaries. Default: 1024">
+                                <label for="dle_scribe_max_tokens">
+                                    <small>Max Response Tokens</small>
+                                </label>
+                                <input id="dle_scribe_max_tokens" type="number" class="text_pole" min="256" max="4096" />
+                            </div>
+                            <div class="flex1" title="Timeout in milliseconds for the summary request. Summaries take longer than search — 30 seconds recommended. Default: 30000">
+                                <label for="dle_scribe_timeout">
+                                    <small>Timeout (ms)</small>
+                                </label>
+                                <input id="dle_scribe_timeout" type="number" class="text_pole" min="5000" max="60000" />
+                            </div>
+                        </div>
+                        <div class="flex-container">
+                            <div class="flex1" title="Number of recent chat messages to include as context for the summary. Default: 20">
+                                <label for="dle_scribe_scan_depth">
+                                    <small>Messages to Include</small>
+                                </label>
+                                <input id="dle_scribe_scan_depth" type="number" class="text_pole" min="5" max="100" />
+                            </div>
+                        </div>
+                        <div title="Custom prompt for session summaries. Leave empty to use the default (covers events, character dynamics, revelations, and state changes). You can also pass a one-time focus via /dle-scribe.">
                             <label for="dle_scribe_prompt">
                                 <small>Custom Summary Prompt (empty = default)</small>
                             </label>
-                            <textarea id="dle_scribe_prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default. Summarizes events, character changes, and plot developments as bullet points."></textarea>
+                            <textarea id="dle_scribe_prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default. Covers events, character dynamics, revelations, and state changes."></textarea>
                         </div>
                     </div>
                 </div>

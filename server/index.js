@@ -410,6 +410,34 @@ async function init(router) {
         }
     });
 
+    /**
+     * POST /scribe - Generate a session summary via the Claude proxy
+     */
+    router.post('/scribe', async (req, res) => {
+        try {
+            const { proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout } = req.body;
+
+            if (!proxyUrl || !model || !systemPrompt || !userMessage) {
+                return res.status(400).json({ ok: false, error: 'Missing required fields: proxyUrl, model, systemPrompt, userMessage' });
+            }
+
+            const proxyTimeout = Math.min(Math.max(timeout || 30000, 5000), 60000);
+            const result = await callProxy(
+                proxyUrl,
+                model,
+                systemPrompt,
+                userMessage,
+                maxTokens || 1024,
+                proxyTimeout,
+            );
+
+            return res.json({ ok: true, text: result.text, usage: result.usage });
+        } catch (err) {
+            console.error('[DeepLore Enhanced] Scribe proxy error:', err.message);
+            return res.json({ ok: false, error: err.message });
+        }
+    });
+
     console.log('[DeepLore Enhanced] Server plugin initialized');
 }
 

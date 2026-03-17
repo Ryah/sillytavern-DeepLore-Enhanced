@@ -915,25 +915,25 @@ export function bindSettingsEvents(buildIndexFn) {
             const aiError = trace.aiFallback;
             const aiSelectedCount = trace.aiSelected.length;
 
-            const gated = applyGating(finalEntries);
-            const gatedRemoved = finalEntries.filter(e => !gated.includes(e));
-
-            // Simulate re-injection cooldown (same logic as onGenerate)
+            // Simulate re-injection cooldown BEFORE gating (matches onGenerate order)
             let cooldownBlocked = [];
-            let gatedAfterCooldown = gated;
+            let afterCooldown = finalEntries;
             if (settings.reinjectionCooldown > 0) {
-                cooldownBlocked = gated.filter(e => {
+                cooldownBlocked = finalEntries.filter(e => {
                     if (e.constant) return false;
                     const lastGen = injectionHistory.get(e.title);
                     return lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown;
                 });
-                gatedAfterCooldown = gated.filter(e => !cooldownBlocked.includes(e));
+                afterCooldown = finalEntries.filter(e => !cooldownBlocked.includes(e));
             }
 
-            const { groups, count: injectedCount, totalTokens } = formatAndGroup(gatedAfterCooldown, getSettings(), PROMPT_TAG_PREFIX);
+            const gated = applyGating(afterCooldown);
+            const gatedRemoved = afterCooldown.filter(e => !gated.includes(e));
 
-            const budgetRemoved = gatedAfterCooldown.slice(injectedCount);
-            const injected = gatedAfterCooldown.slice(0, injectedCount);
+            const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
+
+            const budgetRemoved = gated.slice(injectedCount);
+            const injected = gated.slice(0, injectedCount);
 
             // Build popup HTML
             const positionLabels = { 0: 'After', 1: 'In-chat', 2: 'Before' };

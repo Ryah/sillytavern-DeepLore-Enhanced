@@ -55,6 +55,10 @@ async function onGenerate(chat, contextSize, abort, type) {
     // Clear all previous DeepLore prompts
     clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
 
+    // Track whether the pipeline ran far enough to need generation tracking
+    let pipelineRan = false;
+    let injectedEntries = [];
+
     try {
         // Ensure index is fresh
         await ensureIndexFresh();
@@ -68,6 +72,9 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
             return;
         }
+
+        // From here on, generation tracking must run even if no entries match
+        pipelineRan = true;
 
         const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat);
         let finalEntries = pipelineEntries;
@@ -160,7 +167,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Format with budget, grouped by injection position
         const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
 
-        const injectedEntries = gated.slice(0, injectedCount);
+        injectedEntries = gated.slice(0, injectedCount);
 
         if (groups.length > 0) {
             for (const group of groups) {
@@ -185,7 +192,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             })));
         }
 
-        // AI Notebook injection
+        // AI Notebook injection (independent of entry pipeline)
         if (settings.notebookEnabled && chat_metadata?.deeplore_notebook?.trim()) {
             setExtensionPrompt(
                 'deeplore_notebook',
@@ -197,18 +204,6 @@ async function onGenerate(chat, contextSize, abort, type) {
             );
         }
 
-        // Post-injection tracking — always runs regardless of budget/groups
-        setGenerationCount(generationCount + 1);
-
-        // Decrement cooldown counters; remove expired ones
-        for (const [title, remaining] of cooldownTracker) {
-            if (remaining <= 1) {
-                cooldownTracker.delete(title);
-            } else {
-                cooldownTracker.set(title, remaining - 1);
-            }
-        }
-
         // Set cooldown for injected entries that have a cooldown value
         for (const entry of injectedEntries) {
             if (entry.cooldown !== null && entry.cooldown > 0) {
@@ -217,8 +212,9 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Record injection history for re-injection cooldown
+        // Uses generationCount + 1 because the increment happens in finally
         for (const entry of injectedEntries) {
-            injectionHistory.set(entry.title, generationCount);
+            injectionHistory.set(entry.title, generationCount + 1);
         }
 
         // Record injection for deduplication
@@ -227,7 +223,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 chat_metadata.deeplore_injection_log = [];
             }
             chat_metadata.deeplore_injection_log.push({
-                gen: generationCount,
+                gen: generationCount + 1,
                 entries: injectedEntries.map(e => ({
                     title: e.title,
                     pos: e.injectionPosition ?? settings.injectionPosition,
@@ -243,21 +239,23 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Update analytics data
-        const analytics = settings.analyticsData;
-        for (const entry of finalEntries) {
-            if (!analytics[entry.title]) {
-                analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+        if (finalEntries.length > 0) {
+            const analytics = settings.analyticsData;
+            for (const entry of finalEntries) {
+                if (!analytics[entry.title]) {
+                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+                }
+                analytics[entry.title].matched++;
+                analytics[entry.title].lastTriggered = Date.now();
             }
-            analytics[entry.title].matched++;
-            analytics[entry.title].lastTriggered = Date.now();
-        }
-        for (const entry of injectedEntries) {
-            if (!analytics[entry.title]) {
-                analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+            for (const entry of injectedEntries) {
+                if (!analytics[entry.title]) {
+                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+                }
+                analytics[entry.title].injected++;
             }
-            analytics[entry.title].injected++;
+            saveSettingsDebounced();
         }
-        saveSettingsDebounced();
 
         if (groups.length > 0) {
             // Context usage warning — BUG 6 FIX: reset ratio when it drops below threshold
@@ -295,6 +293,21 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
+    } finally {
+        // Generation tracking must always run when the pipeline was entered,
+        // even if no entries matched — otherwise cooldown timers freeze permanently
+        if (pipelineRan) {
+            setGenerationCount(generationCount + 1);
+
+            // Decrement cooldown counters; remove expired ones
+            for (const [title, remaining] of cooldownTracker) {
+                if (remaining <= 1) {
+                    cooldownTracker.delete(title);
+                } else {
+                    cooldownTracker.set(title, remaining - 1);
+                }
+            }
+        }
     }
 }
 

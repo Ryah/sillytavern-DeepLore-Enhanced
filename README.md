@@ -14,15 +14,24 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 
 - **AI-powered entry selection** -- Two-stage pipeline (keywords → AI) or AI-only mode with smart caching
 - **Any AI provider** -- Works with Anthropic, OpenAI, OpenRouter, or any provider via SillyTavern's Connection Manager
-- **Context Cartographer** -- See exactly which lore was injected and why on each message
-- **Session Scribe** -- Auto-summarize sessions to your Obsidian vault with configurable AI connection
+- **Multi-vault support** -- Connect multiple Obsidian vaults with independent settings, merged into a single index
+- **AI Notebook** -- Persistent per-chat scratchpad injected every turn (`/dle-notebook`)
+- **Entry Browser** -- Searchable, filterable popup of all indexed entries with content preview (`/dle-browse`)
+- **Entry Relationship Graph** -- Interactive force-directed visualization of entry connections (`/dle-graph`)
+- **Context Cartographer** -- Token bar charts, injection position grouping, vault attribution, expandable previews
+- **Session Scribe** -- Auto-summarize sessions to your Obsidian vault with session timeline (`/dle-scribe-history`)
+- **Auto Lorebook Creation** -- AI suggests new entries from chat context with human review (`/dle-suggest`)
+- **Optimize Keywords** -- AI-powered keyword suggestions, mode-aware (`/dle-optimize-keys`)
+- **Activation Simulation** -- Replay chat history showing entry activation/deactivation (`/dle-simulate`)
+- **"Why Not?" Diagnostics** -- Click unmatched entries to see exactly why they didn't fire
+- **Self-healing health checks** -- 30+ automated checks with `/dle-health` and auto-run on load
+- **Probability frontmatter** -- Per-entry random trigger chance (0.0-1.0)
+- **Injection deduplication** -- Skip re-injecting entries already in recent context
 - **Conditional gating** -- Entries that depend on or block other entries
 - **Per-entry injection** -- Override injection position, depth, and role per entry
 - **Vault change detection** -- Detects added, removed, and modified entries with optional toast notifications
-- **New chat features** -- Seed entries for AI context, bootstrap entries for force-injection on new chats
 - **Cooldown & warmup** -- Per-entry cooldown and warmup thresholds
 - **Pipeline inspector** -- View detailed traces of keyword matches, AI selections, and fallback status
-- **Entry analytics & health** -- Track usage and audit entries for common issues
 
 ## Prerequisites
 

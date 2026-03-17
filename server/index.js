@@ -438,6 +438,49 @@ async function init(router) {
         }
     });
 
+    /**
+     * POST /scribe-notes - List and fetch all session notes from a folder
+     */
+    router.post('/scribe-notes', async (req, res) => {
+        const { port, apiKey, folder } = req.body;
+        if (!port || !apiKey || !folder) {
+            return res.status(400).json({ ok: false, error: 'Missing port, apiKey, or folder' });
+        }
+        try {
+            const allFiles = await listAllFiles(port, apiKey, folder);
+            const mdFiles = allFiles.filter(f => f.endsWith('.md'));
+            const BATCH_SIZE = 10;
+            const notes = [];
+
+            for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
+                const batch = mdFiles.slice(i, i + BATCH_SIZE);
+                const results = await Promise.all(batch.map(async (filepath) => {
+                    try {
+                        const encodedPath = encodeVaultPath(filepath);
+                        const result = await obsidianRequest({
+                            port, apiKey,
+                            path: `/vault/${encodedPath}`,
+                            accept: 'text/markdown',
+                        });
+                        if (result.status !== 200) {
+                            console.warn(`[DLE] Failed to fetch scribe note ${filepath}: HTTP ${result.status}`);
+                            return null;
+                        }
+                        return { filename: filepath, content: result.data };
+                    } catch (err) {
+                        console.warn(`[DLE] Failed to fetch scribe note ${filepath}:`, err.message);
+                        return null;
+                    }
+                }));
+                notes.push(...results.filter(Boolean));
+            }
+
+            res.json({ ok: true, notes });
+        } catch (err) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
+    });
+
     console.log('[DeepLore Enhanced] Server plugin initialized');
 }
 

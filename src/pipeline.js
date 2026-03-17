@@ -1,0 +1,301 @@
+/**
+ * DeepLore Enhanced — Pipeline runner
+ * matchEntries, runPipeline, matchTextForExternal
+ */
+import { getSettings, PROMPT_TAG_PREFIX } from '../settings.js';
+import { buildScanText } from '../core/utils.js';
+import { testEntryMatch, countKeywordOccurrences, applyGating, formatAndGroup } from '../core/matching.js';
+import {
+    vaultIndex, cooldownTracker, injectionHistory, generationCount,
+    setLastPipelineTrace,
+} from './state.js';
+import { buildCandidateManifest, aiSearch } from './ai.js';
+import { ensureIndexFresh } from './vault.js';
+import { name2 } from '../../../../script.js';
+
+/**
+ * Match vault entries against chat messages, with recursive scanning support.
+ * @param {object[]} chat - Chat messages array
+ * @returns {{ matched: VaultEntry[], matchedKeys: Map<string, string>, probabilitySkipped: Array<{title: string, probability: number, roll: number}> }}
+ */
+export function matchEntries(chat) {
+    const settings = getSettings();
+    /** @type {Set<VaultEntry>} */
+    const matchedSet = new Set();
+    /** @type {Map<string, string>} entry title -> matched key */
+    const matchedKeys = new Map();
+    /** @type {Array<{title: string, probability: number, roll: number}>} */
+    const probabilitySkipped = [];
+
+    // Always collect constants regardless of scan depth
+    for (const entry of vaultIndex) {
+        if (entry.constant) {
+            matchedSet.add(entry);
+            matchedKeys.set(entry.title, '(constant)');
+        }
+    }
+
+    // Collect bootstrap entries when chat is short (cold-start injection)
+    if (chat.length <= settings.newChatThreshold) {
+        for (const entry of vaultIndex) {
+            if (entry.bootstrap && !matchedSet.has(entry)) {
+                matchedSet.add(entry);
+                matchedKeys.set(entry.title, '(bootstrap)');
+            }
+        }
+    }
+
+    // Keyword matching: skip entirely when scanDepth is 0 (AI-only mode)
+    if (settings.scanDepth > 0) {
+        const globalScanText = buildScanText(chat, settings.scanDepth);
+
+        // Initial scan pass
+        for (const entry of vaultIndex) {
+            if (entry.constant) continue; // Already added above
+
+            // Use per-entry scan depth if set, otherwise use global scan text
+            const scanText = entry.scanDepth !== null
+                ? buildScanText(chat, entry.scanDepth)
+                : globalScanText;
+
+            const key = testEntryMatch(entry, scanText, settings);
+            if (key) {
+                // Warmup check: require N keyword occurrences before triggering
+                if (entry.warmup !== null) {
+                    const occurrences = countKeywordOccurrences(entry, scanText, settings);
+                    if (occurrences < entry.warmup) {
+                        if (settings.debugMode) {
+                            console.debug(`[DLE] Warmup: "${entry.title}" needs ${entry.warmup} occurrences, found ${occurrences} — skipping`);
+                        }
+                        continue;
+                    }
+                }
+
+                // Probability check: random roll to determine if entry fires
+                if (entry.probability !== null && entry.probability < 1.0) {
+                    const roll = Math.random();
+                    if (roll > entry.probability) {
+                        if (settings.debugMode) {
+                            console.debug(`[DLE] Probability: "${entry.title}" rolled ${roll.toFixed(3)} > ${entry.probability} — skipping`);
+                        }
+                        probabilitySkipped.push({ title: entry.title, probability: entry.probability, roll });
+                        continue;
+                    }
+                }
+
+                // Cooldown check: skip entries still on cooldown
+                const remaining = cooldownTracker.get(entry.title);
+                if (remaining !== undefined && remaining > 0) {
+                    if (settings.debugMode) {
+                        console.debug(`[DLE] Cooldown: "${entry.title}" has ${remaining} generations remaining — skipping`);
+                    }
+                    continue;
+                }
+
+                matchedSet.add(entry);
+                matchedKeys.set(entry.title, key);
+            }
+        }
+
+        // Active Character Boost: auto-match active character's vault entry
+        if (settings.characterContextScan && name2) {
+            const charEntry = vaultIndex.find(e =>
+                e.title.toLowerCase() === name2.toLowerCase() ||
+                e.keys.some(k => k.toLowerCase() === name2.toLowerCase())
+            );
+            if (charEntry && !matchedSet.has(charEntry)) {
+                matchedSet.add(charEntry);
+                matchedKeys.set(charEntry.title, '(active character)');
+            }
+        }
+
+        // Cascade links: explicitly pull in linked entries from matched entries
+        const titleMap = new Map(vaultIndex.map(e => [e.title.toLowerCase(), e]));
+        const cascadeSource = [...matchedSet];
+        for (const entry of cascadeSource) {
+            if (!entry.cascadeLinks || entry.cascadeLinks.length === 0) continue;
+            for (const linkTitle of entry.cascadeLinks) {
+                const linked = titleMap.get(linkTitle.toLowerCase());
+                if (linked && !matchedSet.has(linked)) {
+                    matchedSet.add(linked);
+                    matchedKeys.set(linked.title, `(cascade from: ${entry.title})`);
+                }
+            }
+        }
+
+        // Recursive scanning: scan matched entry content for more matches
+        if (settings.recursiveScan && settings.maxRecursionSteps > 0) {
+            let step = 0;
+            let newlyMatched = new Set(matchedSet);
+
+            while (newlyMatched.size > 0 && step < settings.maxRecursionSteps) {
+                step++;
+
+                const MAX_RECURSION_TEXT = 50000;
+                let recursionText = [...newlyMatched]
+                    .filter(e => !e.excludeRecursion)
+                    .map(e => e.content)
+                    .join('\n');
+                if (recursionText.length > MAX_RECURSION_TEXT) {
+                    if (settings.debugMode) console.debug('[DLE] Recursion text truncated from', recursionText.length, 'to', MAX_RECURSION_TEXT, 'chars');
+                    recursionText = recursionText.substring(0, MAX_RECURSION_TEXT);
+                }
+
+                if (!recursionText.trim()) break;
+
+                newlyMatched = new Set();
+
+                for (const entry of vaultIndex) {
+                    if (matchedSet.has(entry)) continue;
+                    if (entry.constant) continue;
+
+                    const key = testEntryMatch(entry, recursionText, settings);
+                    if (key) {
+                        matchedSet.add(entry);
+                        newlyMatched.add(entry);
+                        matchedKeys.set(entry.title, `${key} (recursion step ${step})`);
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort by priority (ascending - lower number = higher priority)
+    const matched = [...matchedSet].sort((a, b) => a.priority - b.priority);
+
+    return { matched, matchedKeys, probabilitySkipped };
+}
+
+/**
+ * Run the full entry selection pipeline (3-mode branching: keywords-only, two-stage, ai-only).
+ * Records a trace for the Pipeline Inspector (/dle-inspect).
+ * BUG 6 FIX: Reset lastWarningRatio when ratio drops below threshold.
+ * @param {object[]} chat - Chat messages array
+ * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
+ */
+export async function runPipeline(chat) {
+    const settings = getSettings();
+    const bootstrapActive = chat.length <= settings.newChatThreshold;
+
+    const trace = {
+        mode: settings.aiSearchEnabled
+            ? settings.aiSearchMode
+            : 'keywords-only',
+        indexed: vaultIndex.length,
+        keywordMatched: [],
+        aiSelected: [],
+        gatedOut: [],
+        budgetCut: [],
+        injected: [],
+        probabilitySkipped: [],
+        bootstrapActive,
+        aiFallback: false,
+    };
+
+    let finalEntries;
+    let matchedKeys = new Map();
+
+    if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
+        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex, bootstrapActive);
+        const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+
+        if (bootstrapActive) {
+            for (const e of alwaysInject) {
+                if (e.bootstrap && !e.constant) matchedKeys.set(e.title, '(bootstrap)');
+            }
+        }
+        // Always label constants in matchedKeys
+        for (const e of alwaysInject) {
+            if (e.constant && !matchedKeys.has(e.title)) matchedKeys.set(e.title, '(constant)');
+        }
+
+        if (candidateManifest) {
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+            if (aiResult.error) {
+                trace.aiFallback = true;
+                const kwResult = matchEntries(chat);
+                finalEntries = kwResult.matched;
+                matchedKeys = kwResult.matchedKeys;
+                trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
+                trace.probabilitySkipped = kwResult.probabilitySkipped;
+            } else if (aiResult.results.length === 0) {
+                finalEntries = alwaysInject;
+            } else {
+                const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
+                for (const r of aiResult.results) {
+                    matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
+                    trace.aiSelected.push({ title: r.entry.title, reason: r.reason, confidence: r.confidence });
+                }
+            }
+        } else {
+            finalEntries = alwaysInject;
+        }
+
+    } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
+        const keywordResult = matchEntries(chat);
+        matchedKeys = keywordResult.matchedKeys;
+        trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
+        trace.probabilitySkipped = keywordResult.probabilitySkipped;
+
+        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched, bootstrapActive);
+
+        if (!candidateManifest) {
+            finalEntries = keywordResult.matched;
+        } else {
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+            if (aiResult.error) {
+                trace.aiFallback = true;
+                finalEntries = keywordResult.matched;
+            } else if (aiResult.results.length === 0) {
+                finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+            } else {
+                const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
+                const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
+                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
+                for (const r of aiResult.results) {
+                    const existing = matchedKeys.get(r.entry.title);
+                    matchedKeys.set(r.entry.title, existing
+                        ? `${existing} → AI: ${r.reason} (${r.confidence})`
+                        : `AI: ${r.reason} (${r.confidence})`);
+                    trace.aiSelected.push({ title: r.entry.title, reason: r.reason, confidence: r.confidence });
+                }
+            }
+        }
+
+    } else {
+        const keywordResult = matchEntries(chat);
+        finalEntries = keywordResult.matched;
+        matchedKeys = keywordResult.matchedKeys;
+        trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
+        trace.probabilitySkipped = keywordResult.probabilitySkipped;
+    }
+
+    setLastPipelineTrace(trace);
+    return { finalEntries, matchedKeys, trace };
+}
+
+/**
+ * External API: match vault entries against arbitrary text.
+ * Used by other extensions (e.g. BurnerPhone) to get lore without going through the interceptor.
+ * @param {string|object[]} scanInput - Text string or array of {name, mes, is_user} chat objects
+ * @returns {Promise<{text: string, count: number, tokens: number}>}
+ */
+export async function matchTextForExternal(scanInput) {
+    const settings = getSettings();
+    if (!settings.enabled) return { text: '', count: 0, tokens: 0 };
+
+    await ensureIndexFresh();
+    if (vaultIndex.length === 0) return { text: '', count: 0, tokens: 0 };
+
+    const fakeChat = typeof scanInput === 'string'
+        ? [{ name: 'context', mes: scanInput, is_user: true }]
+        : scanInput;
+
+    const { matched } = matchEntries(fakeChat);
+    const gated = applyGating(matched);
+    const { groups, count, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
+
+    const combinedText = groups.map(g => g.text).join('\n\n');
+    return { text: combinedText, count, tokens: totalTokens };
+}

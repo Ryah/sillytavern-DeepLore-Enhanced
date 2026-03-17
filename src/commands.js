@@ -19,7 +19,7 @@ import { applyGating, formatAndGroup } from '../core/matching.js';
 import { getSettings, getPrimaryVault, PLUGIN_BASE, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress,
-    lastPipelineTrace,
+    lastPipelineTrace, injectionHistory, generationCount,
     setVaultIndex, setIndexTimestamp,
 } from './state.js';
 import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from './vault.js';
@@ -129,9 +129,21 @@ export function registerSlashCommands() {
                 return '';
             }
 
+            const settings = getSettings();
             const { finalEntries, matchedKeys } = await runPipeline(chat);
-            const gated = applyGating(finalEntries);
-            const { count: injectedCount, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
+
+            // Apply re-injection cooldown (matches onGenerate order)
+            let filtered = finalEntries;
+            if (settings.reinjectionCooldown > 0) {
+                filtered = finalEntries.filter(e => {
+                    if (e.constant) return true;
+                    const lastGen = injectionHistory.get(e.title);
+                    return lastGen === undefined || (generationCount - lastGen) >= settings.reinjectionCooldown;
+                });
+            }
+
+            const gated = applyGating(filtered);
+            const { count: injectedCount, totalTokens } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
             const injected = gated.slice(0, injectedCount);
 
             if (injected.length === 0) {

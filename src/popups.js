@@ -295,31 +295,31 @@ export async function showGraphPopup() {
         vx: 0, vy: 0,
     }));
 
-    const titleToIdx = new Map(vaultIndex.map((e, i) => [e.title, i]));
+    const titleToIdx = new Map(vaultIndex.map((e, i) => [e.title.toLowerCase(), i]));
     const edges = [];
 
     for (let i = 0; i < vaultIndex.length; i++) {
         const entry = vaultIndex[i];
         for (const link of entry.resolvedLinks) {
-            const j = titleToIdx.get(link);
+            const j = titleToIdx.get(link.toLowerCase());
             if (j !== undefined && j !== i) {
                 edges.push({ from: i, to: j, type: 'link' });
             }
         }
         for (const req of entry.requires) {
-            const j = titleToIdx.get(req);
+            const j = titleToIdx.get(req.toLowerCase());
             if (j !== undefined && j !== i) {
                 edges.push({ from: i, to: j, type: 'requires' });
             }
         }
         for (const ex of entry.excludes) {
-            const j = titleToIdx.get(ex);
+            const j = titleToIdx.get(ex.toLowerCase());
             if (j !== undefined && j !== i) {
                 edges.push({ from: i, to: j, type: 'excludes' });
             }
         }
         for (const cl of (entry.cascadeLinks || [])) {
-            const j = titleToIdx.get(cl);
+            const j = titleToIdx.get(cl.toLowerCase());
             if (j !== undefined && j !== i) {
                 edges.push({ from: i, to: j, type: 'cascade' });
             }

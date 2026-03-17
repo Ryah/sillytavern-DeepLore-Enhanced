@@ -74,6 +74,7 @@ export function runHealthCheck() {
     }
 
     const allTitles = new Set(vaultIndex.map(e => e.title));
+    const allTitlesLower = new Set(vaultIndex.map(e => e.title.toLowerCase()));
     const titleCounts = new Map();
     const keywordMap = new Map();
     let constantTokenTotal = 0;
@@ -92,24 +93,24 @@ export function runHealthCheck() {
             issues.push({ type: 'Entry Config', severity: 'warning', entry: entry.title, detail: 'Entry has no content' });
         }
 
-        // Orphaned requires
+        // Orphaned requires (case-insensitive to match applyGating behavior)
         for (const req of entry.requires) {
-            if (!allTitles.has(req)) {
+            if (!allTitlesLower.has(req.toLowerCase())) {
                 issues.push({ type: 'Gating', severity: 'error', entry: entry.title, detail: `Requires "${req}" which doesn't exist in the vault` });
             }
         }
 
-        // Orphaned excludes
+        // Orphaned excludes (case-insensitive to match applyGating behavior)
         for (const exc of entry.excludes) {
-            if (!allTitles.has(exc)) {
+            if (!allTitlesLower.has(exc.toLowerCase())) {
                 issues.push({ type: 'Gating', severity: 'error', entry: entry.title, detail: `Excludes "${exc}" which doesn't exist in the vault` });
             }
         }
 
-        // Orphaned cascade_links
+        // Orphaned cascade_links (case-insensitive to match pipeline behavior)
         if (entry.cascadeLinks) {
             for (const cl of entry.cascadeLinks) {
-                if (!allTitles.has(cl)) {
+                if (!allTitlesLower.has(cl.toLowerCase())) {
                     issues.push({ type: 'Gating', severity: 'warning', entry: entry.title, detail: `Cascade link "${cl}" doesn't exist in the vault` });
                 }
             }
@@ -164,19 +165,21 @@ export function runHealthCheck() {
             issues.push({ type: 'Size', severity: 'warning', entry: entry.title, detail: `Seed entry is large — ~${entry.tokenEstimate} tokens sent as AI context on new chats` });
         }
 
-        // Depth override without in_chat position
-        if (entry.injectionDepth !== null && entry.injectionPosition !== 1) {
-            issues.push({ type: 'Injection', severity: 'warning', entry: entry.title, detail: 'Depth override ignored — entry position is not in_chat' });
+        // Depth override without in_chat position (consider global default when no per-entry override)
+        const effectivePosition = entry.injectionPosition ?? settings.injectionPosition;
+        if (entry.injectionDepth !== null && effectivePosition !== 1) {
+            issues.push({ type: 'Injection', severity: 'warning', entry: entry.title, detail: 'Depth override ignored — effective position is not in_chat' });
         }
 
         // Role override without in_chat position
-        if (entry.injectionRole !== null && entry.injectionPosition !== 1) {
-            issues.push({ type: 'Injection', severity: 'warning', entry: entry.title, detail: 'Role override ignored — entry position is not in_chat' });
+        if (entry.injectionRole !== null && effectivePosition !== 1) {
+            issues.push({ type: 'Injection', severity: 'warning', entry: entry.title, detail: 'Role override ignored — effective position is not in_chat' });
         }
 
-        // Unresolved wiki-links
+        // Unresolved wiki-links (case-insensitive since resolveLinks uses toLowerCase)
         if (entry.links.length > 0 && entry.resolvedLinks.length < entry.links.length) {
-            const unresolved = entry.links.filter(l => !entry.resolvedLinks.includes(l));
+            const resolvedLower = new Set(entry.resolvedLinks.map(r => r.toLowerCase()));
+            const unresolved = entry.links.filter(l => !resolvedLower.has(l.toLowerCase()));
             if (unresolved.length > 0) {
                 issues.push({ type: 'Links', severity: 'info', entry: entry.title, detail: `Unresolved wiki-links: ${unresolved.join(', ')}` });
             }

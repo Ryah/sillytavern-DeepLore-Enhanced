@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.15-ALPHA
+
+### New Features
+- **AI Notebook** — Persistent per-chat scratchpad injected every turn. Edit via `/dle-notebook`. Stored in chat metadata, survives reloads. Configurable injection position/depth/role.
+- **Probability Frontmatter** — New `probability` field (0.0-1.0) for entries. When matched, random roll determines if entry fires. Constants always fire.
+- **Entry Browser** — `/dle-browse` command opens searchable, filterable popup of all indexed entries with full content preview, analytics, and Obsidian deep links.
+- **Entry Relationship Graph** — `/dle-graph` command visualizes requires/excludes/cascade/wiki-link relationships as an interactive force-directed graph on canvas.
+- **"Why Not?" Diagnostics** — In Test Match popup, click unmatched entries to see exactly why they didn't fire (keyword miss, scan depth, gating, cooldown, budget, AI rejection) with suggestions.
+- **Injection Deduplication** — Opt-in: skip re-injecting entries already in context from recent generations. Tracks injection history per chat via `chat_metadata`.
+- **Auto Lorebook Creation** — `/dle-suggest` or auto-trigger: AI analyzes chat for entities not in lorebook, suggests new entries with human gate (editable popup). Writes accepted entries to Obsidian.
+- **Optimize Keywords** — `/dle-optimize-keys` sends entries to AI for keyword suggestions. Mode-aware: keyword-only (precise) vs two-stage (broad). Single or batch.
+- **Activation Simulation** — `/dle-simulate` replays chat history step-by-step showing which entries activate/deactivate at each message.
+- **Enhanced Context Cartographer** — Token bar chart per entry, injection position grouping, expandable content preview, vault attribution for multi-vault. New `/dle-context` for real-time view without generating.
+- **Scribe Session Timeline** — `/dle-scribe-history` fetches and displays all session notes from Obsidian. Scribe context now persists across page reloads via chat metadata.
+- **Multi-Vault Support** — Connect multiple Obsidian vaults with independent settings. Entries merged with vault attribution shown in Context Cartographer and Entry Browser.
+
+### Self-Healing Diagnostics
+- Expanded `/dle-health` from ~7 to 30+ checks: circular requires, duplicate titles, conflicting overrides, orphaned cascade links, AI/Scribe misconfiguration, budget warnings, probability zero, unresolved wiki-links, keyword conflicts, and more.
+- Auto-runs on extension load, surfaces warnings via toast (silent if clean).
+
+### Refactor: Module Decomposition
+- Decomposed monolithic `index.js` (4619 lines) into 13 focused modules. `index.js` is now ~270 lines (entry point + `onGenerate`).
+- New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`.
+
+### Bug Fixes
+- **Cooldown timer freeze** (critical) — Early returns in `onGenerate()` skipped `generationCount++` and cooldown decrement, permanently freezing cooldown timers during quiet generations. Fixed with `pipelineRan` flag + `finally` block.
+- **Test Match pipeline order** — Simulation ran gating before cooldown, opposite to actual `onGenerate` order. Reordered to match.
+- **`/dle-context` missing cooldown filter** — Command showed entries blocked by re-injection cooldown. Now applies cooldown filter before gating.
+- **Case-insensitive orphan detection** — Health check used case-sensitive comparison for requires/excludes/cascade_links while `applyGating()` is case-insensitive. Fixed all five instances.
+- **Case-insensitive graph edges** — Relationship graph used case-sensitive title lookups. Fixed to match runtime behavior.
+- **Case-insensitive wiki-link resolution** — Unresolved wiki-link check in diagnostics was case-sensitive. Fixed.
+- **Depth/role override warning** — Health check warned about depth overrides without considering global injection position default. Now checks effective position.
+- **`generateQuietPrompt` API** — Wrong API call signature for quiet generation.
+- **Scribe-notes HTTP status** — Missing HTTP status check on scribe-notes fetch.
+- **Auto-suggest scan depth** — Incorrect scan depth used for auto-suggest AI context.
+- **Greedy regex in `extractAiResponseClient`** — JSON array extraction used greedy `[\s\S]*` instead of lazy `[\s\S]*?`, capturing too much text.
+- **`Number || default` falsy-zero** — `Number(val) || default` treated valid 0 as falsy. Fixed with `isNaN()` checks.
+- **Warning ratio reset** — `lastWarningRatio` not reset on chat change, causing stale toast suppression.
+
+### New Slash Commands
+| Command | Description |
+|---------|-------------|
+| `/dle-notebook` | Open/edit persistent per-chat AI scratchpad |
+| `/dle-browse` | Searchable entry browser with content preview |
+| `/dle-graph` | Interactive entry relationship graph |
+| `/dle-simulate` | Replay chat showing entry activation timeline |
+| `/dle-suggest` | AI suggests new lorebook entries from chat |
+| `/dle-optimize-keys` | AI keyword suggestions for entries |
+| `/dle-context` | Show what would be injected right now |
+| `/dle-scribe-history` | View all session notes from Obsidian |
+
+### New Frontmatter Fields
+| Field | Type | Description |
+|-------|------|-------------|
+| `probability` | number | Chance of triggering when matched (0.0-1.0, null = always) |
+
+### Settings
+- New AI Notebook section: enable, injection position, depth, role
+- New `stripDuplicateInjections` and `stripLookbackDepth` in Matching & Budget
+- New Auto Lorebook section: enable, interval, connection mode, profile, proxy, model, tokens, timeout, folder
+- New `optimizeKeysMode` (keyword-only / two-stage)
+- New `vaults` array replacing single-vault connection fields (auto-migrated)
+
+### Internal
+- New `probability` and `vaultSource` fields on VaultEntry (shared core — additive)
+- New server endpoint `POST /scribe-notes` for session timeline
+- `chat_metadata` now stores: `deeplore_notebook`, `deeplore_lastScribeSummary`, `deeplore_injection_log`
+- `matchEntries()` now returns `probabilitySkipped` array
+- `onGenerate()` uses `pipelineRan` flag + `finally` block for generation tracking
+- 191 passing tests
+- Bumped version to 0.15-ALPHA
+
 ## 0.14-ALPHA
 
 ### Session Scribe Overhaul

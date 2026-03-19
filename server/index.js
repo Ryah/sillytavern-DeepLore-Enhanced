@@ -361,13 +361,13 @@ async function init(router) {
             const headerSection = manifestHeader ? `## Manifest Info\n${manifestHeader}\n\n` : '';
             const userMessage = `${headerSection}## Recent Chat\n${chatContext}\n\n## Available Lore Entries\n${manifest}\n\nSelect the relevant entries as a JSON array.`;
 
-            const proxyTimeout = Math.min(Math.max(timeout || 15000, 5000), 60000);
+            const proxyTimeout = Math.min(Math.max(timeout ?? 15000, 5000), 60000);
             const result = await callProxy(
                 proxyUrl,
                 model,
                 finalSystemPrompt,
                 userMessage,
-                maxTokens || 1024,
+                maxTokens ?? 1024,
                 proxyTimeout,
             );
 
@@ -421,13 +421,13 @@ async function init(router) {
                 return res.status(400).json({ ok: false, error: 'Missing required fields: proxyUrl, model, systemPrompt, userMessage' });
             }
 
-            const proxyTimeout = Math.min(Math.max(timeout || 30000, 5000), 60000);
+            const proxyTimeout = Math.min(Math.max(timeout ?? 30000, 5000), 60000);
             const result = await callProxy(
                 proxyUrl,
                 model,
                 systemPrompt,
                 userMessage,
-                maxTokens || 1024,
+                maxTokens ?? 1024,
                 proxyTimeout,
             );
 

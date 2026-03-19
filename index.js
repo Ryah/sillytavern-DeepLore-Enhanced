@@ -377,7 +377,8 @@ jQuery(async function () {
         eventSource.on(event_types.CHAT_CHANGED, () => {
             setLastScribeChatLength(chat ? chat.length : 0);
             setLastScribeSummary(chat_metadata?.deeplore_lastScribeSummary || '');
-            // Reset session-scoped tracking on chat change
+            // Reset per-chat tracking on chat change
+            // Note: aiSearchStats is intentionally NOT reset — it tracks session-level cumulative stats
             injectionHistory.clear();
             cooldownTracker.clear();
             setGenerationCount(0);

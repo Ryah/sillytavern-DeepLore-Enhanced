@@ -164,7 +164,9 @@ export function getSettings() {
     // Fill in any missing defaults
     for (const [key, value] of Object.entries(defaultSettings)) {
         if (extension_settings[MODULE_NAME][key] === undefined) {
-            extension_settings[MODULE_NAME][key] = value;
+            extension_settings[MODULE_NAME][key] = (typeof value === 'object' && value !== null)
+                ? JSON.parse(JSON.stringify(value))
+                : value;
         }
     }
     validateSettings(extension_settings[MODULE_NAME], settingsConstraints);

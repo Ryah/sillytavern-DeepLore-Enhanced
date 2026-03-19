@@ -22,19 +22,34 @@ import { updateAiStats } from './settings-ui.js';
  */
 export function extractAiResponseClient(text) {
     if (!text || typeof text !== 'string') return null;
+
+    /** Validate that a parsed value is a usable results array (strings or objects with title/name). */
+    function isValidResultArray(val) {
+        if (!Array.isArray(val) || val.length === 0) return false;
+        const first = val[0];
+        return typeof first === 'string'
+            || (typeof first === 'object' && first !== null && (first.title || first.name));
+    }
+
     // Try direct JSON parse
-    try { return JSON.parse(text); } catch { /* noop */ }
+    try {
+        const parsed = JSON.parse(text);
+        if (isValidResultArray(parsed)) return parsed;
+    } catch { /* noop */ }
     // Try markdown code fence
     const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (fenceMatch) {
-        try { return JSON.parse(fenceMatch[1]); } catch { /* noop */ }
+        try {
+            const parsed = JSON.parse(fenceMatch[1]);
+            if (isValidResultArray(parsed)) return parsed;
+        } catch { /* noop */ }
     }
     // Try all JSON arrays (non-greedy), prefer last match (AIs put results at the end)
     const arrayMatches = [...text.matchAll(/\[[\s\S]*?\]/g)];
     for (let i = arrayMatches.length - 1; i >= 0; i--) {
         try {
             const parsed = JSON.parse(arrayMatches[i][0]);
-            if (Array.isArray(parsed)) return parsed;
+            if (isValidResultArray(parsed)) return parsed;
         } catch { /* noop */ }
     }
     return null;
@@ -241,7 +256,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
         })
         .join('\n---\n');
 
-    const totalSelectable = vaultIndex.filter(e => !isForceInjected(e)).length;
+    const totalSelectable = candidates.filter(e => !isForceInjected(e)).length;
     const forcedCount = candidates.filter(e => isForceInjected(e)).length;
     const forcedTokens = candidates.filter(e => isForceInjected(e)).reduce((s, e) => s + e.tokenEstimate, 0);
     const budgetInfo = settings.unlimitedBudget

@@ -387,6 +387,7 @@ export async function showGraphPopup() {
     let panX = W / 2, panY = H / 2, zoom = 1;
     let dragNode = null, hoverNode = null;
     let isRunning = true;
+    let alpha = 1.0; // simulation temperature — decays toward 0
 
     const nodeColors = { constant: '#ff9800', seed: '#2196f3', bootstrap: '#9c27b0', regular: '#4caf50' };
     const edgeColors = { link: '#aac8ff', requires: '#4caf50', excludes: '#f44336', cascade: '#ff9800' };
@@ -395,13 +396,15 @@ export async function showGraphPopup() {
     function toWorld(sx, sy) { return { x: (sx - panX) / zoom, y: (sy - panY) / zoom }; }
 
     function simulate() {
+        if (alpha < 0.001 && !dragNode) return; // settled
+        alpha *= 0.995; // decay — settles in ~600 frames (~10s)
         const k = 0.01, repulsion = 5000, damping = 0.85, gravity = 0.02;
         for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
                 let dx = nodes[j].x - nodes[i].x;
                 let dy = nodes[j].y - nodes[i].y;
                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                const force = repulsion / (dist * dist);
+                const force = repulsion / (dist * dist) * alpha;
                 const fx = (dx / dist) * force;
                 const fy = (dy / dist) * force;
                 nodes[i].vx -= fx; nodes[i].vy -= fy;
@@ -412,15 +415,15 @@ export async function showGraphPopup() {
             const a = nodes[edge.from], b = nodes[edge.to];
             const dx = b.x - a.x, dy = b.y - a.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const force = k * (dist - 100);
+            const force = k * (dist - 100) * alpha;
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
             a.vx += fx; a.vy += fy;
             b.vx -= fx; b.vy -= fy;
         }
         for (const n of nodes) {
-            n.vx -= n.x * gravity;
-            n.vy -= n.y * gravity;
+            n.vx -= n.x * gravity * alpha;
+            n.vy -= n.y * gravity * alpha;
         }
         for (const n of nodes) {
             if (n === dragNode) continue;
@@ -483,7 +486,7 @@ export async function showGraphPopup() {
             const d = Math.sqrt((n.x - w.x) ** 2 + (n.y - w.y) ** 2);
             if (d < closestDist) { closest = n; closestDist = d; }
         }
-        if (closest) { dragNode = closest; canvas.style.cursor = 'grabbing'; }
+        if (closest) { dragNode = closest; alpha = Math.max(alpha, 0.3); canvas.style.cursor = 'grabbing'; }
     });
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();

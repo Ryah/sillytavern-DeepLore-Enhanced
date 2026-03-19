@@ -361,7 +361,7 @@ export async function showGraphPopup() {
             <span><span style="color: #ff9800;">—</span> Cascade</span>
         </div>
         <canvas id="dle_graph_canvas" width="900" height="600" style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px; cursor: grab; width: 100%; background: var(--SmartThemeBlurTintColor, #0d0d1a);"></canvas>
-        <small style="opacity: 0.5;">Drag nodes to reposition. Scroll to zoom. Click a node to see info.</small>
+        <small style="opacity: 0.5;">Drag nodes to reposition. Right-click to pin/unpin. Scroll to zoom.</small>
     `;
 
     callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: false });
@@ -398,7 +398,8 @@ export async function showGraphPopup() {
     function simulate() {
         if (alpha < 0.001 && !dragNode) return; // settled
         alpha *= 0.98; // fast decay — settles in ~3s
-        const k = 0.005, repulsion = 2000, damping = 0.6, gravity = 0.03, maxV = 8;
+        // Spring forces always apply at full strength so dragging pulls neighbors
+        const k = 0.008, repulsion = 2000, damping = 0.7, gravity = 0.03, maxV = 8;
         for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
                 let dx = nodes[j].x - nodes[i].x;
@@ -411,11 +412,12 @@ export async function showGraphPopup() {
                 nodes[j].vx += fx; nodes[j].vy += fy;
             }
         }
+        // Spring (edge) forces apply at full strength — not scaled by alpha
         for (const edge of edges) {
             const a = nodes[edge.from], b = nodes[edge.to];
             const dx = b.x - a.x, dy = b.y - a.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const force = k * (dist - 120) * alpha;
+            const force = k * (dist - 120);
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
             a.vx += fx; a.vy += fy;
@@ -426,7 +428,7 @@ export async function showGraphPopup() {
             n.vy -= n.y * gravity * alpha;
         }
         for (const n of nodes) {
-            if (n === dragNode) continue;
+            if (n === dragNode || n.pinned) continue;
             n.vx *= damping; n.vy *= damping;
             // Clamp velocity to prevent wild overshoot
             const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
@@ -452,6 +454,11 @@ export async function showGraphPopup() {
             const r = Math.max(4, Math.min(12, Math.sqrt(n.tokens / 10)));
             ctx.fillStyle = n === hoverNode ? '#ffffff' : (nodeColors[n.type] || '#4caf50');
             ctx.beginPath(); ctx.arc(s.x, s.y, r * zoom, 0, Math.PI * 2); ctx.fill();
+            if (n.pinned) {
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(s.x, s.y, (r + 3) * zoom, 0, Math.PI * 2); ctx.stroke();
+                ctx.lineWidth = 1;
+            }
         }
         ctx.fillStyle = '#ddd'; ctx.font = `${Math.max(9, 11 * zoom)}px monospace`; ctx.textAlign = 'center';
         for (const n of nodes) {
@@ -489,13 +496,14 @@ export async function showGraphPopup() {
             const d = Math.sqrt((n.x - w.x) ** 2 + (n.y - w.y) ** 2);
             if (d < closestDist) { closest = n; closestDist = d; }
         }
-        if (closest) { dragNode = closest; alpha = Math.max(alpha, 0.3); canvas.style.cursor = 'grabbing'; }
+        if (closest) { dragNode = closest; alpha = Math.max(alpha, 0.5); canvas.style.cursor = 'grabbing'; }
     });
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
         if (dragNode) {
             const w = toWorld(mx, my); dragNode.x = w.x; dragNode.y = w.y; dragNode.vx = 0; dragNode.vy = 0;
+            alpha = Math.max(alpha, 0.5); // keep simulation active while dragging
         } else {
             const w = toWorld(mx, my);
             let closest = null, closestDist = 15 / zoom;
@@ -508,6 +516,21 @@ export async function showGraphPopup() {
         }
     });
     canvas.addEventListener('mouseup', () => { dragNode = null; canvas.style.cursor = 'grab'; });
+    canvas.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const w = toWorld(mx, my);
+        let closest = null, closestDist = 20 / zoom;
+        for (const n of nodes) {
+            const d = Math.sqrt((n.x - w.x) ** 2 + (n.y - w.y) ** 2);
+            if (d < closestDist) { closest = n; closestDist = d; }
+        }
+        if (closest) {
+            closest.pinned = !closest.pinned;
+            closest.vx = 0; closest.vy = 0;
+        }
+    });
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;

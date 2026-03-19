@@ -318,6 +318,12 @@ test('extractWikiLinks: trims whitespace in link targets', () => {
     assertEqual(links[0], 'Eris', 'should trim whitespace from link target');
 });
 
+test('extractWikiLinks: strips trailing backslash from pipe-alias links', () => {
+    const links = extractWikiLinks('See [[Name\\|Display]] here.');
+    assertEqual(links.length, 1, 'should find one link');
+    assertEqual(links[0], 'Name', 'should strip trailing backslash from link target');
+});
+
 // ============================================================================
 // Tests: testEntryMatch
 // ============================================================================

@@ -185,6 +185,46 @@ export function updateAiStats() {
 }
 
 // ============================================================================
+// Mode Visibility
+// ============================================================================
+
+/**
+ * Update UI visibility based on the current search mode.
+ * @param {object} settings
+ */
+function updateModeVisibility(settings) {
+    const aiEnabled = settings.aiSearchEnabled;
+    const isProxy = settings.aiSearchConnectionMode === 'proxy';
+
+    // Show/hide AI Search drawer
+    $('#dle_ai_search_drawer').toggle(aiEnabled);
+
+    // Show/hide keyword scan depth (hidden in ai-only since keywords aren't used)
+    const isAiOnly = aiEnabled && settings.aiSearchMode === 'ai-only';
+    $('#dle_scan_depth_row').toggle(!isAiOnly);
+
+    // Claude Code prefix toggle: only visible when proxy mode AND AI enabled
+    $('#dle_ai_claude_prefix_row').toggle(aiEnabled && isProxy);
+}
+
+/**
+ * Restore advanced section visibility from persisted settings.
+ * @param {object} settings
+ */
+function restoreAdvancedSections(settings) {
+    const advVisible = settings.advancedVisible || {};
+    $('.dle_advanced_section').each(function () {
+        const section = $(this).data('section');
+        if (advVisible[section]) {
+            $(this).show();
+            const toggle = $(this).prev('.dle_advanced_toggle');
+            toggle.find('.dle_advanced_icon').removeClass('fa-chevron-right').addClass('fa-chevron-down');
+            toggle.contents().filter(function () { return this.nodeType === 3; }).last()[0].textContent = ' Hide Advanced';
+        }
+    });
+}
+
+// ============================================================================
 // Load Settings UI
 // ============================================================================
 
@@ -226,11 +266,12 @@ export function loadSettingsUI() {
     $('#dle_char_context_scan').prop('checked', settings.characterContextScan);
     $('#dle_debug').prop('checked', settings.debugMode);
 
+    // Search Mode dropdown (replaces separate AI enable + mode radios)
+    const searchMode = !settings.aiSearchEnabled ? 'keyword-only'
+        : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
+    $('#dle_search_mode').val(searchMode);
+
     // AI Search settings
-    $('#dle_ai_enabled').prop('checked', settings.aiSearchEnabled);
-    $('#dle_ai_controls').find('input:not(#dle_ai_enabled), textarea, select, .menu_button')
-        .prop('disabled', !settings.aiSearchEnabled)
-        .toggleClass('disabled', !settings.aiSearchEnabled);
     $('input[name="dle_ai_connection_mode"][value="' + settings.aiSearchConnectionMode + '"]').prop('checked', true);
     populateProfileDropdown();
     updateAiConnectionVisibility();
@@ -238,14 +279,16 @@ export function loadSettingsUI() {
     $('#dle_ai_model').val(settings.aiSearchModel);
     $('#dle_ai_max_tokens').val(settings.aiSearchMaxTokens);
     $('#dle_ai_timeout').val(settings.aiSearchTimeout);
-    $('input[name="dle_ai_mode"][value="' + settings.aiSearchMode + '"]').prop('checked', true);
     $('#dle_ai_scan_depth').val(settings.aiSearchScanDepth);
     $('#dle_ai_system_prompt').val(settings.aiSearchSystemPrompt);
     $('#dle_ai_summary_length').val(settings.aiSearchManifestSummaryLength);
+    $('#dle_ai_claude_prefix').prop('checked', settings.aiSearchClaudeCodePrefix);
 
     // Context Cartographer settings
     $('#dle_show_sources').prop('checked', settings.showLoreSources);
-    $('#dle_vault_name').val(settings.obsidianVaultName);
+
+    // Apply mode visibility
+    updateModeVisibility(settings);
 
     // AI Notebook settings
     $('#dle_notebook_enabled').prop('checked', settings.notebookEnabled);
@@ -299,6 +342,9 @@ export function loadSettingsUI() {
 
     updateIndexStats();
     updateAiStats();
+
+    // Restore advanced section toggle states
+    restoreAdvancedSections(settings);
 }
 
 // ============================================================================
@@ -455,19 +501,21 @@ export function bindSettingsEvents(buildIndexFn) {
         saveSettingsDebounced();
     });
 
-    // AI Search settings
-    $('#dle_ai_enabled').on('change', function () {
-        settings.aiSearchEnabled = $(this).prop('checked');
+    // Search Mode dropdown
+    $('#dle_search_mode').on('change', function () {
+        const mode = $(this).val();
+        settings.aiSearchEnabled = mode !== 'keyword-only';
+        settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage';
         saveSettingsDebounced();
-        $('#dle_ai_controls').find('input:not(#dle_ai_enabled), textarea, select, .menu_button')
-            .prop('disabled', !settings.aiSearchEnabled)
-            .toggleClass('disabled', !settings.aiSearchEnabled);
+        updateModeVisibility(settings);
     });
 
+    // AI Search settings
     $('input[name="dle_ai_connection_mode"]').on('change', function () {
         settings.aiSearchConnectionMode = $('input[name="dle_ai_connection_mode"]:checked').val();
         saveSettingsDebounced();
         updateAiConnectionVisibility();
+        updateModeVisibility(settings);
     });
 
     $('#dle_ai_profile_select').on('change', function () {
@@ -514,11 +562,6 @@ export function bindSettingsEvents(buildIndexFn) {
         saveSettingsDebounced();
     });
 
-    $('input[name="dle_ai_mode"]').on('change', function () {
-        settings.aiSearchMode = $('input[name="dle_ai_mode"]:checked').val();
-        saveSettingsDebounced();
-    });
-
     $('#dle_ai_scan_depth').on('input', function () {
         const val = Number($(this).val());
         settings.aiSearchScanDepth = isNaN(val) ? 4 : val;
@@ -539,11 +582,6 @@ export function bindSettingsEvents(buildIndexFn) {
     // Context Cartographer settings
     $('#dle_show_sources').on('change', function () {
         settings.showLoreSources = $(this).prop('checked');
-        saveSettingsDebounced();
-    });
-
-    $('#dle_vault_name').on('input', function () {
-        settings.obsidianVaultName = String($(this).val()).trim();
         saveSettingsDebounced();
     });
 
@@ -700,6 +738,28 @@ export function bindSettingsEvents(buildIndexFn) {
         saveSettingsDebounced();
     });
 
+    // Claude Code prefix toggle
+    $('#dle_ai_claude_prefix').on('change', function () {
+        settings.aiSearchClaudeCodePrefix = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    // Advanced section toggles
+    $('.dle_advanced_toggle').on('click', function () {
+        const section = $(this).data('section');
+        const content = $(`.dle_advanced_section[data-section="${section}"]`);
+        const icon = $(this).find('.dle_advanced_icon');
+        content.toggle();
+        const visible = content.is(':visible');
+        icon.toggleClass('fa-chevron-right', !visible).toggleClass('fa-chevron-down', visible);
+        // Update the text node
+        $(this).contents().filter(function () { return this.nodeType === 3; }).last()[0].textContent = visible ? ' Hide Advanced' : ' Show Advanced';
+        // Persist
+        if (!settings.advancedVisible) settings.advancedVisible = {};
+        settings.advancedVisible[section] = visible;
+        saveSettingsDebounced();
+    });
+
     // Injection Deduplication
     $('#dle_strip_dedup').on('change', function () {
         settings.stripDuplicateInjections = $(this).prop('checked');
@@ -842,9 +902,13 @@ export function bindSettingsEvents(buildIndexFn) {
         let systemPrompt;
         if (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) {
             const userPrompt = settings.aiSearchSystemPrompt.trim();
-            systemPrompt = userPrompt.startsWith('You are Claude Code')
-                ? userPrompt
-                : 'You are Claude Code. ' + userPrompt;
+            if (settings.aiSearchClaudeCodePrefix && settings.aiSearchConnectionMode === 'proxy') {
+                systemPrompt = userPrompt.startsWith('You are Claude Code')
+                    ? userPrompt
+                    : 'You are Claude Code. ' + userPrompt;
+            } else {
+                systemPrompt = userPrompt;
+            }
         } else {
             systemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
         }

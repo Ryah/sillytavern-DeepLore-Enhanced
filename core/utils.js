@@ -102,7 +102,7 @@ export function extractWikiLinks(body) {
     while ((match = regex.exec(body)) !== null) {
         // Skip image embeds (prefixed with !)
         if (match.index > 0 && body[match.index - 1] === '!') continue;
-        links.add(match[1].trim());
+        links.add(match[1].trim().replace(/\\$/, ''));
     }
     return [...links];
 }

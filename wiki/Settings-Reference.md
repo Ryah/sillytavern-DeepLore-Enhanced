@@ -14,7 +14,7 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| **Vault Name** | (none) | Display name for this vault connection. |
+| **Vault Name** | (none) | Display name for this vault connection. Must match your Obsidian vault name exactly for deep links to work. |
 | **Port** | `27123` | Port for the Obsidian Local REST API plugin. |
 | **API Key** | (none) | Bearer token from Obsidian's Local REST API settings. |
 | **Enabled** | On | Toggle this vault on/off without deleting the connection. |
@@ -67,9 +67,14 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Show Lore Sources Button** | On | Add a book icon to AI messages showing which entries were injected and why. See [[Features#Context Cartographer]]. |
-| **Obsidian Vault Name** | (none) | Your vault name for deep links. When set, entry names in the lore sources popup link directly into Obsidian. Must match the vault name in Obsidian's title bar. |
 
-## AI Notebook
+> Deep links use the vault connection name to build Obsidian URIs. Set vault names in Vault Connections to match your Obsidian vault names exactly.
+
+## AI-Powered Features
+
+AI Notebook, Session Scribe, and Auto Lorebook are grouped under one collapsible drawer in settings.
+
+### AI Notebook
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -80,27 +85,34 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 
 **Open Notebook** button opens the notebook editor for the current chat.
 
+## Search Mode
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Search Mode** | Keyword Only | Dropdown. **Keyword Only**: keywords-only matching (no AI). **Two-Stage**: keywords pre-filter, then AI selects. **AI Only**: entire vault sent to AI. See [[AI Search]]. |
+
 ## AI Search
+
+Visible when Search Mode is Two-Stage or AI Only.
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
-| **Enable AI Search** | Off | Toggle | Toggle AI-powered semantic search. Makes one API call per generation (cached on regenerations). |
 | **Connection** | Profile | Toggle | "Connection Profile" uses a saved ST profile (recommended). "Custom Proxy" uses a separate proxy server. |
 | **Connection Profile** | (none) | Dropdown | (Profile mode) Select a saved Connection Manager profile. Any provider works. |
 | **Proxy URL** | `http://localhost:42069` | Text | (Proxy mode) URL of the claude-code-proxy or compatible endpoint. Must expose `/v1/messages`. |
 | **Model Override** | (none) | Text | Optional model override. In profile mode, leave empty to use the profile's model. In proxy mode, specify the model name. |
 | **Max Response Tokens** | `1024` | 64-4096 | Token limit for the AI response. Keep low; only a JSON array is needed. |
 | **Timeout (ms)** | `10000` | 1000-30000 | How long to wait for the AI before falling back to keyword-only results. |
-| **AI Search Mode** | Two-Stage | Toggle | "Two-Stage (keywords → AI)" pre-filters with keywords. "AI Only (full vault)" sends entire manifest. See [[AI Search]]. |
 | **AI Scan Depth** | `4` | 1-100 | Number of recent messages to send as context to the AI. Can differ from keyword scan depth. |
 | **Manifest Summary Length** | `600` | 100-1000 | Max characters for entry summaries in the manifest. Only for entries without a `summary` field. |
 | **System Prompt Override** | (none) | Text | Custom system prompt for AI selection. Leave empty for default. Supports `{{maxEntries}}` placeholder. |
+| **Prepend "You are Claude Code"** | On | Toggle | (Proxy mode only, under Show Advanced) Prepend `You are Claude Code.` to the AI system prompt. Disable if using a non-Claude model via proxy. |
 
 **Test AI Search** button tests the AI connection. **Preview AI Prompt** button shows the full prompt that would be sent.
 
 **AI Stats** shows session usage: AI calls, cache hits, estimated input/output tokens.
 
-## Session Scribe
+### Session Scribe
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
@@ -116,7 +128,7 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **Messages to Include** | `20` | 5-100 | Number of recent chat messages included as context for the summary. |
 | **Custom Summary Prompt** | (none) | Text | Override the default summary prompt. Default covers events, character dynamics, revelations, and state changes. |
 
-## Auto Lorebook
+### Auto Lorebook
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
@@ -140,6 +152,8 @@ Use `/dle-suggest` to trigger on-demand at any time.
 | **Show Sync Change Toasts** | On | Toggle | Show toast notifications when vault changes are detected during index refresh. |
 
 **Refresh Index** button clears the cache and re-fetches all entries. **Test Match** button simulates a generation to show which entries would match.
+
+> **Show Advanced toggles:** Several sections have "Show Advanced" toggles that reveal power-user settings. These toggles persist across sessions. Settings behind advanced toggles include: seed/bootstrap tags, case sensitivity, whole word matching, recursive scanning, re-injection cooldown, deduplication, injection template, WI scan, AI manifest summary length, system prompt override, Claude Code prefix, cache TTL, sync interval, and sync toasts.
 
 ## Advanced
 

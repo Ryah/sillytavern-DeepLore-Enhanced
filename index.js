@@ -336,6 +336,12 @@ jQuery(async function () {
         registerSlashCommands();
         setupSyncPolling(buildIndex);
 
+        // Auto-connect: build index on load when enabled
+        const initSettings = getSettings();
+        if (initSettings.enabled) {
+            setTimeout(() => buildIndex().catch(err => console.warn('[DLE] Auto-connect:', err.message)), 3000);
+        }
+
         // Context Cartographer: click handler (event delegation — registered once)
         $(document).on('click', '.mes_deeplore_sources', function () {
             const messageId = $(this).closest('.mes').attr('mesid');

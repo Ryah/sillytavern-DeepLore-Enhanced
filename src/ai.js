@@ -328,9 +328,13 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         let systemPrompt;
         if (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) {
             const userPrompt = settings.aiSearchSystemPrompt.trim();
-            systemPrompt = userPrompt.startsWith('You are Claude Code')
-                ? userPrompt
-                : 'You are Claude Code. ' + userPrompt;
+            if (settings.aiSearchClaudeCodePrefix && settings.aiSearchConnectionMode === 'proxy') {
+                systemPrompt = userPrompt.startsWith('You are Claude Code')
+                    ? userPrompt
+                    : 'You are Claude Code. ' + userPrompt;
+            } else {
+                systemPrompt = userPrompt;
+            }
         } else {
             systemPrompt = DEFAULT_AI_SYSTEM_PROMPT;
         }

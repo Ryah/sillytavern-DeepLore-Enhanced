@@ -7,14 +7,14 @@ This page covers all of DeepLore Enhanced's features in detail. For the core mat
 Adds a book icon button to each AI message's action bar. Click it to see which vault entries were injected for that message, why they matched, and how much context they used.
 
 **The popup shows:**
-- Entry name (clickable link to Obsidian if vault name is configured)
+- Entry name (clickable link to Obsidian if vault connection names match Obsidian vault names)
 - Match type: keyword, AI (with confidence and reason), or constant
 - Priority value
 - Estimated token cost
 
 **Setup:**
 1. Enable "Show Lore Sources Button" in [[Settings Reference|Context Cartographer settings]]
-2. Optionally set your "Obsidian Vault Name" to enable deep links that open entries directly in Obsidian
+2. Set vault connection names to match your Obsidian vault names exactly to enable deep links
 
 **Notes:**
 - Source data is saved per-message in `message.extra.deeplore_sources`, so it persists across sessions

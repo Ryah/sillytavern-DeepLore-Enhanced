@@ -17,3 +17,20 @@
     opacity: 0.8;
     margin-top: 4px;
 }
+
+.deeplore_enhanced_settings .dle_advanced_toggle {
+    cursor: pointer;
+    opacity: 0.7;
+    font-size: 0.85em;
+    margin: 6px 0;
+    user-select: none;
+}
+
+.deeplore_enhanced_settings .dle_advanced_toggle:hover {
+    opacity: 1;
+}
+
+.deeplore_enhanced_settings .dle_advanced_icon {
+    font-size: 0.8em;
+    margin-right: 4px;
+}

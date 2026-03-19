@@ -8,7 +8,7 @@ This is the feature that makes DeepLore Enhanced different from base DeepLore.
 
 ## How It Works
 
-When AI search is enabled, every generation goes through a two-part process:
+When the **Search Mode** dropdown is set to Two-Stage or AI Only, every generation goes through a two-part process:
 
 1. **Build a manifest.** A compact summary of candidate entries is assembled (see [Manifest Format](#manifest-format) below)
 2. **Ask the AI.** The manifest, a system prompt, and recent chat messages are sent to an AI model, which returns a JSON array of selected entries with confidence levels and reasons
@@ -19,7 +19,7 @@ The AI's selections (plus any constant/bootstrap entries) become the final set o
 
 ## Search Modes
 
-DeepLore Enhanced offers two AI search modes, configured via **AI Search Mode** in [[Settings Reference]].
+DeepLore Enhanced offers two AI search modes, selected via the **Search Mode** dropdown in [[Settings Reference]]. The third option, **Keyword Only**, disables AI search entirely.
 
 ### Two-Stage (default)
 

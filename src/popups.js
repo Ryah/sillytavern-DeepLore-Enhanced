@@ -144,14 +144,17 @@ export async function showBrowsePopup() {
             const usageStr = a ? `matched: ${a.matched || 0}, injected: ${a.injected || 0}` : 'never used';
             const entryId = simpleHash(entry.filename);
 
-            const obsidianUri = buildObsidianURI(settings.obsidianVaultName, entry.filename);
+            const entryVaultName = entry.vaultSource
+                ? (settings.vaults?.find(v => v.name === entry.vaultSource)?.name || '')
+                : (settings.vaults?.[0]?.name || '');
+            const obsidianUri = buildObsidianURI(entryVaultName, entry.filename);
             const obsidianLink = obsidianUri
                 ? ` <a href="${escapeHtml(obsidianUri)}" target="_blank" style="font-size: 0.8em; opacity: 0.7;">Open in Obsidian</a>`
                 : '';
 
             html += `<div style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px; padding: 8px; margin-bottom: 4px;">`;
             html += `<div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="document.getElementById('dle_entry_${entryId}').style.display = document.getElementById('dle_entry_${entryId}').style.display === 'none' ? 'block' : 'none'">`;
-            html += `<strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}`;
+            html += `<span><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</span>`;
             html += `<span style="opacity: 0.6; font-size: 0.85em;">pri ${entry.priority} · ~${entry.tokenEstimate}tok · ${usageStr}</span>`;
             html += `</div>`;
             html += `<div style="font-size: 0.8em; opacity: 0.7;">${keysDisplay || '<em>no keywords</em>'}</div>`;

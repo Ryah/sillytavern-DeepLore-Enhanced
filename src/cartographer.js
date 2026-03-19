@@ -39,7 +39,6 @@ export function injectSourcesButton(messageId) {
  */
 export function showSourcesPopup(sources) {
     const settings = getSettings();
-    const vaultName = settings.obsidianVaultName;
     const totalTokens = sources.reduce((sum, s) => sum + s.tokens, 0);
     const maxTokens = Math.max(...sources.map(s => s.tokens), 1);
     const positionLabels = { 0: 'After Main Prompt', 1: 'In-chat', 2: 'Before Main Prompt' };
@@ -64,6 +63,10 @@ export function showSourcesPopup(sources) {
 
         for (const src of groupSources) {
             const pct = Math.max(2, Math.round((src.tokens / maxTokens) * 100));
+            const srcVault = src.vaultSource && settings.vaults
+                ? settings.vaults.find(v => v.name === src.vaultSource)
+                : null;
+            const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
             const uri = buildObsidianURI(vaultName, src.filename);
             const titleHtml = uri
                 ? `<a href="${escapeHtml(uri)}" target="_blank" style="color: var(--SmartThemeQuoteColor, #aac8ff); text-decoration: none;">${escapeHtml(src.title)}</a>`
@@ -88,9 +91,10 @@ export function showSourcesPopup(sources) {
         }
     }
 
-    html += vaultName
+    const anyVaultNamed = settings.vaults && settings.vaults.some(v => v.name);
+    html += anyVaultNamed
         ? '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
-        : '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Set Obsidian Vault Name in settings to enable deep links.</p>';
+        : '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Set vault names in Vault Connections to enable deep links.</p>';
     html += '</div>';
 
     callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });

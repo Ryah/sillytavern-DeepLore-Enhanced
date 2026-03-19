@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.1-BETA
+
+### Settings Overhaul
+- **Search Mode dropdown** — Unified "Keyword Only / Two-Stage / AI Only" dropdown replaces separate AI enable checkbox and mode radio buttons
+- **AI-Powered Features drawer** — Groups AI Notebook, Session Scribe, and Auto Lorebook into one collapsible section
+- **"Show Advanced" toggles** — Power-user settings hidden behind per-section advanced toggles (persisted across sessions) for vault tags, matching, injection, AI search, and index/cache settings
+- **"You are Claude Code" toggle** — New checkbox in AI Search advanced settings to control the `You are Claude Code` system prompt prefix (proxy mode only)
+- **Vault name deep links** — Removed separate "Obsidian Vault Name" field; vault connection names now serve double duty for Obsidian deep links
+- **Title/tooltip audit** — Every setting input now has a descriptive `title` attribute for discoverability
+- **Auto-connect on load** — Extension automatically builds the vault index on startup when enabled (3s delay)
+
+### Bug Fixes
+- **Backslash link false positives** — `extractWikiLinks()` now strips trailing backslashes from pipe-alias wiki-links (`[[Name\|Display]]` → `Name` not `Name\`)
+- **Cascade link false positives** — Health check now matches cascade links against filenames too, not just entry titles
+- **Self-exclude detection** — Health check warns when an entry's `excludes` list contains itself
+- **Browse popup badge alignment** — `[constant] [seed] [bootstrap]` badges now left-aligned with title instead of floating right
+
 ## 0.2.0-BETA
 
 ### New Features

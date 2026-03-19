@@ -75,6 +75,10 @@ export function runHealthCheck() {
 
     const allTitles = new Set(vaultIndex.map(e => e.title));
     const allTitlesLower = new Set(vaultIndex.map(e => e.title.toLowerCase()));
+    const allFilenamesLower = new Set(vaultIndex.map(e => {
+        const parts = e.filename.split('/');
+        return parts[parts.length - 1].replace(/\.md$/, '').toLowerCase();
+    }));
     const titleCounts = new Map();
     const keywordMap = new Map();
     let constantTokenTotal = 0;
@@ -110,10 +114,15 @@ export function runHealthCheck() {
         // Orphaned cascade_links (case-insensitive to match pipeline behavior)
         if (entry.cascadeLinks) {
             for (const cl of entry.cascadeLinks) {
-                if (!allTitlesLower.has(cl.toLowerCase())) {
+                if (!allTitlesLower.has(cl.toLowerCase()) && !allFilenamesLower.has(cl.toLowerCase())) {
                     issues.push({ type: 'Gating', severity: 'warning', entry: entry.title, detail: `Cascade link "${cl}" doesn't exist in the vault` });
                 }
             }
+        }
+
+        // Self-exclude detection
+        if (entry.excludes.length > 0 && entry.excludes.some(exc => exc.toLowerCase() === entry.title.toLowerCase())) {
+            issues.push({ type: 'Gating', severity: 'error', entry: entry.title, detail: 'Entry excludes itself — it will never be injected' });
         }
 
         // Requires AND excludes same title

@@ -85,6 +85,7 @@ export const defaultSettings = {
     aiSearchScanDepth: 4,
     aiSearchSystemPrompt: '',
     aiSearchManifestSummaryLength: 600,
+    aiSearchClaudeCodePrefix: true,
     // Context Cartographer settings
     showLoreSources: true,
     obsidianVaultName: '',
@@ -124,6 +125,8 @@ export const defaultSettings = {
     characterContextScan: false,
     // Multi-Vault
     vaults: [],
+    // UI State
+    advancedVisible: {},
     // Analytics
     analyticsData: {},
 };

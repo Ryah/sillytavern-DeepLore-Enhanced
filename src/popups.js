@@ -516,7 +516,7 @@ export async function showGraphPopup() {
             canvas.style.cursor = closest ? 'pointer' : 'grab';
         }
     });
-    canvas.addEventListener('mouseup', () => { dragNode = null; canvas.style.cursor = 'grab'; });
+    canvas.addEventListener('mouseup', () => { dragNode = null; alpha = 0; canvas.style.cursor = 'grab'; });
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();

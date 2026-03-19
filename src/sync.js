@@ -53,7 +53,8 @@ export function setupSyncPolling(buildIndexFn) {
 
     if (settings.syncPollingInterval > 0 && settings.enabled && buildIndexFn) {
         setSyncIntervalId(setInterval(async () => {
-            if (!settings.enabled || indexing) return;
+            const current = getSettings();
+            if (!current.enabled || indexing) return;
             await buildIndexFn();
         }, settings.syncPollingInterval * 1000));
     }

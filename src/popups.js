@@ -397,22 +397,28 @@ export async function showGraphPopup() {
 
     function simulate() {
         if (alpha < 0.001 && !dragNode) return; // settled
-        alpha *= 0.98; // fast decay — settles in ~3s
-        // Spring forces always apply at full strength so dragging pulls neighbors
+        if (!dragNode) alpha *= 0.98; // only decay when not dragging
         const k = 0.008, repulsion = 2000, damping = 0.7, gravity = 0.03, maxV = 8;
-        for (let i = 0; i < nodes.length; i++) {
-            for (let j = i + 1; j < nodes.length; j++) {
-                let dx = nodes[j].x - nodes[i].x;
-                let dy = nodes[j].y - nodes[i].y;
-                const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                const force = repulsion / (dist * dist) * alpha;
-                const fx = (dx / dist) * force;
-                const fy = (dy / dist) * force;
-                nodes[i].vx -= fx; nodes[i].vy -= fy;
-                nodes[j].vx += fx; nodes[j].vy += fy;
+        // Repulsion + gravity only during initial layout (not during drag)
+        if (!dragNode) {
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    let dx = nodes[j].x - nodes[i].x;
+                    let dy = nodes[j].y - nodes[i].y;
+                    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                    const force = repulsion / (dist * dist) * alpha;
+                    const fx = (dx / dist) * force;
+                    const fy = (dy / dist) * force;
+                    nodes[i].vx -= fx; nodes[i].vy -= fy;
+                    nodes[j].vx += fx; nodes[j].vy += fy;
+                }
+            }
+            for (const n of nodes) {
+                n.vx -= n.x * gravity * alpha;
+                n.vy -= n.y * gravity * alpha;
             }
         }
-        // Spring (edge) forces apply at full strength — not scaled by alpha
+        // Spring (edge) forces always apply so dragging pulls neighbors
         for (const edge of edges) {
             const a = nodes[edge.from], b = nodes[edge.to];
             const dx = b.x - a.x, dy = b.y - a.y;
@@ -424,13 +430,8 @@ export async function showGraphPopup() {
             b.vx -= fx; b.vy -= fy;
         }
         for (const n of nodes) {
-            n.vx -= n.x * gravity * alpha;
-            n.vy -= n.y * gravity * alpha;
-        }
-        for (const n of nodes) {
             if (n === dragNode || n.pinned) continue;
             n.vx *= damping; n.vy *= damping;
-            // Clamp velocity to prevent wild overshoot
             const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
             if (speed > maxV) { n.vx *= maxV / speed; n.vy *= maxV / speed; }
             n.x += n.vx; n.y += n.vy;

@@ -79,14 +79,16 @@ Before matching, the pipeline checks if the cached vault index is stale (based o
 2. **Check each entry's keys**: For each entry with `keys`, test if any keyword appears in the scan text
    - Respects Case Sensitive and Match Whole Words settings
    - Entries with per-entry `scanDepth` use their own message window
+   - If `refine_keys` is set, at least one refine key must also match (AND filter)
 3. **Warmup check**: If entry has `warmup: N`, count keyword occurrences; skip if below threshold
-4. **Probability check**: If entry has `probability: N`, roll a random number; skip if above threshold
+4. **Probability check**: If entry has `probability: N` (0.0-1.0), roll a random number; skip if roll exceeds probability
 5. **Cooldown check**: If entry is in cooldown, skip it
 6. **Re-injection cooldown**: If entry was injected within N generations, skip it
-6. **Recursive scanning**: If enabled, scan matched entries' content for keywords that trigger more entries. Repeats up to Max Recursion Steps. Entries with `excludeRecursion: true` are skipped.
-7. **Active Character Boost**: If enabled, auto-match the active character's entry by name/keyword even if not mentioned in chat
-8. **Constants**: Entries tagged `#lorebook-always` are always included regardless of keywords
-9. **Bootstrap**: If chat is below New Chat Threshold, `#lorebook-bootstrap` entries are force-included
+7. **Recursive scanning**: If enabled, scan matched entries' content for keywords that trigger more entries. Repeats up to Max Recursion Steps. Entries with `excludeRecursion: true` are skipped.
+8. **Cascade links**: If matched entries have `cascade_links`, the listed entries are unconditionally pulled in (no keyword check)
+9. **Active Character Boost**: If enabled, auto-match the active character's entry by name/keyword even if not mentioned in chat
+10. **Constants**: Entries tagged `#lorebook-always` or with `constant: true` are always included regardless of keywords
+11. **Bootstrap**: If chat is below New Chat Threshold, `#lorebook-bootstrap` entries are force-included
 
 ### AI Search
 See [[AI Search]] for full details. In brief:

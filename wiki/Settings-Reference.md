@@ -2,24 +2,15 @@
 
 Complete reference for every DeepLore Enhanced setting, organized by section.
 
-## Vault Connections
+## Connection
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
 | **Enable DeepLore Enhanced** | Off | Toggle | Master toggle. When disabled, no entries are injected. |
+| **Obsidian API Port** | `27123` | 1-65535 | Port for the Obsidian Local REST API plugin. Found in Obsidian Settings > Local REST API. |
+| **API Key** | (none) | Text | Bearer token from Obsidian's Local REST API settings. Required for authenticated access. |
 
-Each vault connection has:
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| **Enabled** | On | Toggle to include/exclude this vault from indexing. |
-| **Name** | `Primary` | Display name for the vault (shown in Context Cartographer and Entry Browser). |
-| **Port** | `27123` | Port for the Obsidian Local REST API plugin. |
-| **API Key** | (none) | Bearer token from Obsidian's Local REST API settings. |
-
-**Add Vault** button adds another vault connection. **Test All** tests all enabled vaults. Each vault row also has an individual test button.
-
-> Legacy single-vault settings are auto-migrated to the new vault list format on first load.
+**Test Connection** button verifies the Obsidian connection using the configured port and API key.
 
 ## Vault Tags
 
@@ -92,9 +83,16 @@ Each vault connection has:
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
 | **Enable Session Scribe** | Off | Toggle | Auto-summarize sessions to your Obsidian vault. See [[Features#Session Scribe]]. |
-| **Auto-Scribe Every N Messages** | `5` | 1-50 | Number of AI messages between automatic summaries. |
+| **Auto-Scribe Every N Messages** | `5` | 1-50 | Number of new messages (tracked by chat position) between automatic summaries. |
 | **Session Folder** | `Sessions` | Text | Vault folder where session notes are saved. Created if it doesn't exist. |
-| **Custom Summary Prompt** | (none) | Text | Override the default summary prompt. Default summarizes events, character changes, and plot developments as bullet points. |
+| **Connection** | SillyTavern | Radio | `SillyTavern` (active connection), `Connection Profile` (saved profile), or `Custom Proxy`. |
+| **Connection Profile** | (none) | Select | Connection Manager profile for summaries. Only shown in Profile mode. |
+| **Proxy URL** | `http://localhost:42069` | Text | Proxy server URL. Only shown in Proxy mode. |
+| **Model Override** | (none) | Text | Override the model used for summaries. Only shown in Profile/Proxy modes. |
+| **Max Response Tokens** | `1024` | 256-4096 | Maximum tokens for the summary response. Only shown in Profile/Proxy modes. |
+| **Timeout (ms)** | `30000` | 5000-60000 | Request timeout for summary generation. Only shown in Profile/Proxy modes. |
+| **Messages to Include** | `20` | 5-100 | Number of recent chat messages included as context for the summary. |
+| **Custom Summary Prompt** | (none) | Text | Override the default summary prompt. Default covers events, character dynamics, revelations, and state changes. |
 
 ## Index & Cache
 
@@ -105,42 +103,6 @@ Each vault connection has:
 | **Show Sync Change Toasts** | On | Toggle | Show toast notifications when vault changes are detected during index refresh. |
 
 **Refresh Index** button clears the cache and re-fetches all entries. **Test Match** button simulates a generation to show which entries would match.
-
-## AI Notebook
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Enable AI Notebook** | Off | Enable the persistent per-chat scratchpad. When on, notebook content is injected every generation. |
-| **Injection Position** | In-chat | Where to inject notebook content: Before Main Prompt, After Main Prompt, or In-chat @ Depth. |
-| **Injection Depth** | `4` | Chat depth for in-chat injection. |
-| **Injection Role** | System | Message role: System, User, or Assistant. |
-
-Edit the notebook via `/dle-notebook` or the "Open Notebook" button in settings. Content is saved per-chat.
-
-## Injection Deduplication
-
-| Setting | Default | Range | Description |
-|---------|---------|-------|-------------|
-| **Strip Duplicate Injections** | Off | Toggle | Skip re-injecting entries that were injected in recent generations. |
-| **Lookback Depth** | `2` | 1-10 | Number of recent generations to check for duplicates. |
-
-## Auto Lorebook
-
-| Setting | Default | Range | Description |
-|---------|---------|-------|-------------|
-| **Enable Auto Lorebook** | Off | Toggle | Auto-suggest new lorebook entries from chat context. |
-| **Suggest Every N Messages** | `10` | 3-50 | Message interval for auto-suggestions. |
-| **Folder** | (none) | Text | Vault folder for new entries. Leave empty for vault root. |
-| **Connection Mode** | SillyTavern | Radio | SillyTavern (uses active connection), Connection Profile, or Custom Proxy. |
-| **Model** | (none) | Text | Model override for suggestions. |
-| **Max Tokens** | `2048` | 256-4096 | Token limit for AI response. |
-| **Timeout (ms)** | `30000` | 5000-60000 | Request timeout. |
-
-## Optimize Keywords
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Mode** | Keyword-only | "Keyword-only" suggests precise terms. "Two-stage" suggests broader terms. |
 
 ## Advanced
 

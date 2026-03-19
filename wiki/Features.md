@@ -27,22 +27,29 @@ Adds a book icon button to each AI message's action bar. Click it to see which v
 Automatically summarizes your roleplay sessions and writes them as timestamped markdown notes to your Obsidian vault.
 
 **How it works:**
-1. After every N AI messages (configurable), Scribe generates a summary using your AI connection
+1. Tracks actual chat position — after every N new messages (configurable), Scribe generates a summary
 2. The summary is written as a markdown file to the configured Session Folder in your vault
 3. Notes include frontmatter with timestamp, character name, and chat ID
+4. Each summary builds on the previous one — the prior note is fed as context so the AI doesn't repeat itself
 
 **On-demand:** Use `/dle-scribe` to write a summary at any time. Optionally pass a focus topic: `/dle-scribe What happened during the trial?`
+
+**Connection options:**
+- **SillyTavern** (default): Uses your active AI connection via generateQuietPrompt
+- **Connection Profile**: Use any saved Connection Manager profile — lets you route summaries through a different model/provider
+- **Custom Proxy**: Use a separate proxy server (claude-code-proxy or compatible Anthropic Messages API endpoint)
 
 **Setup:**
 1. Enable "Enable Session Scribe" in [[Settings Reference|Session Scribe settings]]
 2. Set the auto-scribe interval (every N messages)
 3. Set the Session Folder (default: `Sessions`)
-4. Optionally customize the summary prompt
+4. Choose a connection mode (SillyTavern, Connection Profile, or Custom Proxy)
+5. Optionally customize the summary prompt and message window depth
 
 **Notes:**
 - Requires the server plugin to be installed (it handles writing to the vault)
-- Uses your current AI connection (same as AI Search)
-- Default prompt summarizes events, character changes, and plot developments as bullet points
+- Default prompt covers events, character dynamics, revelations, and state changes in past tense
+- Configurable message window (default: 20 messages) and response token limit (default: 1024)
 
 ---
 
@@ -148,6 +155,44 @@ See [[Writing Vault Entries]] for a complete template.
 
 ---
 
+## Refine Keys
+
+Per-entry `refine_keys` in frontmatter. Adds a secondary AND filter on top of primary keyword matching. When set, at least one refine key must also appear in the scan text for the entry to trigger.
+
+**Use case:** Reduce false positives for entries with common primary keywords. For example, a character named "Rose" might have `refine_keys` requiring mention of their faction or role to avoid triggering on every use of the word "rose."
+
+**Example:**
+```yaml
+keys:
+  - Rose
+  - Rose Blackwood
+refine_keys:
+  - guild
+  - spymaster
+  - intelligence
+```
+
+See [[Writing Vault Entries]] for a complete template.
+
+---
+
+## Cascade Links
+
+Per-entry `cascade_links` in frontmatter. When an entry matches, all entries listed in its `cascade_links` are automatically pulled in -- no keyword check needed for the linked entries.
+
+**Use case:** Ensure related entries always travel together. Unlike wikilink recursion (which requires keyword matches), cascade links are unconditional.
+
+**Example:**
+```yaml
+cascade_links: ["Soulbrand Removal", "Ironveil Guild"]
+```
+
+When this entry matches, "Soulbrand Removal" and "Ironveil Guild" are automatically included.
+
+See [[Writing Vault Entries]] for a complete template.
+
+---
+
 ## Per-Entry Injection Position
 
 Entries can override the global injection position via frontmatter:
@@ -201,174 +246,12 @@ Track how often each entry is matched and injected across generations. View with
 
 Audit all vault entries for common issues with `/dle-health`.
 
-**30+ checks** across categories: Settings, Entry Config, Gating, Size, AI Search, Keywords, Injection, Links. Includes:
+**Checks:**
 - Empty keys on non-constant entries
 - Orphaned `requires`/`excludes` references
-- Circular requires detection
-- Duplicate titles across vaults
-- Orphaned cascade links
-- Conflicting requires/excludes
-- Cooldown on constants
-- Depth override without in_chat position
-- No enabled vaults
-- And many more
-
-Auto-runs on extension load, surfaces errors/warnings via toast.
-
----
-
-## AI Notebook
-
-Persistent per-chat scratchpad that is injected into every generation when enabled. Use for character notes, plot threads, reminders, or anything the AI should always know.
-
-**Usage:** `/dle-notebook` opens the editor popup with a token counter. Content is saved in chat metadata and survives page reloads.
-
-**Setup:** Enable in settings, configure injection position/depth/role.
-
----
-
-## Entry Browser
-
-`/dle-browse` opens a searchable, filterable popup of all indexed entries with full content preview, analytics usage stats, and Obsidian deep links.
-
-**Features:**
-- Search by title, keywords, or content
-- Filter by status (constant, seed, bootstrap, regular)
-- Filter by tag
-- Expandable full content preview
-- Priority, token count, and usage stats
-- Vault attribution when multi-vault is active
-
----
-
-## Entry Relationship Graph
-
-`/dle-graph` visualizes entry relationships as an interactive force-directed graph on a canvas.
-
-**Shows:**
-- Nodes colored by type (regular, constant, seed, bootstrap)
-- Edges for wiki-links, requires, excludes, and cascade links
-- Circular dependency detection with warnings
-- Hover tooltips with entry details and connection count
-- Vault attribution in multi-vault mode
-
-**Interaction:** Drag nodes to reposition, scroll to zoom, hover for details.
-
----
-
-## "Why Not?" Diagnostics
-
-In the Test Match popup, unmatched entries are clickable. Click one to see exactly why it didn't fire:
-
-**Diagnosis stages:**
-1. No keywords defined
-2. Scan depth is zero
-3. Keyword miss (no keywords found in scan text)
-4. Refine keys not met
-5. Warmup threshold not reached
-6. Probability roll failed
-7. Cooldown active
-8. Re-injection cooldown active
-9. Gating: requires not met
-10. Gating: excluded by another entry
-11. AI rejected (two-stage mode)
-12. Budget cut
-
-Each diagnosis includes specific suggestions for fixing the issue.
-
----
-
-## Injection Deduplication
-
-Opt-in setting that tracks which entries were injected in recent generations and skips re-injecting them. Helps save context budget by avoiding redundant lore.
-
-**Setup:** Enable "Strip Duplicate Injections" in settings and set the lookback depth (how many recent generations to check).
-
-**Notes:**
-- Constants are exempt
-- Tracked per-chat session (resets on chat change)
-- Injection history is saved in chat metadata
-
----
-
-## Auto Lorebook Creation
-
-AI analyzes chat for characters, locations, items, or concepts that are mentioned but don't have lorebook entries. Suggests new entries with a human review gate.
-
-**Usage:** `/dle-suggest` or auto-trigger every N messages.
-
-**Features:**
-- Per-suggestion cards with title, type, keywords, summary, and content preview
-- Accept/Reject buttons per suggestion
-- Accepted entries are written to Obsidian with proper frontmatter
-- Configurable AI connection (ST, profile, or proxy)
-
----
-
-## Optimize Keywords
-
-`/dle-optimize-keys [name]` sends an entry to AI for keyword suggestions.
-
-**Mode-aware:** In keyword-only mode, suggests precise terms. In two-stage mode, suggests broader terms since AI will filter later.
-
-**Features:**
-- Side-by-side comparison of current vs suggested keywords
-- AI reasoning for changes
-- Accept button writes updated keywords back to Obsidian
-
----
-
-## Activation Simulation
-
-`/dle-simulate` replays chat history step-by-step, showing which entries activate and deactivate at each message. Useful for understanding how entries trigger across a conversation.
-
-**Shows:**
-- Timeline with one row per message
-- Green: newly activated entries
-- Red: deactivated entries
-- Active count at each step
-
----
-
-## Scribe Session Timeline
-
-`/dle-scribe-history` fetches all session notes from the configured scribe folder and displays them in a scrollable popup.
-
-**Features:**
-- Notes sorted by date (newest first)
-- Click to expand full content
-- Character name and date display
-- Scribe context persists across page reloads via chat metadata
-
----
-
-## Multi-Vault Support
-
-Connect multiple Obsidian vaults with independent connection settings. Entries from all enabled vaults are merged into a single index.
-
-**Features:**
-- Dynamic vault list in settings (add/remove vaults)
-- Per-vault enable/disable toggle
-- Per-vault connection test
-- Vault attribution shown in Entry Browser and Context Cartographer
-- Auto-migration from legacy single-vault settings
-- Entry writes (Scribe, Auto-Suggest, Optimize) use the first enabled vault
-
----
-
-## Probability Frontmatter
-
-Per-entry `probability` field (0.0-1.0). When an entry is matched by keywords, a random roll determines if it actually fires.
-
-**Example:**
-```yaml
-probability: 0.5  # 50% chance of triggering when matched
-```
-
-**Notes:**
-- Constants are always injected regardless of probability
-- `probability: 0` effectively disables the entry (flagged by health check)
-- `probability: 1` or omitting the field means always trigger
+- Oversized entries (>1500 tokens)
+- Duplicate keywords shared across entries
+- Missing AI selection summaries
 
 ---
 
@@ -382,6 +265,5 @@ View a detailed trace of the last generation with `/dle-inspect`.
 - AI selections with confidence and reasons
 - Fallback status
 - Constants and bootstrap entries
-- Probability-skipped entries
 
 See [[Slash Commands]] for all available commands.

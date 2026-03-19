@@ -69,7 +69,6 @@ When done, you should have:
 ```
 SillyTavern/plugins/deeplore-enhanced/
   index.js
-  package.json
   core/
     obsidian.js
 ```

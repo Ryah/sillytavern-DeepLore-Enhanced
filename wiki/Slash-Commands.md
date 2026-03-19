@@ -44,10 +44,10 @@ Write a session summary note to your Obsidian vault on demand.
 - `/dle-scribe What happened with the sword?` Summarize with a specific focus topic
 
 **Notes:**
-- Requires Session Scribe to be enabled in settings
+- Works on-demand without needing Session Scribe enabled in settings
 - Writes a timestamped markdown note to the configured Session Folder
-- Uses your current AI connection to generate the summary
-- Also triggers automatically every N AI messages when auto-scribe is enabled
+- Uses the configured Scribe connection (SillyTavern, Connection Profile, or Custom Proxy)
+- Auto-scribe also triggers every N messages when enabled (tracks actual chat position)
 
 ---
 
@@ -91,68 +91,6 @@ Show a detailed trace of the last generation pipeline in a popup.
 
 **When to use:** To debug why certain entries were or weren't injected in the last generation. See [[Pipeline]] for how the pipeline works.
 
----
-
-### `/dle-notebook`
-Open the AI Notebook editor for the current chat. The notebook is a persistent scratchpad that gets injected into every generation when enabled.
-
-**Notes:**
-- Content is saved per-chat in chat metadata
-- Token count is shown in the editor
-- Configure injection position/depth/role in settings
-
----
-
-### `/dle-browse`
-Open the Entry Browser popup showing all indexed entries with search, filter, and full content preview.
-
-**Features:**
-- Search by title, keywords, or content text
-- Filter by status (constant, seed, bootstrap, regular) or tag
-- Click entries to expand full content, links, and metadata
-- Shows priority, token count, usage analytics, and vault source
-
----
-
-### `/dle-context`
-Preview what lore would be injected right now without actually generating. Shows the same Context Cartographer view with token bars and injection grouping.
-
----
-
-### `/dle-suggest`
-Run Auto Lorebook Creation. AI analyzes the current chat for entities not in your lorebook and suggests new entries.
-
-**Notes:**
-- Each suggestion shows title, type, keywords, summary, and content
-- Accept/Reject buttons per suggestion
-- Accepted entries are written to Obsidian with proper frontmatter
-
----
-
-### `/dle-optimize-keys [name]`
-Send an entry to AI for keyword optimization. If no name is given, opens a selection popup.
-
-**Modes:**
-- Keyword-only: suggests precise, specific terms
-- Two-stage: suggests broader terms (AI will refine)
-
----
-
-### `/dle-simulate`
-Replay chat history step-by-step showing which entries activate and deactivate at each message. Useful for understanding trigger patterns.
-
----
-
-### `/dle-graph`
-Visualize entry relationships as an interactive force-directed graph. Shows wiki-links, requires, excludes, and cascade connections with circular dependency detection.
-
-**Interaction:** Drag nodes, scroll to zoom, hover for details.
-
----
-
-### `/dle-scribe-history`
-Fetch and display all session notes from the configured scribe folder. Notes sorted by date with expandable content.
-
 ## Quick Reference
 
 | Command | Description |
@@ -161,14 +99,6 @@ Fetch and display all session notes from the configured scribe folder. Notes sor
 | `/dle-status` | Show connection and index status |
 | `/dle-review [question]` | Send vault to AI for review |
 | `/dle-scribe [focus]` | Write session note to Obsidian |
-| `/dle-scribe-history` | View all session notes |
 | `/dle-analytics` | Entry usage statistics |
-| `/dle-health` | Audit entries for issues (30+ checks) |
+| `/dle-health` | Audit entries for issues |
 | `/dle-inspect` | Show last pipeline trace |
-| `/dle-notebook` | Open the AI Notebook editor |
-| `/dle-browse` | Browse all indexed entries |
-| `/dle-context` | Preview current injection state |
-| `/dle-suggest` | AI suggests new lorebook entries |
-| `/dle-optimize-keys [name]` | Optimize entry keywords |
-| `/dle-simulate` | Replay chat activation timeline |
-| `/dle-graph` | Visualize entry relationships |

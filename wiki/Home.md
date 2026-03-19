@@ -12,21 +12,14 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 - **Two-stage pipeline:** Keywords pre-filter, then AI selects the best matches
 - **Any AI provider:** Works with Anthropic, OpenAI, OpenRouter, or any provider via SillyTavern's Connection Manager
-- **Multi-vault support:** Connect multiple Obsidian vaults, merged into a single index
-- **AI Notebook:** Persistent per-chat scratchpad injected every turn
-- **Entry Browser:** Searchable popup of all entries with content preview and analytics
-- **Relationship Graph:** Interactive force-directed visualization of entry connections
-- **Context Cartographer:** Token bar charts, injection grouping, vault attribution
-- **Session Scribe:** Auto-summarize sessions with timeline view
-- **Auto Lorebook:** AI suggests new entries from chat context
-- **Keyword Optimizer:** AI-powered keyword suggestions
-- **Activation Simulation:** Replay chat history to see trigger patterns
-- **"Why Not?" Diagnostics:** Click unmatched entries to see why they didn't fire
-- **Self-healing health checks:** 30+ automated checks with auto-run on load
-- **Probability frontmatter:** Per-entry random trigger chance
-- **Injection deduplication:** Skip re-injecting recently used entries
-- **Conditional gating / per-entry injection / cooldown / warmup**
-- **Vault sync / seed & bootstrap / analytics / pipeline inspector**
+- **Context Cartographer:** See exactly which lore was injected and why on each message
+- **Session Scribe:** Auto-summarize sessions back to your Obsidian vault
+- **Conditional gating:** Entries that depend on or block other entries
+- **Per-entry injection:** Override injection position, depth, and role per entry
+- **Cooldown/warmup tags:** Fine-grained control over when entries trigger
+- **New chat bootstrapping:** Seed entries and bootstrap injection for early conversations
+- **Vault sync:** Auto-detect changes in your vault
+- **Diagnostic tools:** Analytics, health checks, pipeline inspector
 
 ## Prerequisites
 

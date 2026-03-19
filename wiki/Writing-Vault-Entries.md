@@ -28,11 +28,12 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `role` | string | *(global setting)* | Override injection role: `system`, `user`, or `assistant`. |
 | `scanDepth` | number | *(global setting)* | Override how many recent messages to scan for this entry's keywords. |
 | `excludeRecursion` | boolean | `false` | If `true`, this entry is skipped during recursive link scanning. |
+| `constant` | boolean | `false` | If `true`, this entry is always injected regardless of keywords or AI. Alternative to the `#lorebook-always` tag. |
+| `refine_keys` | array | `[]` | Secondary keywords. If set, at least one refine key must **also** match (alongside a primary `keys` match) for the entry to trigger. Acts as an AND filter to reduce false positives. |
+| `cascade_links` | array | `[]` | Entry titles to automatically pull in when this entry matches. Unlike wikilink recursion, cascade links are pulled unconditionally (no keyword check needed). |
 | `cooldown` | number | *(none)* | After triggering, skip this entry for N generations. |
-| `warmup` | number | *(none)* | Require the keyword to appear in N separate messages before first trigger. |
+| `warmup` | number | *(none)* | Require the keyword to appear N or more times in the scan text before triggering. |
 | `probability` | number | *(none)* | Chance of triggering when matched (0.0-1.0). Omit or set to 1.0 for always trigger. |
-| `refine_keys` | array | `[]` | Additional keywords that must also match (AND_ANY mode) to refine broad keys. |
-| `cascade_links` | array | `[]` | Entry titles to force-include when this entry matches. |
 
 ### Priority Guidelines
 
@@ -98,6 +99,120 @@ A good summary answers three questions:
 > "The biological dependency created when a vampire feeds from a mortal. Select when feeding, biting, addiction, venom, feeding sites, or chattel dynamics come up. Scales with vampire age."
 
 Keep summaries under 600 characters. Focus on *when to select*, not *what to write*.
+
+---
+
+## What Each AI Sees
+
+Your vault entry is used by two different AIs that see very different things. Understanding the difference helps you write better entries and summaries.
+
+### The Selection AI (AI Search manifest)
+
+The selection AI **never sees your full entry**. It sees a compact one-line manifest entry and uses it to decide whether your entry is relevant to the current conversation:
+
+```
+Valen Ashwick (285tok) -> Ashwick Estate, Ironveil Guild, Sera Thornwick, Korrath
+Rogue spellsword and former member of the Ironveil Guild. Select when melee combat,
+dual-wielding, shadow magic, guild politics, or the Ashwick bloodline comes up.
+Close ally of Sera and rival of Korrath.
+---
+```
+
+| Part | Source | Purpose |
+|------|--------|---------|
+| `Valen Ashwick` | Entry title | Identifies the entry |
+| `(285tok)` | Estimated from content length | Helps the AI consider token budget |
+| `-> Ashwick Estate, ...` | Extracted from `[[wikilinks]]` in content | Shows relationships to other entries |
+| Summary text | `summary` frontmatter field | Tells the AI *when* to select this entry |
+
+If an entry has no `summary` field, the content is truncated to ~600 characters instead. This is why writing good summaries matters — the selection AI's only context for your entry is this compact view.
+
+An entry without a summary or wikilinks gets an even simpler manifest line:
+
+```
+Silver Keep (25tok)
+A crumbling fortress on the northern ridge, now home to bandits and bad memories.
+---
+```
+
+### The Writing AI (injected context)
+
+When an entry is selected, the writing AI sees your **cleaned content** wrapped in the injection template (default: `<Title>content</Title>`). Several things are automatically stripped before injection:
+
+```xml
+<Valen Ashwick>
+A disgraced spellsword who left the Ironveil Guild after discovering their
+true purpose. Now works as a mercenary, haunted by the magic branded into
+his blood.
+
+[Species: Half-elf | Role: Spellsword, mercenary | Aliases: the Duskblade | ...]
+
+## Background
+Valen grew up on the Ashwick Estate, trained from childhood in both blade
+and spell...
+
+## Relationships
+- Sera Thornwick -- Closest ally...
+- Korrath -- Former Guild partner turned hunter...
+
+## Combat Style
+Valen fights with twin short swords and weaves shadow magic between strikes...
+</Valen Ashwick>
+```
+
+Notice what changed compared to the raw Obsidian note:
+- The **first H1 heading** (`# Valen Ashwick`) is stripped — it's redundant with the XML wrapper title
+- **Wikilinks** are converted to plain text: `[[Sera Thornwick]]` → `Sera Thornwick`, `[[Link|Display]]` → `Display`
+- **HTML div tags** are stripped (the content inside is kept, so meta-blocks still work)
+- **Image embeds** (`![[image.png]]`, `![alt](url)`) are removed
+- **Obsidian comments** (`%%...%%`) are removed
+
+| What's included | What's NOT included |
+|-----------------|---------------------|
+| Everything after the frontmatter `---` | YAML frontmatter (`keys`, `priority`, `summary`, `requires`, etc.) |
+| Full prose, meta-blocks, all headings except H1 | The first H1 heading (used as title in the XML wrapper) |
+| Wikilink text (converted to plain text) | Wikilink brackets and image embeds |
+| Content outside exclusion zones | `%%deeplore-exclude%%` regions (see below) |
+
+### Hiding Content from the Writing AI
+
+You can put information in your vault entries that **never reaches the writing AI**. This is useful for author notes, organizational metadata, or reference material you want in Obsidian but not in the prompt.
+
+**Obsidian comments (`%%...%%`):** Anything between double-percent markers is stripped. Obsidian also hides these in reading mode, so they work as true hidden comments.
+
+```markdown
+## Background
+
+Valen grew up on the Ashwick Estate, trained from childhood.
+
+%%
+Author note: This backstory contradicts the timeline in Chapter 3.
+Need to reconcile before the next arc.
+%%
+
+He joined the Ironveil Guild at 19.
+```
+
+**Exclusion zones (`%%deeplore-exclude%%...%%/deeplore-exclude%%`):** For larger blocks you want visible in Obsidian's edit mode but hidden from the writing AI. These are stripped before any other processing.
+
+```markdown
+## Relationships
+
+- **Sera Thornwick** -- Closest ally. She helped him escape the Guild.
+
+%%deeplore-exclude%%
+### Relationship Tracker (OOC)
+- Sera: Trust 8/10, growing romantic tension
+- Korrath: Nemesis, but conflicted
+- Guild: Active hostility
+%%/deeplore-exclude%%
+
+- **Korrath** -- Former Guild partner turned hunter.
+```
+
+Both methods are also invisible to the selection AI's manifest (summaries and content truncation happen after cleaning).
+
+The `summary` is for the selection AI. The content is for the writing AI. They serve different purposes — write them accordingly.
 
 ---
 
@@ -548,6 +663,101 @@ The northern coast of Greymarch is defined by its weather. Fog rolls in from the
 
 Locals don't comment on the weather unless it's unusually clear. Sunshine is suspicious.
 ```
+
+---
+
+### 13. Refine Keys (Secondary Keyword Filter)
+
+`refine_keys` adds a secondary AND filter on top of primary keywords. When set, a primary `keys` match alone isn't enough -- at least one refine key must **also** appear in the scan text. This reduces false positives for entries with common keywords.
+
+```markdown
+---
+tags:
+  - lorebook
+keys:
+  - Ironveil Guild
+  - the Guild
+  - Ironveil
+
+# Primary keys match broadly. Refine keys ensure the conversation
+# is actually about Guild *operations*, not just a passing mention.
+refine_keys:
+  - contract
+  - mission
+  - recruitment
+  - branded
+  - cell
+  - hunters
+
+priority: 40
+summary: "Ironveil Guild operational details. Select when Guild missions, contracts, cell structure, or hunter operations come up."
+---
+
+# Ironveil Guild Operations
+
+Detailed operational procedures for the Guild...
+```
+
+**How it works:** If "the Guild" appears in chat (primary match), the entry only triggers if at least one of `contract`, `mission`, `recruitment`, etc. also appears. Without refine keys, every mention of "the Guild" would pull this entry in.
+
+---
+
+### 14. Cascade Links (Auto-Pull Related Entries)
+
+`cascade_links` automatically pulls in other entries when the parent entry matches -- no keyword check needed for the linked entries. Unlike wikilink recursion (which scans for keywords), cascade links are unconditional.
+
+```markdown
+---
+tags:
+  - lorebook
+keys:
+  - Soulbrand
+  - soul brand
+  - branded
+
+priority: 35
+
+# When the Soulbrand entry matches, automatically pull in
+# the removal procedure entry too -- they're always relevant together.
+cascade_links: ["Soulbrand Removal", "Ironveil Guild"]
+
+summary: "Magical branding ritual used by the Ironveil Guild. Select when the brand, soul magic, or forced servitude comes up."
+---
+
+# The Soulbrand
+
+A ritual binding developed by the [[Ironveil Guild]]...
+```
+
+**Use cases:**
+- Lore mechanics that always travel together (e.g., a blood bond entry cascading to the feeding mechanics entry)
+- Locations with sub-locations (e.g., a fortress cascading to its dungeon and armory)
+- Characters with dedicated lore entries (e.g., a character cascading to their unique ability entry)
+
+---
+
+### 15. Constant via Frontmatter
+
+In addition to the `#lorebook-always` tag, you can make an entry constant by setting `constant: true` in frontmatter. Both methods are equivalent.
+
+```markdown
+---
+tags:
+  - lorebook
+
+# This entry is always injected, same as adding the lorebook-always tag.
+constant: true
+priority: 10
+---
+
+# World Rules
+
+Core rules that should always be present in context...
+```
+
+**When to use which:**
+- `#lorebook-always` tag: Quick, visible at a glance in Obsidian's tag system
+- `constant: true` field: Useful when you want to keep the tags array clean or when programmatically managing entries
 
 ---
 

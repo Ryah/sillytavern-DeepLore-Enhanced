@@ -177,7 +177,7 @@ After updating the client extension, re-run the installer script (Step 2, Option
 
 - **Connection Profile mode:** Make sure the selected profile still exists and its underlying API connection works. Test the connection in SillyTavern's main API panel first.
 - **Custom Proxy mode:** Verify the proxy is running (`curl http://localhost:42069` or equivalent). Check the proxy's console for errors.
-- **Timeout:** AI search has a configurable timeout (default 15 seconds). Slow providers may need a longer timeout in [[Settings Reference]].
+- **Timeout:** AI search has a configurable timeout (default 10 seconds). Slow providers may need a longer timeout in [[Settings Reference]].
 
 ### No entries found after Refresh Index
 

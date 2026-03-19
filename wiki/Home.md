@@ -12,14 +12,18 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 - **Two-stage pipeline:** Keywords pre-filter, then AI selects the best matches
 - **Any AI provider:** Works with Anthropic, OpenAI, OpenRouter, or any provider via SillyTavern's Connection Manager
+- **Multi-vault support:** Connect multiple Obsidian vaults simultaneously
 - **Context Cartographer:** See exactly which lore was injected and why on each message
 - **Session Scribe:** Auto-summarize sessions back to your Obsidian vault
+- **Auto Lorebook:** AI analyzes chat and suggests new entries you can accept or reject
+- **AI Notebook:** Persistent per-chat scratchpad injected into every generation
 - **Conditional gating:** Entries that depend on or block other entries
 - **Per-entry injection:** Override injection position, depth, and role per entry
 - **Cooldown/warmup tags:** Fine-grained control over when entries trigger
+- **Injection deduplication:** Prevent the same lore from being injected in consecutive generations
 - **New chat bootstrapping:** Seed entries and bootstrap injection for early conversations
 - **Vault sync:** Auto-detect changes in your vault
-- **Diagnostic tools:** Analytics, health checks, pipeline inspector
+- **Diagnostic tools:** Analytics, health checks, pipeline inspector, entry browser, relationship graph, simulation
 
 ## Prerequisites
 

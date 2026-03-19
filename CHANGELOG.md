@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.15-ALPHA
+## 0.2.0-BETA
 
 ### New Features
 - **AI Notebook** — Persistent per-chat scratchpad injected every turn. Edit via `/dle-notebook`. Stored in chat metadata, survives reloads. Configurable injection position/depth/role.
@@ -76,7 +76,7 @@
 - `matchEntries()` now returns `probabilitySkipped` array
 - `onGenerate()` uses `pipelineRan` flag + `finally` block for generation tracking
 - 191 passing tests
-- Bumped version to 0.15-ALPHA
+- Bumped version to 0.2.0-BETA
 
 ## 0.14-ALPHA
 

@@ -9,23 +9,31 @@ onGenerate(chat)
   │
   ├─ ensureIndexFresh()              Refresh from Obsidian if cache expired
   │
-  ├─ matchEntries(chat)              Stage 1: Keyword scan (broad pre-filter)
-  │    ├─ buildScanText(chat, depth)   Concatenate recent messages
-  │    ├─ keyword matching             Check each entry's keys against scan text
-  │    ├─ per-entry scanDepth          Override scan depth for specific entries
-  │    ├─ recursive scanning           Scan matched entry content for more triggers
-  │    └─ Active Character Boost       Auto-match active character's entry
+  ├─ runPipeline(chat)               Core matching pipeline
+  │    ├─ matchEntries(chat)           Stage 1: Keyword scan (broad pre-filter)
+  │    │    ├─ buildScanText(chat)       Concatenate recent messages
+  │    │    ├─ keyword matching          Check each entry's keys against scan text
+  │    │    ├─ per-entry scanDepth       Override scan depth for specific entries
+  │    │    ├─ warmup/probability/       Per-entry behavior checks
+  │    │    │  cooldown checks
+  │    │    ├─ cascade links             Pull in unconditionally linked entries
+  │    │    ├─ recursive scanning        Scan matched entry content for more triggers
+  │    │    └─ Active Character Boost    Auto-match active character's entry
+  │    │
+  │    ├─ buildCandidateManifest()     Build compact manifest from keyword matches
+  │    │
+  │    └─ aiSearch(chat, manifest)     Stage 2: AI selects best from candidates
+  │         ├─ check cache               Reuse if chat+manifest hash matches
+  │         ├─ build AI context          Recent chat + manifest + header
+  │         ├─ call AI (profile/proxy)   Send to configured AI connection
+  │         └─ parse response            Extract JSON array of selections
   │
-  ├─ buildCandidateManifest()         Build compact manifest from keyword matches
-  │
-  ├─ aiSearch(chat, manifest)         Stage 2: AI selects best from candidates
-  │    ├─ check cache                   Reuse if chat+manifest hash matches
-  │    ├─ build AI context              Recent chat + manifest + header
-  │    ├─ call AI (profile or proxy)    Send to configured AI connection
-  │    └─ parse response                Extract JSON array of selections
+  ├─ Re-injection cooldown            Skip entries injected within N generations
   │
   ├─ applyGating(entries)             Apply requires/excludes rules
   │    └─ iterative resolution          Cascade removals through dependencies
+  │
+  ├─ Strip duplicate injections       Skip entries injected in recent generations
   │
   ├─ formatAndGroup(entries)          Budget limits + injection grouping
   │    ├─ sort by priority              Lower number = higher priority
@@ -34,7 +42,11 @@ onGenerate(chat)
   │    ├─ apply injection template      Format with {{title}} and {{content}}
   │    └─ group by injection position   Separate groups for before/after/in_chat
   │
-  └─ setExtensionPrompt()            Inject each group into SillyTavern context
+  ├─ setExtensionPrompt()            Inject each group into SillyTavern context
+  │
+  ├─ AI Notebook injection            Inject per-chat notebook (if enabled)
+  │
+  └─ Post-processing                  Update cooldowns, analytics, injection history
 ```
 
 ## Three Pipeline Modes
@@ -82,13 +94,12 @@ Before matching, the pipeline checks if the cached vault index is stale (based o
    - If `refine_keys` is set, at least one refine key must also match (AND filter)
 3. **Warmup check**: If entry has `warmup: N`, count keyword occurrences; skip if below threshold
 4. **Probability check**: If entry has `probability: N` (0.0-1.0), roll a random number; skip if roll exceeds probability
-5. **Cooldown check**: If entry is in cooldown, skip it
-6. **Re-injection cooldown**: If entry was injected within N generations, skip it
+5. **Cooldown check**: If entry has per-entry `cooldown` and is in cooldown, skip it
+6. **Cascade links**: If matched entries have `cascade_links`, the listed entries are unconditionally pulled in (no keyword check)
 7. **Recursive scanning**: If enabled, scan matched entries' content for keywords that trigger more entries. Repeats up to Max Recursion Steps. Entries with `excludeRecursion: true` are skipped.
-8. **Cascade links**: If matched entries have `cascade_links`, the listed entries are unconditionally pulled in (no keyword check)
-9. **Active Character Boost**: If enabled, auto-match the active character's entry by name/keyword even if not mentioned in chat
-10. **Constants**: Entries tagged `#lorebook-always` or with `constant: true` are always included regardless of keywords
-11. **Bootstrap**: If chat is below New Chat Threshold, `#lorebook-bootstrap` entries are force-included
+8. **Active Character Boost**: If enabled, auto-match the active character's entry by name/keyword even if not mentioned in chat
+9. **Constants**: Entries tagged `#lorebook-always` or with `constant: true` are always included regardless of keywords
+10. **Bootstrap**: If chat is below New Chat Threshold, `#lorebook-bootstrap` entries are force-included
 
 ### AI Search
 See [[AI Search]] for full details. In brief:
@@ -103,8 +114,11 @@ After selection, entries with `requires` and `excludes` fields are evaluated:
 - **excludes:** If ANY listed entry title is in the matched set, this entry is removed
 - Resolution is **iterative**. Removing one entry can cascade to remove others that require it.
 
+### Re-injection Cooldown
+If the global Re-injection Cooldown setting is non-zero, entries that were injected within the last N generations are skipped. This is different from per-entry `cooldown` (which is checked during keyword matching) — re-injection cooldown is a global post-selection filter. Constants are exempt.
+
 ### Injection Deduplication
-If enabled, entries that were injected in recent generations (within the lookback depth) are stripped before formatting. Constants are exempt. Injection history is tracked per-chat in `chat_metadata.deeplore_injection_log`.
+If "Strip Duplicate Injections" is enabled, entries that were injected in recent generations (within the lookback depth) are stripped before formatting. Constants are exempt. Injection history is tracked per-chat in `chat_metadata.deeplore_injection_log`.
 
 ### Budget & Formatting
 1. Sort remaining entries by priority (lower number first)
@@ -120,6 +134,9 @@ Each group is injected separately into SillyTavern via `setExtensionPrompt()`:
 - **In-chat**: Injected as a message at the specified depth and role
 
 If **Allow World Info Scan** is enabled, SillyTavern's built-in World Info system can scan the injected lore for additional WI keyword matches.
+
+### AI Notebook
+After lorebook entries are injected, the AI Notebook is injected separately (if enabled). The notebook has its own injection position, depth, and role settings. It is independent of the lorebook pipeline — it always injects when enabled, regardless of entry matching.
 
 ## Inspecting the Pipeline
 

@@ -7,10 +7,19 @@ Complete reference for every DeepLore Enhanced setting, organized by section.
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
 | **Enable DeepLore Enhanced** | Off | Toggle | Master toggle. When disabled, no entries are injected. |
-| **Obsidian API Port** | `27123` | 1-65535 | Port for the Obsidian Local REST API plugin. Found in Obsidian Settings > Local REST API. |
-| **API Key** | (none) | Text | Bearer token from Obsidian's Local REST API settings. Required for authenticated access. |
 
-**Test Connection** button verifies the Obsidian connection using the configured port and API key.
+### Vault Connections
+
+DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name, port, API key, and enable toggle. Entries from all enabled vaults are merged into a single index.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Vault Name** | (none) | Display name for this vault connection. |
+| **Port** | `27123` | Port for the Obsidian Local REST API plugin. |
+| **API Key** | (none) | Bearer token from Obsidian's Local REST API settings. |
+| **Enabled** | On | Toggle this vault on/off without deleting the connection. |
+
+**Add Vault** button adds a new vault connection. **Test All** button verifies all enabled vault connections.
 
 ## Vault Tags
 
@@ -34,6 +43,8 @@ Complete reference for every DeepLore Enhanced setting, organized by section.
 | **Recursive Scanning** | Off | Toggle | After initial matches, scan matched entries' content for keywords that trigger more entries. |
 | **Max Recursion Steps** | `3` | 1-10 | Maximum recursive scan passes. Each pass scans newly matched entries for more triggers. |
 | **Re-injection Cooldown** | `0` | 0-50 | Skip re-injecting an entry for N generations after last injection. 0 = disabled. Constants are exempt. |
+| **Strip Duplicate Injections** | Off | Toggle | Skip re-injecting entries that were already injected in recent generations. Tracked per-chat. Constants are exempt. |
+| **Lookback Depth** | `2` | 1-10 | Number of previous generations to check for already-injected entries (when Strip Duplicate Injections is on). Higher = more aggressive deduplication. |
 | **Unlimited Entries** | On | Toggle | Remove the cap on how many entries can be injected per generation. |
 | **Max Entries** | `10` | 1-100 | Maximum entries to inject (when Unlimited Entries is off). Sorted by priority. |
 | **Unlimited Token Budget** | On | Toggle | Remove the token budget cap. A warning toast appears if injected lore exceeds 20% of context. |
@@ -57,6 +68,17 @@ Complete reference for every DeepLore Enhanced setting, organized by section.
 |---------|---------|-------------|
 | **Show Lore Sources Button** | On | Add a book icon to AI messages showing which entries were injected and why. See [[Features#Context Cartographer]]. |
 | **Obsidian Vault Name** | (none) | Your vault name for deep links. When set, entry names in the lore sources popup link directly into Obsidian. Must match the vault name in Obsidian's title bar. |
+
+## AI Notebook
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Enable AI Notebook** | Off | Enable a persistent per-chat scratchpad that is injected into every generation. Edit via `/dle-notebook` or the Open Notebook button. See [[Features#AI Notebook]]. |
+| **Notebook Injection Position** | In-chat | Where to inject the notebook. Same options as main injection: Before Main Prompt, After Main Prompt, or In-chat @ Depth. |
+| **Notebook Injection Depth** | `4` | 0-9999. Chat depth for in-chat notebook injection. |
+| **Notebook Injection Role** | System | Message role for in-chat notebook injection: System, User, or Assistant. |
+
+**Open Notebook** button opens the notebook editor for the current chat.
 
 ## AI Search
 
@@ -93,6 +115,21 @@ Complete reference for every DeepLore Enhanced setting, organized by section.
 | **Timeout (ms)** | `30000` | 5000-60000 | Request timeout for summary generation. Only shown in Profile/Proxy modes. |
 | **Messages to Include** | `20` | 5-100 | Number of recent chat messages included as context for the summary. |
 | **Custom Summary Prompt** | (none) | Text | Override the default summary prompt. Default covers events, character dynamics, revelations, and state changes. |
+
+## Auto Lorebook
+
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| **Enable Auto Lorebook** | Off | Toggle | AI analyzes chat for entities not in the lorebook and suggests new entries with human review. See [[Features#Auto Lorebook]]. |
+| **Interval (messages)** | `10` | 3-50 | Trigger auto-suggest every N messages. |
+| **Target Folder** | (none) | Text | Obsidian folder for new entries. Leave empty for vault root. |
+| **Connection Mode** | SillyTavern | Radio | `SillyTavern` (active connection), `Profile` (saved profile), or `Proxy`. |
+| **Connection Profile** | (none) | Select | Connection Manager profile. Only shown in Profile mode. |
+| **Proxy URL** | `http://localhost:42069` | Text | Proxy server URL. Only shown in Proxy mode. |
+| **Model** | (none) | Text | Model override for suggestions. |
+| **Max Tokens** | `2048` | 256-4096 | Maximum tokens for the suggestion response. |
+
+Use `/dle-suggest` to trigger on-demand at any time.
 
 ## Index & Cache
 

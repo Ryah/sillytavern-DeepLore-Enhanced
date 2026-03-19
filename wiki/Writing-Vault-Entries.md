@@ -34,6 +34,7 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `cooldown` | number | *(none)* | After triggering, skip this entry for N generations. |
 | `warmup` | number | *(none)* | Require the keyword to appear N or more times in the scan text before triggering. |
 | `probability` | number | *(none)* | Chance of triggering when matched (0.0-1.0). Omit or set to 1.0 for always trigger. |
+| `enabled` | boolean | `true` | Set to `false` to completely skip this entry during indexing. The entry won't appear in the vault index at all. Useful for temporarily disabling an entry without removing the `#lorebook` tag. |
 
 ### Priority Guidelines
 

@@ -133,12 +133,10 @@ export async function buildIndex() {
         console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
         updateIndexStats();
 
-        // Auto health check after index build (silent, toast only if issues)
+        // Auto health check after index build (console only, use /dle-health for details)
         const health = runHealthCheck();
-        if (health.errors > 0) {
-            toastr.error(`${health.errors} errors, ${health.warnings} warnings found. Run /dle-health for details.`, 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
-        } else if (health.warnings > 3) {
-            toastr.warning(`${health.warnings} warnings found. Run /dle-health for details.`, 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+        if (health.errors > 0 || health.warnings > 0) {
+            console.log(`[DLE] Health: ${health.errors} errors, ${health.warnings} warnings. Run /dle-health for details.`);
         }
     } catch (err) {
         console.error('[DLE] Failed to build index:', err);

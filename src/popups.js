@@ -397,8 +397,8 @@ export async function showGraphPopup() {
 
     function simulate() {
         if (alpha < 0.001 && !dragNode) return; // settled
-        alpha *= 0.995; // decay — settles in ~600 frames (~10s)
-        const k = 0.01, repulsion = 5000, damping = 0.85, gravity = 0.02;
+        alpha *= 0.98; // fast decay — settles in ~3s
+        const k = 0.005, repulsion = 2000, damping = 0.6, gravity = 0.03, maxV = 8;
         for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
                 let dx = nodes[j].x - nodes[i].x;
@@ -415,7 +415,7 @@ export async function showGraphPopup() {
             const a = nodes[edge.from], b = nodes[edge.to];
             const dx = b.x - a.x, dy = b.y - a.y;
             const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            const force = k * (dist - 100) * alpha;
+            const force = k * (dist - 120) * alpha;
             const fx = (dx / dist) * force;
             const fy = (dy / dist) * force;
             a.vx += fx; a.vy += fy;
@@ -428,6 +428,9 @@ export async function showGraphPopup() {
         for (const n of nodes) {
             if (n === dragNode) continue;
             n.vx *= damping; n.vy *= damping;
+            // Clamp velocity to prevent wild overshoot
+            const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+            if (speed > maxV) { n.vx *= maxV / speed; n.vy *= maxV / speed; }
             n.x += n.vx; n.y += n.vy;
         }
     }

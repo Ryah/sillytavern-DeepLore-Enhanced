@@ -11,7 +11,7 @@ import {
 } from './state.js';
 import { buildCandidateManifest, aiSearch } from './ai.js';
 import { ensureIndexFresh } from './vault.js';
-import { name2 } from '../../../../script.js';
+import { name2 } from '../../../../../script.js';
 
 /**
  * Match vault entries against chat messages, with recursive scanning support.

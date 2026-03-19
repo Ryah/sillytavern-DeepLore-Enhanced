@@ -3,8 +3,8 @@
  * aiSearch, callViaProfile, extractAiResponseClient, profile dropdowns,
  * buildCandidateManifest
  */
-import { getRequestHeaders } from '../../../../script.js';
-import { ConnectionManagerRequestService } from '../../shared.js';
+import { getRequestHeaders } from '../../../../../script.js';
+import { ConnectionManagerRequestService } from '../../../shared.js';
 import { truncateToSentence, simpleHash, buildAiChatContext } from '../core/utils.js';
 import { getSettings, PLUGIN_BASE, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import {

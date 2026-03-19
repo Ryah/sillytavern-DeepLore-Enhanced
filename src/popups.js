@@ -7,10 +7,10 @@ import {
     getRequestHeaders,
     saveChatDebounced,
     chat_metadata,
-} from '../../../../script.js';
-import { escapeHtml } from '../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
-import { getTokenCountAsync } from '../../../tokenizers.js';
+} from '../../../../../script.js';
+import { escapeHtml } from '../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
+import { getTokenCountAsync } from '../../../../tokenizers.js';
 import { parseFrontmatter, simpleHash, buildScanText } from '../core/utils.js';
 import { testEntryMatch } from '../core/matching.js';
 import { getSettings, getVaultByName, PLUGIN_BASE } from '../settings.js';

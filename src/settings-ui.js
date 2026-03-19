@@ -5,10 +5,10 @@ import {
     getRequestHeaders,
     saveSettingsDebounced,
     chat,
-} from '../../../../script.js';
-import { escapeHtml } from '../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
-import { eventSource, event_types } from '../../../events.js';
+} from '../../../../../script.js';
+import { escapeHtml } from '../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
+import { eventSource, event_types } from '../../../../events.js';
 import { buildAiChatContext, simpleHash } from '../core/utils.js';
 import { applyGating, formatAndGroup } from '../core/matching.js';
 import { getSettings, getPrimaryVault, PLUGIN_BASE, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';

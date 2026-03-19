@@ -8,7 +8,7 @@ import {
     chat,
     chat_metadata,
     name2,
-} from '../../../../script.js';
+} from '../../../../../script.js';
 import { getSettings, getPrimaryVault, PLUGIN_BASE } from '../settings.js';
 import { buildAiChatContext } from '../core/utils.js';
 import { callViaProfile } from './ai.js';

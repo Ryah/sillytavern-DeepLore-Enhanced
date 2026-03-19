@@ -6,9 +6,9 @@ import {
     getRequestHeaders,
     generateQuietPrompt,
     chat,
-} from '../../../../script.js';
-import { escapeHtml } from '../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
+} from '../../../../../script.js';
+import { escapeHtml } from '../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { getSettings, getPrimaryVault, PLUGIN_BASE } from '../settings.js';
 import { buildAiChatContext } from '../core/utils.js';
 import { callViaProfile, extractAiResponseClient } from './ai.js';

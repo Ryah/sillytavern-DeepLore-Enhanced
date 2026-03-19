@@ -8,12 +8,12 @@ import {
     chat,
     chat_metadata,
     name2,
-} from '../../../../script.js';
-import { saveSettingsDebounced } from '../../../../script.js';
-import { escapeHtml } from '../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
-import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
+} from '../../../../../script.js';
+import { saveSettingsDebounced } from '../../../../../script.js';
+import { escapeHtml } from '../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
+import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParser.js';
+import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
 import { parseFrontmatter, simpleHash, buildAiChatContext } from '../core/utils.js';
 import { applyGating, formatAndGroup } from '../core/matching.js';
 import { getSettings, getPrimaryVault, PLUGIN_BASE, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';

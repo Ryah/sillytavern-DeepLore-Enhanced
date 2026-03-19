@@ -30,6 +30,8 @@ import { parseFrontmatter, extractWikiLinks, cleanContent, extractTitle } from '
  * @property {number|null} injectionRole - Per-entry injection role override (null = use global)
  * @property {number|null} cooldown - Generations to skip after triggering (null = no cooldown)
  * @property {number|null} warmup - Keyword hit count required before triggering (null = no warmup)
+ * @property {number|null} probability - Chance of triggering when matched (0.0-1.0, null = always trigger)
+ * @property {string} vaultSource - Name of the vault this entry came from (multi-vault)
  */
 
 /**
@@ -122,6 +124,11 @@ export function parseVaultFile(file, tagConfig) {
     const cooldown = typeof frontmatter.cooldown === 'number' && frontmatter.cooldown > 0 ? frontmatter.cooldown : null;
     const warmup = typeof frontmatter.warmup === 'number' && frontmatter.warmup > 0 ? frontmatter.warmup : null;
 
+    // Per-entry probability (0.0-1.0), clamped to valid range
+    const probability = typeof frontmatter.probability === 'number'
+        ? Math.max(0, Math.min(1, frontmatter.probability))
+        : null;
+
     // AI selection summary (dedicated frontmatter field, separate from injected content)
     const summary = typeof frontmatter.summary === 'string' ? frontmatter.summary.trim() : '';
 
@@ -153,6 +160,8 @@ export function parseVaultFile(file, tagConfig) {
         injectionRole,
         cooldown,
         warmup,
+        probability,
+        vaultSource: '',
     };
 }
 

@@ -14,27 +14,20 @@
             </div>
 
             <hr>
-            <h4>Connection</h4>
+            <h4>Vault Connections</h4>
 
             <div class="flex-container flexFlowColumn">
-                <div class="flex-container">
-                    <div class="flex1" title="Port number for the Obsidian Local REST API plugin (default: 27123). Found in Obsidian Settings > Local REST API.">
-                        <label for="dle_port">
-                            <small>Obsidian API Port</small>
-                        </label>
-                        <input id="dle_port" type="number" class="text_pole" min="1" max="65535" />
-                    </div>
-                    <div class="flex1" title="API key from Obsidian Settings > Local REST API > API Key. Required for authenticated access to your vault.">
-                        <label for="dle_api_key">
-                            <small>API Key</small>
-                        </label>
-                        <input id="dle_api_key" type="password" class="text_pole" placeholder="Paste your API key" />
-                    </div>
+                <div id="dle_vault_list" style="margin-bottom: 6px;">
+                    <!-- Vault rows rendered dynamically by renderVaultList() -->
                 </div>
-                <div class="flex-container">
-                    <div id="dle_test_connection" class="menu_button menu_button_icon" title="Test the connection to your Obsidian vault using the port and API key above.">
+                <div class="flex-container" style="gap: 6px;">
+                    <div id="dle_add_vault" class="menu_button menu_button_icon" title="Add another Obsidian vault connection.">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>Add Vault</span>
+                    </div>
+                    <div id="dle_test_connection" class="menu_button menu_button_icon" title="Test all enabled vault connections.">
                         <i class="fa-solid fa-plug"></i>
-                        <span>Test Connection</span>
+                        <span>Test All</span>
                     </div>
                     <span id="dle_connection_status" class="deeplore_enhanced_status"></span>
                 </div>
@@ -137,6 +130,20 @@
             </div>
             <div class="flex-container">
                 <div class="flex1">
+                    <label class="checkbox_label" for="dle_strip_dedup" title="Skip re-injecting entries that were already injected in recent generations (tracked per-chat). Constants are always injected.">
+                        <input id="dle_strip_dedup" type="checkbox" class="checkbox">
+                        <span>Strip Duplicate Injections</span>
+                    </label>
+                </div>
+                <div class="flex1" title="Number of previous generations to check for already-injected entries. Higher = more aggressive deduplication.">
+                    <label for="dle_strip_lookback">
+                        <small>Lookback Depth</small>
+                    </label>
+                    <input id="dle_strip_lookback" type="number" class="text_pole" min="1" max="10" />
+                </div>
+            </div>
+            <div class="flex-container">
+                <div class="flex1">
                     <label class="checkbox_label" for="dle_unlimited_entries" title="Remove the cap on how many entries can be injected per generation. When unchecked, only the top N entries (by priority) are injected.">
                         <input id="dle_unlimited_entries" type="checkbox" class="checkbox">
                         <span>Unlimited Entries</span>
@@ -221,6 +228,43 @@
                         </label>
                         <input id="dle_vault_name" type="text" class="text_pole" placeholder="My Vault" />
                     </div>
+                </div>
+            </div>
+
+            <hr>
+            <h4>AI Notebook</h4>
+            <div class="flex-container flexFlowColumn">
+                <label class="checkbox_label" for="dle_notebook_enabled" title="Enable a persistent per-chat scratchpad that is injected into every generation. Edit via /dle-notebook or the button below.">
+                    <input id="dle_notebook_enabled" type="checkbox" class="checkbox">
+                    <span>Enable AI Notebook</span>
+                </label>
+                <div class="flex-container" id="dle_notebook_controls">
+                    <div id="dle_open_notebook" class="menu_button menu_button_icon" title="Open the AI Notebook editor for the current chat.">
+                        <i class="fa-solid fa-book"></i>
+                        <span>Open Notebook</span>
+                    </div>
+                </div>
+                <label><small>Notebook Injection Position</small></label>
+                <div class="radio_group">
+                    <label title="Inject notebook before the main system prompt.">
+                        <input type="radio" name="dle_notebook_position" value="2" />
+                        <span>Before Main Prompt</span>
+                    </label>
+                    <label title="Inject notebook after the main system prompt.">
+                        <input type="radio" name="dle_notebook_position" value="0" />
+                        <span>After Main Prompt</span>
+                    </label>
+                    <label title="Inject notebook in the chat at specified depth.">
+                        <input type="radio" name="dle_notebook_position" value="1" />
+                        <span>In-chat @ Depth </span>
+                        <input id="dle_notebook_depth" class="text_pole widthUnset" type="number" min="0" max="9999" style="width: 60px;" />
+                        <span> as </span>
+                        <select id="dle_notebook_role" class="text_pole widthNatural">
+                            <option value="0">System</option>
+                            <option value="1">User</option>
+                            <option value="2">Assistant</option>
+                        </select>
+                    </label>
                 </div>
             </div>
 
@@ -442,6 +486,56 @@
             </div>
 
             <hr>
+            <div class="inline-drawer">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <b>Auto Lorebook</b>
+                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <label class="checkbox_label" for="dle_autosuggest_enabled" title="AI analyzes chat for entities not in the lorebook and suggests new entries with human review.">
+                        <input id="dle_autosuggest_enabled" type="checkbox" class="checkbox">
+                        <span>Enable Auto Lorebook</span>
+                    </label>
+                    <div class="flex-container flexFlowColumn" id="dle_autosuggest_controls">
+                        <div class="flex-container">
+                            <div class="flex1" title="Trigger auto-suggest every N messages.">
+                                <label for="dle_autosuggest_interval"><small>Interval (messages)</small></label>
+                                <input id="dle_autosuggest_interval" type="number" class="text_pole" min="3" max="50" />
+                            </div>
+                            <div class="flex1" title="Obsidian folder for new entries. Leave empty for vault root.">
+                                <label for="dle_autosuggest_folder"><small>Target Folder</small></label>
+                                <input id="dle_autosuggest_folder" type="text" class="text_pole" placeholder="Lorebook" />
+                            </div>
+                        </div>
+                        <label><small>Connection Mode</small></label>
+                        <div class="radio_group">
+                            <label><input type="radio" name="dle_autosuggest_connection_mode" value="st" /> SillyTavern</label>
+                            <label><input type="radio" name="dle_autosuggest_connection_mode" value="profile" /> Profile</label>
+                            <label><input type="radio" name="dle_autosuggest_connection_mode" value="proxy" /> Proxy</label>
+                        </div>
+                        <div id="dle_autosuggest_profile_container">
+                            <label for="dle_autosuggest_profile"><small>Connection Profile</small></label>
+                            <select id="dle_autosuggest_profile" class="text_pole"></select>
+                        </div>
+                        <div id="dle_autosuggest_proxy_container">
+                            <label for="dle_autosuggest_proxy_url"><small>Proxy URL</small></label>
+                            <input id="dle_autosuggest_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
+                        </div>
+                        <div class="flex-container">
+                            <div class="flex1">
+                                <label for="dle_autosuggest_model"><small>Model</small></label>
+                                <input id="dle_autosuggest_model" type="text" class="text_pole" placeholder="claude-haiku-4-5-20251001" />
+                            </div>
+                            <div class="flex1">
+                                <label for="dle_autosuggest_max_tokens"><small>Max Tokens</small></label>
+                                <input id="dle_autosuggest_max_tokens" type="number" class="text_pole" min="256" max="4096" />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr>
             <h4>Index &amp; Cache</h4>
 
             <div class="flex-container flexFlowColumn">
@@ -453,6 +547,10 @@
                     <div id="dle_test_match" class="menu_button menu_button_icon" title="Simulate a generation to see which entries would be matched and injected based on the current chat.">
                         <i class="fa-solid fa-flask"></i>
                         <span>Test Match</span>
+                    </div>
+                    <div id="dle_browse_entries" class="menu_button menu_button_icon" title="Browse all indexed entries with search and filters.">
+                        <i class="fa-solid fa-list"></i>
+                        <span>Browse</span>
                     </div>
                 </div>
                 <small id="dle_index_stats">No index loaded — click Refresh or send a message to auto-load.</small>
@@ -501,9 +599,17 @@
                 <code>/dle-status</code> — Show connection &amp; index status<br>
                 <code>/dle-review [question]</code> — Send vault to AI for review<br>
                 <code>/dle-analytics</code> — Entry usage statistics<br>
-                <code>/dle-health</code> — Audit entries for issues<br>
+                <code>/dle-suggest</code> — AI suggests new lorebook entries<br>
+                <code>/dle-optimize-keys [name]</code> — Optimize entry keywords<br>
+                <code>/dle-context</code> — Preview what would be injected now<br>
+                <code>/dle-browse</code> — Browse all indexed entries<br>
+                <code>/dle-notebook</code> — Open the AI Notebook editor<br>
+                <code>/dle-health</code> — Audit entries for issues (30+ checks)<br>
                 <code>/dle-inspect</code> — Show last pipeline trace<br>
-                <code>/dle-scribe [focus]</code> — Write session note to Obsidian
+                <code>/dle-scribe [focus]</code> — Write session note to Obsidian<br>
+                <code>/dle-scribe-history</code> — View all session notes<br>
+                <code>/dle-simulate</code> — Replay chat showing entry activation<br>
+                <code>/dle-graph</code> — Visualize entry relationships
             </small>
         </div>
     </div>

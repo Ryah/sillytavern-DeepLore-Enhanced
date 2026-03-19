@@ -25,6 +25,12 @@
 - New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`.
 
 ### Bug Fixes
+- **Shared mutable defaults** — `getSettings()` assigned raw object references from `defaultSettings` for `vaults: []` and `analyticsData: {}`, so mutations could corrupt defaults. Now deep-clones non-primitive defaults.
+- **Manifest header count wrong in two-stage mode** — `buildCandidateManifest()` reported "from N total" using the full vault count instead of the actual candidate count. AI received a misleading header.
+- **First entry budget bypass undocumented** — `formatAndGroup()` always accepts the first entry even if it exceeds the token budget (by design, to avoid empty results). Added a debug-mode warning when this happens.
+- **Client AI response parser too permissive** — `extractAiResponseClient()` accepted any JSON array without validation. Now checks that array contents are strings or objects with `title`/`name`, matching the server parser's robustness.
+- **Server `||` on timeout/maxTokens** — `timeout || 15000` and `maxTokens || 1024` treated explicit `0` as falsy. Changed to `??` (nullish coalescing).
+- **Directory recursion off-by-one** — `listAllFiles()` allowed 21 nesting levels instead of 20. Fixed `> 20` to `>= 20`.
 - **Cooldown timer freeze** (critical) — Early returns in `onGenerate()` skipped `generationCount++` and cooldown decrement, permanently freezing cooldown timers during quiet generations. Fixed with `pipelineRan` flag + `finally` block.
 - **Test Match pipeline order** — Simulation ran gating before cooldown, opposite to actual `onGenerate` order. Reordered to match.
 - **`/dle-context` missing cooldown filter** — Command showed entries blocked by re-injection cooldown. Now applies cooldown filter before gating.

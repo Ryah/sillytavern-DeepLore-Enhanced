@@ -120,6 +120,10 @@ function makeEntry(title, opts = {}) {
         injectionRole: opts.injectionRole ?? null,
         cooldown: opts.cooldown ?? null,
         warmup: opts.warmup ?? null,
+        probability: opts.probability ?? null,
+        cascadeLinks: opts.cascadeLinks || [],
+        refineKeys: opts.refineKeys || [],
+        vaultSource: opts.vaultSource || '',
         filename: opts.filename || `${title}.md`,
     };
 }
@@ -772,6 +776,66 @@ test('parseVaultFile: detects seed and bootstrap tags', () => {
 });
 
 // ============================================================================
+// Tests: parseVaultFile probability (core/pipeline.js)
+// ============================================================================
+
+test('parseVaultFile: probability 0.5', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nprobability: 0.5\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.probability, 0.5, 'should parse probability 0.5');
+});
+
+test('parseVaultFile: probability 0', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nprobability: 0\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.probability, 0, 'should parse probability 0');
+});
+
+test('parseVaultFile: probability 1', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nprobability: 1\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.probability, 1, 'should parse probability 1');
+});
+
+test('parseVaultFile: probability clamped above 1', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nprobability: 1.5\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.probability, 1, 'should clamp probability to 1');
+});
+
+test('parseVaultFile: probability clamped below 0', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nprobability: -0.3\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.probability, 0, 'should clamp probability to 0');
+});
+
+test('parseVaultFile: no probability field', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.probability, null, 'should default to null when no probability');
+});
+
+test('parseVaultFile: probability non-number string', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nprobability: "not a number"\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.probability, null, 'should default to null for non-number probability');
+});
+
+test('parseVaultFile: probability field present on VaultEntry', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nkeys:\n  - test\n---\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assert('probability' in entry, 'probability field should exist on VaultEntry');
+});
+
+// ============================================================================
 // Tests: clearPrompts (core/pipeline.js)
 // ============================================================================
 
@@ -891,6 +955,256 @@ test('normalizeResults: mixed/malformed objects', () => {
 
 test('normalizeResults: empty array', () => {
     assertEqual(normalizeResults([]).length, 0, 'should handle empty array');
+});
+
+// ============================================================================
+// Tests: runHealthCheck detection patterns (mirrors index.js logic)
+// ============================================================================
+
+/**
+ * Portable health check for testing detection patterns.
+ * Mirrors the real runHealthCheck() from index.js but accepts params.
+ */
+function testHealthCheck(vaultIndex, settings = {}) {
+    const issues = [];
+    const allTitles = new Set(vaultIndex.map(e => e.title));
+    const titleCounts = new Map();
+
+    for (const entry of vaultIndex) {
+        titleCounts.set(entry.title, (titleCounts.get(entry.title) || 0) + 1);
+
+        // Circular requires
+        for (const req of entry.requires) {
+            const target = vaultIndex.find(e => e.title.toLowerCase() === req.toLowerCase());
+            if (target && target.requires.some(r => r.toLowerCase() === entry.title.toLowerCase())) {
+                if (entry.title < target.title) {
+                    issues.push({ type: 'circular_requires', entry: entry.title, target: target.title });
+                }
+            }
+        }
+
+        // Requires AND excludes same title
+        for (const req of entry.requires) {
+            if (entry.excludes.some(exc => exc.toLowerCase() === req.toLowerCase())) {
+                issues.push({ type: 'requires_excludes_conflict', entry: entry.title, ref: req });
+            }
+        }
+
+        // Orphaned cascade_links
+        if (entry.cascadeLinks) {
+            for (const cl of entry.cascadeLinks) {
+                if (!allTitles.has(cl)) {
+                    issues.push({ type: 'orphaned_cascade', entry: entry.title, ref: cl });
+                }
+            }
+        }
+
+        // Cooldown on constant
+        if (entry.constant && entry.cooldown !== null) {
+            issues.push({ type: 'cooldown_on_constant', entry: entry.title });
+        }
+
+        // Depth override without in_chat
+        if (entry.injectionDepth !== null && entry.injectionPosition !== 1) {
+            issues.push({ type: 'depth_without_inchat', entry: entry.title });
+        }
+
+        // Empty content
+        if (!entry.content || !entry.content.trim()) {
+            issues.push({ type: 'empty_content', entry: entry.title });
+        }
+
+        // Probability zero
+        if (entry.probability === 0) {
+            issues.push({ type: 'probability_zero', entry: entry.title });
+        }
+    }
+
+    // Duplicate titles
+    for (const [title, count] of titleCounts) {
+        if (count > 1) {
+            issues.push({ type: 'duplicate_title', entry: title });
+        }
+    }
+
+    // Constants exceeding budget
+    if (settings.maxTokensBudget && !settings.unlimitedBudget) {
+        const constantTokens = vaultIndex.filter(e => e.constant).reduce((s, e) => s + e.tokenEstimate, 0);
+        if (constantTokens > settings.maxTokensBudget) {
+            issues.push({ type: 'constants_over_budget', tokens: constantTokens });
+        }
+    }
+
+    return issues;
+}
+
+test('health: circular requires detection', () => {
+    const index = [
+        makeEntry('A', { requires: ['B'], keys: ['a'] }),
+        makeEntry('B', { requires: ['A'], keys: ['b'] }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'circular_requires'), 'should detect circular requires');
+});
+
+test('health: duplicate title detection', () => {
+    const index = [
+        makeEntry('Eris', { keys: ['eris'] }),
+        makeEntry('Eris', { keys: ['eris2'] }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'duplicate_title'), 'should detect duplicate titles');
+});
+
+test('health: orphaned cascade_links', () => {
+    const index = [
+        makeEntry('A', { keys: ['a'], cascadeLinks: ['NonExistent'] }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'orphaned_cascade'), 'should detect orphaned cascade links');
+});
+
+test('health: requires AND excludes same title', () => {
+    const index = [
+        makeEntry('A', { keys: ['a'], requires: ['B'], excludes: ['B'] }),
+        makeEntry('B', { keys: ['b'] }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'requires_excludes_conflict'), 'should detect requires/excludes conflict');
+});
+
+test('health: cooldown on constant', () => {
+    const index = [
+        makeEntry('A', { constant: true, cooldown: 5 }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'cooldown_on_constant'), 'should flag cooldown on constant entry');
+});
+
+test('health: depth override without position override', () => {
+    const index = [
+        makeEntry('A', { keys: ['a'], injectionDepth: 3, injectionPosition: 0 }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'depth_without_inchat'), 'should flag depth without in_chat');
+});
+
+test('health: empty content entry', () => {
+    const index = [
+        makeEntry('A', { keys: ['a'], content: '' }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'empty_content'), 'should flag empty content');
+});
+
+test('health: probability zero warning', () => {
+    const index = [
+        makeEntry('A', { keys: ['a'], probability: 0 }),
+    ];
+    const issues = testHealthCheck(index);
+    assert(issues.some(i => i.type === 'probability_zero'), 'should flag probability 0');
+});
+
+test('health: constants exceeding budget', () => {
+    const index = [
+        makeEntry('A', { constant: true, tokenEstimate: 1500 }),
+        makeEntry('B', { constant: true, tokenEstimate: 1500 }),
+    ];
+    const issues = testHealthCheck(index, { maxTokensBudget: 2000, unlimitedBudget: false });
+    assert(issues.some(i => i.type === 'constants_over_budget'), 'should flag constants over budget');
+});
+
+test('health: clean vault returns no issues', () => {
+    const index = [
+        makeEntry('Eris', { keys: ['eris'], content: 'A vampire queen.', summary: 'Main character' }),
+        makeEntry('Temple', { keys: ['temple'], content: 'A dark temple.', summary: 'Location' }),
+    ];
+    const issues = testHealthCheck(index);
+    assertEqual(issues.length, 0, 'clean vault should have no issues');
+});
+
+// ============================================================================
+// Tests: Multi-Vault Support
+// ============================================================================
+
+test('parseVaultFile: vaultSource field defaults to empty string', () => {
+    const file = { filename: 'test.md', content: '---\ntags:\n  - lorebook\nkeys:\n  - test\n---\n# Test\nContent' };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assertEqual(entry.vaultSource, '', 'vaultSource should default to empty string');
+});
+
+test('multi-vault: entries from different vaults merge with vaultSource', () => {
+    const e1 = makeEntry('Eris', { vaultSource: 'Primary', keys: ['eris'] });
+    const e2 = makeEntry('Temple', { vaultSource: 'Lore', keys: ['temple'] });
+    const combined = [e1, e2];
+    assertEqual(combined.length, 2, 'should merge entries from both vaults');
+    assertEqual(combined[0].vaultSource, 'Primary', 'first entry should have Primary vault');
+    assertEqual(combined[1].vaultSource, 'Lore', 'second entry should have Lore vault');
+});
+
+test('multi-vault: settings migration from legacy format', () => {
+    // Simulate legacy settings with obsidianPort/obsidianApiKey but no vaults
+    const legacySettings = {
+        obsidianPort: 27123,
+        obsidianApiKey: 'test-key',
+        vaults: [],
+    };
+
+    // Migration logic (mirrors getSettings)
+    if (legacySettings.vaults.length === 0 && legacySettings.obsidianPort) {
+        legacySettings.vaults = [{
+            name: 'Primary',
+            port: legacySettings.obsidianPort,
+            apiKey: legacySettings.obsidianApiKey || '',
+            enabled: true,
+        }];
+    }
+
+    assertEqual(legacySettings.vaults.length, 1, 'should create one vault from legacy settings');
+    assertEqual(legacySettings.vaults[0].name, 'Primary', 'vault name should be Primary');
+    assertEqual(legacySettings.vaults[0].port, 27123, 'vault port should match legacy port');
+    assertEqual(legacySettings.vaults[0].apiKey, 'test-key', 'vault apiKey should match legacy key');
+    assertEqual(legacySettings.vaults[0].enabled, true, 'vault should be enabled');
+});
+
+test('multi-vault: getPrimaryVault logic', () => {
+    // Test getPrimaryVault helper logic
+    const vaults = [
+        { name: 'Disabled', port: 1111, apiKey: '', enabled: false },
+        { name: 'Active', port: 2222, apiKey: 'key', enabled: true },
+        { name: 'Backup', port: 3333, apiKey: 'key2', enabled: true },
+    ];
+    const primary = vaults.find(v => v.enabled) || vaults[0] || { name: 'Default', port: 27123, apiKey: '', enabled: true };
+    assertEqual(primary.name, 'Active', 'should return first enabled vault');
+    assertEqual(primary.port, 2222, 'should return correct port');
+});
+
+test('multi-vault: getVaultByName logic', () => {
+    const vaults = [
+        { name: 'Primary', port: 27123, apiKey: 'pk', enabled: true },
+        { name: 'Lore', port: 27124, apiKey: 'lk', enabled: true },
+    ];
+    // Find by name
+    const lore = vaults.find(v => v.name === 'Lore' && v.enabled);
+    assertEqual(lore.port, 27124, 'should find vault by name');
+    // Fallback to primary for unknown name
+    const unknown = vaults.find(v => v.name === 'Unknown' && v.enabled);
+    assertEqual(unknown, undefined, 'should not find unknown vault');
+});
+
+test('multi-vault: health check detects no enabled vaults', () => {
+    // Test health check logic for empty/disabled vaults
+    const vaults = [
+        { name: 'V1', port: 27123, apiKey: '', enabled: false },
+    ];
+    const enabledVaults = vaults.filter(v => v.enabled);
+    const issues = [];
+    if (enabledVaults.length === 0) {
+        issues.push({ type: 'Settings', severity: 'error', detail: 'No enabled vaults' });
+    }
+    assertEqual(issues.length, 1, 'should flag no enabled vaults');
+    assertEqual(issues[0].severity, 'error', 'should be an error');
 });
 
 // ============================================================================

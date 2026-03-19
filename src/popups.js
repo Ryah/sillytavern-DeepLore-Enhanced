@@ -395,8 +395,9 @@ export async function showGraphPopup() {
     function toScreen(x, y) { return { x: x * zoom + panX, y: y * zoom + panY }; }
     function toWorld(sx, sy) { return { x: (sx - panX) / zoom, y: (sy - panY) / zoom }; }
 
+    let hasSpringEnergy = true; // tracks whether springs still need to settle
     function simulate() {
-        if (alpha < 0.001 && !dragNode) return; // settled
+        if (alpha < 0.001 && !dragNode && !hasSpringEnergy) return; // fully settled
         if (!dragNode) alpha *= 0.98; // only decay when not dragging
         const k = 0.008, repulsion = 2000, damping = 0.7, gravity = 0.03, maxV = 8;
         // Repulsion + gravity only during initial layout (not during drag)
@@ -429,13 +430,16 @@ export async function showGraphPopup() {
             a.vx += fx; a.vy += fy;
             b.vx -= fx; b.vy -= fy;
         }
+        let totalSpeed = 0;
         for (const n of nodes) {
             if (n === dragNode || n.pinned) continue;
             n.vx *= damping; n.vy *= damping;
             const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
             if (speed > maxV) { n.vx *= maxV / speed; n.vy *= maxV / speed; }
             n.x += n.vx; n.y += n.vy;
+            totalSpeed += speed;
         }
+        hasSpringEnergy = totalSpeed > 0.1;
     }
 
     function draw() {

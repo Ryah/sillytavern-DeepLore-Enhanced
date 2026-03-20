@@ -137,8 +137,15 @@ export function resolveLinks(vaultIndex) {
 /**
  * Format matched entries for injection, respecting budget limits, grouped by injection position.
  * Entries can override the global injection position/depth/role via frontmatter.
+ *
+ * Two grouping modes:
+ * - 'extension' (default): Groups by (position, depth, role) with auto-generated keys.
+ * - 'prompt_list': Groups into stable named keys (constants vs lore) with IN_PROMPT position.
+ *   ST's Prompt Manager automatically surfaces these as draggable entries.
+ *   Per-entry overrides with custom position/depth get their own IN_CHAT group.
+ *
  * @param {import('./pipeline.js').VaultEntry[]} entries - Matched entries sorted by priority
- * @param {{ injectionTemplate: string, injectionPosition: number, injectionDepth: number, injectionRole: number, maxEntries: number, unlimitedEntries: boolean, maxTokensBudget: number, unlimitedBudget: boolean }} settings
+ * @param {{ injectionMode?: string, injectionTemplate: string, injectionPosition: number, injectionDepth: number, injectionRole: number, maxEntries: number, unlimitedEntries: boolean, maxTokensBudget: number, unlimitedBudget: boolean }} settings
  * @param {string} promptTagPrefix - Prefix for prompt tags (e.g. 'deeplore_')
  * @returns {{ groups: Array<{ tag: string, text: string, position: number, depth: number, role: number }>, count: number, totalTokens: number }}
  */
@@ -169,7 +176,58 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         count++;
     }
 
-    // Group by (position, depth, role)
+    const formatEntry = (entry) => template
+        .replace(/\{\{title\}\}/g, entry.title)
+        .replace(/\{\{content\}\}/g, entry.content);
+
+    const mode = settings.injectionMode || 'extension';
+
+    if (mode === 'prompt_list') {
+        // ── Prompt List mode: group by type (constants vs lore) with stable keys ──
+        // Entries with per-entry overrides get their own IN_CHAT group (bypasses PM).
+        const groupMap = new Map();
+        const IN_PROMPT = 0; // extension_prompt_types.IN_PROMPT
+
+        for (const item of accepted) {
+            const hasOverride = item.entry.injectionPosition !== null || item.entry.injectionDepth !== null || item.entry.injectionRole !== null;
+
+            let key, position, depth, role;
+            if (hasOverride) {
+                // Per-entry override → own group with IN_CHAT, bypasses PM
+                key = `${promptTagPrefix}override_d${item.depth}_r${item.role}`;
+                position = item.position;
+                depth = item.depth;
+                role = item.role;
+            } else if (item.entry.constant) {
+                key = `${promptTagPrefix}constants`;
+                position = IN_PROMPT;
+                depth = 0;
+                role = 0;
+            } else {
+                key = `${promptTagPrefix}lore`;
+                position = IN_PROMPT;
+                depth = 0;
+                role = 0;
+            }
+
+            if (!groupMap.has(key)) {
+                groupMap.set(key, { tag: key, position, depth, role, texts: [] });
+            }
+            groupMap.get(key).texts.push(formatEntry(item.entry));
+        }
+
+        const groups = [...groupMap.values()].map(g => ({
+            tag: g.tag,
+            text: g.texts.join('\n\n'),
+            position: g.position,
+            depth: g.depth,
+            role: g.role,
+        }));
+
+        return { groups, count, totalTokens };
+    }
+
+    // ── Extension mode (default): group by (position, depth, role) ──
     const groupMap = new Map();
     for (const item of accepted) {
         const key = `${promptTagPrefix}p${item.position}_d${item.depth}_r${item.role}`;
@@ -182,10 +240,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                 texts: [],
             });
         }
-        const text = template
-            .replace(/\{\{title\}\}/g, item.entry.title)
-            .replace(/\{\{content\}\}/g, item.entry.content);
-        groupMap.get(key).texts.push(text);
+        groupMap.get(key).texts.push(formatEntry(item.entry));
     }
 
     const groups = [...groupMap.values()].map(g => ({

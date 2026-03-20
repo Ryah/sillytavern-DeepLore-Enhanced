@@ -55,6 +55,7 @@ export const defaultSettings = {
     unlimitedEntries: true,
     maxTokensBudget: 2048,
     unlimitedBudget: true,
+    injectionMode: 'extension', // 'extension' (current) or 'prompt_list' (PM integration)
     injectionPosition: 1,   // extension_prompt_types.IN_CHAT
     injectionDepth: 4,
     injectionRole: 0,        // extension_prompt_roles.SYSTEM

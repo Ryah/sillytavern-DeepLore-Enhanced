@@ -54,13 +54,16 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| **Injection Mode** | Extension Prompt | **Extension Prompt**: uses `setExtensionPrompt()` with fixed position/depth/role (classic behavior). **Prompt List**: registers named prompts (`deeplore_constants`, `deeplore_lore`) that appear in SillyTavern's Prompt Manager list. Drag them wherever you want. Requires Chat Completion API. |
 | **Injection Template** | `<{{title}}>\n{{content}}\n</{{title}}>` | Format for each injected entry. Use `{{title}}` for entry name and `{{content}}` for note body. |
-| **Injection Position** | In-chat | Where to inject lore. Options: Before Main Prompt/Story String, After Main Prompt/Story String, or In-chat @ Depth. |
+| **Injection Position** | In-chat | (Extension Prompt mode only) Where to inject lore. Options: Before Main Prompt/Story String, After Main Prompt/Story String, or In-chat @ Depth. |
 | **Injection Depth** | `4` | 0-9999. Chat depth for in-chat injection (0 = last message). |
 | **Injection Role** | System | Message role for in-chat injection: System, User, or Assistant. |
 | **Allow World Info Scan** | Off | Let SillyTavern's built-in World Info system scan injected lore for WI keyword matches. Enables cross-system triggering. |
 
 > Entries can override position, depth, and role via frontmatter. See [[Writing Vault Entries]].
+>
+> In **Prompt List** mode, global position/depth/role settings are ignored — the Prompt Manager controls placement. Per-entry frontmatter overrides with custom depth/position still create separate injection groups that bypass the PM.
 
 ## Context Cartographer
 

@@ -203,6 +203,16 @@ function updateModeVisibility(settings) {
 }
 
 /**
+ * Show/hide injection position controls based on injection mode.
+ * @param {object} settings
+ */
+function updateInjectionModeVisibility(settings) {
+    const isPromptList = settings.injectionMode === 'prompt_list';
+    $('#dle_extension_position_controls').toggle(!isPromptList);
+    $('#dle_prompt_list_info').toggle(isPromptList);
+}
+
+/**
  * Restore advanced section visibility from persisted settings.
  * @param {object} settings
  */
@@ -244,6 +254,8 @@ export function loadSettingsUI() {
     $('#dle_unlimited_budget').prop('checked', settings.unlimitedBudget);
     $('#dle_token_budget').prop('disabled', settings.unlimitedBudget);
     $('#dle_template').val(settings.injectionTemplate);
+    $(`input[name="dle_injection_mode"][value="${settings.injectionMode || 'extension'}"]`).prop('checked', true);
+    updateInjectionModeVisibility(settings);
     $(`input[name="dle_position"][value="${settings.injectionPosition}"]`).prop('checked', true);
     $('#dle_depth').val(settings.injectionDepth);
     $('#dle_role').val(settings.injectionRole);
@@ -426,6 +438,12 @@ export function bindSettingsEvents(buildIndexFn) {
 
     $('#dle_template').on('input', function () {
         settings.injectionTemplate = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    $('input[name="dle_injection_mode"]').on('change', function () {
+        settings.injectionMode = String($(this).val());
+        updateInjectionModeVisibility(settings);
         saveSettingsDebounced();
     });
 

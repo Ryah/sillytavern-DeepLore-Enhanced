@@ -291,6 +291,23 @@ See [[Writing Vault Entries]] for templates.
 
 ---
 
+## Prompt Manager Integration
+
+Set **Injection Mode** to **Prompt List** to register DLE's injections as named entries in SillyTavern's Prompt Manager. This lets you drag them to any position in the prompt order — before character definition, after Author's Note, between example messages, wherever.
+
+**How it works:**
+1. Switch injection mode to "Prompt List" in DLE settings
+2. Generate at least once so the entries appear
+3. Open the Prompt Manager and find `deeplore_constants` and `deeplore_lore`
+4. Drag them to your desired position, or switch to Absolute mode with a custom depth
+
+**Notes:**
+- Requires a Chat Completion API (OpenAI-compatible)
+- Per-entry frontmatter overrides with custom position/depth still create separate injection groups
+- The `deeplore_notebook` entry also appears in the PM (it already uses a stable key)
+
+---
+
 ## New Chat Features
 
 On a brand new chat (below the New Chat Threshold, default 3 messages), two features help bootstrap the conversation:

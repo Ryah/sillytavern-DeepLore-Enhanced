@@ -112,7 +112,7 @@ Automatically summarizes your roleplay sessions and writes them as timestamped m
 5. Optionally customize the summary prompt and message window depth
 
 **Notes:**
-- Requires the server plugin to be installed (it handles writing to the vault)
+- Writes directly to the Obsidian vault via the Local REST API
 - Default prompt covers events, character dynamics, revelations, and state changes in past tense
 - Configurable message window (default: 20 messages) and response token limit (default: 1024)
 

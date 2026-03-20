@@ -65,11 +65,11 @@ Uses a saved SillyTavern Connection Manager profile. Any provider works: Anthrop
 
 ### Custom Proxy
 
-Routes AI requests through an external proxy server that exposes an Anthropic-compatible Messages API at `/v1/messages`. The DeepLore Enhanced server plugin proxies the request.
+Routes AI requests through an external proxy server that exposes an Anthropic-compatible Messages API at `/v1/messages`. Requests are routed through SillyTavern's built-in CORS proxy (`enableCorsProxy: true` required in `config.yaml`).
 
 This mode exists primarily for [claude-code-proxy](https://github.com/horselock/claude-code-proxy) users.
 
-**Setup:** In AI Search settings, set connection mode to **Custom Proxy**, enter the proxy URL (e.g., `http://localhost:42069`), set the model name (e.g., `claude-haiku-4-5-20251001`), and click **Test AI Search** to verify.
+**Setup:** In AI Search settings, set connection mode to **Custom Proxy**, enter the proxy URL (e.g., `http://localhost:42069`), set the model name (e.g., `claude-haiku-4-5-20251001`), and click **Test AI Search** to verify. Make sure `enableCorsProxy: true` is set in `config.yaml`.
 
 ---
 

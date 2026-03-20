@@ -2,7 +2,6 @@
  * DeepLore Enhanced — Slash Commands
  */
 import {
-    getRequestHeaders,
     sendMessageAsUser,
     Generate,
     chat,
@@ -16,7 +15,8 @@ import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParse
 import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
 import { parseFrontmatter, simpleHash, buildAiChatContext } from '../core/utils.js';
 import { applyGating, formatAndGroup } from '../core/matching.js';
-import { getSettings, getPrimaryVault, PLUGIN_BASE, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { fetchScribeNotes } from './obsidian-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress,
     lastPipelineTrace, injectionHistory, generationCount,
@@ -261,18 +261,7 @@ export function registerSlashCommands() {
 
             try {
                 const histVault = getPrimaryVault(settings);
-                const response = await fetch(`${PLUGIN_BASE}/scribe-notes`, {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({
-                        port: histVault.port,
-                        apiKey: histVault.apiKey,
-                        folder: settings.scribeFolder,
-                    }),
-                });
-
-                if (!response.ok) throw new Error(`Server returned HTTP ${response.status}`);
-                const data = await response.json();
+                const data = await fetchScribeNotes(histVault.port, histVault.apiKey, settings.scribeFolder);
                 if (!data.ok) throw new Error(data.error || 'Failed to fetch notes');
 
                 if (!data.notes || data.notes.length === 0) {

@@ -1,11 +1,11 @@
 /**
  * DeepLore Enhanced — Vault index building and cache management
  */
-import { getRequestHeaders } from '../../../../../script.js';
 import { getTokenCountAsync } from '../../../../tokenizers.js';
 import { oai_settings } from '../../../../openai.js';
 import { main_api, amount_gen } from '../../../../../script.js';
-import { getSettings, PLUGIN_BASE } from '../settings.js';
+import { getSettings } from '../settings.js';
+import { fetchAllMdFiles } from './obsidian-api.js';
 import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
     aiSearchCache, previousIndexSnapshot,
@@ -20,7 +20,7 @@ import { updateIndexStats } from './settings-ui.js';
 import { runHealthCheck } from './diagnostics.js';
 
 /**
- * Build the vault index by fetching all files from the server plugin.
+ * Build the vault index by fetching all files directly from Obsidian.
  */
 export async function buildIndex() {
     if (indexing) {
@@ -49,21 +49,7 @@ export async function buildIndex() {
         let totalFiles = 0;
         for (const vault of enabledVaults) {
             try {
-                const response = await fetch(`${PLUGIN_BASE}/index`, {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({
-                        port: vault.port,
-                        apiKey: vault.apiKey,
-                    }),
-                });
-
-                if (!response.ok) {
-                    console.warn(`[DLE] Vault "${vault.name}" returned HTTP ${response.status}`);
-                    continue;
-                }
-
-                const data = await response.json();
+                const data = await fetchAllMdFiles(vault.port, vault.apiKey);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Vault "${vault.name}" returned invalid data`);
                     continue;

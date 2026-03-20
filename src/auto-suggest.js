@@ -3,13 +3,14 @@
  * Fixes Bug 1 (callAutoSuggest st mode) and Bug 3 (scan depth)
  */
 import {
-    getRequestHeaders,
     generateQuietPrompt,
     chat,
 } from '../../../../../script.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
-import { getSettings, getPrimaryVault, PLUGIN_BASE } from '../settings.js';
+import { getSettings, getPrimaryVault } from '../settings.js';
+import { writeNote } from './obsidian-api.js';
+import { callProxyViaCorsBridge } from './proxy-api.js';
 import { buildAiChatContext } from '../core/utils.js';
 import { callViaProfile, extractAiResponseClient } from './ai.js';
 import { vaultIndex } from './state.js';
@@ -45,22 +46,15 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
     } else if (mode === 'profile') {
         return await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, settings.autoSuggestProfileId, settings.autoSuggestModel);
     } else if (mode === 'proxy') {
-        const response = await fetch(`${PLUGIN_BASE}/scribe`, {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                proxyUrl: settings.autoSuggestProxyUrl,
-                model: settings.autoSuggestModel || 'claude-haiku-4-5-20251001',
-                systemPrompt,
-                userMessage,
-                maxTokens,
-                timeout,
-            }),
-        });
-        if (!response.ok) throw new Error(`Server returned HTTP ${response.status}`);
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.error || 'Auto-suggest proxy failed');
-        return { text: data.text, usage: data.usage };
+        const result = await callProxyViaCorsBridge(
+            settings.autoSuggestProxyUrl,
+            settings.autoSuggestModel || 'claude-haiku-4-5-20251001',
+            systemPrompt,
+            userMessage,
+            maxTokens,
+            timeout,
+        );
+        return { text: result.text, usage: result.usage };
     }
     throw new Error(`Unknown auto-suggest connection mode: ${mode}`);
 }
@@ -172,17 +166,7 @@ ${s.content || ''}`;
 
                     try {
                         const suggestVault = getPrimaryVault(settings);
-                        const response = await fetch(`${PLUGIN_BASE}/write-note`, {
-                            method: 'POST',
-                            headers: getRequestHeaders(),
-                            body: JSON.stringify({
-                                port: suggestVault.port,
-                                apiKey: suggestVault.apiKey,
-                                filename,
-                                content: fileContent,
-                            }),
-                        });
-                        const data = await response.json();
+                        const data = await writeNote(suggestVault.port, suggestVault.apiKey, filename, fileContent);
                         if (data.ok) {
                             card.style.opacity = '0.4';
                             card.style.borderColor = '#4caf50';

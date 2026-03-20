@@ -2,14 +2,15 @@
  * DeepLore Enhanced — Session Scribe
  */
 import {
-    getRequestHeaders,
     generateQuietPrompt,
     saveChatDebounced,
     chat,
     chat_metadata,
     name2,
 } from '../../../../../script.js';
-import { getSettings, getPrimaryVault, PLUGIN_BASE } from '../settings.js';
+import { getSettings, getPrimaryVault } from '../settings.js';
+import { writeNote } from './obsidian-api.js';
+import { callProxyViaCorsBridge } from './proxy-api.js';
 import { buildAiChatContext } from '../core/utils.js';
 import { callViaProfile } from './ai.js';
 import {
@@ -52,28 +53,15 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     }
 
     if (mode === 'proxy') {
-        const response = await fetch(`${PLUGIN_BASE}/scribe`, {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                proxyUrl: settings.scribeProxyUrl,
-                model: settings.scribeModel || 'claude-haiku-4-5-20251001',
-                systemPrompt,
-                userMessage,
-                maxTokens: settings.scribeMaxTokens,
-                timeout: settings.scribeTimeout,
-            }),
-        });
-
-        if (!response.ok) {
-            throw new Error(`Server returned HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        if (!data.ok) {
-            throw new Error(data.error || 'Proxy scribe call failed');
-        }
-        return data.text || '';
+        const result = await callProxyViaCorsBridge(
+            settings.scribeProxyUrl,
+            settings.scribeModel || 'claude-haiku-4-5-20251001',
+            systemPrompt,
+            userMessage,
+            settings.scribeMaxTokens,
+            settings.scribeTimeout,
+        );
+        return result.text || '';
     }
 
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
@@ -134,24 +122,9 @@ export async function runScribe(customPrompt) {
 
         const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: ${charName}\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${summary.trim()}\n`;
 
-        // Write to Obsidian via server plugin (uses primary vault)
+        // Write to Obsidian directly (uses primary vault)
         const scribeVault = getPrimaryVault(settings);
-        const response = await fetch(`${PLUGIN_BASE}/write-note`, {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({
-                port: scribeVault.port,
-                apiKey: scribeVault.apiKey,
-                filename,
-                content: noteContent,
-            }),
-        });
-
-        if (!response.ok) {
-            throw new Error(`Server returned HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
+        const data = await writeNote(scribeVault.port, scribeVault.apiKey, filename, noteContent);
 
         if (data.ok) {
             setLastScribeSummary(summary.trim());

@@ -2,7 +2,6 @@
  * DeepLore Enhanced — Settings UI: load, bind, stats
  */
 import {
-    getRequestHeaders,
     saveSettingsDebounced,
     chat,
 } from '../../../../../script.js';
@@ -11,7 +10,9 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { eventSource, event_types } from '../../../../events.js';
 import { buildAiChatContext, simpleHash } from '../core/utils.js';
 import { applyGating, formatAndGroup } from '../core/matching.js';
-import { getSettings, getPrimaryVault, PLUGIN_BASE, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { testConnection } from './obsidian-api.js';
+import { testProxyConnection } from './proxy-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp,
     injectionHistory, generationCount,
@@ -117,13 +118,7 @@ function bindVaultListEvents(settings) {
         const statusEl = row.find('.dle_vault_status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
-            const response = await fetch(`${PLUGIN_BASE}/test`, {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({ port: vault.port, apiKey: vault.apiKey }),
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
+            const data = await testConnection(vault.port, vault.apiKey);
             if (data.ok) {
                 statusEl.text(`Connected${data.authenticated ? '' : ' (no auth)'}`).addClass('success').removeClass('failure');
             } else {
@@ -787,13 +782,7 @@ export function bindSettingsEvents(buildIndexFn) {
             const results = [];
             for (const vault of enabledVaults) {
                 try {
-                    const response = await fetch(`${PLUGIN_BASE}/test`, {
-                        method: 'POST',
-                        headers: getRequestHeaders(),
-                        body: JSON.stringify({ port: vault.port, apiKey: vault.apiKey }),
-                    });
-                    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                    const data = await response.json();
+                    const data = await testConnection(vault.port, vault.apiKey);
                     results.push({ name: vault.name, ok: data.ok, auth: data.authenticated, error: data.error });
                 } catch (err) {
                     results.push({ name: vault.name, ok: false, error: err.message });
@@ -833,20 +822,8 @@ export function bindSettingsEvents(buildIndexFn) {
                 statusEl.text(`Connected${profileModel ? ' (' + profileModel + ')' : ''}`).addClass('success').removeClass('failure');
             } else {
                 // Proxy mode: test via server endpoint
-                const response = await fetch(`${PLUGIN_BASE}/ai-test`, {
-                    method: 'POST',
-                    headers: getRequestHeaders(),
-                    body: JSON.stringify({
-                        proxyUrl: settings.aiSearchProxyUrl,
-                        model: settings.aiSearchModel || 'claude-haiku-4-5-20251001',
-                    }),
-                });
-
-                if (!response.ok) {
-                    throw new Error(`Server returned HTTP ${response.status}`);
-                }
-
-                const data = await response.json();
+                // Proxy mode: test via CORS proxy bridge
+                const data = await testProxyConnection(settings.aiSearchProxyUrl, settings.aiSearchModel || 'claude-haiku-4-5-20251001');
 
                 if (data.ok) {
                     statusEl.text('Connected').addClass('success').removeClass('failure');

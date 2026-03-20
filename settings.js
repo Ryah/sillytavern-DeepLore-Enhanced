@@ -10,7 +10,6 @@ import { validateSettings } from './core/utils.js';
 export const MODULE_NAME = 'deeplore_enhanced';
 export const PROMPT_TAG = 'deeplore_enhanced';
 export const PROMPT_TAG_PREFIX = 'deeplore_';
-export const PLUGIN_BASE = '/api/plugins/deeplore-enhanced';
 
 export const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of lore entries, select which entries are most relevant to inject into the current conversation context.
 

@@ -84,7 +84,7 @@ Show all session notes from the configured scribe folder in a browsable popup.
 
 **Notes:**
 - Requires a scribe folder to be configured in settings
-- Fetches notes from Obsidian via the server plugin
+- Fetches notes directly from Obsidian's Local REST API
 
 ---
 

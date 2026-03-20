@@ -84,7 +84,7 @@ No API calls, no latency. Good for simple setups or when you want full control v
 ## Stage Details
 
 ### Index Refresh
-Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL). If expired, it re-fetches all `#lorebook` entries from Obsidian via the server plugin, parses frontmatter, extracts wikilinks, and builds the `VaultEntry[]` array.
+Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL). If expired, it re-fetches all `#lorebook` entries directly from Obsidian's Local REST API, parses frontmatter, extracts wikilinks, and builds the `VaultEntry[]` array.
 
 ### Keyword Matching
 1. **Build scan text**: Concatenate the last N messages (Scan Depth setting, default 4)

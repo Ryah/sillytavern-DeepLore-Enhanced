@@ -8,10 +8,9 @@ Before you begin, make sure you have:
 
 - [SillyTavern](https://github.com/SillyTavern/SillyTavern) **1.12.0+**
 - [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) community plugin installed and enabled
-- Server plugins enabled in SillyTavern (`enableServerPlugins: true` in `config.yaml`)
 - **For AI search** (one of):
   - A saved Connection Manager profile in SillyTavern (any provider: Anthropic, OpenAI, OpenRouter, etc.)
-  - [claude-code-proxy](https://github.com/horselock/claude-code-proxy) running locally
+  - [claude-code-proxy](https://github.com/horselock/claude-code-proxy) running locally (requires `enableCorsProxy: true` in `config.yaml`)
 
 > **Do NOT run both DeepLore and DeepLore Enhanced.** They will conflict. Pick one.
 
@@ -39,57 +38,9 @@ git clone https://github.com/pixelnull/sillytavern-DeepLore-Enhanced.git
 
 ---
 
-## Step 2: Install the Server Plugin
+## Step 2: Restart SillyTavern
 
-The server plugin is required for Obsidian communication and (optionally) AI search proxying.
-
-### Option A: Installer Script (Recommended)
-
-The extension ships with installer scripts. Run the one for your platform from the extension directory:
-
-- **Windows:** Double-click `install-server.bat`
-- **Linux/Mac:** Run `./install-server.sh`
-
-If the extension is not located inside the SillyTavern directory tree, pass the path to SillyTavern as an argument:
-
-```bash
-./install-server.sh /path/to/SillyTavern
-```
-
-### Option B: Manual Copy
-
-1. Locate the `server` folder inside the extension directory:
-   ```
-   SillyTavern/data/default-user/extensions/sillytavern-DeepLore-Enhanced/server/
-   ```
-2. Copy the entire `server` folder into `SillyTavern/plugins/`
-3. Rename it to `deeplore-enhanced`
-
-When done, you should have:
-```
-SillyTavern/plugins/deeplore-enhanced/
-  index.js
-  core/
-    obsidian.js
-```
-
----
-
-## Step 3: Enable Server Plugins
-
-Open `SillyTavern/config.yaml` and set:
-
-```yaml
-enableServerPlugins: true
-```
-
-If this line does not exist, add it.
-
----
-
-## Step 4: Restart SillyTavern
-
-Stop and restart SillyTavern. Check the server console. You should see a line confirming the DeepLore Enhanced plugin loaded.
+Stop and restart SillyTavern to load the new extension.
 
 ---
 
@@ -125,21 +76,20 @@ This uses an existing SillyTavern API connection with no extra software.
 
 #### Option B: Custom Proxy
 
-This routes AI requests through an external proxy server.
+This routes AI requests through an external proxy server via SillyTavern's built-in CORS proxy.
 
 1. Install and start [claude-code-proxy](https://github.com/horselock/claude-code-proxy) (defaults to `http://localhost:42069`)
-2. In DLE settings, scroll down to **AI Search**
-3. Check **Enable AI Search**
-4. Set connection mode to **Custom Proxy**
-5. Set the **Proxy URL** (e.g., `http://localhost:42069`)
-6. Set the **Model Override** (e.g., `claude-haiku-4-5-20251001`)
-7. Click **Test AI Search** to verify
+2. **Enable the CORS proxy:** Open `SillyTavern/config.yaml` and set `enableCorsProxy: true`, then restart SillyTavern. (Alternatively, install the optional server plugin from the `server/` folder — it auto-enables this setting.)
+3. In DLE settings, scroll down to **AI Search**
+4. Check **Enable AI Search**
+5. Set connection mode to **Custom Proxy**
+6. Set the **Proxy URL** (e.g., `http://localhost:42069`)
+7. Set the **Model Override** (e.g., `claude-haiku-4-5-20251001`)
+8. Click **Test AI Search** to verify
 
 ---
 
 ## Updating
-
-### Client Extension
 
 If you installed via the built-in installer, SillyTavern will show an update notification when a new version is available. Click **Update** in the Extensions panel.
 
@@ -150,20 +100,9 @@ cd SillyTavern/data/default-user/extensions/sillytavern-DeepLore-Enhanced
 git pull
 ```
 
-### Server Plugin
-
-After updating the client extension, re-run the installer script (Step 2, Option A) or manually copy the `server` folder again (Step 2, Option B) to ensure the server plugin is also updated.
-
 ---
 
 ## Troubleshooting
-
-### Server plugin not loading
-
-- **Check config.yaml:** `enableServerPlugins` must be `true`. This is `false` by default.
-- **Check the folder name:** The plugin folder must be `SillyTavern/plugins/deeplore-enhanced/` with an `index.js` at the root. A common mistake is having a nested folder like `plugins/deeplore-enhanced/server/index.js`. The `index.js` must be directly inside `deeplore-enhanced/`.
-- **Check the server console:** Look for errors when SillyTavern starts. The plugin should log a message on successful load.
-- **Restart SillyTavern:** Plugins are only loaded at startup. Any changes to the plugin require a full restart.
 
 ### Connection refused (Obsidian)
 
@@ -176,7 +115,7 @@ After updating the client extension, re-run the installer script (Step 2, Option
 ### AI Search test fails
 
 - **Connection Profile mode:** Make sure the selected profile still exists and its underlying API connection works. Test the connection in SillyTavern's main API panel first.
-- **Custom Proxy mode:** Verify the proxy is running (`curl http://localhost:42069` or equivalent). Check the proxy's console for errors.
+- **Custom Proxy mode:** Verify the proxy is running (`curl http://localhost:42069` or equivalent). Ensure `enableCorsProxy: true` is set in `config.yaml`. Check the proxy's console for errors.
 - **Timeout:** AI search has a configurable timeout (default 10 seconds). Slow providers may need a longer timeout in [[Settings Reference]].
 
 ### No entries found after Refresh Index

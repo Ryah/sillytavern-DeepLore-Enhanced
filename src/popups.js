@@ -4,7 +4,6 @@
  * showGraphPopup, optimizeEntryKeys, showOptimizePopup
  */
 import {
-    getRequestHeaders,
     saveChatDebounced,
     chat_metadata,
 } from '../../../../../script.js';
@@ -13,7 +12,8 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { getTokenCountAsync } from '../../../../tokenizers.js';
 import { parseFrontmatter, simpleHash, buildScanText } from '../core/utils.js';
 import { testEntryMatch } from '../core/matching.js';
-import { getSettings, getVaultByName, PLUGIN_BASE } from '../settings.js';
+import { getSettings, getVaultByName } from '../settings.js';
+import { writeNote } from './obsidian-api.js';
 import {
     vaultIndex,
     setVaultIndex, setIndexTimestamp,
@@ -642,17 +642,7 @@ export async function showOptimizePopup(entry, result) {
             }
             newContent += `---\n${body}`;
 
-            const writeResponse = await fetch(`${PLUGIN_BASE}/write-note`, {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({
-                    port: optVault.port,
-                    apiKey: optVault.apiKey,
-                    filename: entry.filename,
-                    content: newContent,
-                }),
-            });
-            const data = await writeResponse.json();
+            const data = await writeNote(optVault.port, optVault.apiKey, entry.filename, newContent);
             if (data.ok) {
                 toastr.success(`Keywords updated for "${entry.title}"`, 'DeepLore Enhanced');
                 setVaultIndex([]);

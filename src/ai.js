@@ -3,10 +3,10 @@
  * aiSearch, callViaProfile, extractAiResponseClient, profile dropdowns,
  * buildCandidateManifest
  */
-import { getRequestHeaders } from '../../../../../script.js';
 import { ConnectionManagerRequestService } from '../../../shared.js';
 import { truncateToSentence, simpleHash, buildAiChatContext } from '../core/utils.js';
-import { getSettings, PLUGIN_BASE, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats,
     setAiSearchCache,
@@ -378,52 +378,40 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
                 return { title: item.title || '', confidence: item.confidence || 'medium', reason: item.reason || 'AI search' };
             });
         } else {
-            // ── Proxy mode: call via server plugin ──
-            const response = await fetch(`${PLUGIN_BASE}/ai-search`, {
-                method: 'POST',
-                headers: getRequestHeaders(),
-                body: JSON.stringify({
-                    manifest: candidateManifest,
-                    manifestHeader: candidateHeader,
-                    chatContext: chatContext,
-                    proxyUrl: settings.aiSearchProxyUrl,
-                    model: settings.aiSearchModel || 'claude-haiku-4-5-20251001',
-                    maxTokens: settings.aiSearchMaxTokens,
-                    systemPrompt: systemPrompt,
-                    timeout: settings.aiSearchTimeout,
-                }),
-                signal: controller.signal,
-            });
+            // ── Proxy mode: call via CORS proxy bridge ──
+            const userMessageParts2 = [];
+            if (candidateHeader) userMessageParts2.push(`## Manifest Info\n${candidateHeader}`);
+            userMessageParts2.push(`## Recent Chat\n${chatContext}`);
+            userMessageParts2.push(`## Available Lore Entries\n${candidateManifest}`);
+            userMessageParts2.push('Select the relevant entries as a JSON array.');
+            const proxyUserMessage = userMessageParts2.join('\n\n');
 
+            const aiResult = await callProxyViaCorsBridge(
+                settings.aiSearchProxyUrl,
+                settings.aiSearchModel || 'claude-haiku-4-5-20251001',
+                systemPrompt,
+                proxyUserMessage,
+                settings.aiSearchMaxTokens,
+                settings.aiSearchTimeout,
+            );
             clearTimeout(timeoutId);
 
-            if (!response.ok) {
-                console.warn('[DLE] AI search server error:', response.status);
-                return { results: [], error: true };
-            }
-
-            const data = await response.json();
-
-            // Track usage
             aiSearchStats.calls++;
-            if (data.usage) {
-                aiSearchStats.totalInputTokens += data.usage.input_tokens || 0;
-                aiSearchStats.totalOutputTokens += data.usage.output_tokens || 0;
+            if (aiResult.usage) {
+                aiSearchStats.totalInputTokens += aiResult.usage.input_tokens || 0;
+                aiSearchStats.totalOutputTokens += aiResult.usage.output_tokens || 0;
             }
             updateAiStats();
 
-            // Handle new structured format (data.results) with backward compat (data.titles)
-            if (data.ok && Array.isArray(data.results)) {
-                aiResults = data.results;
-            } else if (data.ok && Array.isArray(data.titles)) {
-                // Legacy server response — normalize to structured format
-                aiResults = data.titles.map(t => ({ title: t, confidence: 'medium', reason: 'AI search' }));
-            } else {
-                if (settings.debugMode) {
-                    console.warn('[DLE] AI search returned error:', data.error || 'unknown');
-                }
+            const parsed = extractAiResponseClient(aiResult.text);
+            if (!parsed) {
+                if (settings.debugMode) console.warn('[DLE] AI search: could not parse proxy response as JSON array');
                 return { results: [], error: true };
             }
+            aiResults = parsed.map(item => {
+                if (typeof item === 'string') return { title: item, confidence: 'medium', reason: 'AI search' };
+                return { title: item.title || '', confidence: item.confidence || 'medium', reason: item.reason || 'AI search' };
+            }).filter(r => r.title && r.title.trim() !== '' && r.title !== 'null' && r.title !== 'undefined');
         }
 
         // Map returned results back to VaultEntry objects with confidence/reason

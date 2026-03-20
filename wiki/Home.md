@@ -29,8 +29,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 - [SillyTavern](https://github.com/SillyTavern/SillyTavern) 1.12.0+
 - [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin
-- Server plugins enabled in SillyTavern (`enableServerPlugins: true`)
-- For AI search: a saved Connection Manager profile in SillyTavern (any provider), or [claude-code-proxy](https://github.com/horselock/claude-code-proxy)
+- For AI search: a saved Connection Manager profile in SillyTavern (any provider), or [claude-code-proxy](https://github.com/horselock/claude-code-proxy) with `enableCorsProxy: true`
 
 ## Wiki Pages
 

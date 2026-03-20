@@ -5,6 +5,7 @@ import { getTokenCountAsync } from '../../../../tokenizers.js';
 import { oai_settings } from '../../../../openai.js';
 import { main_api, amount_gen } from '../../../../../script.js';
 import { getSettings } from '../settings.js';
+import { simpleHash } from '../core/utils.js';
 import { fetchAllMdFiles, fetchMdFilesDelta } from './obsidian-api.js';
 import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
@@ -64,6 +65,7 @@ export async function buildIndex() {
                     if (entry) {
                         entry.vaultSource = vault.name;
                         entry._rawContent = file.content;
+                        entry._contentHash = simpleHash(file.content);
                         entries.push(entry);
                     }
                 }
@@ -169,7 +171,7 @@ export async function hydrateFromCache() {
         console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
 
         // Background: rebuild from Obsidian to validate cache freshness
-        buildIndex().catch(() => {});
+        buildIndex().catch(err => console.warn('[DLE] Background rebuild after cache hydration failed:', err.message));
 
         return true;
     } catch (err) {
@@ -186,7 +188,8 @@ export async function hydrateFromCache() {
  */
 export async function buildIndexDelta() {
     if (indexing || vaultIndex.length === 0) {
-        // No existing index to delta against — fall back to full build
+        // If a build is in progress, await it and report that delta didn't run
+        if (buildPromise) await buildPromise;
         return false;
     }
 
@@ -203,52 +206,62 @@ export async function buildIndexDelta() {
     };
 
     setIndexing(true);
+    const promise = (async () => {
     try {
-        // Build a map of existing entries by filename per vault
-        const existingByVault = new Map();
+        // Build lookup of existing entries by vault:filename → entry (with content hash)
+        const existingMap = new Map();
         for (const entry of vaultIndex) {
-            const key = `${entry.vaultSource}:${entry.filename}`;
-            existingByVault.set(key, entry);
+            existingMap.set(`${entry.vaultSource}:${entry.filename}`, entry);
         }
 
         let hasChanges = false;
+        let newCount = 0, modifiedCount = 0, removedCount = 0;
         const allEntries = [];
 
         for (const vault of enabledVaults) {
             try {
-                const knownFiles = new Set(
-                    vaultIndex.filter(e => e.vaultSource === vault.name).map(e => e.filename),
-                );
+                // Fetch ALL file contents to detect content changes via hash comparison.
+                // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
+                const data = await fetchAllMdFiles(vault.port, vault.apiKey);
+                if (!data.files || !Array.isArray(data.files)) {
+                    console.warn(`[DLE] Delta: vault "${vault.name}" returned invalid data`);
+                    return false;
+                }
 
-                const delta = await fetchMdFilesDelta(vault.port, vault.apiKey, knownFiles);
-                const currentMdFiles = new Set(delta.allMdFiles);
+                const fetchedFilenames = new Set(data.files.map(f => f.filename));
 
-                // Detect removals: files in our index but no longer in vault listing
-                const removedFiles = [...knownFiles].filter(f => !currentMdFiles.has(f));
-                if (removedFiles.length > 0) hasChanges = true;
-
-                // Keep existing entries that are still in the vault
+                // Detect removals: entries in index but not in current vault
                 for (const entry of vaultIndex) {
-                    if (entry.vaultSource === vault.name && currentMdFiles.has(entry.filename) && !removedFiles.includes(entry.filename)) {
-                        allEntries.push(entry);
+                    if (entry.vaultSource === vault.name && !fetchedFilenames.has(entry.filename)) {
+                        hasChanges = true;
+                        removedCount++;
                     }
                 }
 
-                // Parse and add new files
-                if (delta.newFiles.length > 0) {
-                    hasChanges = true;
-                    for (const file of delta.newFiles) {
+                for (const file of data.files) {
+                    const key = `${vault.name}:${file.filename}`;
+                    const existing = existingMap.get(key);
+                    const fileHash = simpleHash(file.content);
+
+                    if (existing && existing._contentHash === fileHash) {
+                        // Unchanged — reuse existing parsed entry
+                        allEntries.push(existing);
+                    } else {
+                        // New or modified — re-parse
+                        hasChanges = true;
                         const entry = parseVaultFile(file, tagConfig);
                         if (entry) {
                             entry.vaultSource = vault.name;
                             entry._rawContent = file.content;
-                            // Compute token count for new entry
+                            entry._contentHash = fileHash;
                             try {
                                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
                             } catch {
                                 entry.tokenEstimate = Math.ceil(entry.content.length / 3.5);
                             }
                             allEntries.push(entry);
+                            if (existing) modifiedCount++;
+                            else newCount++;
                         }
                     }
                 }
@@ -264,6 +277,10 @@ export async function buildIndexDelta() {
                 console.debug('[DLE] Delta sync: no changes detected');
             }
             return true;
+        }
+
+        if (settings.debugMode) {
+            console.log(`[DLE] Delta sync: +${newCount} new, ~${modifiedCount} modified, -${removedCount} removed`);
         }
 
         // Apply changes
@@ -298,7 +315,11 @@ export async function buildIndexDelta() {
         return false;
     } finally {
         setIndexing(false);
+        setBuildPromise(null);
     }
+    })();
+    setBuildPromise(promise);
+    return promise;
 }
 
 /**

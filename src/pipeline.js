@@ -71,7 +71,14 @@ export function matchEntries(chat) {
                     }
                 }
 
-                // Probability check: random roll to determine if entry fires
+                // Probability check: explicit zero = never fires, otherwise random roll
+                if (entry.probability === 0) {
+                    if (settings.debugMode) {
+                        console.debug(`[DLE] Probability: "${entry.title}" has probability 0 — skipping`);
+                    }
+                    probabilitySkipped.push({ title: entry.title, probability: 0, roll: 0 });
+                    continue;
+                }
                 if (entry.probability !== null && entry.probability < 1.0) {
                     const roll = Math.random();
                     if (roll > entry.probability) {

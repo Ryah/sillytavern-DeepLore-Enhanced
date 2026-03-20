@@ -8,7 +8,7 @@ import {
     chat_metadata,
     name2,
 } from '../../../../../script.js';
-import { saveSettingsDebounced } from '../../../../../script.js';
+import { saveSettingsDebounced, saveChatDebounced } from '../../../../../script.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParser.js';
@@ -761,7 +761,7 @@ export function registerSlashCommands() {
                 chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(t => t.toLowerCase() !== entry.title.toLowerCase());
             }
             chat_metadata.deeplore_pins.push(entry.title);
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Pinned "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
@@ -780,7 +780,7 @@ export function registerSlashCommands() {
             const idx = chat_metadata.deeplore_pins.findIndex(t => t.toLowerCase() === name.toLowerCase());
             if (idx === -1) { toastr.info(`"${name}" is not pinned.`, 'DeepLore Enhanced'); return ''; }
             const removed = chat_metadata.deeplore_pins.splice(idx, 1)[0];
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Unpinned "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
@@ -805,7 +805,7 @@ export function registerSlashCommands() {
                 chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(t => t.toLowerCase() !== entry.title.toLowerCase());
             }
             chat_metadata.deeplore_blocks.push(entry.title);
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Blocked "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
@@ -824,7 +824,7 @@ export function registerSlashCommands() {
             const idx = chat_metadata.deeplore_blocks.findIndex(t => t.toLowerCase() === name.toLowerCase());
             if (idx === -1) { toastr.info(`"${name}" is not blocked.`, 'DeepLore Enhanced'); return ''; }
             const removed = chat_metadata.deeplore_blocks.splice(idx, 1)[0];
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Unblocked "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
@@ -875,12 +875,12 @@ export function registerSlashCommands() {
             const v = (value || '').trim();
             if (!v) {
                 ctx.era = '';
-                saveSettingsDebounced();
+                saveChatDebounced();
                 toastr.success('Era cleared.', 'DeepLore Enhanced');
                 return '';
             }
             ctx.era = v;
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Era set to "${v}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
@@ -895,12 +895,12 @@ export function registerSlashCommands() {
             const v = (value || '').trim();
             if (!v) {
                 ctx.location = '';
-                saveSettingsDebounced();
+                saveChatDebounced();
                 toastr.success('Location cleared.', 'DeepLore Enhanced');
                 return '';
             }
             ctx.location = v;
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Location set to "${v}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
@@ -915,12 +915,12 @@ export function registerSlashCommands() {
             const v = (value || '').trim();
             if (!v) {
                 ctx.scene_type = '';
-                saveSettingsDebounced();
+                saveChatDebounced();
                 toastr.success('Scene type cleared.', 'DeepLore Enhanced');
                 return '';
             }
             ctx.scene_type = v;
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Scene type set to "${v}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
@@ -935,12 +935,12 @@ export function registerSlashCommands() {
             const v = (value || '').trim();
             if (!v) {
                 ctx.characters_present = [];
-                saveSettingsDebounced();
+                saveChatDebounced();
                 toastr.success('Present characters cleared.', 'DeepLore Enhanced');
                 return '';
             }
             ctx.characters_present = v.split(',').map(c => c.trim()).filter(Boolean);
-            saveSettingsDebounced();
+            saveChatDebounced();
             toastr.success(`Characters present: ${ctx.characters_present.join(', ')}`, 'DeepLore Enhanced');
             return '';
         },

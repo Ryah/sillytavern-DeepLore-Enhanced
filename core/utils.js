@@ -1,7 +1,5 @@
 /**
- * DeepLore Shared Core — Utility Functions
- * This file is shared between DeepLore and DeepLore Enhanced via git subtree.
- * The canonical source lives in the Enhanced repo. Do not edit in base DeepLore.
+ * DeepLore Enhanced Core — Utility Functions
  */
 
 /**

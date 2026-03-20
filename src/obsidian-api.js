@@ -1,7 +1,6 @@
 /**
  * DeepLore Enhanced — Client-Side Obsidian REST API Module
  * Direct browser → Obsidian communication (CORS enabled by Obsidian REST API plugin).
- * Replaces the server plugin's Obsidian proxy endpoints.
  */
 
 const DEFAULT_TIMEOUT = 30000;
@@ -29,10 +28,9 @@ export function getCircuitState() {
             circuitBreaker.maxBackoff,
         );
         const remaining = Math.max(0, backoff - elapsed);
-        if (remaining === 0) {
-            circuitBreaker.state = 'half-open';
-        }
-        return { state: circuitBreaker.state, failures: circuitBreaker.failures, backoffRemaining: remaining };
+        // Report half-open when backoff expired, but don't mutate state — circuitAllows() handles transitions
+        const effectiveState = remaining === 0 ? 'half-open' : 'open';
+        return { state: effectiveState, failures: circuitBreaker.failures, backoffRemaining: remaining };
     }
     return { state: circuitBreaker.state, failures: circuitBreaker.failures, backoffRemaining: 0 };
 }
@@ -83,7 +81,8 @@ export function encodeVaultPath(vaultPath) {
  */
 function validateVaultPath(filename) {
     const normalized = filename.replace(/\\/g, '/');
-    if (normalized.startsWith('..') || normalized.startsWith('/') || normalized.includes('/../')) {
+    const segments = normalized.split('/');
+    if (normalized.startsWith('/') || segments.some(s => s === '..' || s === '.')) {
         throw new Error('Invalid filename: path traversal not allowed');
     }
     return normalized;

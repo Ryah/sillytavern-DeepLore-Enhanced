@@ -1,7 +1,5 @@
 /**
- * DeepLore Shared Core — Matching, Gating & Formatting
- * This file is shared between DeepLore and DeepLore Enhanced via git subtree.
- * The canonical source lives in the Enhanced repo. Do not edit in base DeepLore.
+ * DeepLore Enhanced Core — Matching, Gating & Formatting
  */
 
 import { escapeRegex } from './utils.js';

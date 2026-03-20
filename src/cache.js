@@ -34,8 +34,9 @@ function openDB() {
  * @returns {Promise<void>}
  */
 export async function saveIndexToCache(entries) {
+    let db;
     try {
-        const db = await openDB();
+        db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
 
@@ -73,6 +74,7 @@ export async function saveIndexToCache(entries) {
                 location: e.location,
                 sceneType: e.sceneType,
                 characterPresent: e.characterPresent,
+                _contentHash: e._contentHash || '',
             })),
         };
 
@@ -82,10 +84,10 @@ export async function saveIndexToCache(entries) {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);
         });
-
-        db.close();
     } catch (err) {
         console.warn('[DLE] Failed to save index to IndexedDB:', err.message);
+    } finally {
+        if (db) db.close();
     }
 }
 
@@ -94,8 +96,9 @@ export async function saveIndexToCache(entries) {
  * @returns {Promise<{ entries: import('../core/pipeline.js').VaultEntry[], timestamp: number } | null>}
  */
 export async function loadIndexFromCache() {
+    let db;
     try {
-        const db = await openDB();
+        db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
 
@@ -104,8 +107,6 @@ export async function loadIndexFromCache() {
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
         });
-
-        db.close();
 
         if (!result || !Array.isArray(result.entries) || result.entries.length === 0) {
             return null;
@@ -118,6 +119,8 @@ export async function loadIndexFromCache() {
     } catch (err) {
         console.warn('[DLE] Failed to load index from IndexedDB:', err.message);
         return null;
+    } finally {
+        if (db) db.close();
     }
 }
 
@@ -126,16 +129,18 @@ export async function loadIndexFromCache() {
  * @returns {Promise<void>}
  */
 export async function clearIndexCache() {
+    let db;
     try {
-        const db = await openDB();
+        db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readwrite');
         tx.objectStore(STORE_NAME).delete(CACHE_KEY);
         await new Promise((resolve, reject) => {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);
         });
-        db.close();
     } catch (err) {
         console.warn('[DLE] Failed to clear IndexedDB cache:', err.message);
+    } finally {
+        if (db) db.close();
     }
 }

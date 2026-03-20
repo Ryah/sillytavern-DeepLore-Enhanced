@@ -66,7 +66,11 @@ export async function callScribe(systemPrompt, userMessage, settings) {
 
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
     const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-    return await generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens });
+    const timeout = settings.scribeTimeout || 60000;
+    return await Promise.race([
+        generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(`Scribe quiet prompt timed out (${Math.round(timeout / 1000)}s)`)), timeout)),
+    ]);
 }
 
 /**
@@ -117,7 +121,7 @@ export async function runScribe(customPrompt) {
         const now = new Date();
         const dateStr = now.toISOString().slice(0, 10);
         const timeStr = now.toTimeString().slice(0, 5).replace(':', '-');
-        const charName = name2 || 'Unknown';
+        const charName = (name2 || 'Unknown').replace(/[<>:"/\\|?*]/g, '_');
         const filename = `${settings.scribeFolder}/${charName} - ${dateStr} ${timeStr}.md`;
 
         const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: ${charName}\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${summary.trim()}\n`;

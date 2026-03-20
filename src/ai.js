@@ -15,8 +15,7 @@ import { updateAiStats } from './settings-ui.js';
 
 /**
  * Extract AI response JSON from text (handles direct JSON, markdown code fences, raw arrays).
- * Ported from server/index.js extractAiResponse() for client-side profile mode.
- * BUG 4 FIX: Uses non-greedy regex and tries last match first.
+ * Uses non-greedy regex and tries last match first.
  * @param {string} text - Raw AI response text
  * @returns {Array} Parsed JSON array of results
  */
@@ -468,11 +467,12 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         const newText = newLines.join(' ').toLowerCase();
 
         // Check if any vault entry title or key appears in the new text
+        // Use min length 5 for keys to avoid false cache busts from short common words
         const entryNames = new Set();
         for (const entry of vaultIndex) {
-            entryNames.add(entry.title.toLowerCase());
+            if (entry.title.length >= 3) entryNames.add(entry.title.toLowerCase());
             for (const key of entry.keys) {
-                if (key.length >= 3) entryNames.add(key.toLowerCase());
+                if (key.length >= 5) entryNames.add(key.toLowerCase());
             }
         }
 

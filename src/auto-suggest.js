@@ -39,9 +39,12 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
     const maxTokens = settings.autoSuggestMaxTokens;
 
     if (mode === 'st') {
-        // BUG 1 FIX: Use object form matching callScribe's pattern
         const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-        const response = await generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
+        const effectiveTimeout = timeout || 60000;
+        const response = await Promise.race([
+            generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`)), effectiveTimeout)),
+        ]);
         return { text: response, usage: null };
     } else if (mode === 'profile') {
         return await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, settings.autoSuggestProfileId, settings.autoSuggestModel);

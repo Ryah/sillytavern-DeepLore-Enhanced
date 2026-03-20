@@ -81,7 +81,7 @@ This uses an existing SillyTavern API connection with no extra software.
 This routes AI requests through an external proxy server via SillyTavern's built-in CORS proxy.
 
 1. Install and start [claude-code-proxy](https://github.com/horselock/claude-code-proxy) (defaults to `http://localhost:42069`)
-2. **Enable the CORS proxy:** Open `SillyTavern/config.yaml` and set `enableCorsProxy: true`, then restart SillyTavern. (Alternatively, install the optional server plugin from the `server/` folder — it auto-enables this setting.)
+2. **Enable the CORS proxy:** Open `SillyTavern/config.yaml` and set `enableCorsProxy: true`, then restart SillyTavern.
 3. In DLE settings, scroll down to **AI Search**
 4. Check **Enable AI Search**
 5. Set connection mode to **Custom Proxy**

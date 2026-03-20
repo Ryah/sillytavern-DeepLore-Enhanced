@@ -16,7 +16,8 @@
  */
 export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000) {
     const targetUrl = proxyUrl.replace(/\/+$/, '') + '/v1/messages';
-    const corsProxyUrl = `/proxy/${targetUrl}`;
+    // Encode the target URL to prevent Express from collapsing :// to :/
+    const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);

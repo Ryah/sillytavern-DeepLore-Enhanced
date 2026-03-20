@@ -31,101 +31,6 @@
 - **Incremental Delta Sync** — On auto-sync, fetches only the file listing first, then downloads content only for new files. Removes deleted entries. Falls back to full rebuild.
 - **Hierarchical Manifest Clustering** — For large vaults (40+ entries), groups entries by category and uses a two-call AI approach: first selects relevant categories, then selects entries within those categories. Safety valve prevents over-aggressive filtering.
 
-### Settings Overhaul
-- **Search Mode dropdown** — Unified "Keyword Only / Two-Stage / AI Only" dropdown replaces separate AI enable checkbox and mode radio buttons
-- **AI-Powered Features drawer** — Groups AI Notebook, Session Scribe, and Auto Lorebook into one collapsible section
-- **"Show Advanced" toggles** — Power-user settings hidden behind per-section advanced toggles (persisted across sessions) for vault tags, matching, injection, AI search, and index/cache settings
-- **"You are Claude Code" toggle** — New checkbox in AI Search advanced settings to control the `You are Claude Code` system prompt prefix (proxy mode only)
-- **Vault name deep links** — Removed separate "Obsidian Vault Name" field; vault connection names now serve double duty for Obsidian deep links
-- **Title/tooltip audit** — Every setting input now has a descriptive `title` attribute for discoverability
-- **Auto-connect on load** — Extension automatically builds the vault index on startup when enabled (3s delay)
-
-### Self-Healing Diagnostics
-- Expanded `/dle-health` from ~7 to 30+ checks: circular requires, duplicate titles, conflicting overrides, orphaned cascade links, AI/Scribe misconfiguration, budget warnings, probability zero, unresolved wiki-links, keyword conflicts, and more.
-- Auto-runs on extension load, surfaces warnings via toast (silent if clean).
-
-### Refactor: Module Decomposition
-- Decomposed monolithic `index.js` (4619 lines) into 13 focused modules. `index.js` is now ~270 lines (entry point + `onGenerate`).
-- New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`.
-
-### Bug Fixes
-
-#### Pre-existing fixes
-- **Shared mutable defaults** — `getSettings()` assigned raw object references from `defaultSettings` for `vaults: []` and `analyticsData: {}`, so mutations could corrupt defaults. Now deep-clones non-primitive defaults.
-- **Manifest header count wrong in two-stage mode** — `buildCandidateManifest()` reported "from N total" using the full vault count instead of the actual candidate count. AI received a misleading header.
-- **First entry budget bypass undocumented** — `formatAndGroup()` always accepts the first entry even if it exceeds the token budget (by design, to avoid empty results). Added a debug-mode warning when this happens.
-- **Client AI response parser too permissive** — `extractAiResponseClient()` accepted any JSON array without validation. Now checks that array contents are strings or objects with `title`/`name`, matching the server parser's robustness.
-- **Server `||` on timeout/maxTokens** — `timeout || 15000` and `maxTokens || 1024` treated explicit `0` as falsy. Changed to `??` (nullish coalescing).
-- **Directory recursion off-by-one** — `listAllFiles()` allowed 21 nesting levels instead of 20. Fixed `> 20` to `>= 20`.
-- **Cooldown timer freeze** (critical) — Early returns in `onGenerate()` skipped `generationCount++` and cooldown decrement, permanently freezing cooldown timers during quiet generations. Fixed with `pipelineRan` flag + `finally` block.
-- **Test Match pipeline order** — Simulation ran gating before cooldown, opposite to actual `onGenerate` order. Reordered to match.
-- **`/dle-context` missing cooldown filter** — Command showed entries blocked by re-injection cooldown. Now applies cooldown filter before gating.
-- **Case-insensitive orphan detection** — Health check used case-sensitive comparison for requires/excludes/cascade_links while `applyGating()` is case-insensitive. Fixed all five instances.
-- **Case-insensitive graph edges** — Relationship graph used case-sensitive title lookups. Fixed to match runtime behavior.
-- **Case-insensitive wiki-link resolution** — Unresolved wiki-link check in diagnostics was case-sensitive. Fixed.
-- **Depth/role override warning** — Health check warned about depth overrides without considering global injection position default. Now checks effective position.
-- **`generateQuietPrompt` API** — Wrong API call signature for quiet generation.
-- **Scribe-notes HTTP status** — Missing HTTP status check on scribe-notes fetch.
-- **Auto-suggest scan depth** — Incorrect scan depth used for auto-suggest AI context.
-- **Greedy regex in `extractAiResponseClient`** — JSON array extraction used greedy `[\s\S]*` instead of lazy `[\s\S]*?`, capturing too much text.
-- **`Number || default` falsy-zero** — `Number(val) || default` treated valid 0 as falsy. Fixed with `isNaN()` checks.
-- **Warning ratio reset** — `lastWarningRatio` not reset on chat change, causing stale toast suppression.
-- **Backslash link false positives** — `extractWikiLinks()` now strips trailing backslashes from pipe-alias wiki-links (`[[Name\|Display]]` → `Name` not `Name\`)
-- **Cascade link false positives** — Health check now matches cascade links against filenames too, not just entry titles
-- **Self-exclude detection** — Health check warns when an entry's `excludes` list contains itself
-- **Browse popup badge alignment** — `[constant] [seed] [bootstrap]` badges now left-aligned with title instead of floating right
-
-#### Pre-release bug audit (6-expert, 45 bugs identified, 39 fixed, 5 deferred, 1 non-issue)
-
-**P0 — Ship blockers:**
-- **CHAT_CHANGED races with in-flight onGenerate** (critical) — Added `chatEpoch` counter to `state.js`. Incremented in CHAT_CHANGED handler, captured at start of `onGenerate`, checked before every state write. Bails out if epoch changed mid-pipeline, preventing cross-chat state contamination.
-- **Empty key `""` always matches every message** — Added `if (!key || !key.trim()) continue` guard in `testEntryMatch()` and `countKeywordOccurrences()`.
-- **`optimizeEntryKeys()` crashes when called with no arguments** — Settings UI now shows the optimize popup with entry selection instead of calling the function directly.
-- **Graph canvas animation loop never stops** — Track `animationFrameId` from `requestAnimationFrame()`. On popup close, `cancelAnimationFrame()` and set `isRunning = false`. Canvas event listeners removed.
-- **`showOptimizePopup` corrupts YAML via JSON.stringify** — Replaced `JSON.stringify(val)` with proper YAML value serialization: numbers/booleans unquoted, strings quoted only when containing YAML special chars, arrays as `\n  - item` format.
-- **Circuit breaker is a global singleton** — Created `Map<string, CircuitBreaker>` keyed by `host:port`. Factory function `getCircuitBreaker(port)` returns or creates per-vault instance.
-- **Setup wizard reads DOM after popup closes** — Input values captured inside the popup's resolution handler before DOM destruction. Stored in closure variables.
-- **Import silently overwrites existing vault entries** — Before `writeNote()`, does a GET request to check existence. If file exists, appends `_imported` suffix. Logs skipped/renamed files in import summary toast.
-
-**P1 — Must fix:**
-- **Circuit breaker counts HTTP 5xx as success** — Only calls `recordSuccess()` when `response.status < 500`. Calls `recordFailure()` for 5xx.
-- **`Promise.all` in directory listing kills entire index on single failure** — Replaced with `Promise.allSettled()`. Filters for `status === 'fulfilled'`, logs warnings for rejected.
-- **AI search cache not invalidated on CHAT_CHANGED** — Cache reset added to CHAT_CHANGED handler.
-- **Health badge click overwrites user's chat input** — Calls `runHealthCheck()` directly and shows results in a popup instead of injecting `/dle-health` into chat input.
-- **`\b` word boundary fails for non-word-char keys** — When key starts/ends with non-`\w` characters, uses `(?<!\w)`/`(?!\w)` lookahead/lookbehind instead of `\b`.
-- **Duplicate titles collide on cooldown/analytics/decay Maps** — Uses `entry.vaultSource + ':' + entry.title` as tracker key for all per-entry Maps.
-- **`autoSuggestMessageCount` not reset on CHAT_CHANGED** — Reset added to handler.
-- **`lastPipelineTrace` not reset on CHAT_CHANGED** — Reset added to handler.
-- **`lastInjectionSources` not reset on CHAT_CHANGED** — Reset added to handler.
-- **No loading state for AI operations** — Shows persistent toast with `timeOut: 0` at start of AI ops, dismissed on completion/error.
-- **Scribe disabled state sets `disabled` on div elements** — Added CSS `.menu_button.disabled { opacity: 0.4; pointer-events: none; }` to `style.css`.
-- **System prompt as message role** — Verified as non-issue: SillyTavern's `convertClaudeMessages()` correctly extracts leading `role: 'system'` messages to top-level `system` field for Anthropic; OpenAI supports inline. No code change needed.
-- **Notebook popup reads textarea after popup closes** — Textarea value captured in closure variable before popup resolves.
-- **Browse popup re-registers event listeners on every keystroke** — Replaced with event delegation on container element.
-- **Usage statistics always zero in profile mode** — Displays "N/A" in UI when usage data unavailable from `sendRequest`.
-
-**P2 — Should fix:**
-- **IndexedDB cache schema drift** — Replaced manual 28-field enumeration with `entries.map(e => { const c = {...e}; delete c._rawContent; return c; })`. Added `CACHE_SCHEMA_VERSION` to stored data, returns null on mismatch.
-- **Cache TTL=0 has inverted semantics** — Changed to `if (vaultIndex.length === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs))`.
-- **Sync polling setInterval can stack** — Replaced `setInterval` with `setTimeout` chaining (next scheduled after current completes).
-- **3-second delayed init races with early generation** — Checks `indexEverLoaded` or `indexing` before hydrating. Skips if build already started.
-- **YAML escaping incomplete for auto-suggest entries** — Also escapes `\n` and `\\`. Uses YAML block scalar `|` for multiline summaries.
-- **Dead AbortController in `aiSearch()`** — Removed the outer AbortController and setTimeout. Inner calls handle their own timeouts.
-- **Analytics data pruning missing from delta sync** — Copied analytics pruning block from `buildIndex()` into `buildIndexDelta()` after `setVaultIndex`.
-- **Settings version tracking** — Added `settingsVersion` to `defaultSettings`. `getSettings()` checks stored version, runs migration functions if different.
-- **Vault name containing `:` breaks delta sync key** — Uses `\0` as separator instead of `:` in existingMap keys.
-- **`__proto__`/`constructor` title pollutes analytics object** — Uses `Object.create(null)` for analytics and guards with `Object.hasOwn()` checks.
-- **Non-greedy regex matches inner arrays in AI responses** — Uses bracket-balanced extraction (bracket counting with string awareness) instead of regex. Tries largest candidates first.
-- **No profile existence validation before API call** — Calls `getProfile(profileId)` first, throws descriptive error if null.
-- **Import position mapping is lossy** — Adds YAML comment to imported entries noting original ST position. Shows summary warning after import.
-
-**P3 — Nice to have (4 fixed, 5 deferred):**
-- **Scribe filename minute-level precision collisions** — Added seconds to filename format: `HH-MM-SS`.
-- **Short keys bypass AI cache entity detection** — Lowered key threshold to 3 (matching title threshold).
-- **`fetchMdFilesDelta()` is dead code** — Removed the function.
-- **Blocks override constant entries** — Documented as intentional: blocks are manual overrides for constants.
-- *(Deferred)* Magic number imports, YAML parser docs, graph O(n^2) cap, inline styles → CSS, ARIA labels — documented in plan for future work.
-
 ### New Slash Commands
 | Command | Description |
 |---------|-------------|
@@ -160,7 +65,16 @@
 | `scene_type` | string | Contextual gating — entry only injects when the active scene type matches |
 | `character_present` | string[] | Contextual gating — entry only injects when any listed character is present |
 
-### Settings
+### Settings Overhaul
+- **Search Mode dropdown** — Unified "Keyword Only / Two-Stage / AI Only" dropdown replaces separate AI enable checkbox and mode radio buttons
+- **AI-Powered Features drawer** — Groups AI Notebook, Session Scribe, and Auto Lorebook into one collapsible section
+- **"Show Advanced" toggles** — Power-user settings hidden behind per-section advanced toggles (persisted across sessions) for vault tags, matching, injection, AI search, and index/cache settings
+- **"You are Claude Code" toggle** — New checkbox in AI Search advanced settings to control the `You are Claude Code` system prompt prefix (proxy mode only)
+- **Vault name deep links** — Removed separate "Obsidian Vault Name" field; vault connection names now serve double duty for Obsidian deep links
+- **Title/tooltip audit** — Every setting input now has a descriptive `title` attribute for discoverability
+- **Auto-connect on load** — Extension automatically builds the vault index on startup when enabled (3s delay)
+
+### New Settings
 - New AI Notebook section: enable, injection position, depth, role
 - New `stripDuplicateInjections` and `stripLookbackDepth` in Matching & Budget
 - New Auto Lorebook section: enable, interval, connection mode, profile, proxy, model, tokens, timeout, folder
@@ -169,20 +83,41 @@
 - New Entry Decay section: `decayEnabled`, `decayBoostThreshold`, `decayPenaltyThreshold`
 - New `scribeInformedRetrieval` toggle in AI Search
 
-#### Pre-release bug audit round 2 (7-expert, 55 unique bugs, 36 fixed)
+### Self-Healing Diagnostics
+- Expanded `/dle-health` from ~7 to 30+ checks: circular requires, duplicate titles, conflicting overrides, orphaned cascade links, AI/Scribe misconfiguration, budget warnings, probability zero, unresolved wiki-links, keyword conflicts, and more.
+- Auto-runs on extension load, surfaces warnings via toast (silent if clean).
 
-**Showstoppers (confirmed by 3-5 experts independently):**
-- **`clearTimeout(timeoutId)` crashes all AI fallback** (critical) — Undefined variable in `aiSearch()` catch block threw `ReferenceError` on every AI error, preventing the `{ results: [], error: true }` return. All documented fallback behavior (two-stage → keywords, ai-only → full vault) was broken. Fixed by removing the stale line.
-- **Tracker key mismatch breaks cooldowns, decay, analytics** (critical) — `onGenerate()` wrote to cooldown/injection/decay Maps using `trackerKey(entry)` = `"vaultSource:title"`, but 7 reader sites used bare `entry.title`. Keys never matched. Cooldowns never fired, decay never triggered, analytics were wiped on every vault rebuild. Fixed by extracting `trackerKey()` to `state.js` and using it everywhere.
+### Refactor: Module Decomposition
+- Decomposed monolithic `index.js` (4619 lines) into 13 focused modules. `index.js` is now ~270 lines (entry point + `onGenerate`).
+- New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`.
+
+### Bug Fixes
 
 **Critical:**
+- **`clearTimeout(timeoutId)` crashes all AI fallback** — Undefined variable in `aiSearch()` catch block threw `ReferenceError` on every AI error, preventing the `{ results: [], error: true }` return. All documented fallback behavior (two-stage → keywords, ai-only → full vault) was broken. Fixed by removing the stale line.
+- **Tracker key mismatch breaks cooldowns, decay, analytics** — `onGenerate()` wrote to cooldown/injection/decay Maps using `trackerKey(entry)` = `"vaultSource:title"`, but 7 reader sites used bare `entry.title`. Keys never matched. Cooldowns never fired, decay never triggered, analytics were wiped on every vault rebuild. Fixed by extracting `trackerKey()` to `state.js` and using it everywhere.
+- **CHAT_CHANGED races with in-flight onGenerate** — Added `chatEpoch` counter to `state.js`. Incremented in CHAT_CHANGED handler, captured at start of `onGenerate`, checked before every state write. Bails out if epoch changed mid-pipeline, preventing cross-chat state contamination.
+- **Cooldown timer freeze** — Early returns in `onGenerate()` skipped `generationCount++` and cooldown decrement, permanently freezing cooldown timers during quiet generations. Fixed with `pipelineRan` flag + `finally` block.
 - **Tag setting changes don't invalidate cache** — Changing lorebook/constant/never/seed/bootstrap tags only saved settings without rebuilding the index. Entries retained old tag classification until manual refresh. Now triggers `buildIndex()` on tag change.
 - **Stale hydrated data served during background rebuild** — `hydrateFromCache()` set `indexTimestamp` to the cache's original write time, causing `ensureIndexFresh()` to serve stale data if a generation fired before the background rebuild completed. Now sets `indexTimestamp = 0` to force rebuild.
 - **Prompt injection via vault content** — Entry summaries were interpolated raw into the AI search manifest. Malicious entries could inject instructions. Now wraps each entry in `<entry>` XML delimiters and escapes special characters in titles.
+- **Shared mutable defaults** — `getSettings()` assigned raw object references from `defaultSettings` for `vaults: []` and `analyticsData: {}`, so mutations could corrupt defaults. Now deep-clones non-primitive defaults.
 
 **High:**
-- **Profile mode never records token usage** — `aiSearchStats` token counters only updated in proxy path. Session stats always zero for profile users. Fixed.
+- **Empty key `""` always matches every message** — Added `if (!key || !key.trim()) continue` guard in `testEntryMatch()` and `countKeywordOccurrences()`.
+- **`optimizeEntryKeys()` crashes when called with no arguments** — Settings UI now shows the optimize popup with entry selection instead of calling the function directly.
+- **Graph canvas animation loop never stops** — Track `animationFrameId` from `requestAnimationFrame()`. On popup close, `cancelAnimationFrame()` and set `isRunning = false`. Canvas event listeners removed.
+- **`showOptimizePopup` corrupts YAML via JSON.stringify** — Replaced `JSON.stringify(val)` with proper YAML value serialization: numbers/booleans unquoted, strings quoted only when containing YAML special chars, arrays as `\n  - item` format.
+- **Circuit breaker is a global singleton** — Created `Map<string, CircuitBreaker>` keyed by `host:port`. Factory function `getCircuitBreaker(port)` returns or creates per-vault instance.
+- **Setup wizard reads DOM after popup closes** — Input values captured inside the popup's resolution handler before DOM destruction. Stored in closure variables.
+- **Import silently overwrites existing vault entries** — Before `writeNote()`, does a GET request to check existence. If file exists, appends `_imported` suffix. Logs skipped/renamed files in import summary toast.
+- **Circuit breaker counts HTTP 5xx as success** — Only calls `recordSuccess()` when `response.status < 500`. Calls `recordFailure()` for 5xx.
 - **Circuit breaker ignores 401/403** — Wrong API key caused infinite auth failures with no backoff. Now tracks 401/403 as failures.
+- **`Promise.all` in directory listing kills entire index on single failure** — Replaced with `Promise.allSettled()`. Filters for `status === 'fulfilled'`, logs warnings for rejected.
+- **AI search cache not invalidated on CHAT_CHANGED** — Cache reset added to CHAT_CHANGED handler.
+- **Profile mode never records token usage** — `aiSearchStats` token counters only updated in proxy path. Session stats always zero for profile users. Fixed.
+- **`\b` word boundary fails for non-word-char keys** — When key starts/ends with non-`\w` characters, uses `(?<!\w)`/`(?!\w)` lookahead/lookbehind instead of `\b`.
+- **Duplicate titles collide on cooldown/analytics/decay Maps** — Uses `entry.vaultSource + ':' + entry.title` as tracker key for all per-entry Maps.
 - **`response.json()` without safe parsing** — Proxy response parsing threw opaque `SyntaxError` on non-JSON responses. Now uses `response.text()` + `JSON.parse()` with descriptive error.
 - **AI response parser title/name mismatch** — Non-Claude models returning `item.name` instead of `item.title` got selections silently dropped. Now accepts both fields.
 - **Entry titles break XML injection template** — Titles with `<`, `>`, `&` corrupted prompt structure. Now XML-escapes titles in injection template.
@@ -192,26 +127,75 @@
 - **IndexedDB cache uses single key for all vaults** — Multi-vault: vault A's cache could serve vault B's data. Now keyed by vault configuration fingerprint.
 - **Hierarchical pre-filter matching too strict** — Exact category name matching dropped entire categories on AI reformulations. Now uses substring matching.
 - **`unlimitedBudget`/`unlimitedEntries` default true** — Zero budget enforcement out of the box. Changed defaults to `false`.
+- **Client AI response parser too permissive** — `extractAiResponseClient()` accepted any JSON array without validation. Now checks that array contents are strings or objects with `title`/`name`, matching the server parser's robustness.
+- **Greedy regex in `extractAiResponseClient`** — JSON array extraction used greedy `[\s\S]*` instead of lazy `[\s\S]*?`, capturing too much text.
+- **Non-greedy regex matches inner arrays in AI responses** — Uses bracket-balanced extraction (bracket counting with string awareness) instead of regex. Tries largest candidates first.
+- **Health badge click overwrites user's chat input** — Calls `runHealthCheck()` directly and shows results in a popup instead of injecting `/dle-health` into chat input.
+- **No loading state for AI operations** — Shows persistent toast with `timeOut: 0` at start of AI ops, dismissed on completion/error.
 
 **Medium:**
+- **Test Match pipeline order** — Simulation ran gating before cooldown, opposite to actual `onGenerate` order. Reordered to match.
+- **`/dle-context` missing cooldown filter** — Command showed entries blocked by re-injection cooldown. Now applies cooldown filter before gating.
+- **Case-insensitive orphan detection** — Health check used case-sensitive comparison for requires/excludes/cascade_links while `applyGating()` is case-insensitive. Fixed all five instances.
+- **Case-insensitive graph edges** — Relationship graph used case-sensitive title lookups. Fixed to match runtime behavior.
+- **Case-insensitive wiki-link resolution** — Unresolved wiki-link check in diagnostics was case-sensitive. Fixed.
+- **Depth/role override warning** — Health check warned about depth overrides without considering global injection position default. Now checks effective position.
+- **Manifest header count wrong in two-stage mode** — `buildCandidateManifest()` reported "from N total" using the full vault count instead of the actual candidate count. AI received a misleading header.
+- **`autoSuggestMessageCount` not reset on CHAT_CHANGED** — Reset added to handler.
+- **`lastPipelineTrace` not reset on CHAT_CHANGED** — Reset added to handler.
+- **`lastInjectionSources` not reset on CHAT_CHANGED** — Reset added to handler.
+- **Cartographer `previousSources` not reset on chat change** — First generation showed diff against previous chat's sources. Now reset in CHAT_CHANGED.
+- **Warning ratio reset** — `lastWarningRatio` not reset on chat change, causing stale toast suppression.
 - **YAML injection in auto-suggest** — AI-generated frontmatter values with special characters produced malformed YAML. Now escapes values.
+- **YAML escaping incomplete for auto-suggest entries** — Also escapes `\n` and `\\`. Uses YAML block scalar `|` for multiline summaries.
 - **Scribe filename sanitization incomplete** — Now strips leading/trailing dots, trailing spaces, Windows reserved names.
 - **Import assumes error = not found** — Network failures treated as "file doesn't exist", leading to overwrites. Now distinguishes error types.
 - **Import `_imported` suffix no uniqueness loop** — Second import overwrote `Foo_imported.md`. Now tries `_imported_2`, `_imported_3`, etc.
+- **Import position mapping is lossy** — Adds YAML comment to imported entries noting original ST position. Shows summary warning after import.
 - **`testConnection()` JSON parse on non-JSON** — Opaque error if port used by another service. Now wrapped in try/catch with descriptive error.
 - **IndexedDB quota exhaustion unhandled** — Large vaults silently failed to cache. Now shows warning toast.
+- **IndexedDB cache schema drift** — Replaced manual 28-field enumeration with `entries.map(e => { const c = {...e}; delete c._rawContent; return c; })`. Added `CACHE_SCHEMA_VERSION` to stored data, returns null on mismatch.
+- **Cache TTL=0 has inverted semantics** — Changed to `if (vaultIndex.length === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs))`.
 - **No settings snapshot during async pipeline** — Settings changes during AI search affected mid-pipeline. `runPipeline()` now takes a shallow snapshot.
-- **Cartographer `previousSources` not reset on chat change** — First generation showed diff against previous chat's sources. Now reset in CHAT_CHANGED.
+- **Settings version tracking** — Added `settingsVersion` to `defaultSettings`. `getSettings()` checks stored version, runs migration functions if different.
+- **Sync polling setInterval can stack** — Replaced `setInterval` with `setTimeout` chaining (next scheduled after current completes).
+- **3-second delayed init races with early generation** — Checks `indexEverLoaded` or `indexing` before hydrating. Skips if build already started.
 - **Number inputs accept out-of-range values visually** — Now clamps displayed value to match constraint range.
-- **`#dle_refresh` has no success toast** — Now shows success toast like `#dle_qa_refresh`.
+- **Browse popup re-registers event listeners on every keystroke** — Replaced with event delegation on container element.
+- **Notebook popup reads textarea after popup closes** — Textarea value captured in closure variable before popup resolves.
+- **Usage statistics always zero in profile mode** — Displays "N/A" in UI when usage data unavailable from `sendRequest`.
+- **Scribe disabled state sets `disabled` on div elements** — Added CSS `.menu_button.disabled { opacity: 0.4; pointer-events: none; }` to `style.css`.
+
+**Low:**
+- **Server `||` on timeout/maxTokens** — `timeout || 15000` and `maxTokens || 1024` treated explicit `0` as falsy. Changed to `??` (nullish coalescing).
+- **`Number || default` falsy-zero** — `Number(val) || default` treated valid 0 as falsy. Fixed with `isNaN()` checks.
+- **Directory recursion off-by-one** — `listAllFiles()` allowed 21 nesting levels instead of 20. Fixed `> 20` to `>= 20`.
+- **`generateQuietPrompt` API** — Wrong API call signature for quiet generation.
+- **Scribe-notes HTTP status** — Missing HTTP status check on scribe-notes fetch.
+- **Auto-suggest scan depth** — Incorrect scan depth used for auto-suggest AI context.
+- **Backslash link false positives** — `extractWikiLinks()` now strips trailing backslashes from pipe-alias wiki-links (`[[Name\|Display]]` → `Name` not `Name\`)
+- **Cascade link false positives** — Health check now matches cascade links against filenames too, not just entry titles
+- **Self-exclude detection** — Health check warns when an entry's `excludes` list contains itself
+- **Browse popup badge alignment** — `[constant] [seed] [bootstrap]` badges now left-aligned with title instead of floating right
+- **First entry budget bypass undocumented** — `formatAndGroup()` always accepts the first entry even if it exceeds the token budget (by design, to avoid empty results). Added a debug-mode warning when this happens.
+- **Dead AbortController in `aiSearch()`** — Removed the outer AbortController and setTimeout. Inner calls handle their own timeouts.
+- **Analytics data pruning missing from delta sync** — Copied analytics pruning block from `buildIndex()` into `buildIndexDelta()` after `setVaultIndex`.
+- **Analytics pruning key mismatch** — Analytics were written with `trackerKey` keys but pruned with bare titles, causing all analytics to be wiped on every vault rebuild. Fixed to use `trackerKey` consistently.
+- **Vault name containing `:` breaks delta sync key** — Uses `\0` as separator instead of `:` in existingMap keys.
+- **`__proto__`/`constructor` title pollutes analytics object** — Uses `Object.create(null)` for analytics and guards with `Object.hasOwn()` checks.
+- **No profile existence validation before API call** — Calls `getProfile(profileId)` first, throws descriptive error if null.
+- **Scribe filename minute-level precision collisions** — Added seconds to filename format: `HH-MM-SS`.
+- **Short keys bypass AI cache entity detection** — Lowered key threshold to 3 (matching title threshold).
+- **`fetchMdFilesDelta()` is dead code** — Removed the function.
 - **1-2 char entity names never bust AI cache** — Short titles like "Vi" were filtered out. Now allows titles >= 1 char.
 - **simpleHash 32-bit collision risk** — Upgraded to double-hash (two independent DJB2 passes) producing 64+ effective bits.
 - **Proxy connection test costs real tokens** — Reduced prompt to `"ping"` and max_tokens to 8.
-
-**Low (quick fixes):**
 - **Dead `obsidianVaultName` setting** — Removed unused setting from defaults.
 - **`parseWorldInfoJson` throws raw SyntaxError** — Now wraps in user-friendly error message.
-- **Analytics pruning key mismatch** — Analytics were written with `trackerKey` keys but pruned with bare titles, causing all analytics to be wiped on every vault rebuild. Fixed to use `trackerKey` consistently.
+- **`#dle_refresh` has no success toast** — Now shows success toast like `#dle_qa_refresh`.
+- **Blocks override constant entries** — Documented as intentional: blocks are manual overrides for constants.
+
+*(Deferred)* Magic number imports, YAML parser docs, graph O(n^2) cap, inline styles → CSS, ARIA labels — documented in plan for future work.
 
 ### Internal
 - New `probability`, `vaultSource`, `era`, `location`, `sceneType`, `characterPresent` fields on VaultEntry

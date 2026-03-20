@@ -183,15 +183,18 @@ export function updateIndexStats() {
             // Bind health badge click
             const badge = document.getElementById('dle_health_badge');
             if (badge) {
-                badge.addEventListener('click', () => {
-                    // Trigger the /dle-health slash command
-                    const input = document.getElementById('send_textarea');
-                    if (input) {
-                        input.value = '/dle-health';
-                        const event = new Event('input', { bubbles: true });
-                        input.dispatchEvent(event);
-                        document.getElementById('send_but')?.click();
+                badge.addEventListener('click', async () => {
+                    // Run health check directly and show results in a popup
+                    const result = await runHealthCheck();
+                    if (!result) return;
+                    const lines = [];
+                    lines.push(`Grade: ${result.grade} (${result.errors} errors, ${result.warnings} warnings)`);
+                    for (const item of result.items) {
+                        const icon = item.level === 'error' ? '\u274C' : item.level === 'warning' ? '\u26A0\uFE0F' : '\u2705';
+                        lines.push(`${icon} ${item.message}`);
                     }
+                    const html = `<div style="text-align: left; max-height: 60vh; overflow-y: auto;"><h3>Health Check</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${escapeHtml(lines.join('\n'))}</pre></div>`;
+                    callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
                 });
             }
         } else {
@@ -912,9 +915,23 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_qa_optimize').on('click', async () => {
         await ensureIndexFresh();
         if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
-        toastr.info('Analyzing keywords...', 'DeepLore Enhanced', { timeOut: 2000 });
-        const result = await optimizeEntryKeys();
-        if (result) showOptimizePopup(result);
+
+        // Show entry selection popup
+        const entryOptions = vaultIndex.map(e => `<option value="${escapeHtml(e.title)}">${escapeHtml(e.title)} (${e.keys.length} keys)</option>`).join('');
+        const selectHtml = `<div style="text-align: left;">
+            <h3>Optimize Keywords</h3>
+            <p style="opacity: 0.7; font-size: 0.85em;">Select an entry to optimize its keywords using AI.</p>
+            <select id="dle_optimize_entry_select" class="text_pole" style="width: 100%;">${entryOptions}</select>
+        </div>`;
+        const confirmed = await callGenericPopup(selectHtml, POPUP_TYPE.CONFIRM, '', { wide: true, okButton: 'Optimize', cancelButton: 'Cancel' });
+        if (!confirmed) return;
+        const selectedTitle = document.getElementById('dle_optimize_entry_select')?.value;
+        const entry = vaultIndex.find(e => e.title === selectedTitle);
+        if (!entry) return;
+
+        toastr.info(`Analyzing keywords for "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 2000 });
+        const result = await optimizeEntryKeys(entry);
+        if (result) showOptimizePopup(entry, result);
     });
 
     $('#dle_qa_inspect').on('click', () => {

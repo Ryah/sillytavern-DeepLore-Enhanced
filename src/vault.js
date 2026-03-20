@@ -6,7 +6,7 @@ import { oai_settings } from '../../../../openai.js';
 import { main_api, amount_gen } from '../../../../../script.js';
 import { getSettings } from '../settings.js';
 import { simpleHash } from '../core/utils.js';
-import { fetchAllMdFiles, fetchMdFilesDelta } from './obsidian-api.js';
+import { fetchAllMdFiles } from './obsidian-api.js';
 import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
     aiSearchCache, previousIndexSnapshot,
@@ -211,7 +211,7 @@ export async function buildIndexDelta() {
         // Build lookup of existing entries by vault:filename → entry (with content hash)
         const existingMap = new Map();
         for (const entry of vaultIndex) {
-            existingMap.set(`${entry.vaultSource}:${entry.filename}`, entry);
+            existingMap.set(`${entry.vaultSource}\0${entry.filename}`, entry);
         }
 
         let hasChanges = false;
@@ -239,7 +239,7 @@ export async function buildIndexDelta() {
                 }
 
                 for (const file of data.files) {
-                    const key = `${vault.name}:${file.filename}`;
+                    const key = `${vault.name}\0${file.filename}`;
                     const existing = existingMap.get(key);
                     const fileHash = simpleHash(file.content);
 
@@ -289,6 +289,15 @@ export async function buildIndexDelta() {
         resolveLinks(vaultIndex);
         setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
 
+        // Prune analytics data for entries no longer in the vault
+        const analytics = settings.analyticsData;
+        if (analytics) {
+            const activeTitles = new Set(vaultIndex.map(e => e.title));
+            for (const title of Object.keys(analytics)) {
+                if (!activeTitles.has(title)) delete analytics[title];
+            }
+        }
+
         // Change detection
         const newSnapshot = takeIndexSnapshot(vaultIndex);
         if (previousIndexSnapshot) {
@@ -330,7 +339,8 @@ export async function ensureIndexFresh() {
     const ttlMs = settings.cacheTTL * 1000;
     const now = Date.now();
 
-    if (vaultIndex.length === 0 || ttlMs === 0 || now - indexTimestamp > ttlMs) {
+    // TTL=0 means "never auto-refresh" (cache indefinitely until manual rebuild)
+    if (vaultIndex.length === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
         await buildIndex();
     }
 }

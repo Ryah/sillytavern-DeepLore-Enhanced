@@ -26,6 +26,23 @@ import { buildObsidianURI } from './cartographer.js';
 import { diagnoseEntry } from './diagnostics.js';
 
 /**
+ * Serialize a value for YAML frontmatter output.
+ * Numbers and booleans are unquoted; strings are quoted only when they
+ * contain YAML special characters that would cause parse ambiguity.
+ */
+function yamlSerializeValue(val) {
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'number' || typeof val === 'boolean') return String(val);
+    const str = String(val);
+    // Quote strings containing YAML special chars or that look like other types
+    if (/^[{[\]|>*&!%#@`'",?:~-]/.test(str) || /[:#{}[\],]/.test(str) || str === '' ||
+        /^(true|false|yes|no|on|off|null|~)$/i.test(str) || !isNaN(Number(str))) {
+        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    }
+    return str;
+}
+
+/**
  * Show the AI Notebook editor popup for the current chat.
  */
 export async function showNotebookPopup() {
@@ -40,6 +57,8 @@ export async function showNotebookPopup() {
         <small id="dle_notebook_token_count" style="opacity: 0.6;"></small>
     `;
 
+    // Capture textarea value in closure so it's available after popup DOM is destroyed
+    let capturedValue = currentContent;
     const result = await callGenericPopup(container, POPUP_TYPE.CONFIRM, '', {
         wide: true,
         large: true,
@@ -52,6 +71,7 @@ export async function showNotebookPopup() {
             if (textarea && countEl) {
                 const updateCount = async () => {
                     try {
+                        capturedValue = textarea.value;
                         const tokens = await getTokenCountAsync(textarea.value);
                         countEl.textContent = `~${tokens} tokens`;
                     } catch { countEl.textContent = ''; }
@@ -63,11 +83,8 @@ export async function showNotebookPopup() {
     });
 
     if (result) {
-        const textarea = document.getElementById('dle_notebook_textarea');
-        if (textarea) {
-            chat_metadata.deeplore_notebook = textarea.value;
-            saveChatDebounced();
-        }
+        chat_metadata.deeplore_notebook = capturedValue;
+        saveChatDebounced();
     }
 }
 
@@ -186,30 +203,30 @@ export async function showBrowsePopup() {
             html += `</div></div>`;
         }
         listEl.innerHTML = html || '<p style="opacity: 0.5;">No entries match filters.</p>';
-
-        // Bind "Why not?" buttons
-        listEl.querySelectorAll('.dle_whynot_btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const title = btn.dataset.title;
-                const entry = vaultIndex.find(en => en.title === title);
-                if (!entry) return;
-                const result = diagnoseEntry(entry, chat);
-                const stageColors = {
-                    keyword_miss: '#ff9800', warmup: '#ff9800', probability: '#2196f3',
-                    cooldown: '#ff9800', reinjection_cooldown: '#ff9800',
-                    gating_requires: '#f44336', gating_excludes: '#f44336',
-                    ai_rejected: '#9c27b0', budget_cut: '#ff9800',
-                    no_keywords: '#f44336', scan_depth_zero: '#f44336',
-                };
-                const color = stageColors[result.stage] || '#999';
-                const suggestions = result.suggestions.length > 0
-                    ? `<br><small style="opacity:0.8;">Suggestion: ${escapeHtml(result.suggestions[0])}</small>`
-                    : '';
-                btn.parentElement.innerHTML = `<div style="font-size: 0.85em; color: ${color}; padding: 4px 0;">${escapeHtml(result.detail)}${suggestions}</div>`;
-            });
-        });
     }
+
+    // Event delegation for "Why not?" buttons — registered once on container, not per render
+    container.addEventListener('click', (e) => {
+        const btn = e.target.closest('.dle_whynot_btn');
+        if (!btn) return;
+        e.stopPropagation();
+        const title = btn.dataset.title;
+        const entry = vaultIndex.find(en => en.title === title);
+        if (!entry) return;
+        const result = diagnoseEntry(entry, chat);
+        const stageColors = {
+            keyword_miss: '#ff9800', warmup: '#ff9800', probability: '#2196f3',
+            cooldown: '#ff9800', reinjection_cooldown: '#ff9800',
+            gating_requires: '#f44336', gating_excludes: '#f44336',
+            ai_rejected: '#9c27b0', budget_cut: '#ff9800',
+            no_keywords: '#f44336', scan_depth_zero: '#f44336',
+        };
+        const color = stageColors[result.stage] || '#999';
+        const suggestions = result.suggestions.length > 0
+            ? `<br><small style="opacity:0.8;">Suggestion: ${escapeHtml(result.suggestions[0])}</small>`
+            : '';
+        btn.parentElement.innerHTML = `<div style="font-size: 0.85em; color: ${color}; padding: 4px 0;">${escapeHtml(result.detail)}${suggestions}</div>`;
+    });
 
     await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
         wide: true,
@@ -524,11 +541,27 @@ export async function showGraphPopup() {
         }
     }
 
+    let animationFrameId = null;
     function tick() {
         if (!isRunning) return;
-        if (!document.getElementById('dle_graph_canvas')) { isRunning = false; return; }
-        simulate(); draw(); requestAnimationFrame(tick);
+        if (!document.getElementById('dle_graph_canvas')) {
+            isRunning = false;
+            if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+            return;
+        }
+        simulate(); draw();
+        animationFrameId = requestAnimationFrame(tick);
     }
+
+    // Clean up on popup close via MutationObserver
+    const observer = new MutationObserver(() => {
+        if (!document.getElementById('dle_graph_canvas')) {
+            isRunning = false;
+            if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+            observer.disconnect();
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
 
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();
@@ -672,7 +705,7 @@ export async function showOptimizePopup(entry, result) {
                 } else if (Array.isArray(val)) {
                     newContent += `${key}:\n${val.map(v => `  - ${v}`).join('\n')}\n`;
                 } else {
-                    newContent += `${key}: ${JSON.stringify(val)}\n`;
+                    newContent += `${key}: ${yamlSerializeValue(val)}\n`;
                 }
             }
             if (!frontmatter.keys) {

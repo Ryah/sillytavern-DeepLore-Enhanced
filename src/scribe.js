@@ -120,7 +120,7 @@ export async function runScribe(customPrompt) {
         // Build filename and content
         const now = new Date();
         const dateStr = now.toISOString().slice(0, 10);
-        const timeStr = now.toTimeString().slice(0, 5).replace(':', '-');
+        const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-');
         const charName = (name2 || 'Unknown').replace(/[<>:"/\\|?*]/g, '_');
         const filename = `${settings.scribeFolder}/${charName} - ${dateStr} ${timeStr}.md`;
 

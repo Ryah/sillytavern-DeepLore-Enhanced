@@ -2,7 +2,7 @@
  * DeepLore Enhanced — SillyTavern Lorebook Import Bridge (Lite)
  * Converts ST World Info JSON entries into Obsidian vault notes with frontmatter.
  */
-import { writeNote } from './obsidian-api.js';
+import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../settings.js';
 
 /**
@@ -28,7 +28,8 @@ export function convertWiEntry(wiEntry, lorebookTag) {
         keys.push(...wiEntry.key.split(',').map(k => k.trim()).filter(Boolean));
     }
 
-    // Map ST position to DLE position
+    // Map ST position to DLE position (lossy: ST has 5 values, DLE has 3)
+    // ST: 0=after_char, 1=before_char, 2=before_AN, 3=after_AN, 4=in_chat
     const positionMap = { 0: 'after', 1: 'before', 2: 'before', 3: 'before', 4: 'in_chat' };
     const position = positionMap[wiEntry.position] || null;
 
@@ -37,6 +38,7 @@ export function convertWiEntry(wiEntry, lorebookTag) {
     fm.push('---');
     fm.push(`type: lore`);
     fm.push(`status: active`);
+    if (wiEntry.position !== undefined) fm.push(`# original_st_position: ${wiEntry.position}`);
     fm.push(`priority: ${wiEntry.order ?? 50}`);
     fm.push(`tags:`);
     fm.push(`  - ${lorebookTag}`);
@@ -89,10 +91,31 @@ export async function importEntries(entries, folder) {
     let failed = 0;
     const errors = [];
 
+    let renamed = 0;
     for (const wiEntry of entries) {
         try {
             const { filename, content } = convertWiEntry(wiEntry, lorebookTag);
-            const fullPath = folder ? `${folder}/${filename}` : filename;
+            let fullPath = folder ? `${folder}/${filename}` : filename;
+
+            // Check if file already exists to avoid silent overwrites
+            try {
+                const checkResult = await obsidianFetch({
+                    port: vault.port,
+                    apiKey: vault.apiKey,
+                    path: `/vault/${encodeVaultPath(fullPath)}`,
+                    accept: 'text/markdown',
+                });
+                if (checkResult.status === 200) {
+                    // File exists — append _imported suffix
+                    const base = filename.replace(/\.md$/, '');
+                    const renamedFilename = `${base}_imported.md`;
+                    fullPath = folder ? `${folder}/${renamedFilename}` : renamedFilename;
+                    renamed++;
+                }
+            } catch {
+                // Fetch error (e.g. 404) means file doesn't exist — proceed normally
+            }
+
             const result = await writeNote(vault.port, vault.apiKey, fullPath, content);
             if (result.ok) {
                 imported++;
@@ -106,7 +129,7 @@ export async function importEntries(entries, folder) {
         }
     }
 
-    return { imported, failed, errors };
+    return { imported, failed, renamed, errors };
 }
 
 /**

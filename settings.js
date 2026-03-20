@@ -134,7 +134,22 @@ export const defaultSettings = {
     decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
     // Analytics
     analyticsData: {},
+    // Settings version — increment to trigger migrations
+    settingsVersion: 1,
 };
+
+/**
+ * Run settings migrations between versions.
+ * Each migration handles the transition from one version to the next.
+ */
+function runMigrations(settings, fromVersion, toVersion) {
+    // Migration 0 → 1: initial versioned settings (no-op, just sets version)
+    if (fromVersion < 1) {
+        console.log('[DLE] Migrating settings to version 1');
+    }
+    // Future migrations go here:
+    // if (fromVersion < 2) { ... }
+}
 
 /** Validation constraints for numeric settings */
 export const settingsConstraints = {
@@ -181,8 +196,17 @@ export function getSettings() {
     }
     validateSettings(extension_settings[MODULE_NAME], settingsConstraints);
 
-    // Multi-vault migration: if vaults[] is empty but legacy obsidianPort exists, migrate
     const s = extension_settings[MODULE_NAME];
+
+    // Run migrations if settings version is behind
+    const currentVersion = defaultSettings.settingsVersion;
+    const storedVersion = s.settingsVersion || 0;
+    if (storedVersion < currentVersion) {
+        runMigrations(s, storedVersion, currentVersion);
+        s.settingsVersion = currentVersion;
+    }
+
+    // Multi-vault migration: if vaults[] is empty but legacy obsidianPort exists, migrate
     if ((!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort) {
         s.vaults = [{
             name: 'Primary',

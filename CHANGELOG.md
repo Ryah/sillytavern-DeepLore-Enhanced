@@ -49,6 +49,8 @@
 - New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`.
 
 ### Bug Fixes
+
+#### Pre-existing fixes
 - **Shared mutable defaults** — `getSettings()` assigned raw object references from `defaultSettings` for `vaults: []` and `analyticsData: {}`, so mutations could corrupt defaults. Now deep-clones non-primitive defaults.
 - **Manifest header count wrong in two-stage mode** — `buildCandidateManifest()` reported "from N total" using the full vault count instead of the actual candidate count. AI received a misleading header.
 - **First entry budget bypass undocumented** — `formatAndGroup()` always accepts the first entry even if it exceeds the token budget (by design, to avoid empty results). Added a debug-mode warning when this happens.
@@ -72,6 +74,57 @@
 - **Cascade link false positives** — Health check now matches cascade links against filenames too, not just entry titles
 - **Self-exclude detection** — Health check warns when an entry's `excludes` list contains itself
 - **Browse popup badge alignment** — `[constant] [seed] [bootstrap]` badges now left-aligned with title instead of floating right
+
+#### Pre-release bug audit (6-expert, 45 bugs identified, 39 fixed, 5 deferred, 1 non-issue)
+
+**P0 — Ship blockers:**
+- **CHAT_CHANGED races with in-flight onGenerate** (critical) — Added `chatEpoch` counter to `state.js`. Incremented in CHAT_CHANGED handler, captured at start of `onGenerate`, checked before every state write. Bails out if epoch changed mid-pipeline, preventing cross-chat state contamination.
+- **Empty key `""` always matches every message** — Added `if (!key || !key.trim()) continue` guard in `testEntryMatch()` and `countKeywordOccurrences()`.
+- **`optimizeEntryKeys()` crashes when called with no arguments** — Settings UI now shows the optimize popup with entry selection instead of calling the function directly.
+- **Graph canvas animation loop never stops** — Track `animationFrameId` from `requestAnimationFrame()`. On popup close, `cancelAnimationFrame()` and set `isRunning = false`. Canvas event listeners removed.
+- **`showOptimizePopup` corrupts YAML via JSON.stringify** — Replaced `JSON.stringify(val)` with proper YAML value serialization: numbers/booleans unquoted, strings quoted only when containing YAML special chars, arrays as `\n  - item` format.
+- **Circuit breaker is a global singleton** — Created `Map<string, CircuitBreaker>` keyed by `host:port`. Factory function `getCircuitBreaker(port)` returns or creates per-vault instance.
+- **Setup wizard reads DOM after popup closes** — Input values captured inside the popup's resolution handler before DOM destruction. Stored in closure variables.
+- **Import silently overwrites existing vault entries** — Before `writeNote()`, does a GET request to check existence. If file exists, appends `_imported` suffix. Logs skipped/renamed files in import summary toast.
+
+**P1 — Must fix:**
+- **Circuit breaker counts HTTP 5xx as success** — Only calls `recordSuccess()` when `response.status < 500`. Calls `recordFailure()` for 5xx.
+- **`Promise.all` in directory listing kills entire index on single failure** — Replaced with `Promise.allSettled()`. Filters for `status === 'fulfilled'`, logs warnings for rejected.
+- **AI search cache not invalidated on CHAT_CHANGED** — Cache reset added to CHAT_CHANGED handler.
+- **Health badge click overwrites user's chat input** — Calls `runHealthCheck()` directly and shows results in a popup instead of injecting `/dle-health` into chat input.
+- **`\b` word boundary fails for non-word-char keys** — When key starts/ends with non-`\w` characters, uses `(?<!\w)`/`(?!\w)` lookahead/lookbehind instead of `\b`.
+- **Duplicate titles collide on cooldown/analytics/decay Maps** — Uses `entry.vaultSource + ':' + entry.title` as tracker key for all per-entry Maps.
+- **`autoSuggestMessageCount` not reset on CHAT_CHANGED** — Reset added to handler.
+- **`lastPipelineTrace` not reset on CHAT_CHANGED** — Reset added to handler.
+- **`lastInjectionSources` not reset on CHAT_CHANGED** — Reset added to handler.
+- **No loading state for AI operations** — Shows persistent toast with `timeOut: 0` at start of AI ops, dismissed on completion/error.
+- **Scribe disabled state sets `disabled` on div elements** — Added CSS `.menu_button.disabled { opacity: 0.4; pointer-events: none; }` to `style.css`.
+- **System prompt as message role** — Verified as non-issue: SillyTavern's `convertClaudeMessages()` correctly extracts leading `role: 'system'` messages to top-level `system` field for Anthropic; OpenAI supports inline. No code change needed.
+- **Notebook popup reads textarea after popup closes** — Textarea value captured in closure variable before popup resolves.
+- **Browse popup re-registers event listeners on every keystroke** — Replaced with event delegation on container element.
+- **Usage statistics always zero in profile mode** — Displays "N/A" in UI when usage data unavailable from `sendRequest`.
+
+**P2 — Should fix:**
+- **IndexedDB cache schema drift** — Replaced manual 28-field enumeration with `entries.map(e => { const c = {...e}; delete c._rawContent; return c; })`. Added `CACHE_SCHEMA_VERSION` to stored data, returns null on mismatch.
+- **Cache TTL=0 has inverted semantics** — Changed to `if (vaultIndex.length === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs))`.
+- **Sync polling setInterval can stack** — Replaced `setInterval` with `setTimeout` chaining (next scheduled after current completes).
+- **3-second delayed init races with early generation** — Checks `indexEverLoaded` or `indexing` before hydrating. Skips if build already started.
+- **YAML escaping incomplete for auto-suggest entries** — Also escapes `\n` and `\\`. Uses YAML block scalar `|` for multiline summaries.
+- **Dead AbortController in `aiSearch()`** — Removed the outer AbortController and setTimeout. Inner calls handle their own timeouts.
+- **Analytics data pruning missing from delta sync** — Copied analytics pruning block from `buildIndex()` into `buildIndexDelta()` after `setVaultIndex`.
+- **Settings version tracking** — Added `settingsVersion` to `defaultSettings`. `getSettings()` checks stored version, runs migration functions if different.
+- **Vault name containing `:` breaks delta sync key** — Uses `\0` as separator instead of `:` in existingMap keys.
+- **`__proto__`/`constructor` title pollutes analytics object** — Uses `Object.create(null)` for analytics and guards with `Object.hasOwn()` checks.
+- **Non-greedy regex matches inner arrays in AI responses** — Uses bracket-balanced extraction (bracket counting with string awareness) instead of regex. Tries largest candidates first.
+- **No profile existence validation before API call** — Calls `getProfile(profileId)` first, throws descriptive error if null.
+- **Import position mapping is lossy** — Adds YAML comment to imported entries noting original ST position. Shows summary warning after import.
+
+**P3 — Nice to have (4 fixed, 5 deferred):**
+- **Scribe filename minute-level precision collisions** — Added seconds to filename format: `HH-MM-SS`.
+- **Short keys bypass AI cache entity detection** — Lowered key threshold to 3 (matching title threshold).
+- **`fetchMdFilesDelta()` is dead code** — Removed the function.
+- **Blocks override constant entries** — Documented as intentional: blocks are manual overrides for constants.
+- *(Deferred)* Magic number imports, YAML parser docs, graph O(n^2) cap, inline styles → CSS, ARIA labels — documented in plan for future work.
 
 ### New Slash Commands
 | Command | Description |

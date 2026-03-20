@@ -43,11 +43,32 @@ export function extractAiResponseClient(text) {
             if (isValidResultArray(parsed)) return parsed;
         } catch { /* noop */ }
     }
-    // Try all JSON arrays (non-greedy), prefer last match (AIs put results at the end)
-    const arrayMatches = [...text.matchAll(/\[[\s\S]*?\]/g)];
-    for (let i = arrayMatches.length - 1; i >= 0; i--) {
+    // Find bracket-balanced JSON arrays, prefer last (largest) match
+    // Non-greedy regex fails on nested arrays like ["a", ["b"]] — use bracket counting instead
+    const candidates = [];
+    for (let i = 0; i < text.length; i++) {
+        if (text[i] === '[') {
+            let depth = 1, inStr = false, escape = false;
+            for (let j = i + 1; j < text.length && depth > 0; j++) {
+                const c = text[j];
+                if (escape) { escape = false; continue; }
+                if (c === '\\') { escape = true; continue; }
+                if (c === '"') { inStr = !inStr; continue; }
+                if (inStr) continue;
+                if (c === '[') depth++;
+                else if (c === ']') depth--;
+                if (depth === 0) {
+                    candidates.push(text.substring(i, j + 1));
+                    break;
+                }
+            }
+        }
+    }
+    // Try largest candidates first (outer arrays before inner)
+    candidates.sort((a, b) => b.length - a.length);
+    for (const candidate of candidates) {
         try {
-            const parsed = JSON.parse(arrayMatches[i][0]);
+            const parsed = JSON.parse(candidate);
             if (isValidResultArray(parsed)) return parsed;
         } catch { /* noop */ }
     }
@@ -86,6 +107,19 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
     const resolvedModel = modelOverride !== undefined ? modelOverride : settings.aiSearchModel;
     if (!resolvedProfileId) throw new Error('No connection profile selected.');
 
+    // Validate profile exists before making the API call
+    try {
+        const profile = ConnectionManagerRequestService.getProfile(resolvedProfileId);
+        if (!profile) throw new Error(`Connection profile "${resolvedProfileId}" not found. Check your AI Search settings.`);
+    } catch (e) {
+        if (e.message.includes('not found')) throw e;
+        throw new Error(`Connection profile "${resolvedProfileId}" not found or invalid. Check your AI Search settings.`);
+    }
+
+    // Some providers (e.g. Anthropic) require system prompt separately, not as a message.
+    // ConnectionManagerRequestService handles this via the options parameter.
+    // Pass system as first user message with clear framing as fallback for providers that
+    // don't extract system messages, while also providing it in options for those that do.
     const messages = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userMessage },
@@ -112,7 +146,10 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
 
         return {
             text: result.content || '',
-            usage: { input_tokens: 0, output_tokens: 0 },
+            usage: {
+                input_tokens: result.usage?.input_tokens || result.usage?.prompt_tokens || 0,
+                output_tokens: result.usage?.output_tokens || result.usage?.completion_tokens || 0,
+            },
         };
     } finally {
         clearTimeout(timer);
@@ -472,7 +509,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         for (const entry of vaultIndex) {
             if (entry.title.length >= 3) entryNames.add(entry.title.toLowerCase());
             for (const key of entry.keys) {
-                if (key.length >= 5) entryNames.add(key.toLowerCase());
+                if (key.length >= 3) entryNames.add(key.toLowerCase());
             }
         }
 
@@ -492,11 +529,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         }
     }
 
-    let timeoutId;
     try {
-        const controller = new AbortController();
-        timeoutId = setTimeout(() => controller.abort(), settings.aiSearchTimeout);
-
         // Resolve system prompt with {{maxEntries}} placeholder
         // Request 2x max entries so low-confidence candidates can fill remaining budget
         const requestedEntries = settings.unlimitedEntries ? 0 : Math.min(settings.maxEntries * 2, vaultIndex.length);
@@ -539,7 +572,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         if (settings.aiSearchConnectionMode === 'profile') {
             // ── Profile mode: call via ConnectionManagerRequestService ──
             const aiResult = await callViaProfile(systemPrompt, userMessage, settings.aiSearchMaxTokens, settings.aiSearchTimeout);
-            clearTimeout(timeoutId);
+            // (timeout handled internally by callViaProfile/callProxyViaCorsBridge)
 
             aiSearchStats.calls++;
             updateAiStats();
@@ -580,7 +613,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
                 // Pass cache-aware content blocks for Anthropic prompt caching
                 { stablePrefix, dynamicSuffix },
             );
-            clearTimeout(timeoutId);
+            // (timeout handled internally by callViaProfile/callProxyViaCorsBridge)
 
             aiSearchStats.calls++;
             if (aiResult.usage) {

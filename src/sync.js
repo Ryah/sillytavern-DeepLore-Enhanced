@@ -49,21 +49,33 @@ export function setupSyncPolling(buildIndexFn, buildIndexDeltaFn) {
     const settings = getSettings();
 
     if (syncIntervalId) {
-        clearInterval(syncIntervalId);
+        clearTimeout(syncIntervalId);
         setSyncIntervalId(null);
     }
 
     if (settings.syncPollingInterval > 0 && settings.enabled && buildIndexFn) {
-        setSyncIntervalId(setInterval(async () => {
-            const current = getSettings();
-            if (!current.enabled || indexing) return;
+        // Use setTimeout chaining instead of setInterval to prevent overlapping callbacks
+        const scheduleNext = () => {
+            setSyncIntervalId(setTimeout(async () => {
+                const current = getSettings();
+                if (!current.enabled || indexing) {
+                    scheduleNext();
+                    return;
+                }
 
-            // Try delta sync first (lightweight), fall back to full rebuild
-            if (buildIndexDeltaFn) {
-                const deltaOk = await buildIndexDeltaFn();
-                if (deltaOk) return;
-            }
-            await buildIndexFn();
-        }, settings.syncPollingInterval * 1000));
+                try {
+                    // Try delta sync first (lightweight), fall back to full rebuild
+                    if (buildIndexDeltaFn) {
+                        const deltaOk = await buildIndexDeltaFn();
+                        if (deltaOk) { scheduleNext(); return; }
+                    }
+                    await buildIndexFn();
+                } catch (err) {
+                    console.warn('[DLE] Sync polling error:', err.message);
+                }
+                scheduleNext();
+            }, settings.syncPollingInterval * 1000));
+        };
+        scheduleNext();
     }
 }

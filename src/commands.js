@@ -82,11 +82,13 @@ export function registerSlashCommands() {
                 toastr.warning(`Entry "${name}" not found.`, 'DeepLore Enhanced');
                 return '';
             }
-            toastr.info(`Optimizing keywords for "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 3000 });
+            const loadingToast = toastr.info(`Optimizing keywords for "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
             try {
                 const result = await optimizeEntryKeys(entry);
+                toastr.clear(loadingToast);
                 await showOptimizePopup(entry, result);
             } catch (err) {
+                toastr.clear(loadingToast);
                 console.error('[DLE] Optimize keys error:', err);
                 toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
             }
@@ -103,11 +105,13 @@ export function registerSlashCommands() {
                 toastr.warning('No active chat.', 'DeepLore Enhanced');
                 return '';
             }
-            toastr.info('Analyzing chat for new entries...', 'DeepLore Enhanced', { timeOut: 3000 });
+            const loadingToast = toastr.info('Analyzing chat for new entries...', 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
             try {
                 const suggestions = await runAutoSuggest();
+                toastr.clear(loadingToast);
                 await showSuggestionPopup(suggestions);
             } catch (err) {
+                toastr.clear(loadingToast);
                 console.error('[DLE] Auto-suggest error:', err);
                 toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
             }
@@ -465,12 +469,21 @@ export function registerSlashCommands() {
                     </div>
                 </div>`;
 
-            const step1Ok = await callGenericPopup(step1Html, POPUP_TYPE.CONFIRM, '', { wide: true });
+            // Capture input values while popup is still open using onOpen + live binding
+            let vaultName = 'Primary', port = 27123, apiKey = '';
+            const step1Ok = await callGenericPopup(step1Html, POPUP_TYPE.CONFIRM, '', {
+                wide: true,
+                onOpen: () => {
+                    // Attach input handlers to capture values in real-time
+                    const nameEl = document.getElementById('dle_setup_name');
+                    const portEl = document.getElementById('dle_setup_port');
+                    const keyEl = document.getElementById('dle_setup_key');
+                    if (nameEl) { vaultName = nameEl.value.trim() || 'Primary'; nameEl.addEventListener('input', () => { vaultName = nameEl.value.trim() || 'Primary'; }); }
+                    if (portEl) { port = parseInt(portEl.value) || 27123; portEl.addEventListener('input', () => { port = parseInt(portEl.value) || 27123; }); }
+                    if (keyEl) { apiKey = keyEl.value.trim() || ''; keyEl.addEventListener('input', () => { apiKey = keyEl.value.trim() || ''; }); }
+                },
+            });
             if (!step1Ok) return '';
-
-            const vaultName = document.getElementById('dle_setup_name')?.value?.trim() || 'Primary';
-            const port = parseInt(document.getElementById('dle_setup_port')?.value) || 27123;
-            const apiKey = document.getElementById('dle_setup_key')?.value?.trim() || '';
 
             // Test connection
             const { testConnection } = await import('./obsidian-api.js');
@@ -500,11 +513,17 @@ export function registerSlashCommands() {
                     </div>
                 </div>`;
 
-            const step2Ok = await callGenericPopup(step2Html, POPUP_TYPE.CONFIRM, '', { wide: true });
+            let lorebookTag = settings.lorebookTag, searchMode = 'keywords';
+            const step2Ok = await callGenericPopup(step2Html, POPUP_TYPE.CONFIRM, '', {
+                wide: true,
+                onOpen: () => {
+                    const tagEl = document.getElementById('dle_setup_tag');
+                    const modeEl = document.getElementById('dle_setup_mode');
+                    if (tagEl) { lorebookTag = tagEl.value.trim() || 'lorebook'; tagEl.addEventListener('input', () => { lorebookTag = tagEl.value.trim() || 'lorebook'; }); }
+                    if (modeEl) { searchMode = modeEl.value || 'keywords'; modeEl.addEventListener('change', () => { searchMode = modeEl.value || 'keywords'; }); }
+                },
+            });
             if (!step2Ok) return '';
-
-            const lorebookTag = document.getElementById('dle_setup_tag')?.value?.trim() || 'lorebook';
-            const searchMode = document.getElementById('dle_setup_mode')?.value || 'keywords';
 
             // Apply settings
             settings.enabled = true;
@@ -577,7 +596,7 @@ export function registerSlashCommands() {
 
             for (let i = 0; i < missingSummary.length; i++) {
                 const entry = missingSummary[i];
-                toastr.info(`Generating summary ${i + 1}/${missingSummary.length}: "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 3000 });
+                toastr.info(`Generating summary ${i + 1}/${missingSummary.length}: "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
 
                 try {
                     const systemPrompt = 'You are a lore librarian. Write a concise AI search summary (max 600 chars) for the following lorebook entry. The summary should answer: What is this? When should it be selected? Key relationships? Do NOT include physical descriptions or atmospheric prose. Write for an AI that needs to decide whether to inject this entry.';
@@ -721,11 +740,12 @@ export function registerSlashCommands() {
                 toastr.info(`Importing ${entries.length} entries...`, 'DeepLore Enhanced', { timeOut: 5000 });
                 const result = await importEntries(entries, folder);
 
+                const renamedNote = result.renamed > 0 ? ` (${result.renamed} renamed to avoid overwrite)` : '';
                 if (result.failed > 0) {
-                    toastr.warning(`Imported ${result.imported}, failed ${result.failed}. Check console for details.`, 'DeepLore Enhanced');
+                    toastr.warning(`Imported ${result.imported}, failed ${result.failed}${renamedNote}. Check console for details.`, 'DeepLore Enhanced');
                     console.warn('[DLE] Import errors:', result.errors);
                 } else {
-                    toastr.success(`Imported ${result.imported} entries.`, 'DeepLore Enhanced');
+                    toastr.success(`Imported ${result.imported} entries${renamedNote}.`, 'DeepLore Enhanced');
                 }
 
                 // Refresh index to pick up new entries

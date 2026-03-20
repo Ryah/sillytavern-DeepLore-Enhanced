@@ -5,59 +5,87 @@
 
 const DEFAULT_TIMEOUT = 30000;
 
-// ── Circuit Breaker ──
+// ── Circuit Breaker (per-vault) ──
 // Prevents hammering Obsidian when it's down. Short backoffs (it's local and free).
-const circuitBreaker = {
-    failures: 0,
-    maxFailures: 3,
-    state: 'closed', // closed (normal), open (rejecting), half-open (testing)
-    openedAt: 0,
-    baseBackoff: 2000,  // 2s initial
-    maxBackoff: 15000,  // 15s max
-};
+// Each vault (keyed by port) gets its own circuit breaker to avoid cross-contamination.
+
+/** @type {Map<number, {failures: number, maxFailures: number, state: string, openedAt: number, baseBackoff: number, maxBackoff: number}>} */
+const circuitBreakers = new Map();
+
+function getCircuitBreaker(port) {
+    if (!circuitBreakers.has(port)) {
+        circuitBreakers.set(port, {
+            failures: 0,
+            maxFailures: 3,
+            state: 'closed',
+            openedAt: 0,
+            baseBackoff: 2000,
+            maxBackoff: 15000,
+        });
+    }
+    return circuitBreakers.get(port);
+}
 
 /**
  * Get the current circuit breaker state (for UI display).
+ * @param {number} [port] - Vault port. If omitted, returns aggregate worst state.
  * @returns {{ state: string, failures: number, backoffRemaining: number }}
  */
-export function getCircuitState() {
-    if (circuitBreaker.state === 'open') {
-        const elapsed = Date.now() - circuitBreaker.openedAt;
+export function getCircuitState(port) {
+    if (port !== undefined) {
+        return _getCircuitStateForBreaker(getCircuitBreaker(port));
+    }
+    // Aggregate: return worst state across all vaults
+    let worst = { state: 'closed', failures: 0, backoffRemaining: 0 };
+    for (const cb of circuitBreakers.values()) {
+        const s = _getCircuitStateForBreaker(cb);
+        if (s.state === 'open' || (s.state === 'half-open' && worst.state === 'closed')) {
+            worst = s;
+        }
+    }
+    return worst;
+}
+
+function _getCircuitStateForBreaker(cb) {
+    if (cb.state === 'open') {
+        const elapsed = Date.now() - cb.openedAt;
         const backoff = Math.min(
-            circuitBreaker.baseBackoff * Math.pow(2, Math.min(circuitBreaker.failures - circuitBreaker.maxFailures, 3)),
-            circuitBreaker.maxBackoff,
+            cb.baseBackoff * Math.pow(2, Math.min(cb.failures - cb.maxFailures, 3)),
+            cb.maxBackoff,
         );
         const remaining = Math.max(0, backoff - elapsed);
-        // Report half-open when backoff expired, but don't mutate state — circuitAllows() handles transitions
         const effectiveState = remaining === 0 ? 'half-open' : 'open';
-        return { state: effectiveState, failures: circuitBreaker.failures, backoffRemaining: remaining };
+        return { state: effectiveState, failures: cb.failures, backoffRemaining: remaining };
     }
-    return { state: circuitBreaker.state, failures: circuitBreaker.failures, backoffRemaining: 0 };
+    return { state: cb.state, failures: cb.failures, backoffRemaining: 0 };
 }
 
-function recordSuccess() {
-    circuitBreaker.failures = 0;
-    circuitBreaker.state = 'closed';
+function recordSuccess(port) {
+    const cb = getCircuitBreaker(port);
+    cb.failures = 0;
+    cb.state = 'closed';
 }
 
-function recordFailure() {
-    circuitBreaker.failures++;
-    if (circuitBreaker.failures >= circuitBreaker.maxFailures) {
-        circuitBreaker.state = 'open';
-        circuitBreaker.openedAt = Date.now();
+function recordFailure(port) {
+    const cb = getCircuitBreaker(port);
+    cb.failures++;
+    if (cb.failures >= cb.maxFailures) {
+        cb.state = 'open';
+        cb.openedAt = Date.now();
     }
 }
 
-function circuitAllows() {
-    if (circuitBreaker.state === 'closed') return true;
-    if (circuitBreaker.state === 'half-open') return true;
-    const elapsed = Date.now() - circuitBreaker.openedAt;
+function circuitAllows(port) {
+    const cb = getCircuitBreaker(port);
+    if (cb.state === 'closed') return true;
+    if (cb.state === 'half-open') return true;
+    const elapsed = Date.now() - cb.openedAt;
     const backoff = Math.min(
-        circuitBreaker.baseBackoff * Math.pow(2, Math.min(circuitBreaker.failures - circuitBreaker.maxFailures, 3)),
-        circuitBreaker.maxBackoff,
+        cb.baseBackoff * Math.pow(2, Math.min(cb.failures - cb.maxFailures, 3)),
+        cb.maxBackoff,
     );
     if (elapsed >= backoff) {
-        circuitBreaker.state = 'half-open';
+        cb.state = 'half-open';
         return true;
     }
     return false;
@@ -103,8 +131,8 @@ function validateVaultPath(filename) {
  */
 export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT }) {
     // Circuit breaker: reject immediately if circuit is open
-    if (!circuitAllows()) {
-        const cs = getCircuitState();
+    if (!circuitAllows(port)) {
+        const cs = getCircuitState(port);
         throw new Error(`Obsidian circuit breaker open (${cs.failures} failures, retry in ${Math.ceil(cs.backoffRemaining / 1000)}s)`);
     }
 
@@ -127,10 +155,15 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
             signal: controller.signal,
         });
         const data = await response.text();
-        recordSuccess();
+        // Bug 9: Only count as success if not a server error (5xx)
+        if (response.status >= 500) {
+            recordFailure(port);
+        } else {
+            recordSuccess(port);
+        }
         return { status: response.status, data };
     } catch (err) {
-        recordFailure();
+        recordFailure(port);
         if (err.name === 'AbortError') throw new Error('Request timed out');
         throw err;
     } finally {
@@ -178,13 +211,17 @@ export async function listAllFiles(port, apiKey, directory = '', depth = 0) {
         }
     }
 
-    // Fetch sibling directories in parallel instead of sequentially
+    // Fetch sibling directories in parallel — use allSettled so one failure doesn't kill the whole index
     if (dirs.length > 0) {
-        const dirResults = await Promise.all(
+        const dirResults = await Promise.allSettled(
             dirs.map(fullDirPath => listAllFiles(port, apiKey, fullDirPath, depth + 1)),
         );
-        for (const subFiles of dirResults) {
-            allFiles.push(...subFiles);
+        for (const result of dirResults) {
+            if (result.status === 'fulfilled') {
+                allFiles.push(...result.value);
+            } else {
+                console.warn(`[DeepLore] Failed to list directory: ${result.reason?.message || result.reason}`);
+            }
         }
     }
 

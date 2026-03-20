@@ -56,6 +56,9 @@ export let decayTracker = new Map();
 /** Last health check result for settings badge */
 export let lastHealthResult = null;
 
+/** Chat epoch counter — increments on every CHAT_CHANGED to detect stale onGenerate writes */
+export let chatEpoch = 0;
+
 // ── Setter functions ──
 // ES modules export live bindings but `let` exports can only be reassigned
 // from within the module that declared them. These setters allow other
@@ -81,3 +84,4 @@ export function setLastPipelineTrace(v) { lastPipelineTrace = v; }
 export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
 export function setLastHealthResult(v) { lastHealthResult = v; }
+export function setChatEpoch(v) { chatEpoch = v; }

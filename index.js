@@ -17,12 +17,13 @@ import { applyGating, formatAndGroup } from './core/matching.js';
 import { clearPrompts } from './core/pipeline.js';
 import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG } from './settings.js';
 import {
-    vaultIndex, indexEverLoaded,
+    vaultIndex, indexEverLoaded, indexing,
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory,
-    lastWarningRatio, decayTracker,
+    lastWarningRatio, decayTracker, chatEpoch,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
-    setGenerationCount, setLastWarningRatio,
+    setGenerationCount, setLastWarningRatio, setChatEpoch,
+    setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
 } from './src/state.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexDelta } from './src/vault.js';
 import { runPipeline } from './src/pipeline.js';
@@ -49,6 +50,12 @@ async function onGenerate(chat, contextSize, abort, type) {
     if (type === 'quiet' || !settings.enabled) {
         return;
     }
+
+    // Capture chat epoch to detect stale writes if CHAT_CHANGED fires mid-generation
+    const epoch = chatEpoch;
+
+    // Tracker key: use vaultSource:title to avoid collisions when the same title exists in multiple vaults
+    const trackerKey = (entry) => `${entry.vaultSource || ''}:${entry.title}`;
 
     // Clear stale source data (after quiet check so Scribe doesn't wipe real sources)
     setLastInjectionSources(null);
@@ -100,6 +107,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 }
             }
         }
+        // Blocks intentionally override constants — they are manual per-chat overrides
         if (blocks.length > 0) {
             const blockSet = new Set(blocks.map(t => t.toLowerCase()));
             finalEntries = finalEntries.filter(e => !blockSet.has(e.title.toLowerCase()));
@@ -167,7 +175,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             const before = finalEntries.length;
             finalEntries = finalEntries.filter(e => {
                 if (e.constant) return true; // Constants always pass
-                const lastGen = injectionHistory.get(e.title);
+                const lastGen = injectionHistory.get(trackerKey(e));
                 if (lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown) {
                     if (settings.debugMode) {
                         console.debug(`[DLE] Re-injection cooldown: "${e.title}" was injected ${generationCount - lastGen} gens ago (cooldown: ${settings.reinjectionCooldown}) — skipping`);
@@ -284,16 +292,19 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Set cooldown for injected entries that have a cooldown value
-        for (const entry of injectedEntries) {
-            if (entry.cooldown !== null && entry.cooldown > 0) {
-                cooldownTracker.set(entry.title, entry.cooldown);
+        // Skip if chat changed mid-generation to avoid contaminating new chat state
+        if (epoch === chatEpoch) {
+            for (const entry of injectedEntries) {
+                if (entry.cooldown !== null && entry.cooldown > 0) {
+                    cooldownTracker.set(trackerKey(entry), entry.cooldown);
+                }
             }
-        }
 
-        // Record injection history for re-injection cooldown
-        // Uses generationCount + 1 because the increment happens in finally
-        for (const entry of injectedEntries) {
-            injectionHistory.set(entry.title, generationCount + 1);
+            // Record injection history for re-injection cooldown
+            // Uses generationCount + 1 because the increment happens in finally
+            for (const entry of injectedEntries) {
+                injectionHistory.set(trackerKey(entry), generationCount + 1);
+            }
         }
 
         // Record injection for deduplication
@@ -321,17 +332,20 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (finalEntries.length > 0) {
             const analytics = settings.analyticsData;
             for (const entry of finalEntries) {
-                if (!analytics[entry.title]) {
-                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+                const aKey = trackerKey(entry);
+                // Guard against prototype pollution from titles like "__proto__" or "constructor"
+                if (!Object.hasOwn(analytics, aKey)) {
+                    analytics[aKey] = { matched: 0, injected: 0, lastTriggered: 0 };
                 }
-                analytics[entry.title].matched++;
-                analytics[entry.title].lastTriggered = Date.now();
+                analytics[aKey].matched++;
+                analytics[aKey].lastTriggered = Date.now();
             }
             for (const entry of injectedEntries) {
-                if (!analytics[entry.title]) {
-                    analytics[entry.title] = { matched: 0, injected: 0, lastTriggered: 0 };
+                const aKey = trackerKey(entry);
+                if (!Object.hasOwn(analytics, aKey)) {
+                    analytics[aKey] = { matched: 0, injected: 0, lastTriggered: 0 };
                 }
-                analytics[entry.title].injected++;
+                analytics[aKey].injected++;
             }
             saveSettingsDebounced();
         }
@@ -374,8 +388,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         console.error('[DLE] Error during generation:', err);
     } finally {
         // Generation tracking must always run when the pipeline was entered,
-        // even if no entries matched — otherwise cooldown timers freeze permanently
-        if (pipelineRan) {
+        // even if no entries matched — otherwise cooldown timers freeze permanently.
+        // But bail if the chat changed mid-generation (epoch mismatch) to avoid
+        // contaminating the new chat's state with stale data.
+        if (pipelineRan && epoch === chatEpoch) {
             setGenerationCount(generationCount + 1);
 
             // Decrement cooldown counters; remove expired ones
@@ -389,12 +405,13 @@ async function onGenerate(chat, contextSize, abort, type) {
 
             // Entry decay/freshness tracking
             if (settings.decayEnabled) {
-                const injectedTitles = new Set(injectedEntries.map(e => e.title));
+                const injectedKeys = new Set(injectedEntries.map(e => trackerKey(e)));
                 for (const entry of vaultIndex) {
-                    if (injectedTitles.has(entry.title)) {
-                        decayTracker.set(entry.title, 0); // Reset staleness on injection
+                    const tk = trackerKey(entry);
+                    if (injectedKeys.has(tk)) {
+                        decayTracker.set(tk, 0); // Reset staleness on injection
                     } else {
-                        decayTracker.set(entry.title, (decayTracker.get(entry.title) || 0) + 1);
+                        decayTracker.set(tk, (decayTracker.get(tk) || 0) + 1);
                     }
                 }
             }
@@ -471,6 +488,8 @@ jQuery(async function () {
         if (initSettings.enabled) {
             // Try instant hydration from IndexedDB, then validate against Obsidian in background
             setTimeout(async () => {
+                // Skip if a build was already triggered (e.g. by early user generation)
+                if (indexEverLoaded || indexing) return;
                 try {
                     const hydrated = await hydrateFromCache();
                     if (!hydrated) {
@@ -523,6 +542,9 @@ jQuery(async function () {
 
         // Context Cartographer: re-inject buttons on chat load
         eventSource.on(event_types.CHAT_CHANGED, () => {
+            // Increment epoch first so any in-flight onGenerate sees the mismatch
+            setChatEpoch(chatEpoch + 1);
+
             setLastScribeChatLength(chat ? chat.length : 0);
             setLastScribeSummary(chat_metadata?.deeplore_lastScribeSummary || '');
             // Reset per-chat tracking on chat change
@@ -532,6 +554,10 @@ jQuery(async function () {
             decayTracker.clear();
             setGenerationCount(0);
             setLastWarningRatio(0);
+            setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
+            setAutoSuggestMessageCount(0);
+            setLastPipelineTrace(null);
+            setLastInjectionSources(null);
             setTimeout(() => {
                 const settings = getSettings();
                 if (!settings.showLoreSources) return;

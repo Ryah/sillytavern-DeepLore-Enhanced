@@ -34,3 +34,9 @@
     font-size: 0.8em;
     margin-right: 4px;
 }
+
+/* Bug 19: .disabled class for div-based buttons that don't support the disabled attribute */
+.deeplore_enhanced_settings .menu_button.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+}

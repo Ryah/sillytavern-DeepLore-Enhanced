@@ -8,6 +8,7 @@ const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;
 const STORE_NAME = 'vaultCache';
 const CACHE_KEY = 'primaryIndex';
+const CACHE_SCHEMA_VERSION = 2; // Increment when VaultEntry shape changes
 
 /**
  * Open (or create) the IndexedDB database.
@@ -40,42 +41,15 @@ export async function saveIndexToCache(entries) {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
 
-        // Store serializable entry data with content hashes for later validation
+        // Store all entry fields except _rawContent (large, not needed for cache)
         const cacheData = {
+            schemaVersion: CACHE_SCHEMA_VERSION,
             timestamp: Date.now(),
-            entries: entries.map(e => ({
-                filename: e.filename,
-                title: e.title,
-                keys: e.keys,
-                content: e.content,
-                summary: e.summary,
-                priority: e.priority,
-                constant: e.constant,
-                seed: e.seed,
-                bootstrap: e.bootstrap,
-                tokenEstimate: e.tokenEstimate,
-                scanDepth: e.scanDepth,
-                excludeRecursion: e.excludeRecursion,
-                links: e.links,
-                resolvedLinks: e.resolvedLinks,
-                tags: e.tags,
-                requires: e.requires,
-                excludes: e.excludes,
-                refineKeys: e.refineKeys,
-                cascadeLinks: e.cascadeLinks,
-                injectionPosition: e.injectionPosition,
-                injectionDepth: e.injectionDepth,
-                injectionRole: e.injectionRole,
-                cooldown: e.cooldown,
-                warmup: e.warmup,
-                probability: e.probability,
-                vaultSource: e.vaultSource,
-                era: e.era,
-                location: e.location,
-                sceneType: e.sceneType,
-                characterPresent: e.characterPresent,
-                _contentHash: e._contentHash || '',
-            })),
+            entries: entries.map(e => {
+                const cached = { ...e };
+                delete cached._rawContent;
+                return cached;
+            }),
         };
 
         store.put(cacheData, CACHE_KEY);
@@ -109,6 +83,12 @@ export async function loadIndexFromCache() {
         });
 
         if (!result || !Array.isArray(result.entries) || result.entries.length === 0) {
+            return null;
+        }
+
+        // Schema version mismatch — cache is stale, force full rebuild
+        if (result.schemaVersion !== CACHE_SCHEMA_VERSION) {
+            console.log(`[DLE] Cache schema version mismatch (have ${result.schemaVersion}, want ${CACHE_SCHEMA_VERSION}) — rebuilding`);
             return null;
         }
 

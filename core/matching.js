@@ -18,10 +18,16 @@ export function testEntryMatch(entry, scanText, settings) {
 
     let primaryMatch = null;
     for (const rawKey of entry.keys) {
+        if (!rawKey || !rawKey.trim()) continue; // Bug 2: skip empty/whitespace-only keys
         const key = settings.caseSensitive ? rawKey : rawKey.toLowerCase();
 
         if (settings.matchWholeWords) {
-            const regex = new RegExp(`\\b${escapeRegex(key)}\\b`, settings.caseSensitive ? '' : 'i');
+            // Bug 13: \b fails when key starts/ends with non-word chars (e.g. "#tag", "C++")
+            // Use lookahead/lookbehind for non-\w boundary chars
+            const escaped = escapeRegex(key);
+            const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
+            const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
+            const regex = new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i');
             if (regex.test(scanText)) { primaryMatch = rawKey; break; }
         } else {
             if (haystack.includes(key)) { primaryMatch = rawKey; break; }
@@ -56,10 +62,13 @@ export function countKeywordOccurrences(entry, scanText, settings) {
     let count = 0;
     const text = settings.caseSensitive ? scanText : scanText.toLowerCase();
     for (const rawKey of entry.keys) {
+        if (!rawKey || !rawKey.trim()) continue;
         const key = settings.caseSensitive ? rawKey : rawKey.toLowerCase();
         if (settings.matchWholeWords) {
             const escaped = escapeRegex(key);
-            const regex = new RegExp(`\\b${escaped}\\b`, settings.caseSensitive ? 'g' : 'gi');
+            const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
+            const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
+            const regex = new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? 'g' : 'gi');
             const matches = scanText.match(regex);
             if (matches) count += matches.length;
         } else {

@@ -161,7 +161,7 @@ tags:
   - ${settings.lorebookTag}
 keys:
 ${keysYaml}
-summary: "${(s.summary || '').replace(/"/g, '\\"')}"
+summary: "${(s.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
 ---
 # ${s.title}
 

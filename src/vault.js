@@ -76,7 +76,6 @@ export async function buildIndex() {
                     const entry = parseVaultFile(file, tagConfig);
                     if (entry) {
                         entry.vaultSource = vault.name;
-                        entry._rawContent = file.content;
                         entry._contentHash = simpleHash(file.content);
                         entries.push(entry);
                     }
@@ -196,7 +195,15 @@ export async function hydrateFromCache() {
         console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
 
         // Background: rebuild from Obsidian to validate cache freshness
-        buildIndex().catch(err => console.warn('[DLE] Background rebuild after cache hydration failed:', err.message));
+        buildIndex().catch(err => {
+            console.warn('[DLE] Background rebuild after cache hydration failed:', err.message);
+            if (vaultIndex.length > 0) {
+                // Cached data exists — set a non-zero timestamp so ensureIndexFresh() doesn't retry every generation
+                setIndexTimestamp(Date.now());
+                setIndexEverLoaded(true);
+                toastr.warning('Using cached vault data — Obsidian is unreachable. Reconnect and refresh when ready.', 'DeepLore Enhanced', { timeOut: 10000, preventDuplicates: true });
+            }
+        });
 
         return true;
     } catch (err) {
@@ -277,7 +284,6 @@ export async function buildIndexDelta() {
                         const entry = parseVaultFile(file, tagConfig);
                         if (entry) {
                             entry.vaultSource = vault.name;
-                            entry._rawContent = file.content;
                             entry._contentHash = fileHash;
                             try {
                                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
@@ -292,7 +298,10 @@ export async function buildIndexDelta() {
                 }
             } catch (vaultErr) {
                 console.warn(`[DLE] Delta sync failed for vault "${vault.name}":`, vaultErr.message);
-                return false; // Fall back to full rebuild
+                // Continue to remaining vaults instead of aborting the whole delta
+                // If this was the only vault, the hasChanges flag will trigger a rebuild
+                hasChanges = true;
+                continue;
             }
         }
 

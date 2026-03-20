@@ -50,11 +50,16 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
     const maxTokens = settings.autoSuggestMaxTokens;
 
     if (mode === 'st') {
+        // Note: generateQuietPrompt cannot be aborted — timed-out generation completes in background
         const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
         const effectiveTimeout = timeout || 60000;
+        const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
         const response = await Promise.race([
-            generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`)), effectiveTimeout)),
+            quietPromise,
+            new Promise((_, reject) => setTimeout(() => {
+                console.warn('[DLE] Auto-suggest quiet prompt timed out — orphaned generation may still complete in background');
+                reject(new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`));
+            }, effectiveTimeout)),
         ]);
         return { text: response, usage: null };
     } else if (mode === 'profile') {
@@ -153,10 +158,12 @@ export async function showSuggestionPopup(suggestions) {
         onOpen: () => {
             container.querySelectorAll('.dle_accept_suggest').forEach(btn => {
                 btn.addEventListener('click', async function () {
+                    if (this.disabled) return; // Double-click guard
+                    this.disabled = true;
                     const idx = Number(this.dataset.index);
                     const s = suggestions[idx];
                     const card = document.getElementById(`dle_suggest_${idx}`);
-                    if (!card) return;
+                    if (!card) { this.disabled = false; return; }
 
                     // Build frontmatter
                     const folder = settings.autoSuggestFolder || '';
@@ -192,6 +199,7 @@ ${s.content || ''}`;
                         }
                     } catch (err) {
                         toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
+                        this.disabled = false; // Re-enable on error
                     }
                 });
             });

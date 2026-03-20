@@ -201,13 +201,20 @@ export function updateIndexStats() {
             if (badge) {
                 badge.addEventListener('click', async () => {
                     // Run health check directly and show results in a popup
-                    const result = await runHealthCheck();
+                    const result = runHealthCheck();
                     if (!result) return;
+                    // Compute grade from result (runHealthCheck returns {issues, errors, warnings})
+                    let clickGrade;
+                    if (result.errors === 0 && result.warnings === 0) clickGrade = 'A+';
+                    else if (result.errors === 0 && result.warnings <= 3) clickGrade = 'A';
+                    else if (result.errors === 0 && result.warnings <= 6) clickGrade = 'B';
+                    else if (result.errors <= 2) clickGrade = 'C';
+                    else clickGrade = 'D';
                     const lines = [];
-                    lines.push(`Grade: ${result.grade} (${result.errors} errors, ${result.warnings} warnings)`);
-                    for (const item of result.items) {
-                        const icon = item.level === 'error' ? '\u274C' : item.level === 'warning' ? '\u26A0\uFE0F' : '\u2705';
-                        lines.push(`${icon} ${item.message}`);
+                    lines.push(`Grade: ${clickGrade} (${result.errors} errors, ${result.warnings} warnings)`);
+                    for (const item of result.issues) {
+                        const icon = item.severity === 'error' ? '\u274C' : item.severity === 'warning' ? '\u26A0\uFE0F' : '\u2705';
+                        lines.push(`${icon} [${item.entry}] ${item.detail}`);
                     }
                     const html = `<div style="text-align: left; max-height: 60vh; overflow-y: auto;"><h3>Health Check</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${escapeHtml(lines.join('\n'))}</pre></div>`;
                     callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });

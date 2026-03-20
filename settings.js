@@ -193,6 +193,18 @@ export function getSettings() {
                 : value;
         }
     }
+    // Coerce numeric settings that might have been stored as strings
+    for (const key of Object.keys(settingsConstraints)) {
+        if (extension_settings[MODULE_NAME][key] !== undefined && typeof extension_settings[MODULE_NAME][key] !== 'number') {
+            const num = Number(extension_settings[MODULE_NAME][key]);
+            if (!Number.isNaN(num)) {
+                extension_settings[MODULE_NAME][key] = num;
+            } else {
+                // Reset to default if non-numeric garbage
+                extension_settings[MODULE_NAME][key] = defaultSettings[key];
+            }
+        }
+    }
     validateSettings(extension_settings[MODULE_NAME], settingsConstraints);
 
     const s = extension_settings[MODULE_NAME];
@@ -205,14 +217,15 @@ export function getSettings() {
         s.settingsVersion = currentVersion;
     }
 
-    // Multi-vault migration: if vaults[] is empty but legacy obsidianPort exists, migrate
-    if ((!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort) {
+    // Multi-vault migration: if vaults[] was never migrated and legacy obsidianPort exists, migrate once
+    if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort) {
         s.vaults = [{
             name: 'Primary',
             port: s.obsidianPort,
             apiKey: s.obsidianApiKey || '',
             enabled: true,
         }];
+        s._vaultsMigrated = true;
     }
 
     return s;
@@ -225,7 +238,7 @@ export function getSettings() {
  */
 export function getPrimaryVault(settings) {
     const s = settings || getSettings();
-    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', port: 27123, apiKey: '', enabled: true };
+    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', port: 27123, apiKey: '', enabled: false };
 }
 
 /**

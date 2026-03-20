@@ -65,11 +65,16 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     }
 
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
+    // Note: generateQuietPrompt cannot be aborted — the timed-out generation will complete in background
     const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
     const timeout = settings.scribeTimeout || 60000;
+    const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens });
     return await Promise.race([
-        generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(`Scribe quiet prompt timed out (${Math.round(timeout / 1000)}s)`)), timeout)),
+        quietPromise,
+        new Promise((_, reject) => setTimeout(() => {
+            console.warn('[DLE] Scribe quiet prompt timed out — orphaned generation may still complete in background');
+            reject(new Error(`Scribe quiet prompt timed out (${Math.round(timeout / 1000)}s)`));
+        }, timeout)),
     ]);
 }
 

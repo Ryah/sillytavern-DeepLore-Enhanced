@@ -138,6 +138,11 @@ export async function importEntries(entries, folder) {
                         }
                         break;
                     }
+                    if (attempt > MAX_DEDUP_ATTEMPTS) {
+                        errors.push(`${filename}: exceeded ${MAX_DEDUP_ATTEMPTS} dedup attempts, skipping`);
+                        failed++;
+                        continue; // continues the outer for-of loop
+                    }
                     fullPath = candidatePath;
                     renamed++;
                 }
@@ -179,22 +184,26 @@ export function parseWorldInfoJson(jsonText) {
         throw new Error('Invalid World Info JSON: ' + e.message);
     }
 
+    // Validate that entries are non-null objects
+    const filterValid = (arr) => arr.filter(e => e && typeof e === 'object' && !Array.isArray(e));
+
     // Format 1: Direct WI export { entries: { 0: {...}, 1: {...} } }
     if (data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries)) {
-        const entries = Object.values(data.entries);
+        const entries = filterValid(Object.values(data.entries));
         return { entries, source: data.originalData?.name || 'World Info' };
     }
 
     // Format 2: Array of entries
     if (Array.isArray(data)) {
-        return { entries: data, source: 'World Info Array' };
+        return { entries: filterValid(data), source: 'World Info Array' };
     }
 
     // Format 3: V2 character card with embedded WI
     if (data.data?.character_book?.entries) {
-        const entries = Array.isArray(data.data.character_book.entries)
+        const raw = Array.isArray(data.data.character_book.entries)
             ? data.data.character_book.entries
             : Object.values(data.data.character_book.entries);
+        const entries = filterValid(raw);
         return { entries, source: data.data?.name || 'Character Card' };
     }
 

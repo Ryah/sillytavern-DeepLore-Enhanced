@@ -52,8 +52,12 @@ async function onGenerate(chat, contextSize, abort, type) {
         return;
     }
 
-    // Prevent concurrent onGenerate runs
-    if (generationLock) return;
+    // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
+    if (generationLock) {
+        console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
+        toastr.warning('Previous lore retrieval still in progress — this generation may lack lore context.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+        return;
+    }
     setGenerationLock(true);
 
     // Capture chat epoch to detect stale writes if CHAT_CHANGED fires mid-generation
@@ -307,8 +311,10 @@ async function onGenerate(chat, contextSize, abort, type) {
 
             // Record injection history for re-injection cooldown
             // Uses generationCount + 1 because the increment happens in finally
-            for (const entry of injectedEntries) {
-                injectionHistory.set(trackerKey(entry), generationCount + 1);
+            if (settings.reinjectionCooldown > 0) {
+                for (const entry of injectedEntries) {
+                    injectionHistory.set(trackerKey(entry), generationCount + 1);
+                }
             }
         }
 
@@ -352,6 +358,14 @@ async function onGenerate(chat, contextSize, abort, type) {
                 }
                 analytics[aKey].injected++;
             }
+            // Prune stale analytics entries not triggered in 30+ days
+            const ANALYTICS_STALE_MS = 30 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+            for (const key of Object.keys(analytics)) {
+                if (analytics[key].lastTriggered && (now - analytics[key].lastTriggered) > ANALYTICS_STALE_MS) {
+                    delete analytics[key];
+                }
+            }
             saveSettingsDebounced();
         }
 
@@ -391,6 +405,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
+        toastr.error('Lore injection failed — check console for details.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
@@ -416,9 +431,15 @@ async function onGenerate(chat, contextSize, abort, type) {
                         decayTracker.set(trackerKey(entry), 0);
                     }
                     // Increment staleness only for entries already in the tracker (previously injected)
+                    // Prune entries with staleness > 2x boost threshold to avoid unbounded growth
+                    const pruneThreshold = (settings.decayBoostThreshold || 5) * 2;
                     for (const [tk, staleness] of decayTracker) {
                         if (!injectedKeys.has(tk)) {
-                            decayTracker.set(tk, staleness + 1);
+                            if (staleness + 1 > pruneThreshold) {
+                                decayTracker.delete(tk);
+                            } else {
+                                decayTracker.set(tk, staleness + 1);
+                            }
                         }
                     }
                 }
@@ -515,7 +536,7 @@ jQuery(async function () {
         }
 
         // Context Cartographer: click handler (event delegation — registered once)
-        $(document).on('click', '.mes_deeplore_sources', function () {
+        $('#chat').on('click', '.mes_deeplore_sources', function () {
             const messageId = $(this).closest('.mes').attr('mesid');
             const message = chat[messageId];
             const sources = message?.extra?.deeplore_sources;

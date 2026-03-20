@@ -7,6 +7,10 @@ import { escapeRegex } from './utils.js';
 // ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
 const _regexCache = new WeakMap();
 
+// ── H9: Cache lowercased scanText to avoid 25MB transient allocations per-entry ──
+let _lastScanText = '';
+let _lastScanTextLower = '';
+
 /**
  * Get or build cached compiled regexes for an entry's keys and refine keys.
  * Cache is keyed by entry object reference and invalidated when relevant settings change.
@@ -22,7 +26,7 @@ function getCachedRegexes(entry, settings) {
     cache = { _key: cacheKey, primary: [], refine: [] };
     for (const rawKey of entry.keys) {
         if (!rawKey || !rawKey.trim()) continue;
-        const key = settings.caseSensitive ? rawKey : rawKey.toLowerCase();
+        const key = settings.caseSensitive ? rawKey : rawKey.normalize('NFC').toLowerCase();
         if (settings.matchWholeWords) {
             const escaped = escapeRegex(key);
             const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
@@ -39,7 +43,7 @@ function getCachedRegexes(entry, settings) {
     }
     if (entry.refineKeys) {
         for (const rk of entry.refineKeys) {
-            const rKey = settings.caseSensitive ? rk : rk.toLowerCase();
+            const rKey = settings.caseSensitive ? rk : rk.normalize('NFC').toLowerCase();
             if (settings.matchWholeWords) {
                 // M13: Smart word boundary for refine keys (same logic as primary keys)
                 const escaped = escapeRegex(rKey);
@@ -70,7 +74,16 @@ export function testEntryMatch(entry, scanText, settings) {
     if (entry.keys.length === 0) return null;
 
     const cached = getCachedRegexes(entry, settings);
-    const haystack = settings.caseSensitive ? scanText : scanText.toLowerCase();
+    let haystack;
+    if (settings.caseSensitive) {
+        haystack = scanText;
+    } else {
+        if (scanText !== _lastScanText) {
+            _lastScanTextLower = scanText.normalize('NFC').toLowerCase();
+            _lastScanText = scanText;
+        }
+        haystack = _lastScanTextLower;
+    }
 
     let primaryMatch = null;
     for (const item of cached.primary) {
@@ -107,7 +120,16 @@ export function testEntryMatch(entry, scanText, settings) {
 export function countKeywordOccurrences(entry, scanText, settings) {
     let count = 0;
     const cached = getCachedRegexes(entry, settings);
-    const text = settings.caseSensitive ? scanText : scanText.toLowerCase();
+    let text;
+    if (settings.caseSensitive) {
+        text = scanText;
+    } else {
+        if (scanText !== _lastScanText) {
+            _lastScanTextLower = scanText.normalize('NFC').toLowerCase();
+            _lastScanText = scanText;
+        }
+        text = _lastScanTextLower;
+    }
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
             const matches = scanText.match(item.regexG);
@@ -161,6 +183,21 @@ export function applyGating(entries) {
         });
     }
 
+    // Detect contradictory gating (A requires B, B excludes A) — warn for debugging
+    const removedEntries = entries.filter(e => !result.includes(e));
+    if (removedEntries.length > 0) {
+        for (const removed of removedEntries) {
+            if (removed.requires && removed.requires.length > 0) {
+                for (const req of removed.requires) {
+                    const reqEntry = entries.find(e => e.title.toLowerCase() === req.toLowerCase());
+                    if (reqEntry && reqEntry.excludes && reqEntry.excludes.some(exc => exc.toLowerCase() === removed.title.toLowerCase())) {
+                        console.warn(`[DeepLore] Contradictory gating: "${removed.title}" requires "${reqEntry.title}" but "${reqEntry.title}" excludes "${removed.title}" — both dropped`);
+                    }
+                }
+            }
+        }
+    }
+
     if (iterations >= MAX_ITERATIONS && changed) {
         console.warn('[DeepLore] Gating did not stabilize after', MAX_ITERATIONS, 'iterations — results may be incomplete. Check for circular requires/excludes.');
     }
@@ -208,10 +245,9 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         if (!settings.unlimitedEntries && count >= settings.maxEntries) break;
         if (!settings.unlimitedBudget && totalTokens + entry.tokenEstimate > settings.maxTokensBudget) {
             if (count > 0) break;
-            // First entry exceeds budget — inject anyway so results aren't empty
-            if (settings.debugMode) {
-                console.warn(`[DeepLore] First entry "${entry.title}" (${entry.tokenEstimate} tokens) exceeds budget (${settings.maxTokensBudget}) — injecting anyway`);
-            }
+            // First entry exceeds budget — skip it conservatively to protect context window
+            console.warn(`[DeepLore] Entry "${entry.title}" (${entry.tokenEstimate} tokens) exceeds entire budget (${settings.maxTokensBudget}) — skipping`);
+            continue;
         }
 
         accepted.push({

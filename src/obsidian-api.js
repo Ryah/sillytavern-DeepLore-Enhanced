@@ -156,12 +156,13 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
         });
         const data = await response.text();
         // Track server errors (5xx) as circuit breaker failures
-        // Don't count auth errors (401/403) — they are persistent config issues, not transient server failures
+        // Don't count auth errors (401/403) or client errors (404) — they are persistent config issues, not transient server failures
         if (response.status >= 500) {
             recordFailure(port);
-        } else if (response.status !== 401 && response.status !== 403) {
+        } else if (response.status >= 200 && response.status < 300) {
             recordSuccess(port);
         }
+        // 4xx errors: neither success nor failure — don't affect circuit breaker state
         return { status: response.status, data };
     } catch (err) {
         recordFailure(port);
@@ -237,19 +238,12 @@ export async function listAllFiles(port, apiKey, directory = '', depth = 0) {
  */
 export async function testConnection(port, apiKey) {
     try {
-        const result = await obsidianFetch({ port, apiKey: apiKey || '', path: '/' });
+        const result = await obsidianFetch({ port, apiKey: apiKey || '', path: '/vault/', timeout: 10000 });
         if (result.status === 200) {
-            let serverInfo;
-            try {
-                serverInfo = JSON.parse(result.data);
-            } catch (e) {
-                return { ok: false, error: `Port ${port} returned non-JSON response — is another service running on this port?` };
-            }
-            return {
-                ok: true,
-                authenticated: serverInfo.authenticated || false,
-                versions: serverInfo.versions || {},
-            };
+            return { ok: true, authenticated: true };
+        }
+        if (result.status === 401 || result.status === 403) {
+            return { ok: false, error: `Authentication failed (HTTP ${result.status}). Check your API key.` };
         }
         return { ok: false, error: `HTTP ${result.status}` };
     } catch (err) {
@@ -273,7 +267,7 @@ export async function fetchAllMdFiles(port, apiKey) {
 
     for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
         const batch = mdFiles.slice(i, i + BATCH_SIZE);
-        const batchResults = await Promise.all(
+        const batchSettled = await Promise.allSettled(
             batch.map(async (filename) => {
                 try {
                     const result = await obsidianFetch({
@@ -295,7 +289,10 @@ export async function fetchAllMdFiles(port, apiKey) {
                 }
             }),
         );
-        results.push(...batchResults.filter(Boolean));
+        for (const r of batchSettled) {
+            if (r.status === 'fulfilled' && r.value) results.push(r.value);
+            else if (r.status === 'rejected') { failed++; console.warn(`[DeepLore] Batch file fetch rejected: ${r.reason?.message || r.reason}`); }
+        }
     }
 
     return { files: results, total: mdFiles.length, failed };
@@ -327,7 +324,7 @@ export async function fetchMdFilesDelta(port, apiKey, knownFiles) {
 
     for (let i = 0; i < newFilenames.length; i += BATCH_SIZE) {
         const batch = newFilenames.slice(i, i + BATCH_SIZE);
-        const batchResults = await Promise.all(
+        const batchSettled = await Promise.allSettled(
             batch.map(async (filename) => {
                 try {
                     const result = await obsidianFetch({
@@ -347,7 +344,10 @@ export async function fetchMdFilesDelta(port, apiKey, knownFiles) {
                 }
             }),
         );
-        results.push(...batchResults.filter(Boolean));
+        for (const r of batchSettled) {
+            if (r.status === 'fulfilled' && r.value) results.push(r.value);
+            else if (r.status === 'rejected') { failed++; console.warn(`[DeepLore] Batch file fetch rejected: ${r.reason?.message || r.reason}`); }
+        }
     }
 
     return { allMdFiles, newFiles: results, failed };
@@ -376,7 +376,7 @@ export async function writeNote(port, apiKey, filename, content) {
         if (result.status === 200 || result.status === 204) {
             return { ok: true };
         }
-        return { ok: false, error: `HTTP ${result.status}` };
+        return { ok: false, error: `HTTP ${result.status}: ${(result.data || '').substring(0, 200)}` };
     } catch (err) {
         return { ok: false, error: err.message };
     }
@@ -398,7 +398,7 @@ export async function fetchScribeNotes(port, apiKey, folder) {
 
         for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {
             const batch = mdFiles.slice(i, i + BATCH_SIZE);
-            const batchResults = await Promise.all(batch.map(async (filepath) => {
+            const batchSettled = await Promise.allSettled(batch.map(async (filepath) => {
                 try {
                     const result = await obsidianFetch({
                         port,
@@ -416,7 +416,10 @@ export async function fetchScribeNotes(port, apiKey, folder) {
                     return null;
                 }
             }));
-            notes.push(...batchResults.filter(Boolean));
+            for (const r of batchSettled) {
+                if (r.status === 'fulfilled' && r.value) notes.push(r.value);
+                else if (r.status === 'rejected') console.warn(`[DLE] Batch scribe note fetch rejected: ${r.reason?.message || r.reason}`);
+            }
         }
 
         return { ok: true, notes };

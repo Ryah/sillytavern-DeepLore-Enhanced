@@ -14,7 +14,7 @@ import { getTokenCountAsync } from '../../../../tokenizers.js';
 import { parseFrontmatter, simpleHash, buildScanText } from '../core/utils.js';
 import { testEntryMatch } from '../core/matching.js';
 import { getSettings, getVaultByName } from '../settings.js';
-import { writeNote } from './obsidian-api.js';
+import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
 import {
     vaultIndex, trackerKey,
     setVaultIndex, setIndexTimestamp,
@@ -572,17 +572,20 @@ export async function showGraphPopup() {
     }
 
     // Clean up on popup close via MutationObserver
-    // Scope to the popup container instead of document.body to avoid broad subtree observation
+    // AbortController allows removing all event listeners at once on cleanup
+    const listenerAC = new AbortController();
     const popupContainer = canvas.closest('.popup') || container.parentElement || document.body;
     const observer = new MutationObserver(() => {
         if (!document.getElementById('dle_graph_canvas')) {
             isRunning = false;
             if (animationFrameId) { cancelAnimationFrame(animationFrameId); animationFrameId = null; }
+            listenerAC.abort(); // Remove all canvas event listeners
             observer.disconnect();
         }
     });
     observer.observe(popupContainer, { childList: true, subtree: true });
 
+    const lOpt = { signal: listenerAC.signal };
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -593,7 +596,7 @@ export async function showGraphPopup() {
             if (d < closestDist) { closest = n; closestDist = d; }
         }
         if (closest) { dragNode = closest; alpha = Math.max(alpha, 0.5); canvas.style.cursor = 'grabbing'; }
-    });
+    }, lOpt);
     canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -610,8 +613,8 @@ export async function showGraphPopup() {
             hoverNode = closest;
             canvas.style.cursor = closest ? 'pointer' : 'grab';
         }
-    });
-    canvas.addEventListener('mouseup', () => { dragNode = null; alpha = 0; canvas.style.cursor = 'grab'; });
+    }, lOpt);
+    canvas.addEventListener('mouseup', () => { dragNode = null; alpha = 0; canvas.style.cursor = 'grab'; }, lOpt);
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         const rect = canvas.getBoundingClientRect();
@@ -626,7 +629,7 @@ export async function showGraphPopup() {
             closest.pinned = !closest.pinned;
             closest.vx = 0; closest.vy = 0;
         }
-    });
+    }, lOpt);
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
@@ -634,7 +637,7 @@ export async function showGraphPopup() {
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
         panX = mx - (mx - panX) * zoomFactor; panY = my - (my - panY) * zoomFactor;
         zoom *= zoomFactor; zoom = Math.max(0.2, Math.min(5, zoom));
-    }, { passive: false });
+    }, { passive: false, signal: listenerAC.signal });
     tick();
 }
 
@@ -714,7 +717,13 @@ export async function showOptimizePopup(entry, result) {
     if (accept) {
         try {
             const optVault = getVaultByName(settings, entry.vaultSource);
-            const { frontmatter, body } = parseFrontmatter(entry._rawContent || entry.content);
+            // Fetch current file content from Obsidian (no longer cached in _rawContent to save memory)
+            let rawContent = entry.content;
+            try {
+                const fetchResult = await obsidianFetch({ port: optVault.port, apiKey: optVault.apiKey, path: `/vault/${encodeVaultPath(entry.filename)}`, accept: 'text/markdown' });
+                if (fetchResult.status === 200) rawContent = fetchResult.data;
+            } catch { /* fall back to entry.content */ }
+            const { frontmatter, body } = parseFrontmatter(rawContent);
             const newKeys = result.suggested;
             const keysYaml = newKeys.map(k => `  - ${k}`).join('\n');
 

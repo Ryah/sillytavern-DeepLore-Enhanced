@@ -110,11 +110,14 @@ export function matchEntries(chat) {
             }
         }
 
+        // Pre-compute title lookup map for cascade links and character matching
+        const titleMap = new Map(vaultIndex.map(e => [e.title.toLowerCase(), e]));
+
         // Active Character Boost: auto-match active character's vault entry
         if (settings.characterContextScan && name2) {
-            const charEntry = vaultIndex.find(e =>
-                e.title.toLowerCase() === name2.toLowerCase() ||
-                e.keys.some(k => k.toLowerCase() === name2.toLowerCase())
+            const nameLower = name2.toLowerCase();
+            const charEntry = titleMap.get(nameLower) || vaultIndex.find(e =>
+                e.keys.some(k => k.toLowerCase() === nameLower)
             );
             if (charEntry && !matchedSet.has(charEntry)) {
                 matchedSet.add(charEntry);
@@ -123,13 +126,25 @@ export function matchEntries(chat) {
         }
 
         // Cascade links: explicitly pull in linked entries from matched entries
-        const titleMap = new Map(vaultIndex.map(e => [e.title.toLowerCase(), e]));
+        // Cascade-linked entries still respect cooldown/warmup/probability gates
         const cascadeSource = [...matchedSet];
         for (const entry of cascadeSource) {
             if (!entry.cascadeLinks || entry.cascadeLinks.length === 0) continue;
             for (const linkTitle of entry.cascadeLinks) {
                 const linked = titleMap.get(linkTitle.toLowerCase());
                 if (linked && !matchedSet.has(linked)) {
+                    // Apply same gates as direct matches
+                    if (linked.cooldown !== null) {
+                        const remaining = cooldownTracker.get(trackerKey(linked));
+                        if (remaining !== undefined && remaining > 0) continue;
+                    }
+                    if (linked.probability === 0) continue;
+                    if (linked.probability !== null && linked.probability < 1.0 && Math.random() > linked.probability) continue;
+                    if (linked.warmup !== null) {
+                        const scanText = linked.scanDepth !== null ? getScanText(linked.scanDepth) : globalScanText;
+                        const occurrences = countKeywordOccurrences(linked, scanText, settings);
+                        if (occurrences < linked.warmup) continue;
+                    }
                     matchedSet.add(linked);
                     matchedKeys.set(linked.title, `(cascade from: ${entry.title})`);
                 }
@@ -164,6 +179,17 @@ export function matchEntries(chat) {
 
                     const key = testEntryMatch(entry, recursionText, settings);
                     if (key) {
+                        // Recursive matches still respect cooldown/warmup/probability gates
+                        if (entry.cooldown !== null) {
+                            const remaining = cooldownTracker.get(trackerKey(entry));
+                            if (remaining !== undefined && remaining > 0) continue;
+                        }
+                        if (entry.probability === 0) continue;
+                        if (entry.probability !== null && entry.probability < 1.0 && Math.random() > entry.probability) continue;
+                        if (entry.warmup !== null) {
+                            const occurrences = countKeywordOccurrences(entry, recursionText, settings);
+                            if (occurrences < entry.warmup) continue;
+                        }
                         matchedSet.add(entry);
                         newlyMatched.add(entry);
                         matchedKeys.set(entry.title, `${key} (recursion step ${step})`);
@@ -242,6 +268,12 @@ export async function runPipeline(chat) {
                 matchedKeys = kwResult.matchedKeys;
                 trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
                 trace.probabilitySkipped = kwResult.probabilitySkipped;
+                // Warn if ai-only fallback collapsed to constants-only
+                const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
+                if (nonConstant.length === 0 && finalEntries.length > 0) {
+                    console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
+                    toastr.warning('AI search failed — only constant entries are active. Check your AI connection.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+                }
             } else if (aiResult.results.length === 0) {
                 finalEntries = alwaysInject;
             } else {

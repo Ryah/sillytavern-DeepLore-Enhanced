@@ -16,6 +16,24 @@
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
 export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000, cacheHints) {
+    // Validate proxy URL to prevent SSRF via internal network
+    try {
+        const parsed = new URL(proxyUrl);
+        const hostname = parsed.hostname.toLowerCase();
+        // Block cloud metadata endpoints and private IPs
+        const blocked = ['169.254.169.254', 'metadata.google.internal', '100.100.100.200'];
+        if (blocked.includes(hostname)) {
+            throw new Error(`Proxy URL "${hostname}" is blocked (potential SSRF target)`);
+        }
+        // Block common private ranges
+        if (/^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)/.test(hostname) && hostname !== '127.0.0.1') {
+            throw new Error(`Proxy URL "${hostname}" points to a private network address`);
+        }
+    } catch (e) {
+        if (e.message.includes('blocked') || e.message.includes('private network')) throw e;
+        // Invalid URL format — let it fail naturally downstream
+    }
+
     const targetUrl = proxyUrl.replace(/\/+$/, '') + '/v1/messages';
     // Encode the target URL to prevent Express from collapsing :// to :/
     const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;

@@ -9,7 +9,7 @@ import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
-    trackerKey, setAiSearchCache, entityNameSet,
+    trackerKey, setAiSearchCache, entityNameSet, generationCount,
 } from './state.js';
 import { updateAiStats } from './settings-ui.js';
 
@@ -151,6 +151,14 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
                 output_tokens: result.usage?.output_tokens || result.usage?.completion_tokens || 0,
             },
         };
+    } catch (err) {
+        // Enhance error with profile context for diagnosability
+        const profileLabel = resolvedProfileId ? ` [profile: ${resolvedProfileId}]` : '';
+        const modelLabel = resolvedModel ? ` [model: ${resolvedModel}]` : '';
+        if (err.name === 'AbortError') {
+            throw new Error(`Request timed out (${Math.round(timeout / 1000)}s)${profileLabel}${modelLabel}`);
+        }
+        throw new Error(`${err.message}${profileLabel}${modelLabel}`);
     } finally {
         clearTimeout(timer);
     }
@@ -323,12 +331,10 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                 if (staleness !== undefined && staleness >= settings.decayBoostThreshold) {
                     decayHint = ' [STALE — consider refreshing]';
                 }
-                // Penalty: entries injected very frequently get a nudge to give others a chance
-                if (!decayHint && settings.decayPenaltyThreshold > 0) {
-                    const analytics = settings.analyticsData || {};
-                    const aKey = trackerKey(entry);
-                    const a = analytics[aKey];
-                    if (a && a.injected >= settings.decayPenaltyThreshold) {
+                // Penalty: entries injected very frequently in this chat get a nudge
+                if (!decayHint && settings.decayPenaltyThreshold > 0 && generationCount >= settings.decayPenaltyThreshold) {
+                    const staleness = decayTracker.get(trackerKey(entry));
+                    if (staleness !== undefined && staleness === 0) {
                         decayHint = ' [FREQUENT — consider diversifying]';
                     }
                 }
@@ -343,9 +349,10 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
         })
         .join('\n');
 
-    const totalSelectable = candidates.filter(e => !isForceInjected(e)).length;
-    const forcedCount = candidates.filter(e => isForceInjected(e)).length;
-    const forcedTokens = candidates.filter(e => isForceInjected(e)).reduce((s, e) => s + e.tokenEstimate, 0);
+    const totalSelectable = selectable.length;
+    const forcedCount = candidates.length - selectable.length;
+    let forcedTokens = 0;
+    for (const e of candidates) { if (isForceInjected(e)) forcedTokens += e.tokenEstimate; }
     const budgetInfo = settings.unlimitedBudget
         ? ''
         : `\nToken budget: ~${settings.maxTokensBudget} tokens total.`;
@@ -526,7 +533,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
     // Sliding window cache: hash manifest + chat messages separately.
     // If only the newest chat message changed and contains no entity names from the manifest,
     // we can safely serve cached results (the new message doesn't reference any lore).
-    const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${settings.aiSearchSystemPrompt?.length || 0}`;
+    const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${settings.aiSearchSystemPrompt?.length || 0}|${settings.aiSearchConnectionMode}|${settings.aiSearchProfileId}|${settings.aiSearchModel}`;
     const manifestHash = simpleHash(settingsKey + candidateManifest);
     const chatLines = chatContext.split('\n').filter(l => l.trim());
     const chatHash = simpleHash(chatContext);

@@ -135,6 +135,10 @@ export function registerSlashCommands() {
             }
 
             const settings = getSettings();
+            // Warn if AI search is enabled — this command makes real API calls
+            if (settings.aiSearchEnabled) {
+                toastr.info('Running pipeline with live AI search — this uses API tokens.', 'DeepLore Enhanced', { timeOut: 4000, preventDuplicates: true });
+            }
             const { finalEntries, matchedKeys } = await runPipeline(chat);
 
             // Apply re-injection cooldown (matches onGenerate order)
@@ -634,14 +638,18 @@ export function registerSlashCommands() {
                             <p style="font-size: 0.8em; opacity: 0.6;">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
                         </div>`;
 
-                    const approved = await callGenericPopup(reviewHtml, POPUP_TYPE.CONFIRM, '', { wide: true });
+                    let capturedTextarea = null;
+                    const approved = await callGenericPopup(reviewHtml, POPUP_TYPE.CONFIRM, '', {
+                        wide: true,
+                        onOpen: () => { capturedTextarea = document.getElementById('dle_summary_edit'); },
+                    });
 
                     if (!approved) {
                         skipped++;
                         continue;
                     }
 
-                    const finalSummary = document.getElementById('dle_summary_edit')?.value?.trim() || summary;
+                    const finalSummary = capturedTextarea?.value?.trim() || summary;
 
                     // Read current file, inject summary into frontmatter, write back
                     const fileResult = await obsidianFetch({

@@ -60,15 +60,10 @@ export async function saveIndexToCache(entries) {
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
 
-        // Store all entry fields except _rawContent (large, not needed for cache)
         const cacheData = {
             schemaVersion: CACHE_SCHEMA_VERSION,
             timestamp: Date.now(),
-            entries: entries.map(e => {
-                const cached = { ...e };
-                delete cached._rawContent;
-                return cached;
-            }),
+            entries: entries.map(e => ({ ...e })),
         };
 
         store.put(cacheData, getCacheKey());

@@ -94,6 +94,49 @@
 ### Bug Fixes
 
 **Critical:**
+- **Health badge click handler accesses wrong properties** — Click handler referenced `result.grade` and `result.items`, but `runHealthCheck()` returns `{ issues, errors, warnings }`. Badge showed "Grade: undefined" on click. Now computes grade locally and iterates `result.issues` with correct `severity`/`detail` fields.
+- **`/dle-summarize` loses user edits** — Textarea value was read via `getElementById` after popup resolved, but DOM was already destroyed. User edits to generated summaries were silently discarded. Now captures textarea reference in `onOpen` callback.
+- **`writeNote()` silent data loss** — Obsidian 400/405 errors returned only "HTTP 405" with no response body. Combined with circuit breaker treating 4xx as successes, misconfigured scribe folders silently failed every write. Now includes response body in error message.
+
+**High:**
+- **Generation lock silently drops lore** — When `generationLock` was active (AI search pending), `onGenerate` returned immediately with zero lore injected and no user feedback. Now shows a toast warning so users know lore was skipped.
+- **`_rawContent` doubles memory per VaultEntry** — Every entry stored full markdown source as `_rawContent` AND parsed `content` (~1MB redundancy at 500 entries). Only used by Optimize Keys popup. Removed from entries; Optimize Keys now fetches on-demand from Obsidian.
+- **`scanText.toLowerCase()` called per entry** — `testEntryMatch()` lowercased the full scan text inside the function, called once per entry. At 500 entries + 50KB chat, 25MB of transient string allocations per generation. Now caches the lowered text at module level.
+- **Cascade links and recursive scan bypass cooldown/warmup/probability** — Entries pulled in via `cascadeLinks` or recursive keyword scanning skipped all probabilistic and cooldown gates. Now applies the same cooldown/warmup/probability checks as direct matches.
+- **Multi-vault migration prevents zero-vault state** — Migration from legacy single-vault re-ran on every `getSettings()` call. Deleting all vaults re-created a "Primary" vault. Added `_vaultsMigrated` flag to run migration only once.
+- **First-entry-exceeds-budget injected anyway** — A single oversized entry (e.g., 50K tokens) was injected into a 2K budget with just a debug warning, blowing out the context window. Now conservatively skips with a console warning.
+- **Decay penalty uses cumulative all-time analytics** — Frequency penalty checked all-time `analytics.injected` count. After two sessions, virtually every entry got tagged `[FREQUENT]`. Now uses per-chat `decayTracker` to detect frequency within the current chat only.
+- **`buildCandidateManifest` 4x redundant filter passes** — Lines 346-348 each `.filter()`'d the full candidates array with the same predicate already computed on line 307. Reuses `selectable` array; derives forced counts arithmetically.
+- **AI search cache key incomplete** — Cache settings hash included mode/scanDepth/maxEntries but not `connectionMode`, `profileId`, or `model`. Switching profiles served stale cached results. Now includes all three.
+- **`callViaProfile()` errors undiagnosable** — Raw Connection Manager errors propagated as "Unauthorized" with no profile/model context. Now enhances errors with profile ID and model info.
+- **Circuit breaker opens mid-batch during `fetchAllMdFiles`** — A 3-file hiccup triggered the circuit breaker, and remaining batches all failed instantly. Changed `Promise.all` to `Promise.allSettled` in all batch fetch functions.
+- **`testConnection` hits unauthenticated endpoint** — Tested against `/` which doesn't require auth. Wrong API key showed green checkmark. Now tests against `/vault/` which requires authentication.
+- **AI-only fallback silently collapses to constants-only** — When AI fails in ai-only mode with `scanDepth: 0`, keyword fallback produced only constants/bootstraps with no warning. Now toasts when coverage collapses.
+
+**Medium:**
+- **Silent pipeline crash** — `onGenerate` catch block only logged to console. Pipeline failures gave users zero feedback. Now shows error toast.
+- **Orphaned Scribe/AutoSuggest quiet prompts** — `Promise.race` timeout had no abort signal. Timed-out `generateQuietPrompt` calls completed in background, consuming tokens. Added warning log (ST's `generateQuietPrompt` doesn't support AbortController).
+- **`analyticsData` grows unboundedly** — Every unique entry got a permanent key. Vault renames created permanent orphans. Now prunes entries not triggered in 30+ days.
+- **`buildIndexDelta` returns false mid-loop** — A single vault error aborted the entire delta sync. Now continues to remaining vaults and marks changes for rebuild.
+- **404 resets circuit breaker** — Misconfigured vault paths producing endless 404s hammered Obsidian because 404 counted as a circuit breaker success. Now only 2xx resets the breaker.
+- **Cache hydration + Obsidian down = stuck** — Background rebuild failure after cache hydration left `indexTimestamp = 0`, causing `ensureIndexFresh()` to retry (and fail) every generation. Now sets a valid timestamp and shows a warning toast when using cached data.
+- **`/dle-context` silently costs money** — "Preview" command ran the actual AI pipeline with live API calls and no warning. Now shows an info toast when AI search is enabled.
+- **SSRF via configurable proxy URL** — User-controlled proxy URLs could point at cloud metadata endpoints (169.254.169.254) routed through ST's CORS proxy. Now validates and blocks internal/private IP targets.
+- **Contradictory gating rules silently drop entries** — If entry A requires B and B excludes A, both were silently eliminated. Now logs a specific warning identifying the contradiction.
+- **`parseWorldInfoJson` crashes on invalid entries** — Null or non-object entries in WI JSON caused uncaught TypeError. Now filters invalid entries before processing.
+- **Import dedup exhausts attempts then overwrites** — After 20 dedup attempts, the last `_imported_20` file was silently overwritten. Now errors out with a skip message.
+- **Unicode combining characters prevent keyword matches** — `"cafe\u0301"` (combining accent) wouldn't match `"caf\u00e9"` (precomposed). Now applies NFC normalization to scan text and keywords.
+- **Type-mismatch settings not detected** — Non-numeric values like `maxEntries: "abc"` became `NaN`, silently disabling budget limits. Now coerces to number or resets to default.
+- **`getPrimaryVault()` returns enabled fallback with empty API key** — Every request 401'd with toast spam. Fallback vault now has `enabled: false`.
+- **`titleMap` rebuilt every generation** — `new Map(vaultIndex.map(...))` in `matchEntries()` ran every generation. Pre-computed once and reused for both character matching and cascade links.
+- **Graph canvas event listeners not removed** — Five event listeners captured nodes/edges/canvas in closure. MutationObserver stopped animation but didn't remove listeners. Now uses AbortController for cleanup.
+- **Auto-suggest Accept has no double-click guard** — Rapid clicks on Accept created duplicate vault files. Now disables button immediately on click, re-enables on error.
+
+**Low:**
+- **Click delegation too broad** — Context Cartographer click handler was on `$(document)`, now narrowed to `$('#chat')`.
+- **`injectionHistory` writes wasted when cooldown=0** — Injection history Map populated even when `reinjectionCooldown` was disabled. Now skipped.
+- **`decayTracker` never pruned within a chat** — Entries accumulated with no upper bound. Now prunes entries with staleness exceeding 2x the boost threshold.
+
 - **`clearTimeout(timeoutId)` crashes all AI fallback** — Undefined variable in `aiSearch()` catch block threw `ReferenceError` on every AI error, preventing the `{ results: [], error: true }` return. All documented fallback behavior (two-stage → keywords, ai-only → full vault) was broken. Fixed by removing the stale line.
 - **Tracker key mismatch breaks cooldowns, decay, analytics** — `onGenerate()` wrote to cooldown/injection/decay Maps using `trackerKey(entry)` = `"vaultSource:title"`, but 7 reader sites used bare `entry.title`. Keys never matched. Cooldowns never fired, decay never triggered, analytics were wiped on every vault rebuild. Fixed by extracting `trackerKey()` to `state.js` and using it everywhere.
 - **CHAT_CHANGED races with in-flight onGenerate** — Added `chatEpoch` counter to `state.js`. Incremented in CHAT_CHANGED handler, captured at start of `onGenerate`, checked before every state write. Bails out if epoch changed mid-pipeline, preventing cross-chat state contamination. Extended to also guard `injection_log` writes and Session Scribe async operations.

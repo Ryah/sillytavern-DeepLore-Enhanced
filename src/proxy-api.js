@@ -12,15 +12,27 @@
  * @param {string} userMessage - User message content
  * @param {number} maxTokens - Max tokens for response
  * @param {number} [timeout=15000] - Timeout in ms
+ * @param {{ stablePrefix?: string, dynamicSuffix?: string }} [cacheHints] - Optional cache-aware content blocks for Anthropic prompt caching
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
-export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000) {
+export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000, cacheHints) {
     const targetUrl = proxyUrl.replace(/\/+$/, '') + '/v1/messages';
     // Encode the target URL to prevent Express from collapsing :// to :/
     const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
+
+    // Build user content — if cache hints provided, split into blocks with cache_control
+    let userContent;
+    if (cacheHints && cacheHints.stablePrefix && cacheHints.dynamicSuffix) {
+        userContent = [
+            { type: 'text', text: cacheHints.stablePrefix, cache_control: { type: 'ephemeral' } },
+            { type: 'text', text: cacheHints.dynamicSuffix },
+        ];
+    } else {
+        userContent = userMessage;
+    }
 
     try {
         const response = await fetch(corsProxyUrl, {
@@ -32,8 +44,8 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
             body: JSON.stringify({
                 model,
                 max_tokens: maxTokens,
-                system: [{ type: 'text', text: systemPrompt }],
-                messages: [{ role: 'user', content: userMessage }],
+                system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+                messages: [{ role: 'user', content: userContent }],
             }),
             signal: controller.signal,
         });

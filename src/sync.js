@@ -40,10 +40,12 @@ export function showChangesToast(changes) {
 
 /**
  * Set up or tear down periodic vault sync polling.
- * buildIndex is passed as a parameter to avoid circular imports.
+ * Uses delta sync when possible (lightweight file listing check),
+ * falling back to full rebuild if delta sync fails.
  * @param {Function} [buildIndexFn] - The buildIndex function
+ * @param {Function} [buildIndexDeltaFn] - The buildIndexDelta function (optional)
  */
-export function setupSyncPolling(buildIndexFn) {
+export function setupSyncPolling(buildIndexFn, buildIndexDeltaFn) {
     const settings = getSettings();
 
     if (syncIntervalId) {
@@ -55,6 +57,12 @@ export function setupSyncPolling(buildIndexFn) {
         setSyncIntervalId(setInterval(async () => {
             const current = getSettings();
             if (!current.enabled || indexing) return;
+
+            // Try delta sync first (lightweight), fall back to full rebuild
+            if (buildIndexDeltaFn) {
+                const deltaOk = await buildIndexDeltaFn();
+                if (deltaOk) return;
+            }
             await buildIndexFn();
         }, settings.syncPollingInterval * 1000));
     }

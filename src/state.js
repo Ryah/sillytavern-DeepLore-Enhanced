@@ -12,8 +12,8 @@ export let buildPromise = null;
 /** Whether vault has ever successfully loaded */
 export let indexEverLoaded = false;
 
-/** AI search result cache to avoid redundant API calls */
-export let aiSearchCache = { hash: '', results: [] };
+/** AI search result cache (sliding window: tracks manifest + chat lines separately) */
+export let aiSearchCache = { hash: '', manifestHash: '', chatLineCount: 0, results: [] };
 
 /** Session-scoped AI search usage stats */
 export let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputTokens: 0 };
@@ -50,6 +50,12 @@ export let lastPipelineTrace = null;
 /** Auto Lorebook: message counter */
 export let autoSuggestMessageCount = 0;
 
+/** Entry Decay: title → generations since last injection (reset per chat) */
+export let decayTracker = new Map();
+
+/** Last health check result for settings badge */
+export let lastHealthResult = null;
+
 // ── Setter functions ──
 // ES modules export live bindings but `let` exports can only be reassigned
 // from within the module that declared them. These setters allow other
@@ -73,3 +79,5 @@ export function setSyncIntervalId(v) { syncIntervalId = v; }
 export function setLastWarningRatio(v) { lastWarningRatio = v; }
 export function setLastPipelineTrace(v) { lastPipelineTrace = v; }
 export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
+export function setDecayTracker(v) { decayTracker = v; }
+export function setLastHealthResult(v) { lastHealthResult = v; }

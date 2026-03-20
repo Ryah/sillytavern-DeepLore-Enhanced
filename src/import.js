@@ -1,0 +1,140 @@
+/**
+ * DeepLore Enhanced — SillyTavern Lorebook Import Bridge (Lite)
+ * Converts ST World Info JSON entries into Obsidian vault notes with frontmatter.
+ */
+import { writeNote } from './obsidian-api.js';
+import { getSettings, getPrimaryVault } from '../settings.js';
+
+/**
+ * Map a SillyTavern World Info entry to Obsidian frontmatter + content.
+ * @param {object} wiEntry - ST World Info entry object
+ * @param {string} lorebookTag - The lorebook tag to add
+ * @returns {{ filename: string, content: string }}
+ */
+export function convertWiEntry(wiEntry, lorebookTag) {
+    // Extract title from comment field (ST convention) or first key
+    const title = (wiEntry.comment || '').trim()
+        || (wiEntry.key || []).join(', ').substring(0, 50)
+        || `Entry_${wiEntry.uid || Date.now()}`;
+
+    // Clean title for filename
+    const safeTitle = title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+
+    // Build keys from ST's key and keysecondary
+    const keys = [];
+    if (Array.isArray(wiEntry.key)) {
+        keys.push(...wiEntry.key.filter(k => k && k.trim()));
+    } else if (typeof wiEntry.key === 'string' && wiEntry.key.trim()) {
+        keys.push(...wiEntry.key.split(',').map(k => k.trim()).filter(Boolean));
+    }
+
+    // Map ST position to DLE position
+    const positionMap = { 0: 'after', 1: 'before', 2: 'before', 3: 'before', 4: 'in_chat' };
+    const position = positionMap[wiEntry.position] || null;
+
+    // Build frontmatter
+    const fm = [];
+    fm.push('---');
+    fm.push(`type: lore`);
+    fm.push(`status: active`);
+    fm.push(`priority: ${wiEntry.order ?? 50}`);
+    fm.push(`tags:`);
+    fm.push(`  - ${lorebookTag}`);
+    if (wiEntry.constant) fm.push(`  - lorebook-always`);
+    if (keys.length > 0) {
+        fm.push(`keys:`);
+        for (const k of keys) {
+            fm.push(`  - ${k}`);
+        }
+    }
+    if (wiEntry.keysecondary && wiEntry.keysecondary.length > 0) {
+        const secondary = Array.isArray(wiEntry.keysecondary)
+            ? wiEntry.keysecondary.filter(k => k && k.trim())
+            : wiEntry.keysecondary.split(',').map(k => k.trim()).filter(Boolean);
+        if (secondary.length > 0) {
+            fm.push(`refine_keys:`);
+            for (const k of secondary) {
+                fm.push(`  - ${k}`);
+            }
+        }
+    }
+    if (position) fm.push(`position: ${position}`);
+    if (wiEntry.depth != null && wiEntry.depth > 0) fm.push(`depth: ${wiEntry.depth}`);
+    if (wiEntry.probability != null && wiEntry.probability < 100) {
+        fm.push(`probability: ${(wiEntry.probability / 100).toFixed(2)}`);
+    }
+    if (wiEntry.scanDepth) fm.push(`scanDepth: ${wiEntry.scanDepth}`);
+    fm.push(`summary: "Imported from SillyTavern World Info"`);
+    fm.push('---');
+
+    // Build content
+    const content = wiEntry.content || '';
+    const fullContent = `${fm.join('\n')}\n\n# ${title}\n\n${content}`;
+
+    return { filename: `${safeTitle}.md`, content: fullContent };
+}
+
+/**
+ * Import an array of ST World Info entries into the Obsidian vault.
+ * @param {object[]} entries - Array of ST WI entry objects
+ * @param {string} folder - Target folder in the vault
+ * @returns {Promise<{ imported: number, failed: number, errors: string[] }>}
+ */
+export async function importEntries(entries, folder) {
+    const settings = getSettings();
+    const vault = getPrimaryVault(settings);
+    const lorebookTag = settings.lorebookTag;
+
+    let imported = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const wiEntry of entries) {
+        try {
+            const { filename, content } = convertWiEntry(wiEntry, lorebookTag);
+            const fullPath = folder ? `${folder}/${filename}` : filename;
+            const result = await writeNote(vault.port, vault.apiKey, fullPath, content);
+            if (result.ok) {
+                imported++;
+            } else {
+                failed++;
+                errors.push(`${filename}: ${result.error}`);
+            }
+        } catch (err) {
+            failed++;
+            errors.push(`Entry: ${err.message}`);
+        }
+    }
+
+    return { imported, failed, errors };
+}
+
+/**
+ * Parse ST World Info JSON (handles both export format and embedded character card format).
+ * @param {string} jsonText - Raw JSON text
+ * @returns {{ entries: object[], source: string }}
+ */
+export function parseWorldInfoJson(jsonText) {
+    const data = JSON.parse(jsonText);
+
+    // Format 1: Direct WI export { entries: { 0: {...}, 1: {...} } }
+    if (data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries)) {
+        const entries = Object.values(data.entries);
+        return { entries, source: data.originalData?.name || 'World Info' };
+    }
+
+    // Format 2: Array of entries
+    if (Array.isArray(data)) {
+        return { entries: data, source: 'World Info Array' };
+    }
+
+    // Format 3: V2 character card with embedded WI
+    if (data.data?.character_book?.entries) {
+        const entries = Array.isArray(data.data.character_book.entries)
+            ? data.data.character_book.entries
+            : Object.values(data.data.character_book.entries);
+        return { entries, source: data.data?.name || 'Character Card' };
+    }
+
+    throw new Error('Unrecognized World Info format. Expected ST WI export JSON or V2 character card.');
+}

@@ -86,6 +86,7 @@ export const defaultSettings = {
     aiSearchSystemPrompt: '',
     aiSearchManifestSummaryLength: 600,
     aiSearchClaudeCodePrefix: true,
+    scribeInformedRetrieval: false, // Feed Scribe session summary into AI search context
     // Context Cartographer settings
     showLoreSources: true,
     obsidianVaultName: '',
@@ -127,6 +128,10 @@ export const defaultSettings = {
     vaults: [],
     // UI State
     advancedVisible: {},
+    // Entry Decay & Freshness
+    decayEnabled: false,
+    decayBoostThreshold: 5,    // Generations without injection before freshness boost
+    decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
     // Analytics
     analyticsData: {},
 };
@@ -157,6 +162,8 @@ export const settingsConstraints = {
     autoSuggestInterval: { min: 3, max: 50 },
     autoSuggestMaxTokens: { min: 256, max: 4096 },
     autoSuggestTimeout: { min: 5000, max: 60000 },
+    decayBoostThreshold: { min: 2, max: 20 },
+    decayPenaltyThreshold: { min: 2, max: 10 },
 };
 
 /** @returns {typeof defaultSettings} */

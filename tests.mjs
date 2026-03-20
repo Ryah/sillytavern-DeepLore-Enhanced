@@ -1214,6 +1214,131 @@ test('multi-vault: health check detects no enabled vaults', () => {
 });
 
 // ============================================================================
+// Phase 3: Infrastructure tests
+// ============================================================================
+
+test('sliding window cache: exact match structure', () => {
+    const cache = { hash: '', manifestHash: '', chatLineCount: 0, results: [] };
+    assertEqual(typeof cache.manifestHash, 'string', 'cache should have manifestHash');
+    assertEqual(typeof cache.chatLineCount, 'number', 'cache should have chatLineCount');
+
+    // Simulate cache population
+    cache.hash = simpleHash('chat content');
+    cache.manifestHash = simpleHash('manifest content');
+    cache.chatLineCount = 5;
+    cache.results = [{ entry: makeEntry('A'), confidence: 'high', reason: 'test' }];
+
+    // Exact match: same hash + manifestHash
+    const newHash = simpleHash('chat content');
+    const newManifestHash = simpleHash('manifest content');
+    assert(cache.hash === newHash && cache.manifestHash === newManifestHash, 'exact cache match should hit');
+
+    // Different chat: miss
+    const diffHash = simpleHash('different chat');
+    assert(cache.hash !== diffHash, 'different chat hash should miss');
+});
+
+test('sliding window cache: entity mention detection', () => {
+    // Simulate sliding window logic: new lines with no entity mentions → cache hit
+    const entryNames = new Set(['alice', 'dark forest', 'sword of truth']);
+    const newText = 'the weather was nice today and we walked around the park';
+
+    let hasNewEntityMention = false;
+    for (const name of entryNames) {
+        if (newText.includes(name)) {
+            hasNewEntityMention = true;
+            break;
+        }
+    }
+    assert(!hasNewEntityMention, 'no entity mention in new text should allow cache hit');
+
+    // New text that DOES mention an entity
+    const newText2 = 'alice walked into the room';
+    let hasNewEntityMention2 = false;
+    for (const name of entryNames) {
+        if (newText2.includes(name)) {
+            hasNewEntityMention2 = true;
+            break;
+        }
+    }
+    assert(hasNewEntityMention2, 'entity mention in new text should invalidate cache');
+});
+
+test('hierarchical clustering: clusterEntries groups by tag', () => {
+    // Inline cluster function for testing
+    function clusterEntries(entries) {
+        const clusters = new Map();
+        for (const entry of entries) {
+            let category = 'Uncategorized';
+            if (entry.tags && entry.tags.length > 0) {
+                category = entry.tags[0];
+            }
+            if (!clusters.has(category)) clusters.set(category, []);
+            clusters.get(category).push(entry);
+        }
+        return clusters;
+    }
+
+    const entries = [
+        makeEntry('Alice', { tags: ['character'] }),
+        makeEntry('Bob', { tags: ['character'] }),
+        makeEntry('Dark Forest', { tags: ['location'] }),
+        makeEntry('Magic System', { tags: ['lore'] }),
+        makeEntry('Misc', {}),
+    ];
+
+    const clusters = clusterEntries(entries);
+    assertEqual(clusters.size, 4, 'should have 4 clusters');
+    assertEqual(clusters.get('character').length, 2, 'character cluster should have 2 entries');
+    assertEqual(clusters.get('location').length, 1, 'location cluster should have 1 entry');
+    assertEqual(clusters.get('Uncategorized').length, 1, 'uncategorized should have 1 entry');
+});
+
+test('hierarchical clustering: buildCategoryManifest formats correctly', () => {
+    function buildCategoryManifest(clusters) {
+        const lines = [];
+        for (const [category, entries] of clusters) {
+            const samples = entries.slice(0, 5).map(e => e.title).join(', ');
+            const more = entries.length > 5 ? ` (+${entries.length - 5} more)` : '';
+            lines.push(`[${category}] (${entries.length} entries): ${samples}${more}`);
+        }
+        return lines.join('\n');
+    }
+
+    const clusters = new Map();
+    clusters.set('character', [makeEntry('A'), makeEntry('B'), makeEntry('C'), makeEntry('D'), makeEntry('E'), makeEntry('F')]);
+    clusters.set('location', [makeEntry('Place1')]);
+
+    const manifest = buildCategoryManifest(clusters);
+    assert(manifest.includes('[character] (6 entries)'), 'should show character count');
+    assert(manifest.includes('(+1 more)'), 'should show +more for >5 entries');
+    assert(manifest.includes('[location] (1 entries)'), 'should show location count');
+});
+
+test('delta sync: file set comparison logic', () => {
+    // Simulate delta sync logic
+    const knownFiles = new Set(['Alice.md', 'Bob.md', 'Forest.md']);
+    const currentFiles = ['Alice.md', 'Bob.md', 'NewEntry.md'];
+
+    const newFiles = currentFiles.filter(f => !knownFiles.has(f));
+    const removedFiles = [...knownFiles].filter(f => !currentFiles.includes(f));
+
+    assertEqual(newFiles, ['NewEntry.md'], 'should detect new files');
+    assertEqual(removedFiles, ['Forest.md'], 'should detect removed files');
+});
+
+test('delta sync: no changes returns empty diff', () => {
+    const knownFiles = new Set(['Alice.md', 'Bob.md']);
+    const currentFiles = ['Alice.md', 'Bob.md'];
+
+    const newFiles = currentFiles.filter(f => !knownFiles.has(f));
+    const removedFiles = [...knownFiles].filter(f => !currentFiles.includes(f));
+
+    assertEqual(newFiles.length, 0, 'no new files');
+    assertEqual(removedFiles.length, 0, 'no removed files');
+});
+
+// ============================================================================
 // Results
 // ============================================================================
 

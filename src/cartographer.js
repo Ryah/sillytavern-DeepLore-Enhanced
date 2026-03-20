@@ -5,7 +5,10 @@ import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { simpleHash } from '../core/utils.js';
 import { getSettings } from '../settings.js';
-import { vaultIndex } from './state.js';
+import { vaultIndex, lastInjectionSources } from './state.js';
+
+/** Track previous sources for diff display */
+let previousSources = null;
 
 /**
  * Build an obsidian:// URI to open a note in Obsidian.
@@ -54,8 +57,23 @@ export function showSourcesPopup(sources) {
         groups.get(posKey).push({ ...src, entry });
     }
 
+    // Diff: compute added/removed since previous generation
+    const prevTitles = previousSources ? new Set(previousSources.map(s => s.title)) : null;
+    const currTitles = new Set(sources.map(s => s.title));
+    const added = prevTitles ? sources.filter(s => !prevTitles.has(s.title)).map(s => s.title) : [];
+    const removed = prevTitles ? previousSources.filter(s => !currTitles.has(s.title)).map(s => s.title) : [];
+    previousSources = [...sources]; // Save for next diff
+
     let html = `<div style="text-align: left;">`;
     html += `<h3>Context Map (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
+
+    // Diff display
+    if (added.length > 0 || removed.length > 0) {
+        html += `<div style="font-size: 0.85em; margin-bottom: 10px; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px;">`;
+        if (added.length > 0) html += `<span style="color: #4caf50;">+${added.length} new:</span> <span style="opacity: 0.8;">${added.map(t => escapeHtml(t)).join(', ')}</span><br>`;
+        if (removed.length > 0) html += `<span style="color: #f44336;">-${removed.length} removed:</span> <span style="opacity: 0.8;">${removed.map(t => escapeHtml(t)).join(', ')}</span>`;
+        html += `</div>`;
+    }
 
     for (const [posLabel, groupSources] of groups) {
         const groupTokens = groupSources.reduce((sum, s) => sum + s.tokens, 0);
@@ -84,8 +102,32 @@ export function showSourcesPopup(sources) {
             html += `</div>`;
             const vaultLabel = src.vaultSource && (settings.vaults || []).length > 1 ? ` · <em>${escapeHtml(src.vaultSource)}</em>` : '';
             html += `<small style="opacity: 0.7;">${escapeHtml(src.matchedBy)}${vaultLabel}</small>`;
-            if (contentPreview) {
-                html += `<div id="dle_ctx_${entryId}" style="display: none; margin-top: 6px; padding: 6px; background: var(--SmartThemeBlurTintColor, #1a1a2e); border-radius: 4px; font-size: 0.85em; white-space: pre-wrap;">${contentPreview}</div>`;
+            if (src.entry) {
+                // Metadata line
+                const meta = [];
+                if (src.entry.keys?.length > 0) meta.push(`Keys: ${src.entry.keys.slice(0, 5).join(', ')}${src.entry.keys.length > 5 ? '...' : ''}`);
+                if (src.entry.requires?.length > 0) meta.push(`Requires: ${src.entry.requires.join(', ')}`);
+                if (src.entry.era?.length > 0) meta.push(`Era: ${src.entry.era.join(', ')}`);
+                if (src.entry.location?.length > 0) meta.push(`Location: ${src.entry.location.join(', ')}`);
+                if (src.entry.resolvedLinks?.length > 0) meta.push(`Links: ${src.entry.resolvedLinks.slice(0, 5).join(', ')}`);
+
+                // Highlight matched keywords in content preview
+                let highlighted = contentPreview;
+                if (src.matchedBy && !src.matchedBy.startsWith('(')) {
+                    // Extract the keyword from matchedBy (may have "→ AI:" suffix)
+                    const keyword = src.matchedBy.split('→')[0].trim();
+                    if (keyword.length >= 2) {
+                        const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        highlighted = highlighted.replace(new RegExp(`(${escaped})`, 'gi'), '<mark style="background: rgba(255,193,7,0.3); padding: 0 2px; border-radius: 2px;">$1</mark>');
+                    }
+                }
+
+                html += `<div id="dle_ctx_${entryId}" style="display: none; margin-top: 6px;">`;
+                if (meta.length > 0) {
+                    html += `<div style="font-size: 0.8em; opacity: 0.6; margin-bottom: 4px;">${meta.map(m => escapeHtml(m)).join(' · ')}</div>`;
+                }
+                html += `<div style="padding: 6px; background: var(--SmartThemeBlurTintColor, #1a1a2e); border-radius: 4px; font-size: 0.85em; white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${highlighted}</div>`;
+                html += `</div>`;
             }
             html += `</div>`;
         }

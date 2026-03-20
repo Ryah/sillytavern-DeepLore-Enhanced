@@ -6,6 +6,7 @@
 import {
     saveChatDebounced,
     chat_metadata,
+    chat,
 } from '../../../../../script.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
@@ -22,6 +23,7 @@ import { buildIndex, ensureIndexFresh } from './vault.js';
 import { callAutoSuggest } from './auto-suggest.js';
 import { extractAiResponseClient } from './ai.js';
 import { buildObsidianURI } from './cartographer.js';
+import { diagnoseEntry } from './diagnostics.js';
 
 /**
  * Show the AI Notebook editor popup for the current chat.
@@ -82,6 +84,8 @@ export async function showBrowsePopup() {
     const settings = getSettings();
     const analytics = settings.analyticsData || {};
     const allTags = [...new Set(vaultIndex.flatMap(e => e.tags))].sort();
+    const pins = new Set((chat_metadata.deeplore_pins || []).map(t => t.toLowerCase()));
+    const blocks = new Set((chat_metadata.deeplore_blocks || []).map(t => t.toLowerCase()));
 
     const container = document.createElement('div');
     container.style.textAlign = 'left';
@@ -91,6 +95,8 @@ export async function showBrowsePopup() {
             <input id="dle_browse_search" type="text" class="text_pole" placeholder="Search titles, keywords, content..." style="flex: 2; min-width: 200px;" />
             <select id="dle_browse_status" class="text_pole" style="flex: 1; min-width: 120px;">
                 <option value="all">All Status</option>
+                <option value="pinned">Pinned</option>
+                <option value="blocked">Blocked</option>
                 <option value="constant">Constants</option>
                 <option value="seed">Seeds</option>
                 <option value="bootstrap">Bootstrap</option>
@@ -117,6 +123,8 @@ export async function showBrowsePopup() {
         const tag = tagEl?.value || '';
 
         let filtered = vaultIndex.filter(e => {
+            if (status === 'pinned' && !pins.has(e.title.toLowerCase())) return false;
+            if (status === 'blocked' && !blocks.has(e.title.toLowerCase())) return false;
             if (status === 'constant' && !e.constant) return false;
             if (status === 'seed' && !e.seed) return false;
             if (status === 'bootstrap' && !e.bootstrap) return false;
@@ -135,6 +143,8 @@ export async function showBrowsePopup() {
         let html = '';
         for (const entry of filtered) {
             const statusBadges = [];
+            if (pins.has(entry.title.toLowerCase())) statusBadges.push('<span style="color: #4caf50; font-size: 0.8em; font-weight: bold;">[pinned]</span>');
+            if (blocks.has(entry.title.toLowerCase())) statusBadges.push('<span style="color: #f44336; font-size: 0.8em; font-weight: bold;">[blocked]</span>');
             if (entry.constant) statusBadges.push('<span style="color: #4caf50; font-size: 0.8em;">[constant]</span>');
             if (entry.seed) statusBadges.push('<span style="color: #2196f3; font-size: 0.8em;">[seed]</span>');
             if (entry.bootstrap) statusBadges.push('<span style="color: #ff9800; font-size: 0.8em;">[bootstrap]</span>');
@@ -168,9 +178,37 @@ export async function showBrowsePopup() {
             if (entry.probability !== null) html += ` · Probability: ${entry.probability}`;
             if (entry.vaultSource && (settings.vaults || []).length > 1) html += ` · Vault: ${escapeHtml(entry.vaultSource)}`;
             html += obsidianLink;
-            html += `</div></div></div>`;
+            html += `</div>`;
+            // "Why not?" diagnostic button
+            if (chat && chat.length > 0 && !entry.constant) {
+                html += `<div id="dle_whynot_${entryId}" style="margin-top: 6px;"><button class="menu_button dle_whynot_btn" data-title="${escapeHtml(entry.title)}" style="font-size: 0.8em; padding: 2px 8px;">Why not injected?</button></div>`;
+            }
+            html += `</div></div>`;
         }
         listEl.innerHTML = html || '<p style="opacity: 0.5;">No entries match filters.</p>';
+
+        // Bind "Why not?" buttons
+        listEl.querySelectorAll('.dle_whynot_btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const title = btn.dataset.title;
+                const entry = vaultIndex.find(en => en.title === title);
+                if (!entry) return;
+                const result = diagnoseEntry(entry, chat);
+                const stageColors = {
+                    keyword_miss: '#ff9800', warmup: '#ff9800', probability: '#2196f3',
+                    cooldown: '#ff9800', reinjection_cooldown: '#ff9800',
+                    gating_requires: '#f44336', gating_excludes: '#f44336',
+                    ai_rejected: '#9c27b0', budget_cut: '#ff9800',
+                    no_keywords: '#f44336', scan_depth_zero: '#f44336',
+                };
+                const color = stageColors[result.stage] || '#999';
+                const suggestions = result.suggestions.length > 0
+                    ? `<br><small style="opacity:0.8;">Suggestion: ${escapeHtml(result.suggestions[0])}</small>`
+                    : '';
+                btn.parentElement.innerHTML = `<div style="font-size: 0.85em; color: ${color}; padding: 4px 0;">${escapeHtml(result.detail)}${suggestions}</div>`;
+            });
+        });
     }
 
     await callGenericPopup(container, POPUP_TYPE.TEXT, '', {

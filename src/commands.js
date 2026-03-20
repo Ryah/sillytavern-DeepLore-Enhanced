@@ -30,6 +30,7 @@ import { runAutoSuggest, showSuggestionPopup } from './auto-suggest.js';
 import { showSourcesPopup } from './cartographer.js';
 import { runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup, showNotebookPopup, showBrowsePopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
+import { parseWorldInfoJson, importEntries } from './import.js';
 
 export function registerSlashCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -436,6 +437,533 @@ export function registerSlashCommands() {
         },
         helpString: 'Run 30+ health checks on vault entries and settings: circular requires, duplicates, orphaned references, conflicting overrides, budget warnings, and more.',
         returns: 'Health check popup',
+    }));
+
+    // ── Setup Wizard ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-setup',
+        callback: async () => {
+            const settings = getSettings();
+
+            // Step 1: Vault connection
+            const step1Html = `
+                <div style="text-align: left;">
+                    <h3>DeepLore Enhanced Setup (1/3): Vault Connection</h3>
+                    <p>Connect to your Obsidian vault via the Local REST API plugin.</p>
+                    <div style="margin: 10px 0;">
+                        <label>Vault Name:</label>
+                        <input id="dle_setup_name" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.name || 'Primary')}" />
+                    </div>
+                    <div style="margin: 10px 0;">
+                        <label>Port (default: 27123):</label>
+                        <input id="dle_setup_port" class="text_pole" type="number" value="${settings.vaults?.[0]?.port || 27123}" />
+                    </div>
+                    <div style="margin: 10px 0;">
+                        <label>API Key:</label>
+                        <input id="dle_setup_key" class="text_pole" type="password" value="${escapeHtml(settings.vaults?.[0]?.apiKey || '')}" placeholder="From Obsidian REST API plugin settings" />
+                    </div>
+                </div>`;
+
+            const step1Ok = await callGenericPopup(step1Html, POPUP_TYPE.CONFIRM, '', { wide: true });
+            if (!step1Ok) return '';
+
+            const vaultName = document.getElementById('dle_setup_name')?.value?.trim() || 'Primary';
+            const port = parseInt(document.getElementById('dle_setup_port')?.value) || 27123;
+            const apiKey = document.getElementById('dle_setup_key')?.value?.trim() || '';
+
+            // Test connection
+            const { testConnection } = await import('./obsidian-api.js');
+            toastr.info('Testing connection...', 'DeepLore Enhanced', { timeOut: 2000 });
+            const testResult = await testConnection(port, apiKey);
+            if (!testResult.ok) {
+                toastr.error(`Connection failed: ${testResult.error}. Check Obsidian and REST API plugin.`, 'DeepLore Enhanced');
+                return '';
+            }
+            toastr.success('Connected to Obsidian!', 'DeepLore Enhanced');
+
+            // Step 2: Tags and mode
+            const step2Html = `
+                <div style="text-align: left;">
+                    <h3>DeepLore Enhanced Setup (2/3): Configuration</h3>
+                    <div style="margin: 10px 0;">
+                        <label>Lorebook Tag (entries must have this tag):</label>
+                        <input id="dle_setup_tag" class="text_pole" type="text" value="${escapeHtml(settings.lorebookTag)}" />
+                    </div>
+                    <div style="margin: 10px 0;">
+                        <label>Search Mode:</label>
+                        <select id="dle_setup_mode" class="text_pole">
+                            <option value="keywords" ${!settings.aiSearchEnabled ? 'selected' : ''}>Keywords Only (no AI cost)</option>
+                            <option value="two-stage" ${settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage' ? 'selected' : ''}>Two-Stage (keywords + AI refinement)</option>
+                            <option value="ai-only" ${settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only' ? 'selected' : ''}>AI Only (full semantic search)</option>
+                        </select>
+                    </div>
+                </div>`;
+
+            const step2Ok = await callGenericPopup(step2Html, POPUP_TYPE.CONFIRM, '', { wide: true });
+            if (!step2Ok) return '';
+
+            const lorebookTag = document.getElementById('dle_setup_tag')?.value?.trim() || 'lorebook';
+            const searchMode = document.getElementById('dle_setup_mode')?.value || 'keywords';
+
+            // Apply settings
+            settings.enabled = true;
+            settings.lorebookTag = lorebookTag;
+            settings.vaults = [{ name: vaultName, port, apiKey, enabled: true }];
+            settings.aiSearchEnabled = searchMode !== 'keywords';
+            if (searchMode !== 'keywords') settings.aiSearchMode = searchMode;
+            saveSettingsDebounced();
+
+            // Step 3: Verify — build index
+            toastr.info('Building index...', 'DeepLore Enhanced', { timeOut: 3000 });
+            setVaultIndex([]);
+            setIndexTimestamp(0);
+            await buildIndex();
+
+            const step3Html = `
+                <div style="text-align: left;">
+                    <h3>DeepLore Enhanced Setup (3/3): Verification</h3>
+                    <p style="color: #4caf50; font-size: 1.1em;">Setup complete!</p>
+                    <ul>
+                        <li>Vault: <b>${escapeHtml(vaultName)}</b> on port ${port}</li>
+                        <li>Lorebook tag: <b>#${escapeHtml(lorebookTag)}</b></li>
+                        <li>Entries indexed: <b>${vaultIndex.length}</b></li>
+                        <li>Mode: <b>${searchMode === 'keywords' ? 'Keywords Only' : searchMode === 'two-stage' ? 'Two-Stage' : 'AI Only'}</b></li>
+                    </ul>
+                    ${vaultIndex.length === 0 ? '<p style="color: #ff9800;">No entries found. Make sure your Obsidian notes have the <code>#' + escapeHtml(lorebookTag) + '</code> tag.</p>' : ''}
+                    <p>You can adjust all settings in the Extensions panel.</p>
+                </div>`;
+
+            await callGenericPopup(step3Html, POPUP_TYPE.TEXT, '', { wide: true });
+            return '';
+        },
+        helpString: 'Walk through initial setup: connect vault, configure tags, verify index.',
+        returns: 'Setup wizard',
+    }));
+
+    // ── Auto-Summary Generation ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-summarize',
+        callback: async () => {
+            await ensureIndexFresh();
+            if (vaultIndex.length === 0) {
+                toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            const missingSummary = vaultIndex.filter(e => !e.summary || !e.summary.trim());
+            if (missingSummary.length === 0) {
+                toastr.success('All entries already have summaries.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            const confirmed = await callGenericPopup(
+                `<p>Found <b>${missingSummary.length}</b> entries without AI search summaries.</p>
+                <p>This will generate summaries using your AI search connection and present each for review before writing to Obsidian.</p>
+                <p>Continue?</p>`,
+                POPUP_TYPE.CONFIRM, '', {},
+            );
+            if (!confirmed) return '';
+
+            const { callViaProfile, extractAiResponseClient } = await import('./ai.js');
+            const { writeNote, obsidianFetch, encodeVaultPath } = await import('./obsidian-api.js');
+            const settings = getSettings();
+            const vault = getPrimaryVault(settings);
+
+            let generated = 0;
+            let skipped = 0;
+            let failed = 0;
+
+            for (let i = 0; i < missingSummary.length; i++) {
+                const entry = missingSummary[i];
+                toastr.info(`Generating summary ${i + 1}/${missingSummary.length}: "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 3000 });
+
+                try {
+                    const systemPrompt = 'You are a lore librarian. Write a concise AI search summary (max 600 chars) for the following lorebook entry. The summary should answer: What is this? When should it be selected? Key relationships? Do NOT include physical descriptions or atmospheric prose. Write for an AI that needs to decide whether to inject this entry.';
+                    const userMsg = `Entry: ${entry.title}\n\nContent:\n${entry.content.substring(0, 3000)}`;
+
+                    let responseText;
+                    if (settings.aiSearchConnectionMode === 'profile' && settings.aiSearchProfileId) {
+                        const result = await callViaProfile(systemPrompt, userMsg, 300, settings.aiSearchTimeout);
+                        responseText = result.text;
+                    } else {
+                        const { callProxyViaCorsBridge } = await import('./proxy-api.js');
+                        const result = await callProxyViaCorsBridge(
+                            settings.aiSearchProxyUrl,
+                            settings.aiSearchModel || 'claude-haiku-4-5-20251001',
+                            systemPrompt, userMsg, 300, settings.aiSearchTimeout,
+                        );
+                        responseText = result.text;
+                    }
+
+                    const summary = responseText.trim().substring(0, 600);
+                    if (!summary) {
+                        failed++;
+                        continue;
+                    }
+
+                    // Present for review
+                    const reviewHtml = `
+                        <div style="text-align: left;">
+                            <h4>${escapeHtml(entry.title)} (${i + 1}/${missingSummary.length})</h4>
+                            <p style="font-size: 0.85em; opacity: 0.7;">Entry content preview: ${escapeHtml(entry.content.substring(0, 200))}...</p>
+                            <hr>
+                            <p><b>Generated Summary:</b></p>
+                            <textarea id="dle_summary_edit" class="text_pole" style="height: 100px; font-size: 0.9em;">${escapeHtml(summary)}</textarea>
+                            <p style="font-size: 0.8em; opacity: 0.6;">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
+                        </div>`;
+
+                    const approved = await callGenericPopup(reviewHtml, POPUP_TYPE.CONFIRM, '', { wide: true });
+
+                    if (!approved) {
+                        skipped++;
+                        continue;
+                    }
+
+                    const finalSummary = document.getElementById('dle_summary_edit')?.value?.trim() || summary;
+
+                    // Read current file, inject summary into frontmatter, write back
+                    const fileResult = await obsidianFetch({
+                        port: vault.port,
+                        apiKey: vault.apiKey,
+                        path: `/vault/${encodeVaultPath(entry.filename)}`,
+                        accept: 'text/markdown',
+                    });
+
+                    if (fileResult.status !== 200) {
+                        failed++;
+                        console.warn(`[DLE] Failed to read ${entry.filename}: HTTP ${fileResult.status}`);
+                        continue;
+                    }
+
+                    // Insert summary into frontmatter
+                    let fileContent = fileResult.data;
+                    if (fileContent.startsWith('---')) {
+                        const endIdx = fileContent.indexOf('---', 3);
+                        if (endIdx > 0) {
+                            const fmSection = fileContent.substring(0, endIdx);
+                            const rest = fileContent.substring(endIdx);
+                            // Remove existing summary line if present
+                            const cleaned = fmSection.replace(/^summary:.*$/m, '').replace(/\n{3,}/g, '\n\n');
+                            fileContent = cleaned + `summary: "${finalSummary.replace(/"/g, '\\"')}"\n` + rest;
+                        }
+                    }
+
+                    const writeResult = await writeNote(vault.port, vault.apiKey, entry.filename, fileContent);
+                    if (writeResult.ok) {
+                        generated++;
+                    } else {
+                        failed++;
+                    }
+                } catch (err) {
+                    console.error(`[DLE] Summary generation error for "${entry.title}":`, err);
+                    failed++;
+                }
+            }
+
+            const msg = `Done: ${generated} written, ${skipped} skipped, ${failed} failed.`;
+            toastr.success(msg, 'DeepLore Enhanced');
+
+            // Refresh index to pick up new summaries
+            if (generated > 0) {
+                setVaultIndex([]);
+                setIndexTimestamp(0);
+                await buildIndex();
+            }
+            return '';
+        },
+        helpString: 'Generate AI search summaries for entries that are missing them. Each summary is presented for review before writing.',
+        returns: 'Summary generation status',
+    }));
+
+    // ── Lorebook Import ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-import',
+        callback: async (_args, folderArg) => {
+            const folder = (folderArg || '').trim();
+
+            // Prompt user to paste JSON
+            const jsonInput = await callGenericPopup(
+                `<div style="text-align: left;">
+                    <h3>Import SillyTavern World Info</h3>
+                    <p>Paste the JSON content of a SillyTavern World Info export, or a V2 character card with an embedded lorebook.</p>
+                    ${folder ? `<p>Target folder: <strong>${escapeHtml(folder)}</strong></p>` : '<p>Entries will be created in the vault root. Pass a folder name as argument, e.g. <code>/dle-import Imported</code></p>'}
+                    <textarea id="dle_import_json" class="text_pole" style="height: 200px; font-family: monospace; font-size: 0.85em;" placeholder="Paste World Info JSON here..."></textarea>
+                </div>`,
+                POPUP_TYPE.CONFIRM, '', { wide: true },
+            );
+
+            if (!jsonInput) return '';
+
+            const jsonText = document.getElementById('dle_import_json')?.value?.trim();
+            if (!jsonText) {
+                toastr.warning('No JSON provided.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            try {
+                const { entries, source } = parseWorldInfoJson(jsonText);
+                if (entries.length === 0) {
+                    toastr.info('No entries found in the JSON.', 'DeepLore Enhanced');
+                    return '';
+                }
+
+                // Confirm
+                const confirmed = await callGenericPopup(
+                    `<p>Found <b>${entries.length}</b> entries from "${escapeHtml(source)}".</p>
+                    <p>Import to ${folder ? `folder <b>${escapeHtml(folder)}/</b>` : 'vault root'}?</p>`,
+                    POPUP_TYPE.CONFIRM, '', {},
+                );
+                if (!confirmed) return '';
+
+                toastr.info(`Importing ${entries.length} entries...`, 'DeepLore Enhanced', { timeOut: 5000 });
+                const result = await importEntries(entries, folder);
+
+                if (result.failed > 0) {
+                    toastr.warning(`Imported ${result.imported}, failed ${result.failed}. Check console for details.`, 'DeepLore Enhanced');
+                    console.warn('[DLE] Import errors:', result.errors);
+                } else {
+                    toastr.success(`Imported ${result.imported} entries.`, 'DeepLore Enhanced');
+                }
+
+                // Refresh index to pick up new entries
+                setVaultIndex([]);
+                setIndexTimestamp(0);
+                await buildIndex();
+            } catch (err) {
+                console.error('[DLE] Import error:', err);
+                toastr.error(`Import failed: ${err.message}`, 'DeepLore Enhanced');
+            }
+            return '';
+        },
+        helpString: 'Import SillyTavern World Info JSON into Obsidian vault. Optionally specify a target folder: /dle-import MyFolder',
+        returns: 'Import status',
+    }));
+
+    // ── Per-Chat Pin/Block Commands ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-pin',
+        callback: async (_args, entryName) => {
+            const name = (entryName || '').trim();
+            if (!name) { toastr.warning('Usage: /dle-pin <entry name>', 'DeepLore Enhanced'); return ''; }
+            await ensureIndexFresh();
+            const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
+            if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
+            if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
+            if (chat_metadata.deeplore_pins.some(t => t.toLowerCase() === entry.title.toLowerCase())) {
+                toastr.info(`"${entry.title}" is already pinned.`, 'DeepLore Enhanced'); return '';
+            }
+            // Remove from blocks if present
+            if (chat_metadata.deeplore_blocks) {
+                chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(t => t.toLowerCase() !== entry.title.toLowerCase());
+            }
+            chat_metadata.deeplore_pins.push(entry.title);
+            saveSettingsDebounced();
+            toastr.success(`Pinned "${entry.title}" for this chat.`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Pin an entry so it always injects in this chat. Usage: /dle-pin <entry name>',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-unpin',
+        callback: async (_args, entryName) => {
+            const name = (entryName || '').trim();
+            if (!name) { toastr.warning('Usage: /dle-unpin <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!chat_metadata.deeplore_pins || chat_metadata.deeplore_pins.length === 0) {
+                toastr.info('No pinned entries.', 'DeepLore Enhanced'); return '';
+            }
+            const idx = chat_metadata.deeplore_pins.findIndex(t => t.toLowerCase() === name.toLowerCase());
+            if (idx === -1) { toastr.info(`"${name}" is not pinned.`, 'DeepLore Enhanced'); return ''; }
+            const removed = chat_metadata.deeplore_pins.splice(idx, 1)[0];
+            saveSettingsDebounced();
+            toastr.success(`Unpinned "${removed}".`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Remove a per-chat pin. Usage: /dle-unpin <entry name>',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-block',
+        callback: async (_args, entryName) => {
+            const name = (entryName || '').trim();
+            if (!name) { toastr.warning('Usage: /dle-block <entry name>', 'DeepLore Enhanced'); return ''; }
+            await ensureIndexFresh();
+            const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
+            if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
+            if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
+            if (chat_metadata.deeplore_blocks.some(t => t.toLowerCase() === entry.title.toLowerCase())) {
+                toastr.info(`"${entry.title}" is already blocked.`, 'DeepLore Enhanced'); return '';
+            }
+            // Remove from pins if present
+            if (chat_metadata.deeplore_pins) {
+                chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(t => t.toLowerCase() !== entry.title.toLowerCase());
+            }
+            chat_metadata.deeplore_blocks.push(entry.title);
+            saveSettingsDebounced();
+            toastr.success(`Blocked "${entry.title}" for this chat.`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Block an entry so it never injects in this chat. Usage: /dle-block <entry name>',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-unblock',
+        callback: async (_args, entryName) => {
+            const name = (entryName || '').trim();
+            if (!name) { toastr.warning('Usage: /dle-unblock <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!chat_metadata.deeplore_blocks || chat_metadata.deeplore_blocks.length === 0) {
+                toastr.info('No blocked entries.', 'DeepLore Enhanced'); return '';
+            }
+            const idx = chat_metadata.deeplore_blocks.findIndex(t => t.toLowerCase() === name.toLowerCase());
+            if (idx === -1) { toastr.info(`"${name}" is not blocked.`, 'DeepLore Enhanced'); return ''; }
+            const removed = chat_metadata.deeplore_blocks.splice(idx, 1)[0];
+            saveSettingsDebounced();
+            toastr.success(`Unblocked "${removed}".`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Remove a per-chat block. Usage: /dle-unblock <entry name>',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-pins',
+        callback: async () => {
+            const pins = chat_metadata.deeplore_pins || [];
+            const blocks = chat_metadata.deeplore_blocks || [];
+            if (pins.length === 0 && blocks.length === 0) {
+                toastr.info('No per-chat pins or blocks.', 'DeepLore Enhanced');
+                return '';
+            }
+            let html = '<div style="text-align: left;">';
+            if (pins.length > 0) {
+                html += `<h4>Pinned (${pins.length})</h4><ul>`;
+                for (const p of pins) html += `<li style="color: #4caf50;">${escapeHtml(p)}</li>`;
+                html += '</ul>';
+            }
+            if (blocks.length > 0) {
+                html += `<h4>Blocked (${blocks.length})</h4><ul>`;
+                for (const b of blocks) html += `<li style="color: #f44336;">${escapeHtml(b)}</li>`;
+                html += '</ul>';
+            }
+            html += '</div>';
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
+            return '';
+        },
+        helpString: 'Show all per-chat pinned and blocked entries.',
+        returns: 'Pins/blocks popup',
+    }));
+
+    // ── Contextual Gating Commands ──
+
+    /** Helper: initialize deeplore_context in chat_metadata if needed */
+    const ensureCtx = () => {
+        if (!chat_metadata.deeplore_context) chat_metadata.deeplore_context = {};
+        return chat_metadata.deeplore_context;
+    };
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-set-era',
+        callback: async (_args, value) => {
+            const ctx = ensureCtx();
+            const v = (value || '').trim();
+            if (!v) {
+                ctx.era = '';
+                saveSettingsDebounced();
+                toastr.success('Era cleared.', 'DeepLore Enhanced');
+                return '';
+            }
+            ctx.era = v;
+            saveSettingsDebounced();
+            toastr.success(`Era set to "${v}" for this chat.`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Set the current era/time period for contextual gating. Entries with a matching "era" frontmatter field will be prioritized. Use without args to clear.',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-set-location',
+        callback: async (_args, value) => {
+            const ctx = ensureCtx();
+            const v = (value || '').trim();
+            if (!v) {
+                ctx.location = '';
+                saveSettingsDebounced();
+                toastr.success('Location cleared.', 'DeepLore Enhanced');
+                return '';
+            }
+            ctx.location = v;
+            saveSettingsDebounced();
+            toastr.success(`Location set to "${v}" for this chat.`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Set the current location for contextual gating. Entries with a matching "location" frontmatter field will be prioritized. Use without args to clear.',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-set-scene',
+        callback: async (_args, value) => {
+            const ctx = ensureCtx();
+            const v = (value || '').trim();
+            if (!v) {
+                ctx.scene_type = '';
+                saveSettingsDebounced();
+                toastr.success('Scene type cleared.', 'DeepLore Enhanced');
+                return '';
+            }
+            ctx.scene_type = v;
+            saveSettingsDebounced();
+            toastr.success(`Scene type set to "${v}" for this chat.`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Set the current scene type (combat, exploration, social, etc.) for contextual gating. Use without args to clear.',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-set-characters',
+        callback: async (_args, value) => {
+            const ctx = ensureCtx();
+            const v = (value || '').trim();
+            if (!v) {
+                ctx.characters_present = [];
+                saveSettingsDebounced();
+                toastr.success('Present characters cleared.', 'DeepLore Enhanced');
+                return '';
+            }
+            ctx.characters_present = v.split(',').map(c => c.trim()).filter(Boolean);
+            saveSettingsDebounced();
+            toastr.success(`Characters present: ${ctx.characters_present.join(', ')}`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Set which characters are present (comma-separated). Entries with matching "character_present" frontmatter will inject. Use without args to clear.',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-context-state',
+        callback: async () => {
+            const ctx = chat_metadata.deeplore_context || {};
+            const lines = [
+                `Era: ${ctx.era || '(not set)'}`,
+                `Location: ${ctx.location || '(not set)'}`,
+                `Scene Type: ${ctx.scene_type || '(not set)'}`,
+                `Characters Present: ${(ctx.characters_present || []).join(', ') || '(not set)'}`,
+            ];
+            const html = `<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(lines.join('\n'))}</pre>`;
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
+            return '';
+        },
+        helpString: 'Show current contextual gating state (era, location, scene type, characters present).',
+        returns: 'Context state popup',
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({

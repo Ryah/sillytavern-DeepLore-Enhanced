@@ -9,7 +9,7 @@ import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
     setLastPipelineTrace,
 } from './state.js';
-import { buildCandidateManifest, aiSearch } from './ai.js';
+import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from './ai.js';
 import { ensureIndexFresh } from './vault.js';
 import { name2 } from '../../../../../script.js';
 
@@ -196,7 +196,17 @@ export async function runPipeline(chat) {
     let matchedKeys = new Map();
 
     if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
-        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(vaultIndex, bootstrapActive);
+        // Hierarchical pre-filter: for large vaults, narrow candidates by category first
+        let aiOnlyCandidates = vaultIndex;
+        const preFiltered = await hierarchicalPreFilter(vaultIndex, chat);
+        if (preFiltered) {
+            aiOnlyCandidates = preFiltered;
+            if (settings.debugMode) {
+                console.log(`[DLE] Hierarchical clustering: ${vaultIndex.length} → ${aiOnlyCandidates.length} candidates`);
+            }
+        }
+
+        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
         const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
 
         if (bootstrapActive) {
@@ -238,7 +248,17 @@ export async function runPipeline(chat) {
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
 
-        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(keywordResult.matched, bootstrapActive);
+        // Hierarchical pre-filter for large keyword match sets
+        let twoStageCandidates = keywordResult.matched;
+        const preFiltered = await hierarchicalPreFilter(keywordResult.matched, chat);
+        if (preFiltered) {
+            twoStageCandidates = preFiltered;
+            if (settings.debugMode) {
+                console.log(`[DLE] Two-stage hierarchical: ${keywordResult.matched.length} → ${twoStageCandidates.length} candidates`);
+            }
+        }
+
+        const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(twoStageCandidates, bootstrapActive);
 
         if (!candidateManifest) {
             finalEntries = keywordResult.matched;

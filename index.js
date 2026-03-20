@@ -20,11 +20,11 @@ import {
     vaultIndex, indexEverLoaded,
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory,
-    lastWarningRatio,
+    lastWarningRatio, decayTracker,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio,
 } from './src/state.js';
-import { buildIndex, ensureIndexFresh } from './src/vault.js';
+import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexDelta } from './src/vault.js';
 import { runPipeline } from './src/pipeline.js';
 import { setupSyncPolling } from './src/sync.js';
 import { runScribe } from './src/scribe.js';
@@ -87,6 +87,64 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat);
         let finalEntries = pipelineEntries;
+
+        // Per-chat pin/block overrides (stored in chat_metadata)
+        const pins = chat_metadata.deeplore_pins || [];
+        const blocks = chat_metadata.deeplore_blocks || [];
+        if (pins.length > 0) {
+            const pinSet = new Set(pins.map(t => t.toLowerCase()));
+            for (const entry of vaultIndex) {
+                if (pinSet.has(entry.title.toLowerCase()) && !finalEntries.includes(entry)) {
+                    finalEntries.push(entry);
+                    matchedKeys.set(entry.title, '(pinned)');
+                }
+            }
+        }
+        if (blocks.length > 0) {
+            const blockSet = new Set(blocks.map(t => t.toLowerCase()));
+            finalEntries = finalEntries.filter(e => !blockSet.has(e.title.toLowerCase()));
+        }
+
+        // Contextual gating: era, location, scene_type, character_present
+        const ctx = chat_metadata.deeplore_context || {};
+        const activeEra = (ctx.era || '').toLowerCase();
+        const activeLocation = (ctx.location || '').toLowerCase();
+        const activeScene = (ctx.scene_type || '').toLowerCase();
+        const presentChars = (ctx.characters_present || []).map(c => c.toLowerCase());
+
+        if (activeEra || activeLocation || activeScene || presentChars.length > 0) {
+            const beforeCtx = finalEntries.length;
+            finalEntries = finalEntries.filter(e => {
+                if (e.constant) return true; // Constants bypass gating
+                // Era gating: if entry has era field, current era must match one
+                if (e.era && e.era.length > 0 && activeEra) {
+                    if (!e.era.includes(activeEra)) return false;
+                } else if (e.era && e.era.length > 0 && !activeEra) {
+                    return false; // Entry requires an era but none is set
+                }
+                // Location gating
+                if (e.location && e.location.length > 0 && activeLocation) {
+                    if (!e.location.includes(activeLocation)) return false;
+                } else if (e.location && e.location.length > 0 && !activeLocation) {
+                    return false;
+                }
+                // Scene type gating
+                if (e.sceneType && e.sceneType.length > 0 && activeScene) {
+                    if (!e.sceneType.includes(activeScene)) return false;
+                } else if (e.sceneType && e.sceneType.length > 0 && !activeScene) {
+                    return false;
+                }
+                // Character present gating
+                if (e.characterPresent && e.characterPresent.length > 0) {
+                    if (presentChars.length === 0) return false;
+                    if (!e.characterPresent.some(c => presentChars.includes(c))) return false;
+                }
+                return true;
+            });
+            if (settings.debugMode && finalEntries.length < beforeCtx) {
+                console.log(`[DLE] Contextual gating removed ${beforeCtx - finalEntries.length} entries (era: ${activeEra || 'none'}, location: ${activeLocation || 'none'}, scene: ${activeScene || 'none'})`);
+            }
+        }
 
         if (trace?.aiFallback) {
             console.warn('[DLE] AI search failed, using fallback results');
@@ -328,6 +386,18 @@ async function onGenerate(chat, contextSize, abort, type) {
                     cooldownTracker.set(title, remaining - 1);
                 }
             }
+
+            // Entry decay/freshness tracking
+            if (settings.decayEnabled) {
+                const injectedTitles = new Set(injectedEntries.map(e => e.title));
+                for (const entry of vaultIndex) {
+                    if (injectedTitles.has(entry.title)) {
+                        decayTracker.set(entry.title, 0); // Reset staleness on injection
+                    } else {
+                        decayTracker.set(entry.title, (decayTracker.get(entry.title) || 0) + 1);
+                    }
+                }
+            }
         }
     }
 }
@@ -355,7 +425,7 @@ jQuery(async function () {
         loadSettingsUI();
         bindSettingsEvents(buildIndex);
         registerSlashCommands();
-        setupSyncPolling(buildIndex);
+        setupSyncPolling(buildIndex, buildIndexDelta);
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.
         // Content is written directly to PM entries at generation time (not via setExtensionPrompt),
@@ -399,7 +469,19 @@ jQuery(async function () {
             }
         }
         if (initSettings.enabled) {
-            setTimeout(() => buildIndex().catch(err => console.warn('[DLE] Auto-connect:', err.message)), 3000);
+            // Try instant hydration from IndexedDB, then validate against Obsidian in background
+            setTimeout(async () => {
+                try {
+                    const hydrated = await hydrateFromCache();
+                    if (!hydrated) {
+                        // No cache — do a full build
+                        await buildIndex();
+                    }
+                    // If hydrated, hydrateFromCache already triggers a background buildIndex
+                } catch (err) {
+                    console.warn('[DLE] Auto-connect:', err.message);
+                }
+            }, 3000);
         }
 
         // Context Cartographer: click handler (event delegation — registered once)
@@ -447,6 +529,7 @@ jQuery(async function () {
             // Note: aiSearchStats is intentionally NOT reset — it tracks session-level cumulative stats
             injectionHistory.clear();
             cooldownTracker.clear();
+            decayTracker.clear();
             setGenerationCount(0);
             setLastWarningRatio(0);
             setTimeout(() => {

@@ -8,7 +8,7 @@ import { truncateToSentence, simpleHash, buildAiChatContext } from '../core/util
 import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
-    vaultIndex, aiSearchCache, aiSearchStats,
+    vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
     setAiSearchCache,
 } from './state.js';
 import { updateAiStats } from './settings-ui.js';
@@ -250,7 +250,15 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
             const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
                 ? ` → ${entry.resolvedLinks.join(', ')}`
                 : '';
-            const header = `${entry.title} (${entry.tokenEstimate}tok)${links}`;
+            // Decay/freshness annotation: hint to AI about stale or frequently-injected entries
+            let decayHint = '';
+            if (settings.decayEnabled && decayTracker.size > 0) {
+                const staleness = decayTracker.get(entry.title);
+                if (staleness !== undefined && staleness >= settings.decayBoostThreshold) {
+                    decayHint = ' [STALE — consider refreshing]';
+                }
+            }
+            const header = `${entry.title} (${entry.tokenEstimate}tok)${links}${decayHint}`;
 
             return `${header}\n${summaryText}`;
         })
@@ -268,6 +276,126 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
         + budgetInfo;
 
     return { manifest, header };
+}
+
+/**
+ * Cluster entries by type/tag for hierarchical manifest (large vaults).
+ * @param {VaultEntry[]} entries - Selectable entries (non-constant)
+ * @returns {Map<string, VaultEntry[]>} Category name → entries in that category
+ */
+export function clusterEntries(entries) {
+    const clusters = new Map();
+    for (const entry of entries) {
+        // Use first meaningful tag, or type frontmatter field, or 'Uncategorized'
+        let category = 'Uncategorized';
+        if (entry.tags && entry.tags.length > 0) {
+            // Use the most specific tag (first non-generic tag)
+            category = entry.tags[0];
+        }
+        if (!clusters.has(category)) clusters.set(category, []);
+        clusters.get(category).push(entry);
+    }
+    return clusters;
+}
+
+/**
+ * Build a compact category manifest for the first stage of hierarchical search.
+ * Lists category names with entry count and sample titles.
+ * @param {Map<string, VaultEntry[]>} clusters
+ * @returns {string}
+ */
+export function buildCategoryManifest(clusters) {
+    const lines = [];
+    for (const [category, entries] of clusters) {
+        const samples = entries.slice(0, 5).map(e => e.title).join(', ');
+        const more = entries.length > 5 ? ` (+${entries.length - 5} more)` : '';
+        lines.push(`[${category}] (${entries.length} entries): ${samples}${more}`);
+    }
+    return lines.join('\n');
+}
+
+/** Threshold for enabling hierarchical two-call search */
+const HIERARCHICAL_THRESHOLD = 40;
+
+/**
+ * Pre-filter candidates using hierarchical category selection for large vaults.
+ * Call 1: asks AI which categories are relevant to the current chat.
+ * Returns filtered candidates containing only entries from selected categories.
+ * @param {VaultEntry[]} candidates - All selectable entries
+ * @param {object[]} chat - Chat messages array
+ * @returns {Promise<VaultEntry[]|null>} Filtered candidates, or null to skip (use all)
+ */
+export async function hierarchicalPreFilter(candidates, chat) {
+    const settings = getSettings();
+    const isForceInjected = e => e.constant || e.bootstrap;
+    const selectable = candidates.filter(e => !isForceInjected(e));
+
+    if (selectable.length < HIERARCHICAL_THRESHOLD) return null; // Too few, skip clustering
+
+    const clusters = clusterEntries(selectable);
+    if (clusters.size <= 3) return null; // Not enough categories to benefit
+
+    const categoryManifest = buildCategoryManifest(clusters);
+    const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
+
+    const categoryPrompt = 'You are a lore retrieval assistant. Given categories of lore entries and recent chat, select which categories are relevant. Return a JSON array of category names (strings). Be inclusive — select all categories that might be relevant.';
+    const categoryUserMessage = `## Categories\n${categoryManifest}\n\n## Recent Chat\n${chatContext}`;
+
+    try {
+        let responseText;
+        if (settings.aiSearchConnectionMode === 'profile') {
+            const result = await callViaProfile(categoryPrompt, categoryUserMessage, 512, settings.aiSearchTimeout);
+            responseText = result.text;
+        } else {
+            const result = await callProxyViaCorsBridge(
+                settings.aiSearchProxyUrl,
+                settings.aiSearchModel || 'claude-haiku-4-5-20251001',
+                categoryPrompt,
+                categoryUserMessage,
+                512,
+                settings.aiSearchTimeout,
+            );
+            responseText = result.text;
+        }
+
+        aiSearchStats.calls++;
+        updateAiStats();
+
+        const parsed = extractAiResponseClient(responseText);
+        if (!parsed || parsed.length === 0) return null;
+
+        // parsed should be an array of category name strings
+        const selectedCategories = new Set(
+            parsed.map(item => (typeof item === 'string' ? item : item.title || item.name || '').toLowerCase()).filter(Boolean),
+        );
+
+        if (selectedCategories.size === 0) return null;
+
+        // Filter candidates to only those in selected categories
+        const filtered = selectable.filter(entry => {
+            const category = (entry.tags && entry.tags.length > 0) ? entry.tags[0].toLowerCase() : 'uncategorized';
+            return selectedCategories.has(category);
+        });
+
+        // Always include force-injected entries
+        const forceInjected = candidates.filter(e => isForceInjected(e));
+        const result = [...forceInjected, ...filtered];
+
+        if (settings.debugMode) {
+            console.log(`[DLE] Hierarchical pre-filter: ${clusters.size} categories → ${selectedCategories.size} selected, ${selectable.length} → ${filtered.length} entries`);
+        }
+
+        // If filtering removed too many entries (>80%), skip — the AI was probably too aggressive
+        if (filtered.length < selectable.length * 0.2) {
+            if (settings.debugMode) console.log('[DLE] Hierarchical pre-filter too aggressive, using full manifest');
+            return null;
+        }
+
+        return result;
+    } catch (err) {
+        if (settings.debugMode) console.warn('[DLE] Hierarchical pre-filter failed:', err.message);
+        return null; // Fall back to single-call
+    }
 }
 
 /**
@@ -307,15 +435,61 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         }
     }
 
-    // Check cache - skip API call if inputs haven't changed (include mode in key to avoid collisions)
-    const cacheKey = simpleHash(settings.aiSearchMode + chatContext + candidateManifest);
-    if (cacheKey === aiSearchCache.hash && aiSearchCache.results.length > 0) {
+    // Scribe-informed retrieval: append session summary for broader context awareness
+    if (settings.scribeInformedRetrieval && lastScribeSummary && lastScribeSummary.trim()) {
+        chatContext += `\n\n[SESSION SUMMARY — broader context beyond the recent chat window]\n${lastScribeSummary.trim()}`;
+        if (settings.debugMode) {
+            console.log('[DLE] Scribe summary injected into AI search context');
+        }
+    }
+
+    // Sliding window cache: hash manifest + chat messages separately.
+    // If only the newest chat message changed and contains no entity names from the manifest,
+    // we can safely serve cached results (the new message doesn't reference any lore).
+    const manifestHash = simpleHash(settings.aiSearchMode + candidateManifest);
+    const chatLines = chatContext.split('\n').filter(l => l.trim());
+    const chatHash = simpleHash(chatContext);
+
+    if (aiSearchCache.hash === chatHash && aiSearchCache.manifestHash === manifestHash && aiSearchCache.results.length > 0) {
+        // Exact match — nothing changed at all
         aiSearchStats.cachedHits++;
         updateAiStats();
-        if (settings.debugMode) {
-            console.debug('[DLE] AI search cache hit, skipping API call');
-        }
+        if (settings.debugMode) console.debug('[DLE] AI search cache hit (exact)');
         return { results: aiSearchCache.results, error: false };
+    }
+
+    // Sliding window: manifest unchanged + only newest message(s) differ
+    if (aiSearchCache.manifestHash === manifestHash
+        && aiSearchCache.results.length > 0
+        && aiSearchCache.chatLineCount > 0
+        && chatLines.length > aiSearchCache.chatLineCount) {
+        // Extract only the new lines added since last cache
+        const newLines = chatLines.slice(aiSearchCache.chatLineCount);
+        const newText = newLines.join(' ').toLowerCase();
+
+        // Check if any vault entry title or key appears in the new text
+        const entryNames = new Set();
+        for (const entry of vaultIndex) {
+            entryNames.add(entry.title.toLowerCase());
+            for (const key of entry.keys) {
+                if (key.length >= 3) entryNames.add(key.toLowerCase());
+            }
+        }
+
+        let hasNewEntityMention = false;
+        for (const name of entryNames) {
+            if (newText.includes(name)) {
+                hasNewEntityMention = true;
+                break;
+            }
+        }
+
+        if (!hasNewEntityMention) {
+            aiSearchStats.cachedHits++;
+            updateAiStats();
+            if (settings.debugMode) console.debug(`[DLE] AI search cache hit (sliding window: ${newLines.length} new lines, no entity mentions)`);
+            return { results: aiSearchCache.results, error: false };
+        }
     }
 
     let timeoutId;
@@ -324,7 +498,9 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         timeoutId = setTimeout(() => controller.abort(), settings.aiSearchTimeout);
 
         // Resolve system prompt with {{maxEntries}} placeholder
-        const maxEntries = settings.unlimitedEntries ? 'as many as are relevant' : String(settings.maxEntries);
+        // Request 2x max entries so low-confidence candidates can fill remaining budget
+        const requestedEntries = settings.unlimitedEntries ? 0 : Math.min(settings.maxEntries * 2, vaultIndex.length);
+        const maxEntries = settings.unlimitedEntries ? 'as many as are relevant' : String(requestedEntries);
         let systemPrompt;
         if (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) {
             const userPrompt = settings.aiSearchSystemPrompt.trim();
@@ -350,11 +526,12 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
             }
         }
 
-        // Build user message for AI (same format regardless of connection mode)
+        // Build user message for AI — manifest FIRST (stable across turns) for prompt caching,
+        // chat context LAST (changes every turn)
         const userMessageParts = [];
         if (candidateHeader) userMessageParts.push(`## Manifest Info\n${candidateHeader}`);
-        userMessageParts.push(`## Recent Chat\n${chatContext}`);
         userMessageParts.push(`## Available Lore Entries\n${candidateManifest}`);
+        userMessageParts.push(`## Recent Chat\n${chatContext}`);
         const userMessage = userMessageParts.join('\n\n');
 
         let aiResults;
@@ -379,12 +556,19 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
             });
         } else {
             // ── Proxy mode: call via CORS proxy bridge ──
+            // Manifest before chat context for prompt caching (stable prefix)
             const userMessageParts2 = [];
             if (candidateHeader) userMessageParts2.push(`## Manifest Info\n${candidateHeader}`);
-            userMessageParts2.push(`## Recent Chat\n${chatContext}`);
             userMessageParts2.push(`## Available Lore Entries\n${candidateManifest}`);
+            // Cache breakpoint: everything above is stable across turns
+            const cacheBreakIndex = userMessageParts2.length;
+            userMessageParts2.push(`## Recent Chat\n${chatContext}`);
             userMessageParts2.push('Select the relevant entries as a JSON array.');
             const proxyUserMessage = userMessageParts2.join('\n\n');
+
+            // Build cache-aware user content for proxy mode
+            const stablePrefix = userMessageParts2.slice(0, cacheBreakIndex).join('\n\n');
+            const dynamicSuffix = userMessageParts2.slice(cacheBreakIndex).join('\n\n');
 
             const aiResult = await callProxyViaCorsBridge(
                 settings.aiSearchProxyUrl,
@@ -393,6 +577,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
                 proxyUserMessage,
                 settings.aiSearchMaxTokens,
                 settings.aiSearchTimeout,
+                // Pass cache-aware content blocks for Anthropic prompt caching
+                { stablePrefix, dynamicSuffix },
             );
             clearTimeout(timeoutId);
 
@@ -433,8 +619,17 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
             }
         }
 
-        // Cache the results
-        setAiSearchCache({ hash: cacheKey, results });
+        // Sort by confidence tier: high > medium > low (budget will naturally cut low-confidence)
+        const confidenceOrder = { high: 0, medium: 1, low: 2 };
+        results.sort((a, b) => (confidenceOrder[a.confidence] ?? 1) - (confidenceOrder[b.confidence] ?? 1));
+
+        // Cache the results with sliding window metadata
+        setAiSearchCache({
+            hash: chatHash,
+            manifestHash,
+            chatLineCount: chatLines.length,
+            results,
+        });
 
         if (settings.debugMode) {
             console.log(`[DLE] AI search found ${aiResults.length} titles, matched ${results.length} entries`);

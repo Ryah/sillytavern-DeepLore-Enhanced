@@ -32,6 +32,10 @@ import { parseFrontmatter, extractWikiLinks, cleanContent, extractTitle } from '
  * @property {number|null} warmup - Keyword hit count required before triggering (null = no warmup)
  * @property {number|null} probability - Chance of triggering when matched (0.0-1.0, null = always trigger)
  * @property {string} vaultSource - Name of the vault this entry came from (multi-vault)
+ * @property {string[]} era - Eras during which this entry should inject (empty = always)
+ * @property {string[]} location - Locations where this entry should inject (empty = always)
+ * @property {string[]} sceneType - Scene types during which this entry should inject (empty = always)
+ * @property {string[]} characterPresent - Characters that must be present for this entry to inject (empty = always)
  */
 
 /**
@@ -132,6 +136,14 @@ export function parseVaultFile(file, tagConfig) {
     // AI selection summary (dedicated frontmatter field, separate from injected content)
     const summary = typeof frontmatter.summary === 'string' ? frontmatter.summary.trim() : '';
 
+    // Contextual gating fields: era, location, scene_type, character_present
+    const toStringArray = (v) => Array.isArray(v) ? v.map(s => String(s).trim().toLowerCase()).filter(Boolean)
+        : (typeof v === 'string' && v.trim()) ? [v.trim().toLowerCase()] : [];
+    const era = toStringArray(frontmatter.era);
+    const location = toStringArray(frontmatter.location);
+    const sceneType = toStringArray(frontmatter.scene_type);
+    const characterPresent = toStringArray(frontmatter.character_present);
+
     // Preserve all tags except the lorebook marker tag itself
     const entryTags = tags.filter(t => t !== tagToMatch);
 
@@ -162,6 +174,10 @@ export function parseVaultFile(file, tagConfig) {
         warmup,
         probability,
         vaultSource: '',
+        era,
+        location,
+        sceneType,
+        characterPresent,
     };
 }
 

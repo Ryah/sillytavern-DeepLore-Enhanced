@@ -15,7 +15,8 @@ import { testConnection } from './obsidian-api.js';
 import { testProxyConnection } from './proxy-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp,
-    injectionHistory, generationCount,
+    injectionHistory, generationCount, lastHealthResult,
+    lastInjectionSources, lastPipelineTrace,
     setVaultIndex, setIndexTimestamp,
 } from './state.js';
 import { ensureIndexFresh, getMaxResponseTokens } from './vault.js';
@@ -27,9 +28,10 @@ import {
 } from './ai.js';
 import { matchEntries, runPipeline } from './pipeline.js';
 import { setupSyncPolling } from './sync.js';
-import { showNotebookPopup } from './popups.js';
-import { showBrowsePopup } from './popups.js';
-import { diagnoseEntry } from './diagnostics.js';
+import { buildIndexDelta } from './vault.js';
+import { showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup } from './popups.js';
+import { diagnoseEntry, runHealthCheck } from './diagnostics.js';
+import { showSourcesPopup } from './cartographer.js';
 
 // ============================================================================
 // Vault List UI
@@ -165,9 +167,45 @@ export function updateIndexStats() {
             const totalKeys = vaultIndex.reduce((sum, e) => sum + e.keys.length, 0);
             const constants = vaultIndex.filter(e => e.constant).length;
             const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
-            statsEl.textContent = `${vaultIndex.length} entries (${totalKeys} keywords, ${constants} always-send, ~${totalTokens} total tokens)`;
+            let statsText = `${vaultIndex.length} entries (${totalKeys} keywords, ${constants} always-send, ~${totalTokens} total tokens)`;
+            // Health score badge
+            if (lastHealthResult) {
+                const { errors, warnings } = lastHealthResult;
+                let grade, color;
+                if (errors === 0 && warnings === 0) { grade = 'A+'; color = '#4caf50'; }
+                else if (errors === 0 && warnings <= 3) { grade = 'A'; color = '#8bc34a'; }
+                else if (errors === 0 && warnings <= 6) { grade = 'B'; color = '#ff9800'; }
+                else if (errors <= 2) { grade = 'C'; color = '#ff5722'; }
+                else { grade = 'D'; color = '#f44336'; }
+                statsText += ` · Health: <span id="dle_health_badge" style="color: ${color}; font-weight: bold; cursor: pointer;" title="Click for details. ${errors} errors, ${warnings} warnings">${grade}</span>`;
+            }
+            statsEl.innerHTML = statsText;
+            // Bind health badge click
+            const badge = document.getElementById('dle_health_badge');
+            if (badge) {
+                badge.addEventListener('click', () => {
+                    // Trigger the /dle-health slash command
+                    const input = document.getElementById('send_textarea');
+                    if (input) {
+                        input.value = '/dle-health';
+                        const event = new Event('input', { bubbles: true });
+                        input.dispatchEvent(event);
+                        document.getElementById('send_but')?.click();
+                    }
+                });
+            }
         } else {
             statsEl.textContent = 'No index loaded.';
+        }
+    }
+
+    // Update header badge with entry count
+    const headerBadge = document.getElementById('dle_header_badge');
+    if (headerBadge) {
+        if (vaultIndex.length > 0) {
+            headerBadge.textContent = `(${vaultIndex.length} entries)`;
+        } else {
+            headerBadge.textContent = '';
         }
     }
 }
@@ -368,7 +406,7 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_enabled').on('change', function () {
         settings.enabled = $(this).prop('checked');
         saveSettingsDebounced();
-        setupSyncPolling(buildIndexFn); // Stop/start polling based on enabled state
+        setupSyncPolling(buildIndexFn, buildIndexDelta); // Stop/start polling based on enabled state
         $(this).closest('.inline-drawer-content').find('> :not(:first-child)').css('opacity', settings.enabled ? 1 : 0.5);
     });
 
@@ -694,7 +732,7 @@ export function bindSettingsEvents(buildIndexFn) {
         const val = Number($(this).val());
         settings.syncPollingInterval = isNaN(val) ? 0 : val;
         saveSettingsDebounced();
-        setupSyncPolling(buildIndexFn);
+        setupSyncPolling(buildIndexFn, buildIndexDelta);
     });
 
     $('#dle_show_sync_toasts').on('change', function () {
@@ -784,6 +822,121 @@ export function bindSettingsEvents(buildIndexFn) {
         const val = Number($(this).val());
         settings.stripLookbackDepth = isNaN(val) ? 2 : val;
         saveSettingsDebounced();
+    });
+
+    // Quick Actions Bar
+    $('#dle_qa_browse').on('click', async () => {
+        await showBrowsePopup();
+    });
+
+    $('#dle_qa_map').on('click', async () => {
+        if (!chat || chat.length === 0) {
+            toastr.warning('No active chat.', 'DeepLore Enhanced');
+            return;
+        }
+        if (lastInjectionSources && lastInjectionSources.length > 0) {
+            showSourcesPopup(lastInjectionSources);
+        } else {
+            toastr.info('No injection sources yet. Generate a message first.', 'DeepLore Enhanced');
+        }
+    });
+
+    $('#dle_qa_health').on('click', () => {
+        const health = runHealthCheck();
+        if (!health) {
+            toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+            return;
+        }
+        const grade = health.errors === 0 && health.warnings === 0 ? 'A+'
+            : health.errors === 0 ? 'B' : health.errors <= 2 ? 'C' : 'D';
+        let msg = `Health: ${grade} — ${health.errors} errors, ${health.warnings} warnings`;
+        if (health.issues && health.issues.length > 0) {
+            msg += '\n' + health.issues.slice(0, 5).map(i => `${i.severity}: ${i.detail}`).join('\n');
+        }
+        if (health.errors === 0 && health.warnings === 0) {
+            toastr.success(msg, 'DeepLore Enhanced');
+        } else if (health.errors === 0) {
+            toastr.warning(msg, 'DeepLore Enhanced', { timeOut: 8000 });
+        } else {
+            toastr.error(msg, 'DeepLore Enhanced', { timeOut: 10000 });
+        }
+    });
+
+    $('#dle_qa_refresh').on('click', async function () {
+        const btn = $(this);
+        btn.find('i').removeClass('fa-sync').addClass('fa-spinner fa-spin');
+        try {
+            setVaultIndex([]);
+            setIndexTimestamp(0);
+            await buildIndexFn();
+            toastr.success(`Indexed ${vaultIndex.length} entries.`, 'DeepLore Enhanced');
+        } catch (err) {
+            toastr.error(String(err), 'DeepLore Enhanced');
+        } finally {
+            btn.find('i').removeClass('fa-spinner fa-spin').addClass('fa-sync');
+        }
+    });
+
+    $('#dle_qa_more_toggle').on('click', () => {
+        $('#dle_quick_actions_more').toggle();
+    });
+
+    $('#dle_qa_graph').on('click', async () => {
+        await ensureIndexFresh();
+        if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
+        showGraphPopup();
+    });
+
+    $('#dle_qa_simulate').on('click', async () => {
+        if (!chat || chat.length === 0) { toastr.warning('No active chat.', 'DeepLore Enhanced'); return; }
+        await ensureIndexFresh();
+        if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
+        toastr.info('Running simulation...', 'DeepLore Enhanced', { timeOut: 2000 });
+        const timeline = runSimulation(chat);
+        showSimulationPopup(timeline);
+    });
+
+    $('#dle_qa_analytics').on('click', () => {
+        const settings = getSettings();
+        const analytics = settings.analyticsData || {};
+        if (Object.keys(analytics).length === 0) {
+            toastr.info('No analytics data yet. Generate some messages first.', 'DeepLore Enhanced');
+            return;
+        }
+        // Show quick analytics summary as toast
+        const sorted = Object.entries(analytics).sort((a, b) => (b[1].injected || 0) - (a[1].injected || 0));
+        const top5 = sorted.slice(0, 5).map(([t, d]) => `${t}: ${d.injected || 0} injections`).join('\n');
+        toastr.info(`Top entries:\n${top5}`, 'DeepLore Analytics', { timeOut: 10000 });
+    });
+
+    $('#dle_qa_optimize').on('click', async () => {
+        await ensureIndexFresh();
+        if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
+        toastr.info('Analyzing keywords...', 'DeepLore Enhanced', { timeOut: 2000 });
+        const result = await optimizeEntryKeys();
+        if (result) showOptimizePopup(result);
+    });
+
+    $('#dle_qa_inspect').on('click', () => {
+        if (!lastPipelineTrace) {
+            toastr.info('No pipeline trace yet. Generate a message first.', 'DeepLore Enhanced');
+            return;
+        }
+        const t = lastPipelineTrace;
+        const lines = [
+            `Mode: ${t.mode}`,
+            `Indexed: ${t.indexed}`,
+            `Keyword matched: ${t.keywordMatched.length}`,
+            `AI selected: ${t.aiSelected.length}`,
+            t.aiFallback ? 'AI FALLBACK: true' : '',
+        ].filter(Boolean);
+        toastr.info(lines.join('\n'), 'Pipeline Trace', { timeOut: 10000 });
+    });
+
+    $('#dle_qa_setup').on('click', async () => {
+        // Trigger the setup wizard - import and call the setup function
+        // We'll use the slash command approach since setup is complex
+        toastr.info('Use /dle-setup in chat to run the setup wizard.', 'DeepLore Enhanced');
     });
 
     // Test Connection button — tests all enabled vaults

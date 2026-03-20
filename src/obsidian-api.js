@@ -6,6 +6,65 @@
 
 const DEFAULT_TIMEOUT = 30000;
 
+// ── Circuit Breaker ──
+// Prevents hammering Obsidian when it's down. Short backoffs (it's local and free).
+const circuitBreaker = {
+    failures: 0,
+    maxFailures: 3,
+    state: 'closed', // closed (normal), open (rejecting), half-open (testing)
+    openedAt: 0,
+    baseBackoff: 2000,  // 2s initial
+    maxBackoff: 15000,  // 15s max
+};
+
+/**
+ * Get the current circuit breaker state (for UI display).
+ * @returns {{ state: string, failures: number, backoffRemaining: number }}
+ */
+export function getCircuitState() {
+    if (circuitBreaker.state === 'open') {
+        const elapsed = Date.now() - circuitBreaker.openedAt;
+        const backoff = Math.min(
+            circuitBreaker.baseBackoff * Math.pow(2, Math.min(circuitBreaker.failures - circuitBreaker.maxFailures, 3)),
+            circuitBreaker.maxBackoff,
+        );
+        const remaining = Math.max(0, backoff - elapsed);
+        if (remaining === 0) {
+            circuitBreaker.state = 'half-open';
+        }
+        return { state: circuitBreaker.state, failures: circuitBreaker.failures, backoffRemaining: remaining };
+    }
+    return { state: circuitBreaker.state, failures: circuitBreaker.failures, backoffRemaining: 0 };
+}
+
+function recordSuccess() {
+    circuitBreaker.failures = 0;
+    circuitBreaker.state = 'closed';
+}
+
+function recordFailure() {
+    circuitBreaker.failures++;
+    if (circuitBreaker.failures >= circuitBreaker.maxFailures) {
+        circuitBreaker.state = 'open';
+        circuitBreaker.openedAt = Date.now();
+    }
+}
+
+function circuitAllows() {
+    if (circuitBreaker.state === 'closed') return true;
+    if (circuitBreaker.state === 'half-open') return true;
+    const elapsed = Date.now() - circuitBreaker.openedAt;
+    const backoff = Math.min(
+        circuitBreaker.baseBackoff * Math.pow(2, Math.min(circuitBreaker.failures - circuitBreaker.maxFailures, 3)),
+        circuitBreaker.maxBackoff,
+    );
+    if (elapsed >= backoff) {
+        circuitBreaker.state = 'half-open';
+        return true;
+    }
+    return false;
+}
+
 /**
  * Encode a vault path for use in the Obsidian REST API URL.
  * Encodes each path segment individually to preserve slashes.
@@ -44,6 +103,12 @@ function validateVaultPath(filename) {
  * @returns {Promise<{status: number, data: string}>}
  */
 export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT }) {
+    // Circuit breaker: reject immediately if circuit is open
+    if (!circuitAllows()) {
+        const cs = getCircuitState();
+        throw new Error(`Obsidian circuit breaker open (${cs.failures} failures, retry in ${Math.ceil(cs.backoffRemaining / 1000)}s)`);
+    }
+
     const headers = {
         'Authorization': `Bearer ${apiKey}`,
         'Accept': accept,
@@ -63,8 +128,10 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
             signal: controller.signal,
         });
         const data = await response.text();
+        recordSuccess();
         return { status: response.status, data };
     } catch (err) {
+        recordFailure();
         if (err.name === 'AbortError') throw new Error('Request timed out');
         throw err;
     } finally {
@@ -102,14 +169,23 @@ export async function listAllFiles(port, apiKey, directory = '', depth = 0) {
     const allFiles = [];
     const prefix = directory ? directory + '/' : '';
 
+    // Separate directories and files
+    const dirs = [];
     for (const file of files) {
         if (file.endsWith('/')) {
-            const dirName = file.slice(0, -1);
-            const fullDirPath = prefix + dirName;
-            const subFiles = await listAllFiles(port, apiKey, fullDirPath, depth + 1);
-            allFiles.push(...subFiles);
+            dirs.push(prefix + file.slice(0, -1));
         } else {
             allFiles.push(prefix + file);
+        }
+    }
+
+    // Fetch sibling directories in parallel instead of sequentially
+    if (dirs.length > 0) {
+        const dirResults = await Promise.all(
+            dirs.map(fullDirPath => listAllFiles(port, apiKey, fullDirPath, depth + 1)),
+        );
+        for (const subFiles of dirResults) {
+            allFiles.push(...subFiles);
         }
     }
 
@@ -181,6 +257,58 @@ export async function fetchAllMdFiles(port, apiKey) {
     }
 
     return { files: results, total: mdFiles.length, failed };
+}
+
+/**
+ * Fetch only new or changed .md files from the vault (incremental delta sync).
+ * Compares file listing against known filenames; only fetches content for new files.
+ * Returns the full file list for removal detection + fetched content for new files.
+ * @param {number} port
+ * @param {string} apiKey
+ * @param {Set<string>} knownFiles - Filenames already in the index
+ * @returns {Promise<{allMdFiles: string[], newFiles: Array<{filename: string, content: string}>, failed: number}>}
+ */
+export async function fetchMdFilesDelta(port, apiKey, knownFiles) {
+    const allFiles = await listAllFiles(port, apiKey);
+    const allMdFiles = allFiles.filter(f => f.endsWith('.md'));
+
+    // Only fetch content for files not in our existing index
+    const newFilenames = allMdFiles.filter(f => !knownFiles.has(f));
+
+    if (newFilenames.length === 0) {
+        return { allMdFiles, newFiles: [], failed: 0 };
+    }
+
+    const BATCH_SIZE = 10;
+    const results = [];
+    let failed = 0;
+
+    for (let i = 0; i < newFilenames.length; i += BATCH_SIZE) {
+        const batch = newFilenames.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.all(
+            batch.map(async (filename) => {
+                try {
+                    const result = await obsidianFetch({
+                        port,
+                        apiKey,
+                        path: `/vault/${encodeVaultPath(filename)}`,
+                        accept: 'text/markdown',
+                    });
+                    if (result.status === 200) {
+                        return { filename, content: result.data };
+                    }
+                    failed++;
+                    return null;
+                } catch {
+                    failed++;
+                    return null;
+                }
+            }),
+        );
+        results.push(...batchResults.filter(Boolean));
+    }
+
+    return { allMdFiles, newFiles: results, failed };
 }
 
 /**

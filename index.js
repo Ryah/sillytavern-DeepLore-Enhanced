@@ -56,6 +56,14 @@ async function onGenerate(chat, contextSize, abort, type) {
     // Clear all previous DeepLore prompts
     clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
 
+    // In prompt_list mode, also clear PM entry content from previous generation
+    if (settings.injectionMode === 'prompt_list' && promptManager) {
+        for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`]) {
+            const pmEntry = promptManager.getPromptById(id);
+            if (pmEntry) pmEntry.content = '';
+        }
+    }
+
     // Track whether the pipeline ran far enough to need generation tracking
     let pipelineRan = false;
     let injectedEntries = [];
@@ -171,7 +179,19 @@ async function onGenerate(chat, contextSize, abort, type) {
         injectedEntries = gated.slice(0, injectedCount);
 
         if (groups.length > 0) {
+            const usePromptList = settings.injectionMode === 'prompt_list';
             for (const group of groups) {
+                if (usePromptList && promptManager) {
+                    // Prompt List mode: write content directly to the PM entry.
+                    // The PM collection order (user's drag position) controls placement.
+                    const pmEntry = promptManager.getPromptById(group.tag);
+                    if (pmEntry) {
+                        pmEntry.content = group.text;
+                        // Don't call setExtensionPrompt — it would override PM positioning
+                        continue;
+                    }
+                    // Fallback: PM entry not found, use setExtensionPrompt
+                }
                 setExtensionPrompt(
                     group.tag,
                     group.text,
@@ -338,14 +358,10 @@ jQuery(async function () {
         setupSyncPolling(buildIndex);
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.
-        // setExtensionPrompt alone is not enough — the PM only discovers extension prompts
-        // during generation (openai.js L1412-1431). We must add them directly to the PM.
+        // Content is written directly to PM entries at generation time (not via setExtensionPrompt),
+        // so the PM collection order (user's drag position) controls placement.
         const initSettings = getSettings();
         if (initSettings.injectionMode === 'prompt_list') {
-            // Register in extension_prompts (needed for generation-time merging)
-            setExtensionPrompt(`${PROMPT_TAG_PREFIX}constants`, ' ', 0 /* IN_PROMPT */, 0, false, 0);
-            setExtensionPrompt(`${PROMPT_TAG_PREFIX}lore`, ' ', 0 /* IN_PROMPT */, 0, false, 0);
-
             // Register directly in PM (so entries appear in the list without generating first).
             // promptManager may not be initialized yet, so poll briefly.
             const registerPmEntries = () => {

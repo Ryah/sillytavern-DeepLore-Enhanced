@@ -23,6 +23,7 @@
 - **Setup Wizard** — `/dle-setup` walks through first-time configuration: Obsidian connection, AI search, and initial index build.
 - **Quick Actions Bar** — Settings panel includes a toolbar of one-click buttons for common operations: Browse, Map, Health, Refresh, Graph, Simulate, Analytics, Optimize, Inspect, Setup.
 - **Scribe-Informed Retrieval** — When enabled, feeds the Session Scribe's latest summary into the AI search context for better entry selection.
+- **Budget-Aware Entry Truncation** — Entries that exceed the remaining token budget are now truncated to fit (using clean sentence boundaries) instead of being silently dropped. Truncated entries are marked with `_truncated` flag and show original token count in diagnostics. Minimum threshold of 50 tokens prevents uselessly small fragments.
 - **Confidence-Gated Budget** — AI search over-requests entries (2x), then sorts by confidence tier (high → medium → low) before applying the budget cap.
 - **Prompt Cache Optimization** — In proxy mode, manifest is placed first with `cache_control` breakpoints to leverage prompt caching on subsequent calls.
 - **Circuit Breaker** — Obsidian connection uses a circuit breaker pattern (closed/open/half-open) with exponential backoff (2s-15s) to avoid hammering a down server.
@@ -98,6 +99,7 @@
 - **`/dle-summarize` loses user edits** — Textarea value was read via `getElementById` after popup resolved, but DOM was already destroyed. User edits to generated summaries were silently discarded. Now captures textarea reference in `onOpen` callback.
 - **`writeNote()` silent data loss** — Obsidian 400/405 errors returned only "HTTP 405" with no response body. Combined with circuit breaker treating 4xx as successes, misconfigured scribe folders silently failed every write. Now includes response body in error message.
 - **`gated.slice` returns wrong entries after budget skip** — When the highest-priority entry exceeded the token budget, `injectedEntries` was computed via positional slice rather than tracking actual accepted entries. Cooldown, decay, analytics, and Context Cartographer all recorded wrong entries. `formatAndGroup()` now returns the accepted entry list directly.
+- **Test Match popup repeats same `gated.slice` bug** — The settings UI Test Match button used `gated.slice(0, injectedCount)` to display injected entries, identical to the `index.js` bug above. When `formatAndGroup` skipped an early entry via `continue`, the popup showed wrong entries as "injected" and wrong entries as "budget cut". Now uses `acceptedEntries` directly.
 - **IndexedDB cache hydration bypasses validation** — Cached entries loaded from IndexedDB were injected into the vault index without structural validation. Corrupt cache data (from browser crashes or quota pressure) could propagate as canonical entries, surviving restarts. Added `validateCachedEntry()` checkpoint during hydration.
 
 **High:** 56 fixes — generation lock feedback, `_rawContent` memory doubling, scanText per-entry allocation, cascade/recursive bypass of cooldown/warmup/probability, multi-vault migration loop, first-entry budget overflow, cumulative decay penalty, manifest 4x filter passes, incomplete cache key, undiagnosable profile errors, circuit breaker mid-batch/5xx/auth/singleton/half-open-stampede issues, unauthenticated testConnection, AI-only fallback collapse, delta sync vault loss, pinned entries filtered by post-pin gates, zero-lore window in commands, bootstrap invisible after threshold, empty key matching everything, optimize-keys crash, graph animation leak, YAML corruption via JSON.stringify, setup wizard DOM read-after-close, import overwrites, Promise.all failures, CHAT_CHANGED cache invalidation, profile token tracking, word boundary regex, tracker key collisions, JSON parse errors, title/name mismatch, XML injection in templates, unsanitized scribe output, disabled button guards, settings-keyed cache, multi-vault cache key, pre-filter matching, unlimited defaults, AI parser validation/regex, health badge input, loading states, concurrent generation lock, decay threshold implementation, sliding window O(V*N), browse popup allocation, refresh index clear, premature indexEverLoaded, Cartographer memory leak, PM prompt re-registration, analytics key format, per-gen decay iteration.
@@ -109,6 +111,8 @@
 *(Deferred)* Magic number imports, YAML parser docs, inline styles → CSS, ARIA labels — documented in plan for future work.
 
 ### Internal
+- `/dle-inspect` now shows full post-pipeline state: Injected entries (with token counts and truncation markers), Gated Out entries (with requires/excludes reasons), and Budget/Max Cut entries. Previously only showed keyword matches and AI selections.
+- Pipeline trace (`lastPipelineTrace`) now populates the previously-empty `gatedOut`, `budgetCut`, and `injected` arrays, plus `totalTokens` and `budgetLimit`.
 - New `probability`, `vaultSource`, `era`, `location`, `sceneType`, `characterPresent` fields on VaultEntry
 - New modules: `src/cache.js` (IndexedDB persistent cache), `src/import.js` (WI import bridge)
 - New server endpoint `POST /scribe-notes` for session timeline
@@ -119,7 +123,7 @@
 - New state: `decayTracker`, `lastHealthResult`
 - Init hydrates from IndexedDB cache, falls back to full Obsidian fetch
 - Delta sync fetches file listing first, downloads only new files
-- 210 passing tests
+- 227 passing tests
 - Bumped version to 0.2.0-BETA
 
 ## 0.14-ALPHA

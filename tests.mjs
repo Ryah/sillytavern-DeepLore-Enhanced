@@ -636,8 +636,10 @@ test('formatAndGroup: budget applied globally across groups', () => {
     ];
     const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 1200 };
     const result = formatAndGroup(entries, settings, 'deeplore_');
-    assertEqual(result.count, 2, 'should only accept 2 entries within budget');
-    assertEqual(result.totalTokens, 1000, 'total should be 1000');
+    // C gets truncated to fit remaining 200 tokens (content is short so it fits entirely)
+    assertEqual(result.count, 3, 'should accept all 3 entries (C truncated to fit)');
+    assert(result.totalTokens <= 1200, 'total should not exceed budget');
+    assert(result.acceptedEntries[2]._truncated === true, 'C should be truncated');
 });
 
 test('formatAndGroup: per-entry depth override', () => {
@@ -657,6 +659,70 @@ test('formatAndGroup: fallback to global settings', () => {
     assertEqual(result.groups[0].position, 1, 'should use global position');
     assertEqual(result.groups[0].depth, 4, 'should use global depth');
     assertEqual(result.groups[0].role, 0, 'should use global role');
+});
+
+test('formatAndGroup: truncates entry to fit remaining budget', () => {
+    // Use content with sentence endings so truncateToSentence finds clean boundaries
+    const sentences = Array(50).fill('The quick brown fox jumped over the lazy dog.').join(' ');
+    const longContent = sentences; // ~700+ chars, ~200 tokens
+    const entries = [
+        makeEntry('Small', { content: 'Short content.', tokenEstimate: 100 }),
+        makeEntry('Big', { content: longContent, tokenEstimate: 200 }),
+    ];
+    const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 160 };
+    const result = formatAndGroup(entries, settings, 'deeplore_');
+    assertEqual(result.count, 2, 'should accept both entries (second truncated)');
+    const big = result.acceptedEntries.find(e => e.title === 'Big');
+    assert(big, 'Big entry should be in acceptedEntries');
+    assert(big._truncated === true, 'Big entry should be marked as truncated');
+    assert(big._originalTokens === 200, 'should preserve original token count');
+    assert(big.tokenEstimate <= 60, 'truncated tokenEstimate should fit remaining budget');
+    assert(big.content.length < longContent.length, 'content should be shorter than original');
+});
+
+test('formatAndGroup: skips entry when remaining budget below minimum threshold', () => {
+    const entries = [
+        makeEntry('A', { content: 'First entry.', tokenEstimate: 180 }),
+        makeEntry('B', { content: 'Second entry.', tokenEstimate: 200 }),
+    ];
+    const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 200 };
+    const result = formatAndGroup(entries, settings, 'deeplore_');
+    assertEqual(result.count, 1, 'should only accept first entry (remaining < 50 tokens)');
+    assertEqual(result.acceptedEntries[0].title, 'A', 'should be entry A');
+});
+
+test('formatAndGroup: truncates first entry that exceeds entire budget', () => {
+    const sentences = Array(100).fill('The ancient vampire stalked through the dark corridor.').join(' ');
+    const entries = [
+        makeEntry('Huge', { content: sentences, tokenEstimate: 1000 }),
+    ];
+    const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 200 };
+    const result = formatAndGroup(entries, settings, 'deeplore_');
+    assertEqual(result.count, 1, 'should accept truncated entry');
+    assert(result.acceptedEntries[0]._truncated === true, 'should be truncated');
+    assert(result.acceptedEntries[0].tokenEstimate <= 210, 'should approximately fit budget');
+});
+
+test('formatAndGroup: acceptedEntries correct when first entry skipped', () => {
+    // Budget is tiny (30 tokens) — too small even for truncation (< MIN_TRUNCATION_TOKENS=50)
+    const entries = [
+        makeEntry('TooBig', { content: 'Massive entry.', tokenEstimate: 500 }),
+        makeEntry('Small', { content: 'Tiny.', tokenEstimate: 20 }),
+    ];
+    const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 30 };
+    const result = formatAndGroup(entries, settings, 'deeplore_');
+    assertEqual(result.count, 1, 'should accept Small (skip TooBig)');
+    assertEqual(result.acceptedEntries[0].title, 'Small', 'accepted should be Small, not TooBig');
+});
+
+test('formatAndGroup: truncation does not mutate original entry', () => {
+    const originalContent = 'C'.repeat(700);
+    const entry = makeEntry('Mutable?', { content: originalContent, tokenEstimate: 200 });
+    const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 100 };
+    formatAndGroup([entry], settings, 'deeplore_');
+    assertEqual(entry.content, originalContent, 'original entry content should be unchanged');
+    assertEqual(entry.tokenEstimate, 200, 'original tokenEstimate should be unchanged');
+    assert(entry._truncated === undefined, 'original should not have _truncated flag');
 });
 
 // ============================================================================

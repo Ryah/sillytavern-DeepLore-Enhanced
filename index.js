@@ -214,11 +214,11 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // Apply conditional gating (requires/excludes)
         let gated = applyGating(finalEntries);
+        const gatingRemoved = finalEntries.filter(e => !gated.includes(e));
 
-        if (settings.debugMode && gated.length < finalEntries.length) {
-            const removed = finalEntries.filter(e => !gated.includes(e));
-            console.log(`[DLE] Gating removed ${removed.length} entries:`,
-                removed.map(e => ({ title: e.title, requires: e.requires, excludes: e.excludes })));
+        if (settings.debugMode && gatingRemoved.length > 0) {
+            console.log(`[DLE] Gating removed ${gatingRemoved.length} entries:`,
+                gatingRemoved.map(e => ({ title: e.title, requires: e.requires, excludes: e.excludes })));
         }
 
         if (gated.length === 0) {
@@ -259,6 +259,25 @@ async function onGenerate(chat, contextSize, abort, type) {
         const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
 
         injectedEntries = acceptedEntries;
+
+        // Enrich pipeline trace with post-pipeline info
+        if (trace) {
+            trace.gatedOut = gatingRemoved.map(e => ({
+                title: e.title, requires: e.requires, excludes: e.excludes,
+            }));
+            const acceptedTitles = new Set(acceptedEntries.map(e => e.title));
+            trace.budgetCut = gated.filter(e => !acceptedTitles.has(e.title))
+                .map(e => ({ title: e.title, tokens: e.tokenEstimate, priority: e.priority }));
+            trace.injected = acceptedEntries.map(e => ({
+                title: e.title,
+                tokens: e.tokenEstimate,
+                truncated: !!e._truncated,
+                originalTokens: e._originalTokens || e.tokenEstimate,
+            }));
+            trace.totalTokens = totalTokens;
+            trace.budgetLimit = settings.maxTokensBudget;
+            setLastPipelineTrace(trace);
+        }
 
         if (groups.length > 0) {
             const usePromptList = settings.injectionMode === 'prompt_list';

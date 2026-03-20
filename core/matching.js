@@ -2,7 +2,7 @@
  * DeepLore Enhanced Core — Matching, Gating & Formatting
  */
 
-import { escapeRegex } from './utils.js';
+import { escapeRegex, truncateToSentence } from './utils.js';
 
 // ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
 const _regexCache = new WeakMap();
@@ -241,11 +241,37 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
 
     const accepted = [];
 
+    const MIN_TRUNCATION_TOKENS = 50;
+
     for (const entry of entries) {
         if (!settings.unlimitedEntries && count >= settings.maxEntries) break;
         if (!settings.unlimitedBudget && totalTokens + entry.tokenEstimate > settings.maxTokensBudget) {
+            const remainingTokens = settings.maxTokensBudget - totalTokens;
+
+            if (remainingTokens >= MIN_TRUNCATION_TOKENS) {
+                // Truncate entry to fit remaining budget (shallow copy — never mutate original)
+                const maxChars = Math.floor(remainingTokens * 3.5);
+                const truncatedContent = truncateToSentence(entry.content, maxChars);
+                const truncatedEntry = {
+                    ...entry,
+                    content: truncatedContent,
+                    tokenEstimate: Math.ceil(truncatedContent.length / 3.5),
+                    _truncated: true,
+                    _originalTokens: entry.tokenEstimate,
+                };
+                accepted.push({
+                    entry: truncatedEntry,
+                    position: truncatedEntry.injectionPosition ?? settings.injectionPosition,
+                    depth: truncatedEntry.injectionDepth ?? settings.injectionDepth,
+                    role: truncatedEntry.injectionRole ?? settings.injectionRole,
+                });
+                totalTokens += truncatedEntry.tokenEstimate;
+                count++;
+                break; // Budget is now fully consumed
+            }
+
             if (count > 0) break;
-            // First entry exceeds budget — skip it conservatively to protect context window
+            // First entry exceeds budget and remaining is too small to truncate — skip
             console.warn(`[DeepLore] Entry "${entry.title}" (${entry.tokenEstimate} tokens) exceeds entire budget (${settings.maxTokensBudget}) — skipping`);
             continue;
         }

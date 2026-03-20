@@ -1278,10 +1278,11 @@ export function bindSettingsEvents(buildIndexFn) {
             const gated = applyGating(afterCooldown);
             const gatedRemoved = afterCooldown.filter(e => !gated.includes(e));
 
-            const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
+            const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
 
-            const budgetRemoved = gated.slice(injectedCount);
-            const injected = gated.slice(0, injectedCount);
+            const injected = acceptedEntries;
+            const acceptedTitles = new Set(acceptedEntries.map(e => e.title));
+            const budgetRemoved = gated.filter(e => !acceptedTitles.has(e.title));
 
             // Build popup HTML
             const positionLabels = { 0: 'After', 1: 'In-chat', 2: 'Before' };
@@ -1333,7 +1334,10 @@ export function bindSettingsEvents(buildIndexFn) {
                     html += `<td style="padding: 4px;">${escapeHtml(entry.title)}</td>`;
                     html += `<td style="padding: 4px; opacity: 0.8;">${escapeHtml(matchedKeys.get(entry.title) || '?')}</td>`;
                     html += `<td style="text-align: right; padding: 4px;">${entry.priority}</td>`;
-                    html += `<td style="text-align: right; padding: 4px;">${entry.tokenEstimate}</td>`;
+                    const tokenLabel = entry._truncated
+                        ? `~${entry.tokenEstimate} <small style="opacity:0.6;">(truncated from ${entry._originalTokens})</small>`
+                        : `${entry.tokenEstimate}`;
+                    html += `<td style="text-align: right; padding: 4px;">${tokenLabel}</td>`;
                     html += `<td style="padding: 4px; opacity: 0.8;">${posLabel}</td>`;
                     html += `</tr>`;
                 }

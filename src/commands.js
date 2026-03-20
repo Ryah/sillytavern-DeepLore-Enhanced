@@ -1029,6 +1029,38 @@ export function registerSlashCommands() {
                 html += `<p style="color: var(--warning, #ff9800);">⚠ AI search failed — keyword results used as fallback</p>`;
             }
 
+            // Injected entries (post-budget)
+            if (t.injected && t.injected.length > 0) {
+                const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
+                html += `<h4>${statusIcon(true)} Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel})</h4><ul>`;
+                for (const e of t.injected) {
+                    const truncLabel = e.truncated ? ` <span style="color: var(--warning, #ff9800);">[truncated from ~${e.originalTokens}]</span>` : '';
+                    html += `<li>${escapeHtml(e.title)} (~${e.tokens} tokens)${truncLabel}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Gated out entries
+            if (t.gatedOut && t.gatedOut.length > 0) {
+                html += `<h4 style="color: var(--warning, #ff9800);">Gated Out (${t.gatedOut.length})</h4><ul>`;
+                for (const e of t.gatedOut) {
+                    const reasons = [];
+                    if (e.requires?.length > 0) reasons.push(`requires: ${e.requires.join(', ')}`);
+                    if (e.excludes?.length > 0) reasons.push(`excludes: ${e.excludes.join(', ')}`);
+                    html += `<li>${escapeHtml(e.title)} — ${escapeHtml(reasons.join('; ') || 'gating rule')}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Budget/max cut entries
+            if (t.budgetCut && t.budgetCut.length > 0) {
+                html += `<h4 style="color: var(--warning, #ff9800);">Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
+                for (const e of t.budgetCut) {
+                    html += `<li>${escapeHtml(e.title)} (pri ${e.priority}, ~${e.tokens} tokens)</li>`;
+                }
+                html += '</ul>';
+            }
+
             html += '</div>';
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
             return '';

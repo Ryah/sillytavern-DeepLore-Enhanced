@@ -193,7 +193,8 @@ export function registerSlashCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-refresh',
         callback: async () => {
-            setVaultIndex([]);
+            // Don't pre-clear vaultIndex — buildIndex replaces it atomically.
+            // Pre-clearing would give zero entries to any generation during rebuild.
             setIndexTimestamp(0);
             await buildIndex();
             const msg = `Indexed ${vaultIndex.length} entries.`;
@@ -377,7 +378,7 @@ export function registerSlashCommands() {
             }
             html += '</table>';
 
-            const neverInjected = vaultIndex.filter(e => !analytics[e.title] || (analytics[e.title].injected || 0) === 0);
+            const neverInjected = vaultIndex.filter(e => !analytics[trackerKey(e)] || (analytics[trackerKey(e)].injected || 0) === 0);
             if (neverInjected.length > 0) {
                 html += '<hr><h4>Never Injected</h4><ul>';
                 for (const e of neverInjected) {

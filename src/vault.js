@@ -12,7 +12,7 @@ import {
     aiSearchCache, previousIndexSnapshot, trackerKey,
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
-    setLastHealthResult,
+    setLastHealthResult, setEntityNameSet,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
@@ -60,6 +60,18 @@ export async function buildIndex() {
 
                 totalFiles += data.total || data.files.length;
 
+                // Warn if a significant portion of files failed to fetch
+                if (data.failed > 0) {
+                    const failRate = data.total > 0 ? data.failed / data.total : 0;
+                    if (data.failed >= 5 || failRate >= 0.1) {
+                        toastr.warning(
+                            `Vault "${vault.name}": ${data.failed} of ${data.total} files failed to fetch.`,
+                            'DeepLore Enhanced',
+                            { timeOut: 8000, preventDuplicates: true },
+                        );
+                    }
+                }
+
                 for (const file of data.files) {
                     const entry = parseVaultFile(file, tagConfig);
                     if (entry) {
@@ -90,6 +102,16 @@ export async function buildIndex() {
 
         // Resolve wiki-links to confirmed entry titles
         resolveLinks(vaultIndex);
+
+        // Pre-compute entity name Set for AI cache sliding window check
+        const names = new Set();
+        for (const entry of entries) {
+            if (entry.title.length >= 1) names.add(entry.title.toLowerCase());
+            for (const key of entry.keys) {
+                if (key.length >= 3) names.add(key.toLowerCase());
+            }
+        }
+        setEntityNameSet(names);
 
         // Invalidate AI search cache on re-index
         setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
@@ -167,7 +189,8 @@ export async function hydrateFromCache() {
         // (the cache is a fast approximation — Obsidian is the source of truth)
         setIndexTimestamp(0);
         resolveLinks(vaultIndex);
-        setIndexEverLoaded(true);
+        // Note: indexEverLoaded is NOT set here — it's set in buildIndex() after
+        // a successful Obsidian fetch confirms the vault is reachable.
         updateIndexStats();
 
         console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
@@ -289,6 +312,17 @@ export async function buildIndexDelta() {
         setVaultIndex(allEntries);
         setIndexTimestamp(Date.now());
         resolveLinks(vaultIndex);
+
+        // Pre-compute entity name Set for AI cache sliding window check
+        const deltaNames = new Set();
+        for (const entry of allEntries) {
+            if (entry.title.length >= 1) deltaNames.add(entry.title.toLowerCase());
+            for (const key of entry.keys) {
+                if (key.length >= 3) deltaNames.add(key.toLowerCase());
+            }
+        }
+        setEntityNameSet(deltaNames);
+
         setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
 
         // Prune analytics data for entries no longer in the vault
@@ -341,8 +375,8 @@ export async function ensureIndexFresh() {
     const ttlMs = settings.cacheTTL * 1000;
     const now = Date.now();
 
-    // TTL=0 means "never auto-refresh" (cache indefinitely until manual rebuild)
-    if (vaultIndex.length === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
+    // TTL=0 means "always fetch fresh" (rebuild every generation)
+    if (vaultIndex.length === 0 || ttlMs === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
         await buildIndex();
     }
 }

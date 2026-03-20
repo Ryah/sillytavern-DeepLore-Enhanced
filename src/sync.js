@@ -56,6 +56,9 @@ export function setupSyncPolling(buildIndexFn, buildIndexDeltaFn) {
     if (settings.syncPollingInterval > 0 && settings.enabled && buildIndexFn) {
         // Use setTimeout chaining instead of setInterval to prevent overlapping callbacks
         const scheduleNext = () => {
+            // Re-read interval each tick so changes take effect without restarting polling
+            const currentInterval = getSettings().syncPollingInterval;
+            if (currentInterval <= 0) return; // Setting was changed to disabled mid-run
             setSyncIntervalId(setTimeout(async () => {
                 const current = getSettings();
                 if (!current.enabled || indexing) {
@@ -74,7 +77,7 @@ export function setupSyncPolling(buildIndexFn, buildIndexDeltaFn) {
                     console.warn('[DLE] Sync polling error:', err.message);
                 }
                 scheduleNext();
-            }, settings.syncPollingInterval * 1000));
+            }, currentInterval * 1000));
         };
         scheduleNext();
     }

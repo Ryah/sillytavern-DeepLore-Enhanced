@@ -47,7 +47,13 @@ export function matchEntries(chat) {
 
     // Keyword matching: skip entirely when scanDepth is 0 (AI-only mode)
     if (settings.scanDepth > 0) {
-        const globalScanText = buildScanText(chat, settings.scanDepth);
+        // C5: Memoize buildScanText by depth to avoid redundant string building
+        const scanTextMemo = new Map();
+        function getScanText(depth) {
+            if (!scanTextMemo.has(depth)) scanTextMemo.set(depth, buildScanText(chat, depth));
+            return scanTextMemo.get(depth);
+        }
+        const globalScanText = getScanText(settings.scanDepth);
 
         // Initial scan pass
         for (const entry of vaultIndex) {
@@ -55,7 +61,7 @@ export function matchEntries(chat) {
 
             // Use per-entry scan depth if set, otherwise use global scan text
             const scanText = entry.scanDepth !== null
-                ? buildScanText(chat, entry.scanDepth)
+                ? getScanText(entry.scanDepth)
                 : globalScanText;
 
             const key = testEntryMatch(entry, scanText, settings);

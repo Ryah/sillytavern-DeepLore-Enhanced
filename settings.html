@@ -169,6 +169,17 @@
                     </div>
                 </div>
             </div>
+            <div class="flex-container">
+                <div class="flex1" title="Controls how the /dle-optimize-keys command generates keyword suggestions. 'keyword-only' produces precise keywords for direct matching. 'two-stage' produces broader keywords since AI search will filter later.">
+                    <label for="dle_optimize_keys_mode">
+                        <small>Optimize Keys Mode</small>
+                    </label>
+                    <select id="dle_optimize_keys_mode" class="text_pole">
+                        <option value="keyword-only">keyword-only</option>
+                        <option value="two-stage">two-stage</option>
+                    </select>
+                </div>
+            </div>
             <label class="checkbox_label" for="dle_char_context_scan" title="Auto-match the active character's vault entry by name or keyword, even if not mentioned in chat. Ensures the character you're roleplaying with always has their lore available.">
                 <input id="dle_char_context_scan" type="checkbox" class="checkbox">
                 <span>Active Character Boost</span>
@@ -324,6 +335,34 @@
             </div>
 
             <hr>
+            <div class="inline-drawer">
+                <div class="inline-drawer-toggle inline-drawer-header">
+                    <b>Entry Decay &amp; Freshness</b>
+                    <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+                </div>
+                <div class="inline-drawer-content">
+                    <label class="checkbox_label" for="dle_decay_enabled" title="Track how long since each entry was last injected. Stale entries get a boost hint in the AI manifest, and frequently-injected entries get a penalty hint to encourage diversity.">
+                        <input id="dle_decay_enabled" type="checkbox" class="checkbox">
+                        <span>Enable Entry Decay</span>
+                    </label>
+                    <div class="flex-container" id="dle_decay_controls">
+                        <div class="flex1" title="Number of generations without injection before an entry is marked [STALE] in the AI manifest, hinting the AI to consider refreshing it. Default: 5">
+                            <label for="dle_decay_boost_threshold">
+                                <small>Staleness Boost Threshold</small>
+                            </label>
+                            <input id="dle_decay_boost_threshold" type="number" class="text_pole" min="2" max="20" />
+                        </div>
+                        <div class="flex1" title="Minimum total injection count (from analytics) before an entry is marked [FREQUENT] in the AI manifest, hinting the AI to diversify selections. Default: 2">
+                            <label for="dle_decay_penalty_threshold">
+                                <small>Frequency Penalty Threshold</small>
+                            </label>
+                            <input id="dle_decay_penalty_threshold" type="number" class="text_pole" min="2" max="10" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <hr>
             <div class="inline-drawer" id="dle_ai_search_drawer">
                 <div class="inline-drawer-toggle inline-drawer-header">
                     <b>AI Search Settings</b>
@@ -423,6 +462,10 @@
                             <label class="checkbox_label" for="dle_ai_claude_prefix" id="dle_ai_claude_prefix_row" title="Prepend 'You are Claude Code.' to the system prompt. Enable when using a Claude model via proxy. Disable for non-Claude models. Only applies in proxy mode with a custom system prompt.">
                                 <input id="dle_ai_claude_prefix" type="checkbox" class="checkbox">
                                 <span>Prepend 'You are Claude Code'</span>
+                            </label>
+                            <label class="checkbox_label" for="dle_scribe_informed_retrieval" title="Feed the Session Scribe's latest summary into AI search context, giving the AI broader session awareness beyond the recent chat window. Requires Session Scribe to be enabled and have generated at least one summary.">
+                                <input id="dle_scribe_informed_retrieval" type="checkbox" class="checkbox">
+                                <span>Scribe-Informed Retrieval</span>
                             </label>
                         </div>
                     </div>

@@ -14,7 +14,7 @@ import { callProxyViaCorsBridge } from './proxy-api.js';
 import { buildAiChatContext } from '../core/utils.js';
 import { callViaProfile } from './ai.js';
 import {
-    scribeInProgress, lastScribeSummary, lastScribeChatLength,
+    scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
     setScribeInProgress, setLastScribeSummary, setLastScribeChatLength,
 } from './state.js';
 
@@ -81,6 +81,9 @@ export async function runScribe(customPrompt) {
     if (scribeInProgress) return;
     setScribeInProgress(true);
 
+    // Capture epoch to detect if chat changes during async scribe work
+    const epoch = chatEpoch;
+
     try {
         const settings = getSettings();
         if (!chat || chat.length === 0) {
@@ -131,9 +134,16 @@ export async function runScribe(customPrompt) {
         if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(charName)) {
             charName = '_' + charName;
         }
+        if (!charName) charName = 'Unknown';
         const filename = `${settings.scribeFolder}/${charName} - ${dateStr} ${timeStr}.md`;
 
-        const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: ${charName}\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${sanitizedSummary.trim()}\n`;
+        const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: "${charName.replace(/"/g, '\\"')}"\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${sanitizedSummary.trim()}\n`;
+
+        // Bail if chat changed during async scribe work
+        if (epoch !== chatEpoch) {
+            console.log('[DLE] Scribe: chat changed during generation, discarding result');
+            return;
+        }
 
         // Write to Obsidian directly (uses primary vault)
         const scribeVault = getPrimaryVault(settings);

@@ -16,7 +16,7 @@ import { testEntryMatch } from '../core/matching.js';
 import { getSettings, getVaultByName } from '../settings.js';
 import { writeNote } from './obsidian-api.js';
 import {
-    vaultIndex,
+    vaultIndex, trackerKey,
     setVaultIndex, setIndexTimestamp,
 } from './state.js';
 import { buildIndex, ensureIndexFresh } from './vault.js';
@@ -128,6 +128,12 @@ export async function showBrowsePopup() {
         <small id="dle_browse_count" style="opacity: 0.6;"></small>
     `;
 
+    // H8: Pre-compute search haystacks for browse popup filtering
+    const haystacks = new Map();
+    for (const e of vaultIndex) {
+        haystacks.set(e, `${e.title} ${e.keys.join(' ')} ${e.content}`.toLowerCase());
+    }
+
     function renderList() {
         const searchEl = container.querySelector('#dle_browse_search');
         const statusEl = container.querySelector('#dle_browse_status');
@@ -148,8 +154,7 @@ export async function showBrowsePopup() {
             if (status === 'regular' && (e.constant || e.seed || e.bootstrap)) return false;
             if (tag && !e.tags.includes(tag)) return false;
             if (search) {
-                const haystack = `${e.title} ${e.keys.join(' ')} ${e.content}`.toLowerCase();
-                if (!haystack.includes(search)) return false;
+                if (!haystacks.get(e).includes(search)) return false;
             }
             return true;
         });
@@ -167,7 +172,7 @@ export async function showBrowsePopup() {
             if (entry.bootstrap) statusBadges.push('<span style="color: #ff9800; font-size: 0.8em;">[bootstrap]</span>');
 
             const keysDisplay = entry.keys.slice(0, 5).map(k => escapeHtml(k)).join(', ') + (entry.keys.length > 5 ? '...' : '');
-            const a = analytics[entry.title];
+            const a = analytics[trackerKey(entry)];
             const usageStr = a ? `matched: ${a.matched || 0}, injected: ${a.injected || 0}` : 'never used';
             const entryId = simpleHash(entry.filename);
 
@@ -234,7 +239,12 @@ export async function showBrowsePopup() {
         allowVerticalScrolling: true,
         onOpen: async () => {
             renderList();
-            container.querySelector('#dle_browse_search')?.addEventListener('input', renderList);
+            // H8: Debounce search input to avoid re-rendering on every keystroke
+            let searchTimer = null;
+            container.querySelector('#dle_browse_search')?.addEventListener('input', () => {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(renderList, 150);
+            });
             container.querySelector('#dle_browse_status')?.addEventListener('change', renderList);
             container.querySelector('#dle_browse_tag')?.addEventListener('change', renderList);
         },
@@ -335,6 +345,14 @@ export async function showGraphPopup() {
     if (vaultIndex.length === 0) {
         toastr.warning('No entries indexed.', 'DeepLore Enhanced');
         return;
+    }
+
+    if (vaultIndex.length > 200) {
+        toastr.warning(
+            `Large vault (${vaultIndex.length} entries). The graph may be slow to render. Consider filtering by tag first.`,
+            'DeepLore Enhanced',
+            { timeOut: 8000, preventDuplicates: true },
+        );
     }
 
     const settings = getSettings();

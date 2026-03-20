@@ -70,7 +70,7 @@ export function showSourcesPopup(sources) {
     const currTitles = new Set(sources.map(s => s.title));
     const added = prevTitles ? sources.filter(s => !prevTitles.has(s.title)).map(s => s.title) : [];
     const removed = prevTitles ? previousSources.filter(s => !currTitles.has(s.title)).map(s => s.title) : [];
-    previousSources = [...sources]; // Save for next diff
+    previousSources = sources.map(s => ({ title: s.title, tokens: s.tokens })); // Save minimal data for next diff
 
     let html = `<div style="text-align: left;">`;
     html += `<h3>Context Map (${sources.length} entries, ~${totalTokens} tokens)</h3>`;

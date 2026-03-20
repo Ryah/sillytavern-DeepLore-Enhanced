@@ -4,8 +4,63 @@
 
 import { escapeRegex } from './utils.js';
 
+// ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
+const _regexCache = new WeakMap();
+
+/**
+ * Get or build cached compiled regexes for an entry's keys and refine keys.
+ * Cache is keyed by entry object reference and invalidated when relevant settings change.
+ * @param {import('./pipeline.js').VaultEntry} entry
+ * @param {{ caseSensitive: boolean, matchWholeWords: boolean }} settings
+ * @returns {{ _key: string, primary: Array<{rawKey: string, key: string, regex: RegExp|null, regexG: RegExp|null}>, refine: Array<{rKey: string, regex: RegExp|null}> }}
+ */
+function getCachedRegexes(entry, settings) {
+    let cache = _regexCache.get(entry);
+    const cacheKey = `${settings.caseSensitive}|${settings.matchWholeWords}`;
+    if (cache && cache._key === cacheKey) return cache;
+
+    cache = { _key: cacheKey, primary: [], refine: [] };
+    for (const rawKey of entry.keys) {
+        if (!rawKey || !rawKey.trim()) continue;
+        const key = settings.caseSensitive ? rawKey : rawKey.toLowerCase();
+        if (settings.matchWholeWords) {
+            const escaped = escapeRegex(key);
+            const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
+            const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
+            cache.primary.push({
+                rawKey,
+                key,
+                regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
+                regexG: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? 'g' : 'gi'),
+            });
+        } else {
+            cache.primary.push({ rawKey, key, regex: null, regexG: null });
+        }
+    }
+    if (entry.refineKeys) {
+        for (const rk of entry.refineKeys) {
+            const rKey = settings.caseSensitive ? rk : rk.toLowerCase();
+            if (settings.matchWholeWords) {
+                // M13: Smart word boundary for refine keys (same logic as primary keys)
+                const escaped = escapeRegex(rKey);
+                const prefix = /^\w/.test(rKey) ? '\\b' : '(?<!\\w)';
+                const suffix = /\w$/.test(rKey) ? '\\b' : '(?!\\w)';
+                cache.refine.push({
+                    rKey,
+                    regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
+                });
+            } else {
+                cache.refine.push({ rKey, regex: null });
+            }
+        }
+    }
+    _regexCache.set(entry, cache);
+    return cache;
+}
+
 /**
  * Test if an entry's keys match against the given text.
+ * Uses cached compiled regexes for performance (C4).
  * @param {import('./pipeline.js').VaultEntry} entry
  * @param {string} scanText
  * @param {{ caseSensitive: boolean, matchWholeWords: boolean }} settings
@@ -14,36 +69,26 @@ import { escapeRegex } from './utils.js';
 export function testEntryMatch(entry, scanText, settings) {
     if (entry.keys.length === 0) return null;
 
+    const cached = getCachedRegexes(entry, settings);
     const haystack = settings.caseSensitive ? scanText : scanText.toLowerCase();
 
     let primaryMatch = null;
-    for (const rawKey of entry.keys) {
-        if (!rawKey || !rawKey.trim()) continue; // Bug 2: skip empty/whitespace-only keys
-        const key = settings.caseSensitive ? rawKey : rawKey.toLowerCase();
-
+    for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            // Bug 13: \b fails when key starts/ends with non-word chars (e.g. "#tag", "C++")
-            // Use lookahead/lookbehind for non-\w boundary chars
-            const escaped = escapeRegex(key);
-            const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
-            const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
-            const regex = new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i');
-            if (regex.test(scanText)) { primaryMatch = rawKey; break; }
+            if (item.regex.test(scanText)) { primaryMatch = item.rawKey; break; }
         } else {
-            if (haystack.includes(key)) { primaryMatch = rawKey; break; }
+            if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
         }
     }
     if (!primaryMatch) return null;
 
     // Refine keys: if non-empty, at least one must also match (AND_ANY mode)
-    if (entry.refineKeys && entry.refineKeys.length > 0) {
-        const hasRefine = entry.refineKeys.some(rk => {
-            const rKey = settings.caseSensitive ? rk : rk.toLowerCase();
+    if (cached.refine.length > 0) {
+        const hasRefine = cached.refine.some(item => {
             if (settings.matchWholeWords) {
-                const regex = new RegExp(`\\b${escapeRegex(rKey)}\\b`, settings.caseSensitive ? '' : 'i');
-                return regex.test(scanText);
+                return item.regex.test(scanText);
             }
-            return haystack.includes(rKey);
+            return haystack.includes(item.rKey);
         });
         if (!hasRefine) return null;
     }
@@ -53,6 +98,7 @@ export function testEntryMatch(entry, scanText, settings) {
 /**
  * Count how many times an entry's keywords appear in the scan text.
  * Respects case sensitivity and whole-word matching settings.
+ * Uses cached compiled regexes for performance (C4).
  * @param {import('./pipeline.js').VaultEntry} entry
  * @param {string} scanText
  * @param {{ caseSensitive: boolean, matchWholeWords: boolean }} settings
@@ -60,22 +106,17 @@ export function testEntryMatch(entry, scanText, settings) {
  */
 export function countKeywordOccurrences(entry, scanText, settings) {
     let count = 0;
+    const cached = getCachedRegexes(entry, settings);
     const text = settings.caseSensitive ? scanText : scanText.toLowerCase();
-    for (const rawKey of entry.keys) {
-        if (!rawKey || !rawKey.trim()) continue;
-        const key = settings.caseSensitive ? rawKey : rawKey.toLowerCase();
+    for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            const escaped = escapeRegex(key);
-            const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
-            const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
-            const regex = new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? 'g' : 'gi');
-            const matches = scanText.match(regex);
+            const matches = scanText.match(item.regexG);
             if (matches) count += matches.length;
         } else {
             let idx = 0;
-            while ((idx = text.indexOf(key, idx)) !== -1) {
+            while ((idx = text.indexOf(item.key, idx)) !== -1) {
                 count++;
-                idx += key.length;
+                idx += item.key.length;
             }
         }
     }

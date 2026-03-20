@@ -132,7 +132,9 @@ export function parseVaultFile(file, tagConfig) {
         : null;
 
     // AI selection summary (dedicated frontmatter field, separate from injected content)
-    const summary = typeof frontmatter.summary === 'string' ? frontmatter.summary.trim() : '';
+    // Coerce numeric summaries to string (YAML may parse "42" as a number)
+    const summary = (typeof frontmatter.summary === 'string' || typeof frontmatter.summary === 'number')
+        ? String(frontmatter.summary).trim() : '';
 
     // Contextual gating fields: era, location, scene_type, character_present
     const toStringArray = (v) => Array.isArray(v) ? v.map(s => String(s).trim().toLowerCase()).filter(Boolean)

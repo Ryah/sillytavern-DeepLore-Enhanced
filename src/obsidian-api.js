@@ -155,10 +155,11 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
             signal: controller.signal,
         });
         const data = await response.text();
-        // Track server errors (5xx) and auth failures (401/403) as circuit breaker failures
-        if (response.status >= 500 || response.status === 401 || response.status === 403) {
+        // Track server errors (5xx) as circuit breaker failures
+        // Don't count auth errors (401/403) — they are persistent config issues, not transient server failures
+        if (response.status >= 500) {
             recordFailure(port);
-        } else {
+        } else if (response.status !== 401 && response.status !== 403) {
             recordSuccess(port);
         }
         return { status: response.status, data };

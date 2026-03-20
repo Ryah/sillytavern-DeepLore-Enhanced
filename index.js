@@ -21,6 +21,7 @@ import {
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory,
     lastWarningRatio, decayTracker, chatEpoch, trackerKey,
+    generationLock, setGenerationLock,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
@@ -51,6 +52,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         return;
     }
 
+    // Prevent concurrent onGenerate runs
+    if (generationLock) return;
+    setGenerationLock(true);
+
     // Capture chat epoch to detect stale writes if CHAT_CHANGED fires mid-generation
     const epoch = chatEpoch;
 
@@ -76,7 +81,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Ensure index is fresh
         await ensureIndexFresh();
 
-        if (vaultIndex.length === 0) {
+        // Snapshot vaultIndex at pipeline start to avoid races with background rebuilds
+        const vaultSnapshot = [...vaultIndex];
+
+        if (vaultSnapshot.length === 0) {
             if (!indexEverLoaded) {
                 toastr.warning('No vault entries loaded. Check Obsidian connection.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
             }
@@ -97,7 +105,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         const blocks = chat_metadata.deeplore_blocks || [];
         if (pins.length > 0) {
             const pinSet = new Set(pins.map(t => t.toLowerCase()));
-            for (const entry of vaultIndex) {
+            for (const entry of vaultSnapshot) {
                 if (pinSet.has(entry.title.toLowerCase()) && !finalEntries.includes(entry)) {
                     finalEntries.push(entry);
                     matchedKeys.set(entry.title, '(pinned)');
@@ -215,7 +223,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             const lookback = settings.stripLookbackDepth;
             const log = chat_metadata.deeplore_injection_log;
             const recentLogs = log.slice(-lookback);
-            for (const logEntry of recentLogs.flatMap(l => l.entries)) {
+            for (const logEntry of recentLogs.flatMap(l => l.entries || [])) {
                 recentEntries.add(`${logEntry.title}|${logEntry.pos}|${logEntry.depth}|${logEntry.role}`);
             }
 
@@ -304,8 +312,8 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Record injection for deduplication
-        if (settings.stripDuplicateInjections) {
+        // Record injection for deduplication (epoch-guarded to avoid writing to wrong chat)
+        if (settings.stripDuplicateInjections && epoch === chatEpoch) {
             if (!chat_metadata.deeplore_injection_log) {
                 chat_metadata.deeplore_injection_log = [];
             }
@@ -386,33 +394,39 @@ async function onGenerate(chat, contextSize, abort, type) {
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
-        // But bail if the chat changed mid-generation (epoch mismatch) to avoid
-        // contaminating the new chat's state with stale data.
-        if (pipelineRan && epoch === chatEpoch) {
-            setGenerationCount(generationCount + 1);
+        // Wrapped in try/catch to prevent tracking errors from blocking ST generation.
+        try {
+            if (pipelineRan && epoch === chatEpoch) {
+                setGenerationCount(generationCount + 1);
 
-            // Decrement cooldown counters; remove expired ones
-            for (const [title, remaining] of cooldownTracker) {
-                if (remaining <= 1) {
-                    cooldownTracker.delete(title);
-                } else {
-                    cooldownTracker.set(title, remaining - 1);
-                }
-            }
-
-            // Entry decay/freshness tracking
-            if (settings.decayEnabled) {
-                const injectedKeys = new Set(injectedEntries.map(e => trackerKey(e)));
-                for (const entry of vaultIndex) {
-                    const tk = trackerKey(entry);
-                    if (injectedKeys.has(tk)) {
-                        decayTracker.set(tk, 0); // Reset staleness on injection
+                // Decrement cooldown counters; remove expired ones
+                for (const [title, remaining] of cooldownTracker) {
+                    if (remaining <= 1) {
+                        cooldownTracker.delete(title);
                     } else {
-                        decayTracker.set(tk, (decayTracker.get(tk) || 0) + 1);
+                        cooldownTracker.set(title, remaining - 1);
+                    }
+                }
+
+                // Entry decay/freshness tracking
+                if (settings.decayEnabled) {
+                    const injectedKeys = new Set(injectedEntries.map(e => trackerKey(e)));
+                    // Only track entries that were injected or already being tracked
+                    for (const entry of injectedEntries) {
+                        decayTracker.set(trackerKey(entry), 0);
+                    }
+                    // Increment staleness only for entries already in the tracker (previously injected)
+                    for (const [tk, staleness] of decayTracker) {
+                        if (!injectedKeys.has(tk)) {
+                            decayTracker.set(tk, staleness + 1);
+                        }
                     }
                 }
             }
+        } catch (trackingErr) {
+            console.error('[DLE] Error in generation tracking:', trackingErr);
         }
+        setGenerationLock(false);
     }
 }
 
@@ -556,6 +570,24 @@ jQuery(async function () {
             setLastPipelineTrace(null);
             setLastInjectionSources(null);
             resetCartographer();
+
+            // Re-register PM entries for the new active character (prompt_list mode)
+            if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {
+                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`];
+                for (const id of ids) {
+                    if (!promptManager.getPromptById(id)) {
+                        promptManager.addPrompt({
+                            name: id, content: '', system_prompt: true,
+                            marker: false, enabled: true, extension: true,
+                        }, id);
+                    }
+                    const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter);
+                    if (order && !order.find(e => e.identifier === id)) {
+                        order.push({ identifier: id, enabled: true });
+                    }
+                }
+            }
+
             setTimeout(() => {
                 const settings = getSettings();
                 if (!settings.showLoreSources) return;

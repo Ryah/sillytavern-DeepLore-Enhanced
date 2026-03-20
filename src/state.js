@@ -91,3 +91,11 @@ export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
 export function setLastHealthResult(v) { lastHealthResult = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
+
+/** Generation lock to prevent concurrent onGenerate runs */
+export let generationLock = false;
+export function setGenerationLock(v) { generationLock = v; }
+
+/** Pre-computed entity name Set for AI cache sliding window check */
+export let entityNameSet = new Set();
+export function setEntityNameSet(v) { entityNameSet = v; }

@@ -9,7 +9,7 @@ import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
-    trackerKey, setAiSearchCache,
+    trackerKey, setAiSearchCache, entityNameSet,
 } from './state.js';
 import { updateAiStats } from './settings-ui.js';
 
@@ -312,6 +312,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
         .map(entry => {
             const summaryText = entry.summary
                 || truncateToSentence(entry.content.replace(/\n+/g, ' ').trim(), summaryLen);
+            const safeSummary = summaryText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
                 ? ` → ${entry.resolvedLinks.join(', ')}`
                 : '';
@@ -322,6 +323,15 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                 if (staleness !== undefined && staleness >= settings.decayBoostThreshold) {
                     decayHint = ' [STALE — consider refreshing]';
                 }
+                // Penalty: entries injected very frequently get a nudge to give others a chance
+                if (!decayHint && settings.decayPenaltyThreshold > 0) {
+                    const analytics = settings.analyticsData || {};
+                    const aKey = trackerKey(entry);
+                    const a = analytics[aKey];
+                    if (a && a.injected >= settings.decayPenaltyThreshold) {
+                        decayHint = ' [FREQUENT — consider diversifying]';
+                    }
+                }
             }
             // Escape XML-like characters in title to prevent prompt structure injection
             const safeTitle = entry.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -329,7 +339,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
 
             // Wrap each entry in structural delimiters to prevent summary content
             // from being interpreted as manifest-level instructions
-            return `<entry name="${safeTitle}">\n${header}\n${summaryText}\n</entry>`;
+            return `<entry name="${safeTitle}">\n${header}\n${safeSummary}\n</entry>`;
         })
         .join('\n');
 
@@ -539,18 +549,9 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         const newText = newLines.join(' ').toLowerCase();
 
         // Check if any vault entry title or key appears in the new text
-        // Titles use min length 1 (short character names like "Vi" or "Ra" are valid)
-        // Keys use min length 3 to avoid false cache busts from short common words
-        const entryNames = new Set();
-        for (const entry of vaultIndex) {
-            if (entry.title.length >= 1) entryNames.add(entry.title.toLowerCase());
-            for (const key of entry.keys) {
-                if (key.length >= 3) entryNames.add(key.toLowerCase());
-            }
-        }
-
+        // Uses pre-computed entityNameSet from buildIndex (titles min 1 char, keys min 3 chars)
         let hasNewEntityMention = false;
-        for (const name of entryNames) {
+        for (const name of entityNameSet) {
             if (newText.includes(name)) {
                 hasNewEntityMention = true;
                 break;

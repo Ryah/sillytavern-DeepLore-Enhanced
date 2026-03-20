@@ -87,7 +87,22 @@ function bindVaultListEvents(settings) {
         if (isNaN(idx) || !settings.vaults[idx]) return;
 
         if ($(this).hasClass('dle_vault_name')) {
-            settings.vaults[idx].name = String($(this).val()).trim() || 'Vault';
+            let newName = String($(this).val()).trim() || 'Vault';
+            // Validate unique vault names — prevent duplicates
+            const otherNames = settings.vaults
+                .filter((_, vi) => vi !== idx)
+                .map(v => v.name.toLowerCase());
+            if (otherNames.includes(newName.toLowerCase())) {
+                // Append incrementing number to make it unique
+                let counter = 2;
+                while (otherNames.includes(`${newName} ${counter}`.toLowerCase())) {
+                    counter++;
+                }
+                newName = `${newName} ${counter}`;
+                $(this).val(newName);
+                toastr.warning(`Vault name already in use. Renamed to "${newName}".`, 'DeepLore Enhanced', { timeOut: 4000 });
+            }
+            settings.vaults[idx].name = newName;
         } else if ($(this).hasClass('dle_vault_port')) {
             settings.vaults[idx].port = Number($(this).val()) || 27123;
         } else if ($(this).hasClass('dle_vault_key')) {
@@ -332,6 +347,17 @@ export function loadSettingsUI() {
     $('#dle_ai_system_prompt').val(settings.aiSearchSystemPrompt);
     $('#dle_ai_summary_length').val(settings.aiSearchManifestSummaryLength);
     $('#dle_ai_claude_prefix').prop('checked', settings.aiSearchClaudeCodePrefix);
+    $('#dle_scribe_informed_retrieval').prop('checked', settings.scribeInformedRetrieval);
+
+    // Optimize Keys mode
+    $('#dle_optimize_keys_mode').val(settings.optimizeKeysMode);
+
+    // Entry Decay settings
+    $('#dle_decay_enabled').prop('checked', settings.decayEnabled);
+    $('#dle_decay_boost_threshold').val(settings.decayBoostThreshold);
+    $('#dle_decay_penalty_threshold').val(settings.decayPenaltyThreshold);
+    $('#dle_decay_controls').css('opacity', settings.decayEnabled ? 1 : 0.5);
+    $('#dle_decay_controls input').prop('disabled', !settings.decayEnabled);
 
     // Context Cartographer settings
     $('#dle_show_sources').prop('checked', settings.showLoreSources);
@@ -811,6 +837,38 @@ export function bindSettingsEvents(buildIndexFn) {
     // Claude Code prefix toggle
     $('#dle_ai_claude_prefix').on('change', function () {
         settings.aiSearchClaudeCodePrefix = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    // Scribe-Informed Retrieval
+    $('#dle_scribe_informed_retrieval').on('change', function () {
+        settings.scribeInformedRetrieval = $(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    // Optimize Keys mode
+    $('#dle_optimize_keys_mode').on('change', function () {
+        settings.optimizeKeysMode = String($(this).val());
+        saveSettingsDebounced();
+    });
+
+    // Entry Decay settings
+    $('#dle_decay_enabled').on('change', function () {
+        settings.decayEnabled = $(this).prop('checked');
+        saveSettingsDebounced();
+        $('#dle_decay_controls').css('opacity', settings.decayEnabled ? 1 : 0.5);
+        $('#dle_decay_controls input').prop('disabled', !settings.decayEnabled);
+    });
+
+    $('#dle_decay_boost_threshold').on('input', function () {
+        const val = Number($(this).val());
+        settings.decayBoostThreshold = isNaN(val) ? 5 : val;
+        saveSettingsDebounced();
+    });
+
+    $('#dle_decay_penalty_threshold').on('input', function () {
+        const val = Number($(this).val());
+        settings.decayPenaltyThreshold = isNaN(val) ? 2 : val;
         saveSettingsDebounced();
     });
 

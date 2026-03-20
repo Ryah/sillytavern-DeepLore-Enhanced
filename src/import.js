@@ -18,7 +18,8 @@ export function convertWiEntry(wiEntry, lorebookTag) {
         || `Entry_${wiEntry.uid || Date.now()}`;
 
     // Clean title for filename
-    const safeTitle = title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+    let safeTitle = title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
+    if (!safeTitle) safeTitle = 'Untitled';
 
     // Build keys from ST's key and keysecondary
     const keys = [];
@@ -111,8 +112,9 @@ export async function importEntries(entries, folder) {
                     let suffix = '_imported';
                     let attempt = 1;
                     let candidatePath;
+                    const MAX_DEDUP_ATTEMPTS = 20;
                     // eslint-disable-next-line no-constant-condition
-                    while (true) {
+                    while (attempt <= MAX_DEDUP_ATTEMPTS) {
                         const candidateFilename = `${base}${suffix}.md`;
                         candidatePath = folder ? `${folder}/${candidateFilename}` : candidateFilename;
                         try {
@@ -129,9 +131,8 @@ export async function importEntries(entries, folder) {
                                 continue;
                             }
                         } catch (dupErr) {
-                            // 404 means this path is free; network errors bubble up below
-                            if (dupErr.message && !dupErr.message.includes('404') && dupErr.name !== 'AbortError') {
-                                // Genuine network error during uniqueness check — bail out of loop
+                            // Network error during uniqueness check — bail out of loop
+                            if (dupErr.name !== 'AbortError') {
                                 break;
                             }
                         }
@@ -141,15 +142,12 @@ export async function importEntries(entries, folder) {
                     renamed++;
                 }
             } catch (existErr) {
-                // Only treat 404 as "file doesn't exist" — other errors are real problems
-                const is404 = existErr.message && existErr.message.includes('404');
-                if (!is404) {
-                    console.warn(`[DLE Import] Network error checking existence of "${fullPath}":`, existErr.message);
-                    errors.push(`${filename}: skipped — could not verify existence (${existErr.message})`);
-                    failed++;
-                    continue;
-                }
-                // 404 = file doesn't exist, proceed normally
+                // obsidianFetch returns {status, data} for all HTTP responses including 404,
+                // so a thrown error is always a network/timeout problem
+                console.warn(`[DLE Import] Network error checking existence of "${fullPath}":`, existErr.message);
+                errors.push(`${filename}: skipped — could not verify existence (${existErr.message})`);
+                failed++;
+                continue;
             }
 
             const result = await writeNote(vault.port, vault.apiKey, fullPath, content);

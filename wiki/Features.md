@@ -392,3 +392,180 @@ View a detailed trace of the last generation with `/dle-inspect`.
 - Constants and bootstrap entries
 
 See [[Slash Commands]] for all available commands.
+
+---
+
+## Per-Chat Pin/Block
+
+Pin entries to always inject or block entries from injecting, on a per-chat basis. Pins and blocks are stored in `chat_metadata` and survive page reloads.
+
+**Commands:**
+- `/dle-pin <entry name>` — Pin an entry (always inject in this chat)
+- `/dle-unpin <entry name>` — Remove a pin
+- `/dle-block <entry name>` — Block an entry (never inject in this chat)
+- `/dle-unblock <entry name>` — Remove a block
+- `/dle-pins` — Show all pins and blocks for the current chat
+
+**How it works:**
+- Pinned entries are force-injected like constants, regardless of keywords or AI selection
+- Blocked entries are removed from the pipeline before injection, regardless of matches
+- Pins/blocks apply after the main pipeline runs but before formatting
+
+---
+
+## Contextual Gating
+
+Filter entries based on the current story context using frontmatter fields: `era`, `location`, `scene_type`, and `character_present`. Set the active context with slash commands, and entries that don't match the current context are filtered out.
+
+**Frontmatter fields:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `era` | string | Entry only injects when the active era matches |
+| `location` | string | Entry only injects when the active location matches |
+| `scene_type` | string | Entry only injects when the active scene type matches |
+| `character_present` | string[] | Entry only injects when any listed character is present |
+
+**Commands:**
+- `/dle-set-era <era>` — Set the active era (e.g., "pre-war", "modern")
+- `/dle-set-location <location>` — Set the active location (e.g., "The Docks")
+- `/dle-set-scene <type>` — Set the active scene type (e.g., "combat", "romance")
+- `/dle-set-characters <names>` — Set present characters (comma-separated)
+- `/dle-context-state` — Show the current contextual gating state
+
+**Notes:**
+- Context state is stored per-chat in `chat_metadata.deeplore_context`
+- Entries without contextual fields are unaffected (always pass through)
+- Partial matches work: an entry with only `era` set is filtered only on era, regardless of location/scene/character
+
+---
+
+## Entry Decay & Freshness
+
+Tracks how many generations have passed since each entry was last injected. Stale entries (not seen recently) get a boost in the AI manifest; frequently injected entries get a penalty. This naturally rotates lore without manual intervention.
+
+**Setup:**
+1. Enable "Entry Decay" in [[Settings Reference|Entry Decay settings]]
+2. Set the **Boost Threshold** (default 5) — generations without injection before freshness boost
+3. Set the **Penalty Threshold** (default 2) — consecutive injections before frequency penalty
+
+**Notes:**
+- Decay tracking is per-session (resets on chat change or page refresh)
+- Only affects AI search manifest (adds decay hints for the AI to consider)
+- Constants are exempt from decay penalties
+
+---
+
+## ST Lorebook Import Bridge
+
+Convert SillyTavern World Info JSON exports into Obsidian vault notes with proper frontmatter. Handles three formats: WI export JSON, V2 character cards with embedded WI, and raw entry arrays.
+
+**Usage:** `/dle-import` opens a popup where you paste your WI JSON and choose a target folder.
+
+**What it converts:**
+- `key` → `keys` (primary keywords)
+- `keysecondary` → `refine_keys`
+- `order` → `priority`
+- `position` → `position` (mapped to before/after/in_chat)
+- `depth` → `depth`
+- `probability` → `probability` (scaled from 0-100 to 0.0-1.0)
+- `constant` → `#lorebook-always` tag
+- `comment` → entry title
+
+---
+
+## Auto-Summary Generation
+
+Generate AI summaries for entries that don't have a `summary` field. Good summaries improve AI search quality significantly.
+
+**Usage:** `/dle-summarize` scans all indexed entries, identifies those without summaries, and generates AI summaries one at a time. Each summary is written directly to the entry's frontmatter in Obsidian.
+
+---
+
+## Setup Wizard
+
+A guided first-time setup experience. Walks through Obsidian connection configuration, AI search setup, and initial index building.
+
+**Usage:** `/dle-setup` or the Setup button in the Quick Actions bar.
+
+---
+
+## Quick Actions Bar
+
+A toolbar of one-click buttons at the top of the settings panel for common operations. Includes two rows: always-visible actions (Browse, Map, Health, Refresh) and an expandable "More" row (Graph, Simulate, Analytics, Optimize, Inspect, Setup).
+
+Uses SillyTavern's standard `menu_button menu_button_icon` pattern with Font Awesome icons. All buttons call their functions directly (no slash command roundtrip).
+
+---
+
+## Prompt Cache Optimization
+
+In proxy mode, the AI search manifest is placed first in the message payload with `cache_control` breakpoints. This leverages Anthropic's prompt caching so that the manifest (which rarely changes between calls) is cached server-side, reducing token costs on subsequent calls.
+
+Only applies to Custom Proxy mode. Connection Profile mode does not support cache_control breakpoints.
+
+---
+
+## Circuit Breaker
+
+The Obsidian REST API connection uses a circuit breaker pattern to avoid hammering a down server. States: **closed** (normal), **open** (failing — skip calls for backoff period), **half-open** (try one test call).
+
+Exponential backoff from 2s to 15s. Automatic — no settings to configure. Resets when a call succeeds.
+
+---
+
+## IndexedDB Persistent Cache
+
+The parsed vault index is saved to IndexedDB (`DeepLoreEnhanced` database, `vaultCache` store) after every successful build. On page load, the extension hydrates from IndexedDB instantly (no Obsidian call needed), then validates against Obsidian in the background.
+
+**Benefits:**
+- Near-instant startup — lore is available before the first generation
+- Works even if Obsidian is briefly unreachable on page load
+- Automatic — no settings to configure
+
+---
+
+## Incremental Delta Sync
+
+When auto-sync triggers, instead of re-fetching all vault files, the extension:
+1. Fetches the file listing from Obsidian (lightweight call)
+2. Compares against the known index
+3. Downloads content only for new files
+4. Removes entries for deleted files
+5. Falls back to full rebuild if the delta approach fails
+
+Reduces sync overhead significantly for large vaults where only a few files change between syncs.
+
+---
+
+## Hierarchical Manifest Clustering
+
+For large vaults (40+ selectable entries), the AI search uses a two-call approach:
+1. Group entries by category (extracted from tags/type fields)
+2. First AI call: select relevant categories from the full list
+3. Second AI call: select specific entries from within those categories
+
+Safety valve: if the category filter removes more than 80% of entries, it falls back to the full manifest. Requires at least 4 distinct categories to activate.
+
+---
+
+## Sliding Window AI Cache
+
+AI search caches results with a sliding window strategy. The manifest and chat context are hashed separately. When only new chat messages are appended (vault unchanged):
+- If the new messages don't contain any entity names/keys from the vault, cached results are reused
+- If new messages reference vault entities, the cache is invalidated and a fresh AI call is made
+
+This means most regenerations, swipes, and non-lore-relevant messages reuse cached results automatically.
+
+---
+
+## Scribe-Informed Retrieval
+
+When enabled, the Session Scribe's latest summary is fed into the AI search context as additional story background. This gives the AI search a broader understanding of the ongoing narrative, helping it select entries relevant to the overall story arc rather than just the most recent messages.
+
+**Setup:** Enable "Scribe-Informed Retrieval" in [[Settings Reference|AI Search settings]].
+
+---
+
+## Confidence-Gated Budget
+
+AI search over-requests entries (2x the configured max), then sorts results by confidence tier (high → medium → low) before applying the budget cap. High-confidence picks are prioritized, ensuring that when budget is limited, the most relevant entries make the cut.

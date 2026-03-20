@@ -46,6 +46,8 @@ Stop and restart SillyTavern to load the new extension.
 
 ## First-Time Setup
 
+> **Quick alternative:** Run `/dle-setup` in the SillyTavern chat input to use the guided setup wizard. It walks through Obsidian connection, AI search, and initial index build step by step.
+
 ### Obsidian Connection
 
 1. In Obsidian, open **Settings > Community Plugins** and install/enable **Local REST API**

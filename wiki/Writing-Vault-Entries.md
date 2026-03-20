@@ -35,6 +35,10 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `warmup` | number | *(none)* | Require the keyword to appear N or more times in the scan text before triggering. |
 | `probability` | number | *(none)* | Chance of triggering when matched (0.0-1.0). Omit or set to 1.0 for always trigger. |
 | `enabled` | boolean | `true` | Set to `false` to completely skip this entry during indexing. The entry won't appear in the vault index at all. Useful for temporarily disabling an entry without removing the `#lorebook` tag. |
+| `era` | string | *(none)* | Contextual gating: only inject when the active era matches this value. See [[Features#Contextual Gating]]. |
+| `location` | string | *(none)* | Contextual gating: only inject when the active location matches this value. |
+| `scene_type` | string | *(none)* | Contextual gating: only inject when the active scene type matches this value. |
+| `character_present` | array | `[]` | Contextual gating: only inject when any listed character is among the present characters. |
 
 ### Priority Guidelines
 
@@ -759,6 +763,48 @@ Core rules that should always be present in context...
 **When to use which:**
 - `#lorebook-always` tag: Quick, visible at a glance in Obsidian's tag system
 - `constant: true` field: Useful when you want to keep the tags array clean or when programmatically managing entries
+
+---
+
+### 16. Contextual Gating
+
+Use `era`, `location`, `scene_type`, and `character_present` fields to control when an entry injects based on the current story context. Set the active context with `/dle-set-era`, `/dle-set-location`, `/dle-set-scene`, `/dle-set-characters`.
+
+```markdown
+---
+tags:
+  - lorebook
+keys:
+  - Docks smuggling
+  - smuggler routes
+  - contraband
+
+priority: 50
+
+# This entry only injects when:
+# - The active era is "pre-war" (set via /dle-set-era pre-war)
+# - The active location is "The Docks" (set via /dle-set-location The Docks)
+# - The active scene type is "investigation" or "exploration"
+# - Maren Blacktide is among the present characters
+era: pre-war
+location: The Docks
+scene_type: investigation
+character_present:
+  - Maren Blacktide
+
+summary: "Smuggling routes and contraband network in the Docks district during the pre-war era. Select when smuggling, black market, or Maren's operations come up."
+---
+
+# Docks Smuggling Network
+
+The Docks district has been the center of Greymarch's smuggling operations for decades. [[Maren Blacktide]] controls the primary routes...
+```
+
+**How it works:**
+- Entries without contextual fields are always eligible (they pass through unfiltered)
+- Each field is checked independently: an entry with only `era` set is filtered only on era, regardless of location/scene/character
+- Use `/dle-context-state` to see the current active context
+- Context is stored per-chat in `chat_metadata.deeplore_context`
 
 ---
 

@@ -1,22 +1,5 @@
 # Changelog
 
-## 0.2.1-BETA
-
-### Settings Overhaul
-- **Search Mode dropdown** — Unified "Keyword Only / Two-Stage / AI Only" dropdown replaces separate AI enable checkbox and mode radio buttons
-- **AI-Powered Features drawer** — Groups AI Notebook, Session Scribe, and Auto Lorebook into one collapsible section
-- **"Show Advanced" toggles** — Power-user settings hidden behind per-section advanced toggles (persisted across sessions) for vault tags, matching, injection, AI search, and index/cache settings
-- **"You are Claude Code" toggle** — New checkbox in AI Search advanced settings to control the `You are Claude Code` system prompt prefix (proxy mode only)
-- **Vault name deep links** — Removed separate "Obsidian Vault Name" field; vault connection names now serve double duty for Obsidian deep links
-- **Title/tooltip audit** — Every setting input now has a descriptive `title` attribute for discoverability
-- **Auto-connect on load** — Extension automatically builds the vault index on startup when enabled (3s delay)
-
-### Bug Fixes
-- **Backslash link false positives** — `extractWikiLinks()` now strips trailing backslashes from pipe-alias wiki-links (`[[Name\|Display]]` → `Name` not `Name\`)
-- **Cascade link false positives** — Health check now matches cascade links against filenames too, not just entry titles
-- **Self-exclude detection** — Health check warns when an entry's `excludes` list contains itself
-- **Browse popup badge alignment** — `[constant] [seed] [bootstrap]` badges now left-aligned with title instead of floating right
-
 ## 0.2.0-BETA
 
 ### New Features
@@ -32,6 +15,30 @@
 - **Enhanced Context Cartographer** — Token bar chart per entry, injection position grouping, expandable content preview, vault attribution for multi-vault. New `/dle-context` for real-time view without generating.
 - **Scribe Session Timeline** — `/dle-scribe-history` fetches and displays all session notes from Obsidian. Scribe context now persists across page reloads via chat metadata.
 - **Multi-Vault Support** — Connect multiple Obsidian vaults with independent settings. Entries merged with vault attribution shown in Context Cartographer and Entry Browser.
+- **Per-Chat Pin/Block** — Pin entries to always inject or block entries from injecting on a per-chat basis. Managed via `/dle-pin`, `/dle-unpin`, `/dle-block`, `/dle-unblock`, `/dle-pins`. Stored in `chat_metadata`.
+- **Contextual Gating** — Filter entries by `era`, `location`, `scene_type`, and `character_present` frontmatter fields. Set the active context with `/dle-set-era`, `/dle-set-location`, `/dle-set-scene`, `/dle-set-characters`. View state with `/dle-context-state`.
+- **Entry Decay & Freshness** — Tracks how long since each entry was last injected. Stale entries get a boost in the AI manifest; frequently injected entries get a penalty. Configurable thresholds.
+- **ST Lorebook Import Bridge** — `/dle-import` converts SillyTavern World Info JSON exports into Obsidian vault notes with proper frontmatter. Handles WI exports, V2 character cards, and entry arrays.
+- **Auto-Summary Generation** — `/dle-summarize` generates AI summaries for entries that lack a `summary` field. Writes directly to Obsidian frontmatter.
+- **Setup Wizard** — `/dle-setup` walks through first-time configuration: Obsidian connection, AI search, and initial index build.
+- **Quick Actions Bar** — Settings panel includes a toolbar of one-click buttons for common operations: Browse, Map, Health, Refresh, Graph, Simulate, Analytics, Optimize, Inspect, Setup.
+- **Scribe-Informed Retrieval** — When enabled, feeds the Session Scribe's latest summary into the AI search context for better entry selection.
+- **Confidence-Gated Budget** — AI search over-requests entries (2x), then sorts by confidence tier (high → medium → low) before applying the budget cap.
+- **Prompt Cache Optimization** — In proxy mode, manifest is placed first with `cache_control` breakpoints to leverage prompt caching on subsequent calls.
+- **Circuit Breaker** — Obsidian connection uses a circuit breaker pattern (closed/open/half-open) with exponential backoff (2s-15s) to avoid hammering a down server.
+- **Sliding Window AI Cache** — AI search cache tracks manifest and chat hashes separately. When only new chat messages are added (no vault changes), cached results are reused if no new entity names from the vault appear in the new messages.
+- **IndexedDB Persistent Cache** — Parsed vault index is saved to IndexedDB for instant hydration on page load. Background validation against Obsidian ensures freshness.
+- **Incremental Delta Sync** — On auto-sync, fetches only the file listing first, then downloads content only for new files. Removes deleted entries. Falls back to full rebuild.
+- **Hierarchical Manifest Clustering** — For large vaults (40+ entries), groups entries by category and uses a two-call AI approach: first selects relevant categories, then selects entries within those categories. Safety valve prevents over-aggressive filtering.
+
+### Settings Overhaul
+- **Search Mode dropdown** — Unified "Keyword Only / Two-Stage / AI Only" dropdown replaces separate AI enable checkbox and mode radio buttons
+- **AI-Powered Features drawer** — Groups AI Notebook, Session Scribe, and Auto Lorebook into one collapsible section
+- **"Show Advanced" toggles** — Power-user settings hidden behind per-section advanced toggles (persisted across sessions) for vault tags, matching, injection, AI search, and index/cache settings
+- **"You are Claude Code" toggle** — New checkbox in AI Search advanced settings to control the `You are Claude Code` system prompt prefix (proxy mode only)
+- **Vault name deep links** — Removed separate "Obsidian Vault Name" field; vault connection names now serve double duty for Obsidian deep links
+- **Title/tooltip audit** — Every setting input now has a descriptive `title` attribute for discoverability
+- **Auto-connect on load** — Extension automatically builds the vault index on startup when enabled (3s delay)
 
 ### Self-Healing Diagnostics
 - Expanded `/dle-health` from ~7 to 30+ checks: circular requires, duplicate titles, conflicting overrides, orphaned cascade links, AI/Scribe misconfiguration, budget warnings, probability zero, unresolved wiki-links, keyword conflicts, and more.
@@ -61,6 +68,10 @@
 - **Greedy regex in `extractAiResponseClient`** — JSON array extraction used greedy `[\s\S]*` instead of lazy `[\s\S]*?`, capturing too much text.
 - **`Number || default` falsy-zero** — `Number(val) || default` treated valid 0 as falsy. Fixed with `isNaN()` checks.
 - **Warning ratio reset** — `lastWarningRatio` not reset on chat change, causing stale toast suppression.
+- **Backslash link false positives** — `extractWikiLinks()` now strips trailing backslashes from pipe-alias wiki-links (`[[Name\|Display]]` → `Name` not `Name\`)
+- **Cascade link false positives** — Health check now matches cascade links against filenames too, not just entry titles
+- **Self-exclude detection** — Health check warns when an entry's `excludes` list contains itself
+- **Browse popup badge alignment** — `[constant] [seed] [bootstrap]` badges now left-aligned with title instead of floating right
 
 ### New Slash Commands
 | Command | Description |
@@ -73,11 +84,28 @@
 | `/dle-optimize-keys` | AI keyword suggestions for entries |
 | `/dle-context` | Show what would be injected right now |
 | `/dle-scribe-history` | View all session notes from Obsidian |
+| `/dle-pin` | Pin an entry to always inject in the current chat |
+| `/dle-unpin` | Remove a pin from the current chat |
+| `/dle-block` | Block an entry from injecting in the current chat |
+| `/dle-unblock` | Remove a block from the current chat |
+| `/dle-pins` | Show all pins and blocks for the current chat |
+| `/dle-set-era` | Set the active era for contextual gating |
+| `/dle-set-location` | Set the active location for contextual gating |
+| `/dle-set-scene` | Set the active scene type for contextual gating |
+| `/dle-set-characters` | Set the present characters for contextual gating |
+| `/dle-context-state` | Show the current contextual gating state |
+| `/dle-setup` | Run the first-time setup wizard |
+| `/dle-summarize` | Generate AI summaries for entries without one |
+| `/dle-import` | Import SillyTavern World Info JSON into the vault |
 
 ### New Frontmatter Fields
 | Field | Type | Description |
 |-------|------|-------------|
 | `probability` | number | Chance of triggering when matched (0.0-1.0, null = always) |
+| `era` | string | Contextual gating — entry only injects when the active era matches |
+| `location` | string | Contextual gating — entry only injects when the active location matches |
+| `scene_type` | string | Contextual gating — entry only injects when the active scene type matches |
+| `character_present` | string[] | Contextual gating — entry only injects when any listed character is present |
 
 ### Settings
 - New AI Notebook section: enable, injection position, depth, role
@@ -85,14 +113,21 @@
 - New Auto Lorebook section: enable, interval, connection mode, profile, proxy, model, tokens, timeout, folder
 - New `optimizeKeysMode` (keyword-only / two-stage)
 - New `vaults` array replacing single-vault connection fields (auto-migrated)
+- New Entry Decay section: `decayEnabled`, `decayBoostThreshold`, `decayPenaltyThreshold`
+- New `scribeInformedRetrieval` toggle in AI Search
 
 ### Internal
-- New `probability` and `vaultSource` fields on VaultEntry (shared core — additive)
+- New `probability`, `vaultSource`, `era`, `location`, `sceneType`, `characterPresent` fields on VaultEntry
+- New modules: `src/cache.js` (IndexedDB persistent cache), `src/import.js` (WI import bridge)
 - New server endpoint `POST /scribe-notes` for session timeline
-- `chat_metadata` now stores: `deeplore_notebook`, `deeplore_lastScribeSummary`, `deeplore_injection_log`
+- `chat_metadata` now stores: `deeplore_notebook`, `deeplore_lastScribeSummary`, `deeplore_injection_log`, `deeplore_pins`, `deeplore_blocks`, `deeplore_context`
 - `matchEntries()` now returns `probabilitySkipped` array
 - `onGenerate()` uses `pipelineRan` flag + `finally` block for generation tracking
-- 191 passing tests
+- `aiSearchCache` shape: `{hash, manifestHash, chatLineCount, results}` for sliding window cache
+- New state: `decayTracker`, `lastHealthResult`
+- Init hydrates from IndexedDB cache, falls back to full Obsidian fetch
+- Delta sync fetches file listing first, downloads only new files
+- 210 passing tests
 - Bumped version to 0.2.0-BETA
 
 ## 0.14-ALPHA

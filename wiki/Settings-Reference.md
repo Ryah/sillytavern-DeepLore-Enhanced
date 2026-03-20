@@ -110,6 +110,7 @@ Visible when Search Mode is Two-Stage or AI Only.
 | **Manifest Summary Length** | `600` | 100-1000 | Max characters for entry summaries in the manifest. Only for entries without a `summary` field. |
 | **System Prompt Override** | (none) | Text | Custom system prompt for AI selection. Leave empty for default. Supports `{{maxEntries}}` placeholder. |
 | **Prepend "You are Claude Code"** | On | Toggle | (Proxy mode only, under Show Advanced) Prepend `You are Claude Code.` to the AI system prompt. Disable if using a non-Claude model via proxy. |
+| **Scribe-Informed Retrieval** | Off | Toggle | Feed the Session Scribe's latest summary into the AI search context for better entry selection. See [[Features#Scribe-Informed Retrieval]]. |
 
 **Test AI Search** button tests the AI connection. **Preview AI Prompt** button shows the full prompt that would be sent.
 
@@ -146,6 +147,14 @@ Visible when Search Mode is Two-Stage or AI Only.
 
 Use `/dle-suggest` to trigger on-demand at any time.
 
+## Entry Decay
+
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| **Enable Entry Decay** | Off | Toggle | Track entry freshness and adjust AI manifest priorities. Stale entries get a boost; frequently injected entries get a penalty. See [[Features#Entry Decay & Freshness]]. |
+| **Boost Threshold** | `5` | 2-20 | Generations without injection before an entry gets a freshness boost in the AI manifest. |
+| **Penalty Threshold** | `2` | 2-10 | Consecutive injections before an entry gets a frequency penalty in the AI manifest. |
+
 ## Index & Cache
 
 | Setting | Default | Range | Description |
@@ -164,3 +173,15 @@ Use `/dle-suggest` to trigger on-demand at any time.
 |---------|---------|-------|-------------|
 | **Review Response Tokens** | `0` | 0-100000 | Token limit for `/dle-review` responses. 0 = auto (uses your connection profile's Max Response Length). |
 | **Debug Mode** | Off | Toggle | Log detailed match info to browser console (F12). Shows keyword matches, AI results, gating, token counts, injection details. |
+
+## Automatic Features (No Settings)
+
+These features work automatically with no configuration:
+
+- **Circuit Breaker:** Obsidian connection uses a circuit breaker pattern (closed/open/half-open) with exponential backoff (2s-15s). Prevents hammering a down server. Resets automatically when a call succeeds.
+- **IndexedDB Persistent Cache:** Parsed vault index is saved to IndexedDB after every successful build. On page load, hydrates instantly from cache, then validates in background. No settings to configure.
+- **Incremental Delta Sync:** Auto-sync fetches only the file listing first, then downloads content only for new files. Falls back to full rebuild automatically.
+- **Hierarchical Manifest Clustering:** For vaults with 40+ entries and 4+ categories, automatically uses two-call AI approach for better scaling.
+- **Sliding Window AI Cache:** AI search cache tracks manifest and chat hashes separately for smarter cache reuse.
+- **Confidence-Gated Budget:** AI search over-requests entries (2x), sorts by confidence tier before budget cap.
+- **Prompt Cache Optimization:** In proxy mode, manifest is placed first with cache_control breakpoints for Anthropic prompt caching.

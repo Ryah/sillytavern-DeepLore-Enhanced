@@ -7,26 +7,36 @@ DeepLore Enhanced uses a sequential pipeline to determine which vault entries ge
 ```
 onGenerate(chat)
   │
-  ├─ ensureIndexFresh()              Refresh from Obsidian if cache expired
+  ├─ hydrateFromCache()               On first load: instant hydration from IndexedDB
   │
-  ├─ runPipeline(chat)               Core matching pipeline
-  │    ├─ matchEntries(chat)           Stage 1: Keyword scan (broad pre-filter)
-  │    │    ├─ buildScanText(chat)       Concatenate recent messages
-  │    │    ├─ keyword matching          Check each entry's keys against scan text
-  │    │    ├─ per-entry scanDepth       Override scan depth for specific entries
-  │    │    ├─ warmup/probability/       Per-entry behavior checks
+  ├─ ensureIndexFresh()               Refresh from Obsidian if cache expired
+  │    └─ buildIndexDelta()             Try incremental sync first, fall back to full
+  │
+  ├─ runPipeline(chat)                Core matching pipeline
+  │    ├─ matchEntries(chat)            Stage 1: Keyword scan (broad pre-filter)
+  │    │    ├─ buildScanText(chat)        Concatenate recent messages
+  │    │    ├─ keyword matching           Check each entry's keys against scan text
+  │    │    ├─ per-entry scanDepth        Override scan depth for specific entries
+  │    │    ├─ warmup/probability/        Per-entry behavior checks
   │    │    │  cooldown checks
-  │    │    ├─ cascade links             Pull in unconditionally linked entries
-  │    │    ├─ recursive scanning        Scan matched entry content for more triggers
-  │    │    └─ Active Character Boost    Auto-match active character's entry
+  │    │    ├─ cascade links              Pull in unconditionally linked entries
+  │    │    ├─ recursive scanning         Scan matched entry content for more triggers
+  │    │    └─ Active Character Boost     Auto-match active character's entry
+  │    │
+  │    ├─ hierarchicalPreFilter()      For 40+ entries: cluster by category, AI picks categories
   │    │
   │    ├─ buildCandidateManifest()     Build compact manifest from keyword matches
   │    │
   │    └─ aiSearch(chat, manifest)     Stage 2: AI selects best from candidates
-  │         ├─ check cache               Reuse if chat+manifest hash matches
-  │         ├─ build AI context          Recent chat + manifest + header
+  │         ├─ sliding window cache      Reuse if manifest unchanged + no new entity mentions
+  │         ├─ build AI context          Recent chat + manifest + header (+ scribe summary)
   │         ├─ call AI (profile/proxy)   Send to configured AI connection
-  │         └─ parse response            Extract JSON array of selections
+  │         ├─ parse response            Extract JSON array of selections
+  │         └─ confidence-gated budget   Over-request 2x, sort by confidence tier
+  │
+  ├─ Apply pin/block overrides        Per-chat pins force-inject, blocks remove
+  │
+  ├─ Contextual gating                Filter by era/location/scene/character
   │
   ├─ Re-injection cooldown            Skip entries injected within N generations
   │
@@ -46,7 +56,7 @@ onGenerate(chat)
   │
   ├─ AI Notebook injection            Inject per-chat notebook (if enabled)
   │
-  └─ Post-processing                  Update cooldowns, analytics, injection history
+  └─ Post-processing                  Update cooldowns, decay tracker, analytics, history
 ```
 
 ## Three Pipeline Modes
@@ -83,8 +93,11 @@ No API calls, no latency. Good for simple setups or when you want full control v
 
 ## Stage Details
 
+### IndexedDB Hydration
+On first page load, the extension attempts to load the vault index from IndexedDB (browser-side persistent cache). If found, the index is available immediately — no Obsidian call needed. A background validation against Obsidian runs to ensure the cache is still fresh.
+
 ### Index Refresh
-Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL). If expired, it re-fetches all `#lorebook` entries directly from Obsidian's Local REST API, parses frontmatter, extracts wikilinks, and builds the `VaultEntry[]` array.
+Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL). If expired, it first tries **incremental delta sync** (fetch file listing, download only new files, remove deleted entries). If delta sync fails, it falls back to a full re-fetch of all `#lorebook` entries from Obsidian's Local REST API. The Obsidian connection uses a **circuit breaker** (closed/open/half-open with 2s-15s exponential backoff) to avoid hammering a down server. After a successful build, the index is saved to IndexedDB.
 
 ### Keyword Matching
 1. **Build scan text**: Concatenate the last N messages (Scan Depth setting, default 4)
@@ -101,12 +114,29 @@ Before matching, the pipeline checks if the cached vault index is stale (based o
 9. **Constants**: Entries tagged `#lorebook-always` or with `constant: true` are always included regardless of keywords
 10. **Bootstrap**: If chat is below New Chat Threshold, `#lorebook-bootstrap` entries are force-included
 
+### Hierarchical Pre-Filter
+For large vaults (40+ selectable entries with 4+ distinct categories), the pipeline uses a two-call AI approach before regular AI search:
+1. Group entries by category (from tags/type fields)
+2. First AI call selects relevant categories
+3. Only entries in selected categories proceed to the main AI search
+Safety valve: if filtering removes more than 80% of entries, the pre-filter is skipped.
+
 ### AI Search
 See [[AI Search]] for full details. In brief:
 1. Build a compact manifest from keyword-matched candidates (or full vault in AI-only mode)
-2. Send manifest + recent chat to the AI
-3. AI returns a JSON array of selected entries with confidence and reasons
-4. Selections replace keyword results (not merged)
+2. Check the **sliding window cache** — reuses results if manifest unchanged and new chat messages don't mention vault entities
+3. Send manifest + recent chat to the AI (with Scribe summary if scribe-informed retrieval is enabled)
+4. AI returns a JSON array of selected entries with confidence and reasons
+5. **Confidence-gated budget**: AI over-requests (2x max entries), results sorted by confidence tier (high → medium → low) before budget cap
+6. Selections replace keyword results (not merged)
+
+### Pin/Block Overrides
+After the main pipeline, per-chat pins and blocks are applied:
+- **Pinned entries** are force-injected like constants (from `chat_metadata.deeplore_pins`)
+- **Blocked entries** are removed regardless of matches (from `chat_metadata.deeplore_blocks`)
+
+### Contextual Gating
+Entries with `era`, `location`, `scene_type`, or `character_present` frontmatter fields are filtered against the active context state (stored in `chat_metadata.deeplore_context`). Entries without contextual fields pass through unaffected.
 
 ### Gating
 After selection, entries with `requires` and `excludes` fields are evaluated:

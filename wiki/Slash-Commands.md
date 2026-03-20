@@ -180,6 +180,71 @@ Show a detailed trace of the last generation pipeline in a popup.
 
 **When to use:** To debug why certain entries were or weren't injected in the last generation. See [[Pipeline]] for how the pipeline works.
 
+---
+
+### `/dle-pin <entry name>`
+Pin an entry to always inject in the current chat, regardless of keywords or AI selection. Stored in `chat_metadata.deeplore_pins`.
+
+---
+
+### `/dle-unpin <entry name>`
+Remove a pin from the current chat.
+
+---
+
+### `/dle-block <entry name>`
+Block an entry from injecting in the current chat. Stored in `chat_metadata.deeplore_blocks`.
+
+---
+
+### `/dle-unblock <entry name>`
+Remove a block from the current chat.
+
+---
+
+### `/dle-pins`
+Show all pinned and blocked entries for the current chat. See [[Features#Per-Chat Pin/Block]].
+
+---
+
+### `/dle-set-era <era>`
+Set the active era for contextual gating (e.g., `/dle-set-era pre-war`). Entries with a matching `era` frontmatter field are included; others with a non-matching `era` are filtered out. Clear with `/dle-set-era` (no argument).
+
+---
+
+### `/dle-set-location <location>`
+Set the active location for contextual gating (e.g., `/dle-set-location The Docks`). Clear with no argument.
+
+---
+
+### `/dle-set-scene <scene type>`
+Set the active scene type for contextual gating (e.g., `/dle-set-scene combat`). Clear with no argument.
+
+---
+
+### `/dle-set-characters <names>`
+Set the present characters for contextual gating (e.g., `/dle-set-characters Valen, Sera`). Comma-separated list. Clear with no argument.
+
+---
+
+### `/dle-context-state`
+Show the current contextual gating state (active era, location, scene type, present characters). See [[Features#Contextual Gating]].
+
+---
+
+### `/dle-setup`
+Run the first-time setup wizard. Walks through Obsidian connection configuration, AI search setup, and initial index build. See [[Installation]].
+
+---
+
+### `/dle-summarize`
+Generate AI summaries for entries that lack a `summary` field. Summaries are written directly to each entry's frontmatter in Obsidian. See [[Features#Auto-Summary Generation]].
+
+---
+
+### `/dle-import`
+Import SillyTavern World Info JSON into the vault. Opens a popup where you paste your WI JSON and choose a target folder. Handles WI exports, V2 character cards, and entry arrays. See [[Features#ST Lorebook Import Bridge]].
+
 ## Quick Reference
 
 | Command | Description |
@@ -199,3 +264,16 @@ Show a detailed trace of the last generation pipeline in a popup.
 | `/dle-analytics` | Entry usage statistics |
 | `/dle-health` | Audit entries for issues (30+ checks) |
 | `/dle-inspect` | Show last pipeline trace |
+| `/dle-pin <name>` | Pin entry to always inject in this chat |
+| `/dle-unpin <name>` | Remove a pin |
+| `/dle-block <name>` | Block entry from injecting in this chat |
+| `/dle-unblock <name>` | Remove a block |
+| `/dle-pins` | Show all pins and blocks |
+| `/dle-set-era <era>` | Set active era for contextual gating |
+| `/dle-set-location <loc>` | Set active location |
+| `/dle-set-scene <type>` | Set active scene type |
+| `/dle-set-characters <names>` | Set present characters |
+| `/dle-context-state` | Show contextual gating state |
+| `/dle-setup` | Run setup wizard |
+| `/dle-summarize` | Generate AI summaries for entries |
+| `/dle-import` | Import ST World Info JSON |

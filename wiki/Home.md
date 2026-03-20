@@ -10,20 +10,21 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 ## Key Features
 
-- **Two-stage pipeline:** Keywords pre-filter, then AI selects the best matches
+- **Two-stage pipeline:** Keywords pre-filter, then AI selects the best matches (with sliding window cache and hierarchical clustering)
 - **Any AI provider:** Works with Anthropic, OpenAI, OpenRouter, or any provider via SillyTavern's Connection Manager
 - **Multi-vault support:** Connect multiple Obsidian vaults simultaneously
+- **Per-chat pin/block:** Pin entries to always inject or block entries from injecting, per chat
+- **Contextual gating:** Filter entries by era, location, scene type, and present characters
 - **Context Cartographer:** See exactly which lore was injected and why on each message
 - **Session Scribe:** Auto-summarize sessions back to your Obsidian vault
 - **Auto Lorebook:** AI analyzes chat and suggests new entries you can accept or reject
 - **AI Notebook:** Persistent per-chat scratchpad injected into every generation
-- **Conditional gating:** Entries that depend on or block other entries
-- **Per-entry injection:** Override injection position, depth, and role per entry
-- **Cooldown/warmup tags:** Fine-grained control over when entries trigger
-- **Injection deduplication:** Prevent the same lore from being injected in consecutive generations
+- **ST lorebook import:** Convert SillyTavern World Info JSON exports into Obsidian vault notes
+- **Quick actions bar:** One-click toolbar for common operations in settings
+- **Fine-grained matching:** Conditional gating, cooldown/warmup, probability, refine keys, cascade links, per-entry injection overrides, entry decay & freshness
 - **New chat bootstrapping:** Seed entries and bootstrap injection for early conversations
-- **Vault sync:** Auto-detect changes in your vault
-- **Diagnostic tools:** Analytics, health checks, pipeline inspector, entry browser, relationship graph, simulation
+- **Smart infrastructure:** IndexedDB persistent cache, incremental delta sync, circuit breaker, prompt cache optimization
+- **Diagnostic tools:** Analytics, health checks, pipeline inspector, activation simulation, "Why Not?" diagnostics, entry browser, relationship graph
 
 ## Prerequisites
 

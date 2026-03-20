@@ -123,15 +123,18 @@ You can fully customize the system prompt in [[Settings Reference]]. The `{{maxE
 
 ---
 
-## Caching
+## Caching (Sliding Window)
 
-AI search caches results to avoid redundant API calls:
+AI search uses a sliding window cache strategy to minimize redundant API calls:
 
-- The chat context + candidate manifest are hashed together (the search mode is also included in the hash)
-- If the hash matches the previous call, cached results are reused with no API call
-- This means **regenerations and swipes** reuse cached results automatically
+- The **manifest** and **chat context** are hashed separately
+- If both hashes match the previous call, cached results are reused (exact match)
+- If the manifest hash matches but chat has new messages, the cache checks whether the new messages contain any **entity names or keys** from the vault:
+  - If no vault entities are mentioned in the new messages, cached results are reused (the new messages are irrelevant to lore selection)
+  - If vault entities are mentioned, the cache is invalidated and a fresh AI call is made
+- **Regenerations and swipes** always reuse cached results (same chat context)
 - The cache is **single-entry**, storing only the most recent result
-- Cache is cleared whenever chat context changes (new message, different chat, etc.)
+- Cache is cleared on chat change
 
 Cache hits are tracked in the AI Stats display (see below).
 
@@ -187,6 +190,48 @@ These stats are **session-scoped** — they accumulate across chat switches and 
 
 ---
 
+## Hierarchical Manifest Clustering
+
+For large vaults (40+ selectable entries with 4+ distinct categories), AI search automatically uses a two-call approach:
+
+1. **Cluster entries by category** — categories are extracted from tags and type fields
+2. **First AI call: category selection** — a compact category manifest is sent to the AI, which selects relevant categories
+3. **Second AI call: entry selection** — only entries in the selected categories are included in the normal manifest
+
+**Safety valve:** If the category filter removes more than 80% of entries, the pre-filter is skipped and the full manifest is used instead. This prevents overly aggressive AI category selection from hiding relevant entries.
+
+**When it activates:** Automatically when the vault has 40+ selectable (non-constant) entries and 4+ distinct categories. No settings to configure.
+
+---
+
+## Prompt Cache Optimization
+
+In **Custom Proxy mode**, the manifest is placed first in the message payload with `cache_control` breakpoints. This leverages Anthropic's prompt caching: the manifest (which rarely changes between calls in the same chat) is cached server-side, reducing token costs on subsequent calls.
+
+This only applies to Custom Proxy mode. Connection Profile mode does not support `cache_control` breakpoints.
+
+---
+
+## Scribe-Informed Retrieval
+
+When enabled, the Session Scribe's latest summary is fed into the AI search context as additional story background. This gives the AI search a broader narrative perspective beyond just the most recent chat messages.
+
+**Setup:** Enable "Scribe-Informed Retrieval" in [[Settings Reference|AI Search settings]].
+
+---
+
+## Confidence-Gated Budget
+
+AI search over-requests entries from the AI (2x the configured max entries), then sorts the results by confidence tier:
+
+1. **High confidence** entries are prioritized
+2. **Medium confidence** entries fill remaining budget
+3. **Low confidence** entries only if budget remains
+
+This ensures that when budget is limited, the most relevant entries are always included.
+
+---
+
 ## Performance Tips
 
 - **Write `summary` fields** on your entries. This avoids content truncation in the manifest and gives the AI better information for selection. See [[Writing Vault Entries]].
@@ -194,7 +239,8 @@ These stats are **session-scoped** — they accumulate across chat switches and 
 - **Keep Manifest Summary Length reasonable.** The default of 600 characters is a good balance. Longer summaries use more tokens; shorter ones give the AI less to work with.
 - **Keep AI Scan Depth low.** The default of 4 messages is usually sufficient. Higher values send more chat history to the AI, increasing token cost.
 - **Use a fast, cheap model.** The AI search task is simple classification. Haiku-class models handle it well and respond quickly. You do not need a frontier model for this.
-- **Let caching work for you.** Regenerations and swipes are free (cached). The AI is only called when the chat context actually changes.
+- **Let caching work for you.** Regenerations and swipes are free (cached). The sliding window cache is even smarter — new messages that don't mention vault entities also reuse cached results.
+- **Enable Scribe-Informed Retrieval** if you use Session Scribe. The narrative context helps the AI make better selections for ongoing story arcs.
 
 ---
 

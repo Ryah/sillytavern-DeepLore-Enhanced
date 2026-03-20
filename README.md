@@ -10,26 +10,22 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 
 ## Features
 
-- **AI-powered entry selection** -- Two-stage pipeline (keywords → AI) or AI-only mode with smart caching
+- **AI-powered entry selection** -- Two-stage pipeline (keywords → AI) or AI-only mode with sliding window cache and hierarchical clustering for large vaults
 - **Any AI provider** -- Works with Anthropic, OpenAI, OpenRouter, or any provider via SillyTavern's Connection Manager
 - **Multi-vault support** -- Connect multiple Obsidian vaults with independent settings, merged into a single index
-- **AI Notebook** -- Persistent per-chat scratchpad injected every turn (`/dle-notebook`)
-- **Entry Browser** -- Searchable, filterable popup of all indexed entries with content preview (`/dle-browse`)
-- **Entry Relationship Graph** -- Interactive force-directed visualization of entry connections (`/dle-graph`)
-- **Context Cartographer** -- Token bar charts, injection position grouping, vault attribution, expandable previews
-- **Session Scribe** -- Auto-summarize sessions to your Obsidian vault with session timeline (`/dle-scribe-history`)
-- **Auto Lorebook Creation** -- AI suggests new entries from chat context with human review (`/dle-suggest`)
-- **Optimize Keywords** -- AI-powered keyword suggestions, mode-aware (`/dle-optimize-keys`)
-- **Activation Simulation** -- Replay chat history showing entry activation/deactivation (`/dle-simulate`)
-- **"Why Not?" Diagnostics** -- Click unmatched entries to see exactly why they didn't fire
-- **Self-healing health checks** -- 30+ automated checks with `/dle-health` and auto-run on load
-- **Probability frontmatter** -- Per-entry random trigger chance (0.0-1.0)
-- **Injection deduplication** -- Skip re-injecting entries already in recent context
-- **Conditional gating** -- Entries that depend on or block other entries
-- **Per-entry injection** -- Override injection position, depth, and role per entry
-- **Vault change detection** -- Detects added, removed, and modified entries with optional toast notifications
-- **Cooldown & warmup** -- Per-entry cooldown and warmup thresholds
-- **Pipeline inspector** -- View detailed traces of keyword matches, AI selections, and fallback status
+- **Per-chat pin/block** -- Pin entries to always inject or block entries from injecting, per chat
+- **Contextual gating** -- Filter entries by era, location, scene type, and present characters via frontmatter + slash commands
+- **Context Cartographer** -- Token bar charts, injection position grouping, vault attribution, expandable previews per message
+- **Session Scribe** -- Auto-summarize sessions to your Obsidian vault with session timeline
+- **AI Notebook** -- Persistent per-chat scratchpad injected every turn
+- **Auto Lorebook** -- AI suggests new entries from chat context with human review gate
+- **ST lorebook import** -- Convert SillyTavern World Info JSON exports into Obsidian vault notes (`/dle-import`)
+- **Quick actions bar** -- One-click toolbar in settings for Browse, Health, Graph, Simulate, and more
+- **Fine-grained matching** -- Conditional gating, cooldown/warmup, probability, refine keys, cascade links, per-entry injection overrides
+- **Diagnostic toolkit** -- 30+ health checks, pipeline inspector, activation simulation, "Why Not?" diagnostics, entry browser, relationship graph
+- **Smart caching** -- IndexedDB persistence for instant page loads, incremental delta sync, circuit breaker for Obsidian connection
+
+See the [Wiki: Features](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Features) for the full list.
 
 ## Prerequisites
 

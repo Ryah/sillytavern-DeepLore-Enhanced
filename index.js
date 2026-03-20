@@ -12,6 +12,7 @@ import {
 } from '../../../../script.js';
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
+import { promptManager } from '../../../openai.js';
 import { applyGating, formatAndGroup } from './core/matching.js';
 import { clearPrompts } from './core/pipeline.js';
 import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG } from './settings.js';
@@ -336,8 +337,51 @@ jQuery(async function () {
         registerSlashCommands();
         setupSyncPolling(buildIndex);
 
-        // Auto-connect: build index on load when enabled
+        // Register PM prompts on init so they appear in the Prompt Manager immediately.
+        // setExtensionPrompt alone is not enough — the PM only discovers extension prompts
+        // during generation (openai.js L1412-1431). We must add them directly to the PM.
         const initSettings = getSettings();
+        if (initSettings.injectionMode === 'prompt_list') {
+            // Register in extension_prompts (needed for generation-time merging)
+            setExtensionPrompt(`${PROMPT_TAG_PREFIX}constants`, ' ', 0 /* IN_PROMPT */, 0, false, 0);
+            setExtensionPrompt(`${PROMPT_TAG_PREFIX}lore`, ' ', 0 /* IN_PROMPT */, 0, false, 0);
+
+            // Register directly in PM (so entries appear in the list without generating first).
+            // promptManager may not be initialized yet, so poll briefly.
+            const registerPmEntries = () => {
+                if (!promptManager) return false;
+                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`];
+                for (const id of ids) {
+                    if (!promptManager.getPromptById(id)) {
+                        promptManager.addPrompt({
+                            name: id,
+                            content: '',
+                            system_prompt: true,
+                            marker: false,
+                            enabled: true,
+                            extension: true,
+                        }, id);
+                    }
+                    // Add to active character's prompt order if not already there
+                    if (promptManager.activeCharacter) {
+                        const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter);
+                        if (!order.find(e => e.identifier === id)) {
+                            order.push({ identifier: id, enabled: true });
+                        }
+                    }
+                }
+                promptManager.render(false);
+                return true;
+            };
+            if (!registerPmEntries()) {
+                // PM not ready yet — retry after a short delay
+                const interval = setInterval(() => {
+                    if (registerPmEntries()) clearInterval(interval);
+                }, 500);
+                // Stop trying after 10s
+                setTimeout(() => clearInterval(interval), 10000);
+            }
+        }
         if (initSettings.enabled) {
             setTimeout(() => buildIndex().catch(err => console.warn('[DLE] Auto-connect:', err.message)), 3000);
         }

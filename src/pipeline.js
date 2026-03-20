@@ -7,7 +7,7 @@ import { buildScanText } from '../core/utils.js';
 import { testEntryMatch, countKeywordOccurrences, applyGating, formatAndGroup } from '../core/matching.js';
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
-    setLastPipelineTrace,
+    trackerKey, setLastPipelineTrace,
 } from './state.js';
 import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from './ai.js';
 import { ensureIndexFresh } from './vault.js';
@@ -91,7 +91,7 @@ export function matchEntries(chat) {
                 }
 
                 // Cooldown check: skip entries still on cooldown
-                const remaining = cooldownTracker.get(entry.title);
+                const remaining = cooldownTracker.get(trackerKey(entry));
                 if (remaining !== undefined && remaining > 0) {
                     if (settings.debugMode) {
                         console.debug(`[DLE] Cooldown: "${entry.title}" has ${remaining} generations remaining — skipping`);
@@ -181,7 +181,8 @@ export function matchEntries(chat) {
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
 export async function runPipeline(chat) {
-    const settings = getSettings();
+    // Snapshot settings so async stages (AI search) see a consistent view
+    const settings = { ...getSettings() };
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
     const trace = {

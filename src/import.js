@@ -106,14 +106,50 @@ export async function importEntries(entries, folder) {
                     accept: 'text/markdown',
                 });
                 if (checkResult.status === 200) {
-                    // File exists — append _imported suffix
+                    // File exists — find a unique suffix (_imported, _imported_2, _imported_3, ...)
                     const base = filename.replace(/\.md$/, '');
-                    const renamedFilename = `${base}_imported.md`;
-                    fullPath = folder ? `${folder}/${renamedFilename}` : renamedFilename;
+                    let suffix = '_imported';
+                    let attempt = 1;
+                    let candidatePath;
+                    // eslint-disable-next-line no-constant-condition
+                    while (true) {
+                        const candidateFilename = `${base}${suffix}.md`;
+                        candidatePath = folder ? `${folder}/${candidateFilename}` : candidateFilename;
+                        try {
+                            const dupCheck = await obsidianFetch({
+                                port: vault.port,
+                                apiKey: vault.apiKey,
+                                path: `/vault/${encodeVaultPath(candidatePath)}`,
+                                accept: 'text/markdown',
+                            });
+                            if (dupCheck.status === 200) {
+                                // This suffix is also taken — try next
+                                attempt++;
+                                suffix = `_imported_${attempt}`;
+                                continue;
+                            }
+                        } catch (dupErr) {
+                            // 404 means this path is free; network errors bubble up below
+                            if (dupErr.message && !dupErr.message.includes('404') && dupErr.name !== 'AbortError') {
+                                // Genuine network error during uniqueness check — bail out of loop
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    fullPath = candidatePath;
                     renamed++;
                 }
-            } catch {
-                // Fetch error (e.g. 404) means file doesn't exist — proceed normally
+            } catch (existErr) {
+                // Only treat 404 as "file doesn't exist" — other errors are real problems
+                const is404 = existErr.message && existErr.message.includes('404');
+                if (!is404) {
+                    console.warn(`[DLE Import] Network error checking existence of "${fullPath}":`, existErr.message);
+                    errors.push(`${filename}: skipped — could not verify existence (${existErr.message})`);
+                    failed++;
+                    continue;
+                }
+                // 404 = file doesn't exist, proceed normally
             }
 
             const result = await writeNote(vault.port, vault.apiKey, fullPath, content);
@@ -138,7 +174,12 @@ export async function importEntries(entries, folder) {
  * @returns {{ entries: object[], source: string }}
  */
 export function parseWorldInfoJson(jsonText) {
-    const data = JSON.parse(jsonText);
+    let data;
+    try {
+        data = JSON.parse(jsonText);
+    } catch (e) {
+        throw new Error('Invalid World Info JSON: ' + e.message);
+    }
 
     // Format 1: Direct WI export { entries: { 0: {...}, 1: {...} } }
     if (data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries)) {

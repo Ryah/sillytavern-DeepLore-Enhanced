@@ -183,8 +183,9 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         count++;
     }
 
+    const escapeXml = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const formatEntry = (entry) => template
-        .replace(/\{\{title\}\}/g, entry.title)
+        .replace(/\{\{title\}\}/g, escapeXml(entry.title))
         .replace(/\{\{content\}\}/g, entry.content);
 
     const mode = settings.injectionMode || 'extension';

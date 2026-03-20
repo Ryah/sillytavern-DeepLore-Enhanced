@@ -169,6 +169,50 @@
 - New Entry Decay section: `decayEnabled`, `decayBoostThreshold`, `decayPenaltyThreshold`
 - New `scribeInformedRetrieval` toggle in AI Search
 
+#### Pre-release bug audit round 2 (7-expert, 55 unique bugs, 36 fixed)
+
+**Showstoppers (confirmed by 3-5 experts independently):**
+- **`clearTimeout(timeoutId)` crashes all AI fallback** (critical) — Undefined variable in `aiSearch()` catch block threw `ReferenceError` on every AI error, preventing the `{ results: [], error: true }` return. All documented fallback behavior (two-stage → keywords, ai-only → full vault) was broken. Fixed by removing the stale line.
+- **Tracker key mismatch breaks cooldowns, decay, analytics** (critical) — `onGenerate()` wrote to cooldown/injection/decay Maps using `trackerKey(entry)` = `"vaultSource:title"`, but 7 reader sites used bare `entry.title`. Keys never matched. Cooldowns never fired, decay never triggered, analytics were wiped on every vault rebuild. Fixed by extracting `trackerKey()` to `state.js` and using it everywhere.
+
+**Critical:**
+- **Tag setting changes don't invalidate cache** — Changing lorebook/constant/never/seed/bootstrap tags only saved settings without rebuilding the index. Entries retained old tag classification until manual refresh. Now triggers `buildIndex()` on tag change.
+- **Stale hydrated data served during background rebuild** — `hydrateFromCache()` set `indexTimestamp` to the cache's original write time, causing `ensureIndexFresh()` to serve stale data if a generation fired before the background rebuild completed. Now sets `indexTimestamp = 0` to force rebuild.
+- **Prompt injection via vault content** — Entry summaries were interpolated raw into the AI search manifest. Malicious entries could inject instructions. Now wraps each entry in `<entry>` XML delimiters and escapes special characters in titles.
+
+**High:**
+- **Profile mode never records token usage** — `aiSearchStats` token counters only updated in proxy path. Session stats always zero for profile users. Fixed.
+- **Circuit breaker ignores 401/403** — Wrong API key caused infinite auth failures with no backoff. Now tracks 401/403 as failures.
+- **`response.json()` without safe parsing** — Proxy response parsing threw opaque `SyntaxError` on non-JSON responses. Now uses `response.text()` + `JSON.parse()` with descriptive error.
+- **AI response parser title/name mismatch** — Non-Claude models returning `item.name` instead of `item.title` got selections silently dropped. Now accepts both fields.
+- **Entry titles break XML injection template** — Titles with `<`, `>`, `&` corrupted prompt structure. Now XML-escapes titles in injection template.
+- **Scribe writes unsanitized AI output** — AI-generated `---` lines could break YAML frontmatter parsing. Now replaced with `- - -`.
+- **Notebook/Quick Action buttons ignore disabled state** — Buttons worked when features were off. Added guards.
+- **AI search cache not keyed by all settings** — Changing system prompt, scan depth, or max entries served stale cached results. Now includes settings in cache key hash.
+- **IndexedDB cache uses single key for all vaults** — Multi-vault: vault A's cache could serve vault B's data. Now keyed by vault configuration fingerprint.
+- **Hierarchical pre-filter matching too strict** — Exact category name matching dropped entire categories on AI reformulations. Now uses substring matching.
+- **`unlimitedBudget`/`unlimitedEntries` default true** — Zero budget enforcement out of the box. Changed defaults to `false`.
+
+**Medium:**
+- **YAML injection in auto-suggest** — AI-generated frontmatter values with special characters produced malformed YAML. Now escapes values.
+- **Scribe filename sanitization incomplete** — Now strips leading/trailing dots, trailing spaces, Windows reserved names.
+- **Import assumes error = not found** — Network failures treated as "file doesn't exist", leading to overwrites. Now distinguishes error types.
+- **Import `_imported` suffix no uniqueness loop** — Second import overwrote `Foo_imported.md`. Now tries `_imported_2`, `_imported_3`, etc.
+- **`testConnection()` JSON parse on non-JSON** — Opaque error if port used by another service. Now wrapped in try/catch with descriptive error.
+- **IndexedDB quota exhaustion unhandled** — Large vaults silently failed to cache. Now shows warning toast.
+- **No settings snapshot during async pipeline** — Settings changes during AI search affected mid-pipeline. `runPipeline()` now takes a shallow snapshot.
+- **Cartographer `previousSources` not reset on chat change** — First generation showed diff against previous chat's sources. Now reset in CHAT_CHANGED.
+- **Number inputs accept out-of-range values visually** — Now clamps displayed value to match constraint range.
+- **`#dle_refresh` has no success toast** — Now shows success toast like `#dle_qa_refresh`.
+- **1-2 char entity names never bust AI cache** — Short titles like "Vi" were filtered out. Now allows titles >= 1 char.
+- **simpleHash 32-bit collision risk** — Upgraded to double-hash (two independent DJB2 passes) producing 64+ effective bits.
+- **Proxy connection test costs real tokens** — Reduced prompt to `"ping"` and max_tokens to 8.
+
+**Low (quick fixes):**
+- **Dead `obsidianVaultName` setting** — Removed unused setting from defaults.
+- **`parseWorldInfoJson` throws raw SyntaxError** — Now wraps in user-friendly error message.
+- **Analytics pruning key mismatch** — Analytics were written with `trackerKey` keys but pruned with bare titles, causing all analytics to be wiped on every vault rebuild. Fixed to use `trackerKey` consistently.
+
 ### Internal
 - New `probability`, `vaultSource`, `era`, `location`, `sceneType`, `characterPresent` fields on VaultEntry
 - New modules: `src/cache.js` (IndexedDB persistent cache), `src/import.js` (WI import bridge)

@@ -59,7 +59,13 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
             throw new Error(`Proxy returned HTTP ${response.status}: ${text.substring(0, 200)}`);
         }
 
-        const parsed = await response.json();
+        let parsed;
+        try {
+            const text = await response.text();
+            parsed = JSON.parse(text);
+        } catch (e) {
+            throw new Error(`Failed to parse proxy response as JSON: ${e.message}`);
+        }
         if (parsed.error) {
             throw new Error(parsed.error.message || JSON.stringify(parsed.error));
         }
@@ -89,9 +95,9 @@ export async function testProxyConnection(proxyUrl, model) {
         const result = await callProxyViaCorsBridge(
             proxyUrl,
             model,
-            'You are Claude Code. Respond with exactly: {"status":"ok"}',
-            'Test connection. Respond with exactly: {"status":"ok"}',
-            32,
+            'Reply OK.',
+            'ping',
+            8,
             15000,
         );
         return { ok: true, response: result.text.substring(0, 100) };

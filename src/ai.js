@@ -9,7 +9,7 @@ import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
-    setAiSearchCache,
+    trackerKey, setAiSearchCache,
 } from './state.js';
 import { updateAiStats } from './settings-ui.js';
 
@@ -234,6 +234,35 @@ export function populateScribeProfileDropdown() {
 }
 
 /**
+ * Populate the Auto Lorebook profile dropdown with saved Connection Manager profiles.
+ */
+export function populateAutoSuggestProfileDropdown() {
+    const select = document.getElementById('dle_autosuggest_profile');
+    if (!select) return;
+
+    const settings = getSettings();
+    const currentId = settings.autoSuggestProfileId;
+
+    select.innerHTML = '<option value="">— Select a profile —</option>';
+    try {
+        const profiles = ConnectionManagerRequestService.getSupportedProfiles();
+        for (const p of profiles) {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.name} (${p.api}${p.model ? ' / ' + p.model : ''})`;
+            if (p.id === currentId) opt.selected = true;
+            select.appendChild(opt);
+        }
+    } catch {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Connection Manager not available';
+        opt.disabled = true;
+        select.appendChild(opt);
+    }
+}
+
+/**
  * Update the visibility of Scribe connection fields based on selected mode.
  */
 export function updateScribeConnectionVisibility() {
@@ -289,16 +318,20 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
             // Decay/freshness annotation: hint to AI about stale or frequently-injected entries
             let decayHint = '';
             if (settings.decayEnabled && decayTracker.size > 0) {
-                const staleness = decayTracker.get(entry.title);
+                const staleness = decayTracker.get(trackerKey(entry));
                 if (staleness !== undefined && staleness >= settings.decayBoostThreshold) {
                     decayHint = ' [STALE — consider refreshing]';
                 }
             }
-            const header = `${entry.title} (${entry.tokenEstimate}tok)${links}${decayHint}`;
+            // Escape XML-like characters in title to prevent prompt structure injection
+            const safeTitle = entry.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const header = `${safeTitle} (${entry.tokenEstimate}tok)${links}${decayHint}`;
 
-            return `${header}\n${summaryText}`;
+            // Wrap each entry in structural delimiters to prevent summary content
+            // from being interpreted as manifest-level instructions
+            return `<entry name="${safeTitle}">\n${header}\n${summaryText}\n</entry>`;
         })
-        .join('\n---\n');
+        .join('\n');
 
     const totalSelectable = candidates.filter(e => !isForceInjected(e)).length;
     const forcedCount = candidates.filter(e => isForceInjected(e)).length;
@@ -408,9 +441,10 @@ export async function hierarchicalPreFilter(candidates, chat) {
         if (selectedCategories.size === 0) return null;
 
         // Filter candidates to only those in selected categories
+        // Fuzzy match: check if any selected category is a substring or the entry's category is a substring
         const filtered = selectable.filter(entry => {
             const category = (entry.tags && entry.tags.length > 0) ? entry.tags[0].toLowerCase() : 'uncategorized';
-            return selectedCategories.has(category);
+            return [...selectedCategories].some(sc => category.includes(sc) || sc.includes(category));
         });
 
         // Always include force-injected entries
@@ -482,7 +516,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
     // Sliding window cache: hash manifest + chat messages separately.
     // If only the newest chat message changed and contains no entity names from the manifest,
     // we can safely serve cached results (the new message doesn't reference any lore).
-    const manifestHash = simpleHash(settings.aiSearchMode + candidateManifest);
+    const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${settings.aiSearchSystemPrompt?.length || 0}`;
+    const manifestHash = simpleHash(settingsKey + candidateManifest);
     const chatLines = chatContext.split('\n').filter(l => l.trim());
     const chatHash = simpleHash(chatContext);
 
@@ -504,10 +539,11 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
         const newText = newLines.join(' ').toLowerCase();
 
         // Check if any vault entry title or key appears in the new text
-        // Use min length 5 for keys to avoid false cache busts from short common words
+        // Titles use min length 1 (short character names like "Vi" or "Ra" are valid)
+        // Keys use min length 3 to avoid false cache busts from short common words
         const entryNames = new Set();
         for (const entry of vaultIndex) {
-            if (entry.title.length >= 3) entryNames.add(entry.title.toLowerCase());
+            if (entry.title.length >= 1) entryNames.add(entry.title.toLowerCase());
             for (const key of entry.keys) {
                 if (key.length >= 3) entryNames.add(key.toLowerCase());
             }
@@ -575,6 +611,10 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
             // (timeout handled internally by callViaProfile/callProxyViaCorsBridge)
 
             aiSearchStats.calls++;
+            if (aiResult.usage) {
+                aiSearchStats.totalInputTokens += aiResult.usage.input_tokens || 0;
+                aiSearchStats.totalOutputTokens += aiResult.usage.output_tokens || 0;
+            }
             updateAiStats();
 
             const parsed = extractAiResponseClient(aiResult.text);
@@ -585,7 +625,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
             // Normalize to structured format
             aiResults = parsed.map(item => {
                 if (typeof item === 'string') return { title: item, confidence: 'medium', reason: 'AI search' };
-                return { title: item.title || '', confidence: item.confidence || 'medium', reason: item.reason || 'AI search' };
+                return { title: item.title || item.name || '', confidence: item.confidence || 'medium', reason: item.reason || 'AI search' };
             });
         } else {
             // ── Proxy mode: call via CORS proxy bridge ──
@@ -629,7 +669,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
             }
             aiResults = parsed.map(item => {
                 if (typeof item === 'string') return { title: item, confidence: 'medium', reason: 'AI search' };
-                return { title: item.title || '', confidence: item.confidence || 'medium', reason: item.reason || 'AI search' };
+                return { title: item.title || item.name || '', confidence: item.confidence || 'medium', reason: item.reason || 'AI search' };
             }).filter(r => r.title && r.title.trim() !== '' && r.title !== 'null' && r.title !== 'undefined');
         }
 
@@ -675,7 +715,6 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
 
         return { results, error: false };
     } catch (err) {
-        clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
             console.warn('[DLE] AI search timed out');
         } else {

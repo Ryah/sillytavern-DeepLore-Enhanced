@@ -6,7 +6,7 @@ import { buildScanText } from '../core/utils.js';
 import { testEntryMatch, countKeywordOccurrences } from '../core/matching.js';
 import {
     vaultIndex, indexTimestamp, cooldownTracker, injectionHistory,
-    generationCount, lastPipelineTrace,
+    generationCount, lastPipelineTrace, trackerKey,
 } from './state.js';
 
 /**
@@ -327,7 +327,7 @@ export function diagnoseEntry(entry, chatMsgs) {
     }
 
     // Check 7: Cooldown
-    const cooldownRemaining = cooldownTracker.get(entry.title);
+    const cooldownRemaining = cooldownTracker.get(trackerKey(entry));
     if (cooldownRemaining !== undefined && cooldownRemaining > 0) {
         result.stage = 'cooldown';
         result.detail = `Per-entry cooldown: ${cooldownRemaining} generations remaining.`;
@@ -336,7 +336,7 @@ export function diagnoseEntry(entry, chatMsgs) {
 
     // Check 8: Re-injection cooldown
     if (settings.reinjectionCooldown > 0) {
-        const lastGen = injectionHistory.get(entry.title);
+        const lastGen = injectionHistory.get(trackerKey(entry));
         if (lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown) {
             result.stage = 'reinjection_cooldown';
             result.detail = `Re-injection cooldown: injected ${generationCount - lastGen} gen(s) ago, cooldown is ${settings.reinjectionCooldown}.`;

@@ -180,13 +180,14 @@ export function truncateToSentence(text, maxLen) {
  * @returns {string}
  */
 export function simpleHash(text) {
-    let hash = 0;
+    if (!text) return '0_0';
+    let h1 = 5381, h2 = 52711;
     for (let i = 0; i < text.length; i++) {
-        const char = text.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash |= 0; // Convert to 32-bit integer
+        const c = text.charCodeAt(i);
+        h1 = ((h1 << 5) + h1 + c) | 0;
+        h2 = ((h2 << 5) + h2 + c) | 0;
     }
-    return `${text.length}:${hash}`;
+    return `${text.length}_${(h1 >>> 0).toString(36)}_${(h2 >>> 0).toString(36)}`;
 }
 
 /**

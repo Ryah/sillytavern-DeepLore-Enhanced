@@ -16,6 +16,17 @@ import { callViaProfile, extractAiResponseClient } from './ai.js';
 import { vaultIndex } from './state.js';
 import { ensureIndexFresh } from './vault.js';
 
+/**
+ * Escape a string for safe use as a YAML value.
+ * Wraps in double quotes if the string contains special YAML characters.
+ */
+function yamlEscape(str) {
+    if (/[:\#\[\]\{\}&*!|>'"%@`]/.test(str) || str.trim() !== str) {
+        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    }
+    return str;
+}
+
 const DEFAULT_AUTO_SUGGEST_PROMPT = `You are a lore analyst for a roleplay session. Analyze the recent chat and identify characters, locations, items, concepts, or events that are mentioned but do NOT have an existing lorebook entry.
 
 For each suggested entry, provide:
@@ -153,9 +164,9 @@ export async function showSuggestionPopup(suggestions) {
                         ? `${folder}/${s.title.replace(/[/\\:*?"<>|]/g, '')}.md`
                         : `${s.title.replace(/[/\\:*?"<>|]/g, '')}.md`;
 
-                    const keysYaml = (s.keys || []).map(k => `  - ${k}`).join('\n');
+                    const keysYaml = (s.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
                     const fileContent = `---
-type: ${s.type || 'lore'}
+type: ${yamlEscape(s.type || 'lore')}
 priority: 50
 tags:
   - ${settings.lorebookTag}

@@ -554,6 +554,8 @@ export async function showGraphPopup() {
     }
 
     // Clean up on popup close via MutationObserver
+    // Scope to the popup container instead of document.body to avoid broad subtree observation
+    const popupContainer = canvas.closest('.popup') || container.parentElement || document.body;
     const observer = new MutationObserver(() => {
         if (!document.getElementById('dle_graph_canvas')) {
             isRunning = false;
@@ -561,7 +563,7 @@ export async function showGraphPopup() {
             observer.disconnect();
         }
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(popupContainer, { childList: true, subtree: true });
 
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();

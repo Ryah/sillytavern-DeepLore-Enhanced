@@ -10,13 +10,13 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { eventSource, event_types } from '../../../../events.js';
 import { buildAiChatContext, simpleHash } from '../core/utils.js';
 import { applyGating, formatAndGroup } from '../core/matching.js';
-import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints } from '../settings.js';
 import { testConnection } from './obsidian-api.js';
 import { testProxyConnection } from './proxy-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp,
     injectionHistory, generationCount, lastHealthResult,
-    lastInjectionSources, lastPipelineTrace,
+    lastInjectionSources, lastPipelineTrace, trackerKey,
     setVaultIndex, setIndexTimestamp,
 } from './state.js';
 import { ensureIndexFresh, getMaxResponseTokens } from './vault.js';
@@ -24,6 +24,7 @@ import {
     callViaProfile, getProfileModelHint,
     populateProfileDropdown, updateAiConnectionVisibility,
     populateScribeProfileDropdown, updateScribeConnectionVisibility,
+    populateAutoSuggestProfileDropdown,
     buildCandidateManifest,
 } from './ai.js';
 import { matchEntries, runPipeline } from './pipeline.js';
@@ -347,9 +348,8 @@ export function loadSettingsUI() {
 
     // Session Scribe settings
     $('#dle_scribe_enabled').prop('checked', settings.scribeEnabled);
-    $('#dle_scribe_controls').find('input, textarea, select, .menu_button')
-        .prop('disabled', !settings.scribeEnabled)
-        .toggleClass('disabled', !settings.scribeEnabled);
+    $('#dle_scribe_controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
+    $('#dle_scribe_controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
     $('#dle_scribe_interval').val(settings.scribeInterval);
     $('#dle_scribe_folder').val(settings.scribeFolder);
     $('input[name="dle_scribe_connection_mode"][value="' + settings.scribeConnectionMode + '"]').prop('checked', true);
@@ -382,6 +382,7 @@ export function loadSettingsUI() {
     const asMode = settings.autoSuggestConnectionMode;
     $('#dle_autosuggest_profile_container').toggle(asMode === 'profile');
     $('#dle_autosuggest_proxy_container').toggle(asMode === 'proxy');
+    populateAutoSuggestProfileDropdown();
 
     // Injection Deduplication
     $('#dle_strip_dedup').prop('checked', settings.stripDuplicateInjections);
@@ -419,26 +420,31 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_tag').on('input', function () {
         settings.lorebookTag = String($(this).val()).trim() || 'lorebook';
         saveSettingsDebounced();
+        buildIndexFn();
     });
 
     $('#dle_constant_tag').on('input', function () {
         settings.constantTag = String($(this).val()).trim();
         saveSettingsDebounced();
+        buildIndexFn();
     });
 
     $('#dle_never_insert_tag').on('input', function () {
         settings.neverInsertTag = String($(this).val()).trim();
         saveSettingsDebounced();
+        buildIndexFn();
     });
 
     $('#dle_seed_tag').on('input', function () {
         settings.seedTag = String($(this).val()).trim();
         saveSettingsDebounced();
+        buildIndexFn();
     });
 
     $('#dle_bootstrap_tag').on('input', function () {
         settings.bootstrapTag = String($(this).val()).trim();
         saveSettingsDebounced();
+        buildIndexFn();
     });
 
     $('#dle_new_chat_threshold').on('input', function () {
@@ -590,6 +596,7 @@ export function bindSettingsEvents(buildIndexFn) {
             eventSource.on(evt, () => {
                 populateProfileDropdown();
                 populateScribeProfileDropdown();
+                populateAutoSuggestProfileDropdown();
             });
         }
     }
@@ -662,6 +669,10 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_open_notebook').on('click', function () {
+        if (!settings.notebookEnabled) {
+            toastr.warning('Enable AI Notebook first.', 'DeepLore Enhanced');
+            return;
+        }
         showNotebookPopup();
     });
 
@@ -669,9 +680,8 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_scribe_enabled').on('change', function () {
         settings.scribeEnabled = $(this).prop('checked');
         saveSettingsDebounced();
-        $('#dle_scribe_controls').find('input, textarea, select, .menu_button')
-            .prop('disabled', !settings.scribeEnabled)
-            .toggleClass('disabled', !settings.scribeEnabled);
+        $('#dle_scribe_controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
+        $('#dle_scribe_controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
     });
 
     $('#dle_scribe_interval').on('input', function () {
@@ -774,6 +784,12 @@ export function bindSettingsEvents(buildIndexFn) {
         const m = settings.autoSuggestConnectionMode;
         $('#dle_autosuggest_profile_container').toggle(m === 'profile');
         $('#dle_autosuggest_proxy_container').toggle(m === 'proxy');
+        if (m === 'profile') populateAutoSuggestProfileDropdown();
+    });
+
+    $('#dle_autosuggest_profile').on('change', function () {
+        settings.autoSuggestProfileId = $(this).val();
+        saveSettingsDebounced();
     });
 
     $('#dle_autosuggest_proxy_url').on('input', function () {
@@ -829,10 +845,12 @@ export function bindSettingsEvents(buildIndexFn) {
 
     // Quick Actions Bar
     $('#dle_qa_browse').on('click', async () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         await showBrowsePopup();
     });
 
     $('#dle_qa_map').on('click', async () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         if (!chat || chat.length === 0) {
             toastr.warning('No active chat.', 'DeepLore Enhanced');
             return;
@@ -845,6 +863,7 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_health').on('click', () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         const health = runHealthCheck();
         if (!health) {
             toastr.warning('No entries indexed.', 'DeepLore Enhanced');
@@ -866,6 +885,7 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_refresh').on('click', async function () {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         const btn = $(this);
         btn.find('i').removeClass('fa-sync').addClass('fa-spinner fa-spin');
         try {
@@ -885,12 +905,14 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_graph').on('click', async () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         await ensureIndexFresh();
         if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
         showGraphPopup();
     });
 
     $('#dle_qa_simulate').on('click', async () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         if (!chat || chat.length === 0) { toastr.warning('No active chat.', 'DeepLore Enhanced'); return; }
         await ensureIndexFresh();
         if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
@@ -900,6 +922,7 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_analytics').on('click', () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         const settings = getSettings();
         const analytics = settings.analyticsData || {};
         if (Object.keys(analytics).length === 0) {
@@ -913,6 +936,7 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_optimize').on('click', async () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         await ensureIndexFresh();
         if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
 
@@ -935,6 +959,7 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_inspect').on('click', () => {
+        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         if (!lastPipelineTrace) {
             toastr.info('No pipeline trace yet. Generate a message first.', 'DeepLore Enhanced');
             return;
@@ -955,6 +980,32 @@ export function bindSettingsEvents(buildIndexFn) {
         // We'll use the slash command approach since setup is complex
         toastr.info('Use /dle-setup in chat to run the setup wizard.', 'DeepLore Enhanced');
     });
+
+    // Visual clamping for number inputs: when user leaves the field, clamp displayed value to valid range
+    const inputToConstraint = {
+        dle_scan_depth: 'scanDepth', dle_max_entries: 'maxEntries', dle_token_budget: 'maxTokensBudget',
+        dle_depth: 'injectionDepth', dle_notebook_depth: 'notebookDepth', dle_max_recursion: 'maxRecursionSteps',
+        dle_cache_ttl: 'cacheTTL', dle_review_tokens: 'reviewResponseTokens',
+        dle_ai_max_tokens: 'aiSearchMaxTokens', dle_ai_timeout: 'aiSearchTimeout',
+        dle_ai_scan_depth: 'aiSearchScanDepth', dle_ai_summary_length: 'aiSearchManifestSummaryLength',
+        dle_scribe_interval: 'scribeInterval', dle_scribe_max_tokens: 'scribeMaxTokens',
+        dle_scribe_timeout: 'scribeTimeout', dle_scribe_scan_depth: 'scribeScanDepth',
+        dle_new_chat_threshold: 'newChatThreshold', dle_sync_interval: 'syncPollingInterval',
+        dle_reinjection_cooldown: 'reinjectionCooldown', dle_strip_lookback: 'stripLookbackDepth',
+        dle_auto_suggest_interval: 'autoSuggestInterval', dle_auto_suggest_max_tokens: 'autoSuggestMaxTokens',
+        dle_auto_suggest_timeout: 'autoSuggestTimeout',
+        dle_decay_boost: 'decayBoostThreshold', dle_decay_penalty: 'decayPenaltyThreshold',
+    };
+    for (const [inputId, settingName] of Object.entries(inputToConstraint)) {
+        $(`#${inputId}`).on('blur', function () {
+            const constraints = settingsConstraints[settingName];
+            if (constraints) {
+                const val = Number($(this).val());
+                const clamped = Math.max(constraints.min, Math.min(constraints.max, val));
+                if (val !== clamped) $(this).val(clamped);
+            }
+        });
+    }
 
     // Test Connection button — tests all enabled vaults
     $('#dle_test_connection').on('click', async function () {
@@ -1107,6 +1158,9 @@ export function bindSettingsEvents(buildIndexFn) {
             setVaultIndex([]);
             setIndexTimestamp(0);
             await buildIndexFn();
+            toastr.success(`Indexed ${vaultIndex.length} entries.`, 'DeepLore Enhanced');
+        } catch (err) {
+            toastr.error(String(err), 'DeepLore Enhanced');
         } finally {
             $btn.prop('disabled', false);
             $icon.removeClass('fa-spinner fa-spin').addClass('fa-rotate');
@@ -1150,7 +1204,7 @@ export function bindSettingsEvents(buildIndexFn) {
             if (settings.reinjectionCooldown > 0) {
                 cooldownBlocked = finalEntries.filter(e => {
                     if (e.constant) return false;
-                    const lastGen = injectionHistory.get(e.title);
+                    const lastGen = injectionHistory.get(trackerKey(e));
                     return lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown;
                 });
                 afterCooldown = finalEntries.filter(e => !cooldownBlocked.includes(e));
@@ -1241,7 +1295,7 @@ export function bindSettingsEvents(buildIndexFn) {
                 html += `<h3 style="color: var(--warning, #ff9800);">Cooldown Blocked (${cooldownBlocked.length})</h3>`;
                 html += `<ul style="margin: 0 0 15px 20px;">`;
                 for (const entry of cooldownBlocked) {
-                    const lastGen = injectionHistory.get(entry.title);
+                    const lastGen = injectionHistory.get(trackerKey(entry));
                     html += `<li>${escapeHtml(entry.title)} — injected ${generationCount - lastGen} gen(s) ago (cooldown: ${settings.reinjectionCooldown})</li>`;
                 }
                 html += `</ul>`;

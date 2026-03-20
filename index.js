@@ -20,7 +20,7 @@ import {
     vaultIndex, indexEverLoaded, indexing,
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory,
-    lastWarningRatio, decayTracker, chatEpoch,
+    lastWarningRatio, decayTracker, chatEpoch, trackerKey,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
@@ -29,7 +29,7 @@ import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexDelta } from 
 import { runPipeline } from './src/pipeline.js';
 import { setupSyncPolling } from './src/sync.js';
 import { runScribe } from './src/scribe.js';
-import { injectSourcesButton, showSourcesPopup } from './src/cartographer.js';
+import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/cartographer.js';
 import { loadSettingsUI, bindSettingsEvents } from './src/settings-ui.js';
 import { registerSlashCommands } from './src/commands.js';
 
@@ -53,9 +53,6 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Capture chat epoch to detect stale writes if CHAT_CHANGED fires mid-generation
     const epoch = chatEpoch;
-
-    // Tracker key: use vaultSource:title to avoid collisions when the same title exists in multiple vaults
-    const trackerKey = (entry) => `${entry.vaultSource || ''}:${entry.title}`;
 
     // Clear stale source data (after quiet check so Scribe doesn't wipe real sources)
     setLastInjectionSources(null);
@@ -558,6 +555,7 @@ jQuery(async function () {
             setAutoSuggestMessageCount(0);
             setLastPipelineTrace(null);
             setLastInjectionSources(null);
+            resetCartographer();
             setTimeout(() => {
                 const settings = getSettings();
                 if (!settings.showLoreSources) return;

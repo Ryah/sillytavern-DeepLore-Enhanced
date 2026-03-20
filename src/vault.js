@@ -9,7 +9,7 @@ import { simpleHash } from '../core/utils.js';
 import { fetchAllMdFiles } from './obsidian-api.js';
 import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
-    aiSearchCache, previousIndexSnapshot,
+    aiSearchCache, previousIndexSnapshot, trackerKey,
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
     setLastHealthResult,
@@ -114,9 +114,9 @@ export async function buildIndex() {
         // Prune analytics data for entries no longer in the vault
         const analytics = settings.analyticsData;
         if (analytics) {
-            const activeTitles = new Set(vaultIndex.map(e => e.title));
-            for (const title of Object.keys(analytics)) {
-                if (!activeTitles.has(title)) delete analytics[title];
+            const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
+            for (const key of Object.keys(analytics)) {
+                if (!activeKeys.has(key)) delete analytics[key];
             }
         }
 
@@ -163,7 +163,9 @@ export async function hydrateFromCache() {
         if (!cached || cached.entries.length === 0) return false;
 
         setVaultIndex(cached.entries);
-        setIndexTimestamp(cached.timestamp);
+        // Set timestamp to 0 so ensureIndexFresh() always triggers a rebuild
+        // (the cache is a fast approximation — Obsidian is the source of truth)
+        setIndexTimestamp(0);
         resolveLinks(vaultIndex);
         setIndexEverLoaded(true);
         updateIndexStats();
@@ -292,9 +294,9 @@ export async function buildIndexDelta() {
         // Prune analytics data for entries no longer in the vault
         const analytics = settings.analyticsData;
         if (analytics) {
-            const activeTitles = new Set(vaultIndex.map(e => e.title));
-            for (const title of Object.keys(analytics)) {
-                if (!activeTitles.has(title)) delete analytics[title];
+            const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
+            for (const key of Object.keys(analytics)) {
+                if (!activeKeys.has(key)) delete analytics[key];
             }
         }
 

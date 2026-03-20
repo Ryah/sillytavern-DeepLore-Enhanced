@@ -11,6 +11,14 @@ import { vaultIndex, lastInjectionSources } from './state.js';
 let previousSources = null;
 
 /**
+ * Reset cartographer state on chat change.
+ * Clears previousSources so stale diffs don't carry across chats.
+ */
+export function resetCartographer() {
+    previousSources = null;
+}
+
+/**
  * Build an obsidian:// URI to open a note in Obsidian.
  * @param {string} vaultName - Name of the Obsidian vault
  * @param {string} filename - File path within the vault

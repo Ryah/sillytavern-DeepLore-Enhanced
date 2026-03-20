@@ -155,8 +155,8 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
             signal: controller.signal,
         });
         const data = await response.text();
-        // Bug 9: Only count as success if not a server error (5xx)
-        if (response.status >= 500) {
+        // Track server errors (5xx) and auth failures (401/403) as circuit breaker failures
+        if (response.status >= 500 || response.status === 401 || response.status === 403) {
             recordFailure(port);
         } else {
             recordSuccess(port);
@@ -238,7 +238,12 @@ export async function testConnection(port, apiKey) {
     try {
         const result = await obsidianFetch({ port, apiKey: apiKey || '', path: '/' });
         if (result.status === 200) {
-            const serverInfo = JSON.parse(result.data);
+            let serverInfo;
+            try {
+                serverInfo = JSON.parse(result.data);
+            } catch (e) {
+                return { ok: false, error: `Port ${port} returned non-JSON response — is another service running on this port?` };
+            }
             return {
                 ok: true,
                 authenticated: serverInfo.authenticated || false,

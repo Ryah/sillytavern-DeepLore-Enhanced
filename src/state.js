@@ -59,6 +59,12 @@ export let lastHealthResult = null;
 /** Chat epoch counter — increments on every CHAT_CHANGED to detect stale onGenerate writes */
 export let chatEpoch = 0;
 
+// ── Utility: consistent tracker key for Maps (cooldown, injection, decay, analytics) ──
+// Uses vaultSource:title to avoid collisions when the same title exists in multiple vaults.
+export function trackerKey(entry) {
+    return `${entry.vaultSource || ''}:${entry.title}`;
+}
+
 // ── Setter functions ──
 // ES modules export live bindings but `let` exports can only be reassigned
 // from within the module that declared them. These setters allow other

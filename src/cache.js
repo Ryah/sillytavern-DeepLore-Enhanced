@@ -4,11 +4,30 @@
  * Validates against Obsidian in background after hydration.
  */
 
+import { getSettings } from '../settings.js';
+
 const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;
 const STORE_NAME = 'vaultCache';
-const CACHE_KEY = 'primaryIndex';
-const CACHE_SCHEMA_VERSION = 2; // Increment when VaultEntry shape changes
+const CACHE_SCHEMA_VERSION = 3; // Bumped: per-vault cache keys
+
+/**
+ * Build a cache key incorporating enabled vault configuration.
+ * Prevents multi-vault setups from serving vault A's cache as vault B's data.
+ */
+function getCacheKey() {
+    try {
+        const settings = getSettings();
+        const fp = (settings.vaults || [])
+            .filter(v => v.enabled)
+            .map(v => `${v.name}:${v.port}`)
+            .sort()
+            .join('|');
+        return fp ? `index_${fp}` : 'primaryIndex';
+    } catch {
+        return 'primaryIndex';
+    }
+}
 
 /**
  * Open (or create) the IndexedDB database.
@@ -52,14 +71,27 @@ export async function saveIndexToCache(entries) {
             }),
         };
 
-        store.put(cacheData, CACHE_KEY);
+        store.put(cacheData, getCacheKey());
 
         await new Promise((resolve, reject) => {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);
         });
     } catch (err) {
-        console.warn('[DLE] Failed to save index to IndexedDB:', err.message);
+        if (err.name === 'QuotaExceededError' || (err.message && err.message.includes('quota'))) {
+            console.warn('[DLE] IndexedDB storage quota exceeded — vault cache could not be saved. Consider clearing browser data.');
+            try {
+                toastr.warning(
+                    'Browser storage quota exceeded. Vault cache could not be saved. Try clearing browser site data.',
+                    'DeepLore Enhanced',
+                    { timeOut: 10000 },
+                );
+            } catch {
+                // toastr may not be available in all contexts
+            }
+        } else {
+            console.warn('[DLE] Failed to save index to IndexedDB:', err.message);
+        }
     } finally {
         if (db) db.close();
     }
@@ -77,7 +109,7 @@ export async function loadIndexFromCache() {
         const store = tx.objectStore(STORE_NAME);
 
         const result = await new Promise((resolve, reject) => {
-            const request = store.get(CACHE_KEY);
+            const request = store.get(getCacheKey());
             request.onsuccess = () => resolve(request.result);
             request.onerror = () => reject(request.error);
         });
@@ -113,7 +145,7 @@ export async function clearIndexCache() {
     try {
         db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).delete(CACHE_KEY);
+        tx.objectStore(STORE_NAME).delete(getCacheKey());
         await new Promise((resolve, reject) => {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);

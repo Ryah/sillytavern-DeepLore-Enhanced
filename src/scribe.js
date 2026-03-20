@@ -117,21 +117,30 @@ export async function runScribe(customPrompt) {
             return;
         }
 
+        // Sanitize AI output: strip bare YAML frontmatter delimiters to prevent parsing breakage
+        const sanitizedSummary = summary.replace(/^---$/gm, '- - -');
+
         // Build filename and content
         const now = new Date();
         const dateStr = now.toISOString().slice(0, 10);
         const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-');
-        const charName = (name2 || 'Unknown').replace(/[<>:"/\\|?*]/g, '_');
+        let charName = (name2 || 'Unknown').replace(/[<>:"/\\|?*]/g, '_');
+        charName = charName.replace(/^\.+|\.+$/g, ''); // strip leading/trailing dots
+        charName = charName.trimEnd(); // strip trailing spaces
+        // Prefix Windows reserved names to prevent filesystem conflicts
+        if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(charName)) {
+            charName = '_' + charName;
+        }
         const filename = `${settings.scribeFolder}/${charName} - ${dateStr} ${timeStr}.md`;
 
-        const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: ${charName}\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${summary.trim()}\n`;
+        const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: ${charName}\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${sanitizedSummary.trim()}\n`;
 
         // Write to Obsidian directly (uses primary vault)
         const scribeVault = getPrimaryVault(settings);
         const data = await writeNote(scribeVault.port, scribeVault.apiKey, filename, noteContent);
 
         if (data.ok) {
-            setLastScribeSummary(summary.trim());
+            setLastScribeSummary(sanitizedSummary.trim());
             setLastScribeChatLength(chat.length);
             chat_metadata.deeplore_lastScribeSummary = lastScribeSummary;
             saveChatDebounced();

@@ -52,9 +52,9 @@ export const defaultSettings = {
     newChatThreshold: 3,
     scanDepth: 4,
     maxEntries: 10,
-    unlimitedEntries: true,
+    unlimitedEntries: false,
     maxTokensBudget: 2048,
-    unlimitedBudget: true,
+    unlimitedBudget: false,
     injectionMode: 'extension', // 'extension' (current) or 'prompt_list' (PM integration)
     injectionPosition: 1,   // extension_prompt_types.IN_CHAT
     injectionDepth: 4,
@@ -89,7 +89,6 @@ export const defaultSettings = {
     scribeInformedRetrieval: false, // Feed Scribe session summary into AI search context
     // Context Cartographer settings
     showLoreSources: true,
-    obsidianVaultName: '',
     // Session Scribe settings
     scribeEnabled: false,
     scribeInterval: 5,

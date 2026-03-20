@@ -20,7 +20,7 @@ import { fetchScribeNotes } from './obsidian-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress,
     lastPipelineTrace, injectionHistory, generationCount,
-    setVaultIndex, setIndexTimestamp,
+    trackerKey, setVaultIndex, setIndexTimestamp,
 } from './state.js';
 import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from './vault.js';
 import { buildCandidateManifest } from './ai.js';
@@ -142,7 +142,7 @@ export function registerSlashCommands() {
             if (settings.reinjectionCooldown > 0) {
                 filtered = finalEntries.filter(e => {
                     if (e.constant) return true;
-                    const lastGen = injectionHistory.get(e.title);
+                    const lastGen = injectionHistory.get(trackerKey(e));
                     return lastGen === undefined || (generationCount - lastGen) >= settings.reinjectionCooldown;
                 });
             }

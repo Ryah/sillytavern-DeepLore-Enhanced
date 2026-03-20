@@ -97,6 +97,8 @@
 - **Health badge click handler accesses wrong properties** — Click handler referenced `result.grade` and `result.items`, but `runHealthCheck()` returns `{ issues, errors, warnings }`. Badge showed "Grade: undefined" on click. Now computes grade locally and iterates `result.issues` with correct `severity`/`detail` fields.
 - **`/dle-summarize` loses user edits** — Textarea value was read via `getElementById` after popup resolved, but DOM was already destroyed. User edits to generated summaries were silently discarded. Now captures textarea reference in `onOpen` callback.
 - **`writeNote()` silent data loss** — Obsidian 400/405 errors returned only "HTTP 405" with no response body. Combined with circuit breaker treating 4xx as successes, misconfigured scribe folders silently failed every write. Now includes response body in error message.
+- **`gated.slice` returns wrong entries after budget skip** — When the highest-priority entry exceeded the token budget, `injectedEntries` was computed via positional slice rather than tracking actual accepted entries. Cooldown, decay, analytics, and Context Cartographer all recorded wrong entries. `formatAndGroup()` now returns the accepted entry list directly.
+- **IndexedDB cache hydration bypasses validation** — Cached entries loaded from IndexedDB were injected into the vault index without structural validation. Corrupt cache data (from browser crashes or quota pressure) could propagate as canonical entries, surviving restarts. Added `validateCachedEntry()` checkpoint during hydration.
 
 **High:**
 - **Generation lock silently drops lore** — When `generationLock` was active (AI search pending), `onGenerate` returned immediately with zero lore injected and no user feedback. Now shows a toast warning so users know lore was skipped.
@@ -112,45 +114,12 @@
 - **Circuit breaker opens mid-batch during `fetchAllMdFiles`** — A 3-file hiccup triggered the circuit breaker, and remaining batches all failed instantly. Changed `Promise.all` to `Promise.allSettled` in all batch fetch functions.
 - **`testConnection` hits unauthenticated endpoint** — Tested against `/` which doesn't require auth. Wrong API key showed green checkmark. Now tests against `/vault/` which requires authentication.
 - **AI-only fallback silently collapses to constants-only** — When AI fails in ai-only mode with `scanDepth: 0`, keyword fallback produced only constants/bootstraps with no warning. Now toasts when coverage collapses.
+- **Delta sync drops entire vault on transient error** — A network blip to one Obsidian instance during delta sync silently removed all of that vault's entries from the index. Failed vaults now carry forward their existing entries.
+- **Pinned entries removed by post-pin filters** — Pinned entries were subject to re-injection cooldown, contextual gating, strip-dedup, and requires/excludes checks. Pins now bypass all post-match filters (same as constants).
+- **Zero-lore window during commands** — `/dle-summarize`, `/dle-import`, and `/dle-setup` called `setVaultIndex([])` before `buildIndex()`, creating a window where generations inject no lore. Removed pre-clear; `buildIndex()` replaces atomically.
+- **Circuit breaker half-open stampede** — All queued requests passed through in half-open state instead of a single probe. Added `halfOpenProbe` flag to limit to one test request.
+- **Bootstrap entries invisible after chat threshold** — Hierarchical pre-filter unconditionally excluded bootstrap entries from AI selection, even after the bootstrap threshold was passed. Now only force-injects bootstraps when chat is short.
 
-**Medium:**
-- **Silent pipeline crash** — `onGenerate` catch block only logged to console. Pipeline failures gave users zero feedback. Now shows error toast.
-- **Orphaned Scribe/AutoSuggest quiet prompts** — `Promise.race` timeout had no abort signal. Timed-out `generateQuietPrompt` calls completed in background, consuming tokens. Added warning log (ST's `generateQuietPrompt` doesn't support AbortController).
-- **`analyticsData` grows unboundedly** — Every unique entry got a permanent key. Vault renames created permanent orphans. Now prunes entries not triggered in 30+ days.
-- **`buildIndexDelta` returns false mid-loop** — A single vault error aborted the entire delta sync. Now continues to remaining vaults and marks changes for rebuild.
-- **404 resets circuit breaker** — Misconfigured vault paths producing endless 404s hammered Obsidian because 404 counted as a circuit breaker success. Now only 2xx resets the breaker.
-- **Cache hydration + Obsidian down = stuck** — Background rebuild failure after cache hydration left `indexTimestamp = 0`, causing `ensureIndexFresh()` to retry (and fail) every generation. Now sets a valid timestamp and shows a warning toast when using cached data.
-- **`/dle-context` silently costs money** — "Preview" command ran the actual AI pipeline with live API calls and no warning. Now shows an info toast when AI search is enabled.
-- **SSRF via configurable proxy URL** — User-controlled proxy URLs could point at cloud metadata endpoints (169.254.169.254) routed through ST's CORS proxy. Now validates and blocks internal/private IP targets.
-- **Contradictory gating rules silently drop entries** — If entry A requires B and B excludes A, both were silently eliminated. Now logs a specific warning identifying the contradiction.
-- **`parseWorldInfoJson` crashes on invalid entries** — Null or non-object entries in WI JSON caused uncaught TypeError. Now filters invalid entries before processing.
-- **Import dedup exhausts attempts then overwrites** — After 20 dedup attempts, the last `_imported_20` file was silently overwritten. Now errors out with a skip message.
-- **Unicode combining characters prevent keyword matches** — `"cafe\u0301"` (combining accent) wouldn't match `"caf\u00e9"` (precomposed). Now applies NFC normalization to scan text and keywords.
-- **Type-mismatch settings not detected** — Non-numeric values like `maxEntries: "abc"` became `NaN`, silently disabling budget limits. Now coerces to number or resets to default.
-- **`getPrimaryVault()` returns enabled fallback with empty API key** — Every request 401'd with toast spam. Fallback vault now has `enabled: false`.
-- **`titleMap` rebuilt every generation** — `new Map(vaultIndex.map(...))` in `matchEntries()` ran every generation. Pre-computed once and reused for both character matching and cascade links.
-- **Graph canvas event listeners not removed** — Five event listeners captured nodes/edges/canvas in closure. MutationObserver stopped animation but didn't remove listeners. Now uses AbortController for cleanup.
-- **Auto-suggest Accept has no double-click guard** — Rapid clicks on Accept created duplicate vault files. Now disables button immediately on click, re-enables on error.
-
-**Low:**
-- **Click delegation too broad** — Context Cartographer click handler was on `$(document)`, now narrowed to `$('#chat')`.
-- **`injectionHistory` writes wasted when cooldown=0** — Injection history Map populated even when `reinjectionCooldown` was disabled. Now skipped.
-- **`decayTracker` never pruned within a chat** — Entries accumulated with no upper bound. Now prunes entries with staleness exceeding 2x the boost threshold.
-
-- **`clearTimeout(timeoutId)` crashes all AI fallback** — Undefined variable in `aiSearch()` catch block threw `ReferenceError` on every AI error, preventing the `{ results: [], error: true }` return. All documented fallback behavior (two-stage → keywords, ai-only → full vault) was broken. Fixed by removing the stale line.
-- **Tracker key mismatch breaks cooldowns, decay, analytics** — `onGenerate()` wrote to cooldown/injection/decay Maps using `trackerKey(entry)` = `"vaultSource:title"`, but 7 reader sites used bare `entry.title`. Keys never matched. Cooldowns never fired, decay never triggered, analytics were wiped on every vault rebuild. Fixed by extracting `trackerKey()` to `state.js` and using it everywhere.
-- **CHAT_CHANGED races with in-flight onGenerate** — Added `chatEpoch` counter to `state.js`. Incremented in CHAT_CHANGED handler, captured at start of `onGenerate`, checked before every state write. Bails out if epoch changed mid-pipeline, preventing cross-chat state contamination. Extended to also guard `injection_log` writes and Session Scribe async operations.
-- **Cooldown timer freeze** — Early returns in `onGenerate()` skipped `generationCount++` and cooldown decrement, permanently freezing cooldown timers during quiet generations. Fixed with `pipelineRan` flag + `finally` block.
-- **Tag setting changes don't invalidate cache** — Changing lorebook/constant/never/seed/bootstrap tags only saved settings without rebuilding the index. Entries retained old tag classification until manual refresh. Now triggers `buildIndex()` on tag change.
-- **Stale hydrated data served during background rebuild** — `hydrateFromCache()` set `indexTimestamp` to the cache's original write time, causing `ensureIndexFresh()` to serve stale data if a generation fired before the background rebuild completed. Now sets `indexTimestamp = 0` to force rebuild.
-- **Prompt injection via vault content** — Entry summaries were interpolated raw into the AI search manifest. Malicious entries could inject instructions. Now wraps each entry in `<entry>` XML delimiters and escapes special characters in titles.
-- **Shared mutable defaults** — `getSettings()` assigned raw object references from `defaultSettings` for `vaults: []` and `analyticsData: {}`, so mutations could corrupt defaults. Now deep-clones non-primitive defaults.
-- **Unguarded `finally` block can block SillyTavern generation** — `onGenerate()` finally block contained `cooldownTracker`, `decayTracker`, and `trackerKey()` calls outside try/catch. An exception could propagate through ST's interceptor system and block all generation. Wrapped entire `finally` body in try/catch.
-- **Live `vaultIndex` mutated mid-pipeline during async AI search** — Sync polling could replace `vaultIndex` while `onGenerate` was awaiting AI HTTP calls, causing the pipeline to operate on a mix of old and new data. Now captures a snapshot after `ensureIndexFresh()` and passes it through the pipeline.
-- **Regex recompilation every generation** — `testEntryMatch()` compiled `new RegExp()` for every keyword of every entry on every generation (4000+ compilations for large vaults). Now caches compiled regexes via WeakMap, invalidated when matching settings change.
-- **`buildScanText()` re-allocated per entry** — Entries with custom `scanDepth` each built a fresh concatenated string (~10MB transient allocations for 200 entries). Now memoized by depth within each generation.
-
-**High:**
 - **Empty key `""` always matches every message** — Added `if (!key || !key.trim()) continue` guard in `testEntryMatch()` and `countKeywordOccurrences()`.
 - **`optimizeEntryKeys()` crashes when called with no arguments** — Settings UI now shows the optimize popup with entry selection instead of calling the function directly.
 - **Graph canvas animation loop never stops** — Track `animationFrameId` from `requestAnimationFrame()`. On popup close, `cancelAnimationFrame()` and set `isRunning = false`. Canvas event listeners removed.
@@ -190,81 +159,9 @@
 - **`/dle-analytics` browse popup used wrong key format** — Browse popup read `analytics[entry.title]` instead of `analytics[trackerKey(entry)]`. Multi-vault users saw all entries as "never used." Fixed key lookup.
 - **`decayTracker` iterated entire vault every generation** — For a 1000-entry vault, 1000 Map operations per generation. Now only tracks entries that have been injected at least once.
 
-**Medium:**
-- **Test Match pipeline order** — Simulation ran gating before cooldown, opposite to actual `onGenerate` order. Reordered to match.
-- **`/dle-context` missing cooldown filter** — Command showed entries blocked by re-injection cooldown. Now applies cooldown filter before gating.
-- **Case-insensitive orphan detection** — Health check used case-sensitive comparison for requires/excludes/cascade_links while `applyGating()` is case-insensitive. Fixed all five instances.
-- **Case-insensitive graph edges** — Relationship graph used case-sensitive title lookups. Fixed to match runtime behavior.
-- **Case-insensitive wiki-link resolution** — Unresolved wiki-link check in diagnostics was case-sensitive. Fixed.
-- **Depth/role override warning** — Health check warned about depth overrides without considering global injection position default. Now checks effective position.
-- **Manifest header count wrong in two-stage mode** — `buildCandidateManifest()` reported "from N total" using the full vault count instead of the actual candidate count. AI received a misleading header.
-- **`autoSuggestMessageCount` not reset on CHAT_CHANGED** — Reset added to handler.
-- **`lastPipelineTrace` not reset on CHAT_CHANGED** — Reset added to handler.
-- **`lastInjectionSources` not reset on CHAT_CHANGED** — Reset added to handler.
-- **Cartographer `previousSources` not reset on chat change** — First generation showed diff against previous chat's sources. Now reset in CHAT_CHANGED.
-- **Warning ratio reset** — `lastWarningRatio` not reset on chat change, causing stale toast suppression.
-- **YAML injection in auto-suggest** — AI-generated frontmatter values with special characters produced malformed YAML. Now escapes values.
-- **YAML escaping incomplete for auto-suggest entries** — Also escapes `\n` and `\\`. Uses YAML block scalar `|` for multiline summaries.
-- **Scribe filename sanitization incomplete** — Now strips leading/trailing dots, trailing spaces, Windows reserved names.
-- **Import assumes error = not found** — Network failures treated as "file doesn't exist", leading to overwrites. Now distinguishes error types.
-- **Import `_imported` suffix no uniqueness loop** — Second import overwrote `Foo_imported.md`. Now tries `_imported_2`, `_imported_3`, etc.
-- **Import position mapping is lossy** — Adds YAML comment to imported entries noting original ST position. Shows summary warning after import.
-- **`testConnection()` JSON parse on non-JSON** — Opaque error if port used by another service. Now wrapped in try/catch with descriptive error.
-- **IndexedDB quota exhaustion unhandled** — Large vaults silently failed to cache. Now shows warning toast.
-- **IndexedDB cache schema drift** — Replaced manual 28-field enumeration with `entries.map(e => { const c = {...e}; delete c._rawContent; return c; })`. Added `CACHE_SCHEMA_VERSION` to stored data, returns null on mismatch.
-- **Cache TTL=0 semantics aligned** — TTL=0 now means "always fetch fresh" (rebuild every generation), matching tooltip. Previous code cached indefinitely when TTL=0.
-- **No settings snapshot during async pipeline** — Settings changes during AI search affected mid-pipeline. `runPipeline()` now takes a shallow snapshot.
-- **Settings version tracking** — Added `settingsVersion` to `defaultSettings`. `getSettings()` checks stored version, runs migration functions if different.
-- **Sync polling setInterval can stack** — Replaced `setInterval` with `setTimeout` chaining (next scheduled after current completes).
-- **3-second delayed init races with early generation** — Checks `indexEverLoaded` or `indexing` before hydrating. Skips if build already started.
-- **Number inputs accept out-of-range values visually** — Now clamps displayed value to match constraint range.
-- **Browse popup re-registers event listeners on every keystroke** — Replaced with event delegation on container element.
-- **Notebook popup reads textarea after popup closes** — Textarea value captured in closure variable before popup resolves.
-- **Usage statistics always zero in profile mode** — Displays "N/A" in UI when usage data unavailable from `sendRequest`.
-- **Scribe disabled state sets `disabled` on div elements** — Added CSS `.menu_button.disabled { opacity: 0.4; pointer-events: none; }` to `style.css`.
-- **Manifest summary XML injection** — Summary text inside `<entry>` tags wasn't XML-escaped. Summaries containing `</entry>` could break manifest structure. Now `escapeXml()`'d.
-- **Numeric `summary:` values silently lost** — YAML `summary: 42` parsed as number, failed `typeof === 'string'` check. Now coerces with `String()`.
-- **Refine keys use plain `\b` word boundary** — Broke for keys like `#ritual` or `C++`. Refine keys now use same smart `(?<!\w)`/`(?!\w)` boundary logic as primary keys.
-- **`injection_log.flatMap` crashes on corrupted metadata** — Older chat metadata could lack `.entries` on log entries. Added `l.entries || []` guard.
-- **Scribe YAML injection via character name** — Character names with YAML special chars corrupted frontmatter. Now YAML double-quoted with escape.
-- **Sync polling ignores changed interval setting** — Changing sync polling interval in settings had no effect until page reload. Now re-reads interval each tick.
-- **Partial vault fetch not surfaced to user** — When 5+ files or >10% fail to fetch, now shows a warning toast instead of only logging to console.
-- **Scribe not epoch-guarded** — Session Scribe runs on CHARACTER_MESSAGE_RENDERED without chatEpoch guard. Async AI call + Obsidian write could write to wrong chat's metadata. Added epoch guard.
+**Medium:** 66 fixes — pipeline crash feedback, orphaned quiet prompts, analytics/cache/settings lifecycle, SSRF validation, gating/matching correctness, Unicode normalization, import error handling, case-sensitivity (5 instances), CHAT_CHANGED state resets (5 instances), YAML injection/escaping (4 instances), cache schema/TTL/quota, sync polling, UI event listeners, DOM read-after-close, epoch guards, plus 9 from pre-release audit (decay penalty, AI normalization, numeric YAML gating, apostrophe parsing, vaultIndex snapshot, block scalars, token tracking, import escaping, lock guard).
 
-**Low:**
-- **Server `||` on timeout/maxTokens** — `timeout || 15000` and `maxTokens || 1024` treated explicit `0` as falsy. Changed to `??` (nullish coalescing).
-- **`Number || default` falsy-zero** — `Number(val) || default` treated valid 0 as falsy. Fixed with `isNaN()` checks.
-- **Directory recursion off-by-one** — `listAllFiles()` allowed 21 nesting levels instead of 20. Fixed `> 20` to `>= 20`.
-- **`generateQuietPrompt` API** — Wrong API call signature for quiet generation.
-- **Scribe-notes HTTP status** — Missing HTTP status check on scribe-notes fetch.
-- **Auto-suggest scan depth** — Incorrect scan depth used for auto-suggest AI context.
-- **Backslash link false positives** — `extractWikiLinks()` now strips trailing backslashes from pipe-alias wiki-links (`[[Name\|Display]]` → `Name` not `Name\`)
-- **Cascade link false positives** — Health check now matches cascade links against filenames too, not just entry titles
-- **Self-exclude detection** — Health check warns when an entry's `excludes` list contains itself
-- **Browse popup badge alignment** — `[constant] [seed] [bootstrap]` badges now left-aligned with title instead of floating right
-- **First entry budget bypass undocumented** — `formatAndGroup()` always accepts the first entry even if it exceeds the token budget (by design, to avoid empty results). Added a debug-mode warning when this happens.
-- **Dead AbortController in `aiSearch()`** — Removed the outer AbortController and setTimeout. Inner calls handle their own timeouts.
-- **Analytics data pruning missing from delta sync** — Copied analytics pruning block from `buildIndex()` into `buildIndexDelta()` after `setVaultIndex`.
-- **Analytics pruning key mismatch** — Analytics were written with `trackerKey` keys but pruned with bare titles, causing all analytics to be wiped on every vault rebuild. Fixed to use `trackerKey` consistently.
-- **Vault name containing `:` breaks delta sync key** — Uses `\0` as separator instead of `:` in existingMap keys.
-- **`__proto__`/`constructor` title pollutes analytics object** — Uses `Object.create(null)` for analytics and guards with `Object.hasOwn()` checks.
-- **No profile existence validation before API call** — Calls `getProfile(profileId)` first, throws descriptive error if null.
-- **Scribe filename minute-level precision collisions** — Added seconds to filename format: `HH-MM-SS`.
-- **Short keys bypass AI cache entity detection** — Lowered key threshold to 3 (matching title threshold).
-- **`fetchMdFilesDelta()` is dead code** — Removed the function.
-- **1-2 char entity names never bust AI cache** — Short titles like "Vi" were filtered out. Now allows titles >= 1 char.
-- **simpleHash 32-bit collision risk** — Upgraded to double-hash (two independent DJB2 passes) producing 64+ effective bits.
-- **Proxy connection test costs real tokens** — Reduced prompt to `"ping"` and max_tokens to 8.
-- **Dead `obsidianVaultName` setting** — Removed unused setting from defaults.
-- **`parseWorldInfoJson` throws raw SyntaxError** — Now wraps in user-friendly error message.
-- **`#dle_refresh` has no success toast** — Now shows success toast like `#dle_qa_refresh`.
-- **Blocks override constant entries** — Documented as intentional: blocks are manual overrides for constants.
-
-- **Import dedup loop has no upper bound** — Added `MAX_DEDUP_ATTEMPTS = 20` safety cap to the filename uniqueness loop.
-- **Import can produce filenames of only underscores** — Added fallback to `"Untitled"` when sanitized name is empty.
-- **Graph force layout O(n^2) per frame** — Added warning toast for vaults > 200 entries to alert users of potential slowness.
-- **Scribe filename edge case with dot-only character names** — Added fallback to `"Unknown"` if charName is empty after sanitization.
-- **Import 404 message parsing is unreachable dead code** — Removed the dead `includes('404')` check in catch block (`obsidianFetch` returns status codes, doesn't throw for 404).
+**Low:** 50 fixes — falsy-zero coalescing, recursion bounds, API signatures, click delegation, tracker key mismatches, cooldown timer freeze, tag cache invalidation, prompt injection guards, shared mutable defaults, regex recompilation, dead code removal, analytics pruning, prototype pollution, filename collisions, hash upgrades, import bounds, graph performance, plus 3 from pre-release audit (2-char key cache, scribe chat length, null chat guard).
 
 *(Deferred)* Magic number imports, YAML parser docs, inline styles → CSS, ARIA labels — documented in plan for future work.
 

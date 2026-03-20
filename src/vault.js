@@ -107,7 +107,7 @@ export async function buildIndex() {
         for (const entry of entries) {
             if (entry.title.length >= 1) names.add(entry.title.toLowerCase());
             for (const key of entry.keys) {
-                if (key.length >= 3) names.add(key.toLowerCase());
+                if (key.length >= 2) names.add(key.toLowerCase());
             }
         }
         setEntityNameSet(names);
@@ -298,9 +298,12 @@ export async function buildIndexDelta() {
                 }
             } catch (vaultErr) {
                 console.warn(`[DLE] Delta sync failed for vault "${vault.name}":`, vaultErr.message);
-                // Continue to remaining vaults instead of aborting the whole delta
-                // If this was the only vault, the hasChanges flag will trigger a rebuild
-                hasChanges = true;
+                // Carry forward all existing entries for this vault to avoid silent data loss
+                for (const entry of vaultIndex) {
+                    if (entry.vaultSource === vault.name) {
+                        allEntries.push(entry);
+                    }
+                }
                 continue;
             }
         }

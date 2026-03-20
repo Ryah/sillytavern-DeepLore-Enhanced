@@ -19,8 +19,8 @@ import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROM
 import { fetchScribeNotes } from './obsidian-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress,
-    lastPipelineTrace, injectionHistory, generationCount,
-    trackerKey, setVaultIndex, setIndexTimestamp,
+    lastPipelineTrace, injectionHistory, generationCount, generationLock,
+    trackerKey, setIndexTimestamp,
 } from './state.js';
 import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from './vault.js';
 import { buildCandidateManifest } from './ai.js';
@@ -126,6 +126,10 @@ export function registerSlashCommands() {
         callback: async () => {
             if (!chat || chat.length === 0) {
                 toastr.warning('No active chat.', 'DeepLore Enhanced');
+                return '';
+            }
+            if (generationLock) {
+                toastr.warning('A generation is in progress — wait for it to finish.', 'DeepLore Enhanced');
                 return '';
             }
             await ensureIndexFresh();
@@ -540,7 +544,6 @@ export function registerSlashCommands() {
 
             // Step 3: Verify — build index
             toastr.info('Building index...', 'DeepLore Enhanced', { timeOut: 3000 });
-            setVaultIndex([]);
             setIndexTimestamp(0);
             await buildIndex();
 
@@ -695,7 +698,6 @@ export function registerSlashCommands() {
 
             // Refresh index to pick up new summaries
             if (generated > 0) {
-                setVaultIndex([]);
                 setIndexTimestamp(0);
                 await buildIndex();
             }
@@ -758,7 +760,6 @@ export function registerSlashCommands() {
                 }
 
                 // Refresh index to pick up new entries
-                setVaultIndex([]);
                 setIndexTimestamp(0);
                 await buildIndex();
             } catch (err) {

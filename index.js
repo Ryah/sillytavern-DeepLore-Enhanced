@@ -111,8 +111,15 @@ async function onGenerate(chat, contextSize, abort, type) {
             const pinSet = new Set(pins.map(t => t.toLowerCase()));
             for (const entry of vaultSnapshot) {
                 if (pinSet.has(entry.title.toLowerCase()) && !finalEntries.includes(entry)) {
+                    entry._pinned = true;
                     finalEntries.push(entry);
                     matchedKeys.set(entry.title, '(pinned)');
+                }
+            }
+            // Also mark existing matched entries that are pinned
+            for (const entry of finalEntries) {
+                if (pinSet.has(entry.title.toLowerCase())) {
+                    entry._pinned = true;
                 }
             }
         }
@@ -132,7 +139,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (activeEra || activeLocation || activeScene || presentChars.length > 0) {
             const beforeCtx = finalEntries.length;
             finalEntries = finalEntries.filter(e => {
-                if (e.constant) return true; // Constants bypass gating
+                if (e.constant || e._pinned) return true; // Constants and pins bypass gating
                 // Era gating: if entry has era field, current era must match one
                 if (e.era && e.era.length > 0 && activeEra) {
                     if (!e.era.includes(activeEra)) return false;
@@ -183,7 +190,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (settings.reinjectionCooldown > 0) {
             const before = finalEntries.length;
             finalEntries = finalEntries.filter(e => {
-                if (e.constant) return true; // Constants always pass
+                if (e.constant || e._pinned) return true; // Constants and pins always pass
                 const lastGen = injectionHistory.get(trackerKey(e));
                 if (lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown) {
                     if (settings.debugMode) {
@@ -233,7 +240,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
             const before = gated.length;
             gated = gated.filter(e => {
-                if (e.constant) return true; // Constants always inject
+                if (e.constant || e._pinned) return true; // Constants and pins always inject
                 const key = `${e.title}|${e.injectionPosition ?? settings.injectionPosition}|${e.injectionDepth ?? settings.injectionDepth}|${e.injectionRole ?? settings.injectionRole}`;
                 if (recentEntries.has(key)) {
                     if (settings.debugMode) {
@@ -249,9 +256,9 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Format with budget, grouped by injection position
-        const { groups, count: injectedCount, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
+        const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
 
-        injectedEntries = gated.slice(0, injectedCount);
+        injectedEntries = acceptedEntries;
 
         if (groups.length > 0) {
             const usePromptList = settings.injectionMode === 'prompt_list';
@@ -402,6 +409,11 @@ async function onGenerate(chat, contextSize, abort, type) {
                         `${g.tag}: pos=${g.position} depth=${g.depth} role=${g.role}`));
                 }
             }
+        }
+
+        // Clean up transient _pinned flags to avoid polluting vault index entries
+        for (const entry of injectedEntries) {
+            delete entry._pinned;
         }
     } catch (err) {
         console.error('[DLE] Error during generation:', err);

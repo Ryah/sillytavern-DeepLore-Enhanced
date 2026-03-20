@@ -21,6 +21,7 @@ function getCircuitBreaker(port) {
             openedAt: 0,
             baseBackoff: 2000,
             maxBackoff: 15000,
+            halfOpenProbe: false, // Only one request allowed through in half-open state
         });
     }
     return circuitBreakers.get(port);
@@ -64,11 +65,13 @@ function recordSuccess(port) {
     const cb = getCircuitBreaker(port);
     cb.failures = 0;
     cb.state = 'closed';
+    cb.halfOpenProbe = false;
 }
 
 function recordFailure(port) {
     const cb = getCircuitBreaker(port);
     cb.failures++;
+    cb.halfOpenProbe = false;
     if (cb.failures >= cb.maxFailures) {
         cb.state = 'open';
         cb.openedAt = Date.now();
@@ -78,7 +81,12 @@ function recordFailure(port) {
 function circuitAllows(port) {
     const cb = getCircuitBreaker(port);
     if (cb.state === 'closed') return true;
-    if (cb.state === 'half-open') return true;
+    if (cb.state === 'half-open') {
+        // Only allow one probe request through in half-open state
+        if (cb.halfOpenProbe) return false;
+        cb.halfOpenProbe = true;
+        return true;
+    }
     const elapsed = Date.now() - cb.openedAt;
     const backoff = Math.min(
         cb.baseBackoff * Math.pow(2, Math.min(cb.failures - cb.maxFailures, 3)),
@@ -86,6 +94,7 @@ function circuitAllows(port) {
     );
     if (elapsed >= backoff) {
         cb.state = 'half-open';
+        cb.halfOpenProbe = true; // First request is the probe
         return true;
     }
     return false;

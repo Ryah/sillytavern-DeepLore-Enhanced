@@ -9,7 +9,7 @@ import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
-    trackerKey, setAiSearchCache, entityNameSet, generationCount,
+    trackerKey, setAiSearchCache, entityNameSet, generationCount, injectionHistory,
 } from './state.js';
 import { updateAiStats } from './settings-ui.js';
 
@@ -331,11 +331,18 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                 if (staleness !== undefined && staleness >= settings.decayBoostThreshold) {
                     decayHint = ' [STALE — consider refreshing]';
                 }
-                // Penalty: entries injected very frequently in this chat get a nudge
-                if (!decayHint && settings.decayPenaltyThreshold > 0 && generationCount >= settings.decayPenaltyThreshold) {
-                    const staleness = decayTracker.get(trackerKey(entry));
-                    if (staleness !== undefined && staleness === 0) {
-                        decayHint = ' [FREQUENT — consider diversifying]';
+                // Penalty: entries injected many consecutive times get a nudge
+                // Check if entry has been continuously in the tracker with staleness 0
+                // (i.e., injected every generation) for at least decayPenaltyThreshold generations
+                if (!decayHint && settings.decayPenaltyThreshold > 0) {
+                    const entryStaleness = decayTracker.get(trackerKey(entry));
+                    if (entryStaleness !== undefined && entryStaleness === 0) {
+                        // Entry is being injected this gen — check injection history for consecutive streak
+                        const lastGen = injectionHistory.get(trackerKey(entry));
+                        // If entry was injected last gen too, and gen count is high enough for a streak
+                        if (lastGen !== undefined && (generationCount - lastGen) <= 1 && generationCount >= settings.decayPenaltyThreshold) {
+                            decayHint = ' [FREQUENT — consider diversifying]';
+                        }
                     }
                 }
             }
@@ -413,7 +420,7 @@ const HIERARCHICAL_THRESHOLD = 40;
  */
 export async function hierarchicalPreFilter(candidates, chat) {
     const settings = getSettings();
-    const isForceInjected = e => e.constant || e.bootstrap;
+    const isForceInjected = e => e.constant || (e.bootstrap && chat.length <= settings.newChatThreshold);
     const selectable = candidates.filter(e => !isForceInjected(e));
 
     if (selectable.length < HIERARCHICAL_THRESHOLD) return null; // Too few, skip clustering
@@ -429,9 +436,11 @@ export async function hierarchicalPreFilter(candidates, chat) {
 
     try {
         let responseText;
+        let usage;
         if (settings.aiSearchConnectionMode === 'profile') {
             const result = await callViaProfile(categoryPrompt, categoryUserMessage, 512, settings.aiSearchTimeout);
             responseText = result.text;
+            usage = result.usage;
         } else {
             const result = await callProxyViaCorsBridge(
                 settings.aiSearchProxyUrl,
@@ -442,9 +451,14 @@ export async function hierarchicalPreFilter(candidates, chat) {
                 settings.aiSearchTimeout,
             );
             responseText = result.text;
+            usage = result.usage;
         }
 
         aiSearchStats.calls++;
+        if (usage) {
+            aiSearchStats.totalInputTokens += usage.input_tokens || 0;
+            aiSearchStats.totalOutputTokens += usage.output_tokens || 0;
+        }
         updateAiStats();
 
         const parsed = extractAiResponseClient(responseText);
@@ -497,9 +511,10 @@ export async function hierarchicalPreFilter(candidates, chat) {
  * @param {object[]} chat - Chat messages array
  * @param {string} candidateManifest - Manifest string of candidate entries
  * @param {string} candidateHeader - Header with metadata about candidates
+ * @param {VaultEntry[]} [snapshot] - Vault index snapshot (avoids stale global reads after await)
  * @returns {Promise<{ results: AiSearchMatch[], error: boolean }>}
  */
-export async function aiSearch(chat, candidateManifest, candidateHeader) {
+export async function aiSearch(chat, candidateManifest, candidateHeader, snapshot) {
     const settings = getSettings();
 
     if (!settings.aiSearchEnabled || !candidateManifest) {
@@ -512,7 +527,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
     // Prepend seed entry content as story context on new chats
     const isNewChat = chat.length <= settings.newChatThreshold;
     if (isNewChat) {
-        const seedEntries = vaultIndex.filter(e => e.seed);
+        const seedEntries = (snapshot || vaultIndex).filter(e => e.seed);
         if (seedEntries.length > 0) {
             const seedContext = seedEntries.map(e => e.content).join('\n\n');
             chatContext = `[STORY CONTEXT — use this to understand the setting and make better selections]\n${seedContext}\n\n[RECENT CHAT]\n${chatContext}`;
@@ -634,7 +649,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
             aiResults = parsed.map(item => {
                 if (typeof item === 'string') return { title: item, confidence: 'medium', reason: 'AI search' };
                 return { title: item.title || item.name || '', confidence: item.confidence || 'medium', reason: item.reason || 'AI search' };
-            });
+            }).filter(r => r.title && r.title.trim() !== '' && r.title !== 'null' && r.title !== 'undefined');
         } else {
             // ── Proxy mode: call via CORS proxy bridge ──
             // Manifest before chat context for prompt caching (stable prefix)
@@ -689,7 +704,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader) {
 
         /** @type {AiSearchMatch[]} */
         const results = [];
-        for (const entry of vaultIndex) {
+        const indexToSearch = snapshot || vaultIndex;
+        for (const entry of indexToSearch) {
             const aiResult = aiResultMap.get(entry.title.toLowerCase());
             if (aiResult) {
                 results.push({

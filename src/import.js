@@ -6,6 +6,17 @@ import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../settings.js';
 
 /**
+ * Escape a string for safe use as a YAML value.
+ * Wraps in double quotes if the string contains special YAML characters.
+ */
+function yamlEscape(str) {
+    if (/[:#\[\]{}&*!|>'"%@`]/.test(str) || str.trim() !== str) {
+        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    }
+    return str;
+}
+
+/**
  * Map a SillyTavern World Info entry to Obsidian frontmatter + content.
  * @param {object} wiEntry - ST World Info entry object
  * @param {string} lorebookTag - The lorebook tag to add
@@ -47,7 +58,7 @@ export function convertWiEntry(wiEntry, lorebookTag) {
     if (keys.length > 0) {
         fm.push(`keys:`);
         for (const k of keys) {
-            fm.push(`  - ${k}`);
+            fm.push(`  - ${yamlEscape(k)}`);
         }
     }
     if (wiEntry.keysecondary && wiEntry.keysecondary.length > 0) {
@@ -57,7 +68,7 @@ export function convertWiEntry(wiEntry, lorebookTag) {
         if (secondary.length > 0) {
             fm.push(`refine_keys:`);
             for (const k of secondary) {
-                fm.push(`  - ${k}`);
+                fm.push(`  - ${yamlEscape(k)}`);
             }
         }
     }

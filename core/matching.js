@@ -232,7 +232,7 @@ export function resolveLinks(vaultIndex) {
  * @param {import('./pipeline.js').VaultEntry[]} entries - Matched entries sorted by priority
  * @param {{ injectionMode?: string, injectionTemplate: string, injectionPosition: number, injectionDepth: number, injectionRole: number, maxEntries: number, unlimitedEntries: boolean, maxTokensBudget: number, unlimitedBudget: boolean }} settings
  * @param {string} promptTagPrefix - Prefix for prompt tags (e.g. 'deeplore_')
- * @returns {{ groups: Array<{ tag: string, text: string, position: number, depth: number, role: number }>, count: number, totalTokens: number }}
+ * @returns {{ groups: Array<{ tag: string, text: string, position: number, depth: number, role: number }>, count: number, totalTokens: number, acceptedEntries: import('./pipeline.js').VaultEntry[] }}
  */
 export function formatAndGroup(entries, settings, promptTagPrefix) {
     const template = settings.injectionTemplate || '<{{title}}>\n{{content}}\n</{{title}}>';
@@ -309,7 +309,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
             role: g.role,
         }));
 
-        return { groups, count, totalTokens };
+        return { groups, count, totalTokens, acceptedEntries: accepted.map(a => a.entry) };
     }
 
     // ── Extension mode (default): group by (position, depth, role) ──
@@ -336,5 +336,5 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         role: g.role,
     }));
 
-    return { groups, count, totalTokens };
+    return { groups, count, totalTokens, acceptedEntries: accepted.map(a => a.entry) };
 }

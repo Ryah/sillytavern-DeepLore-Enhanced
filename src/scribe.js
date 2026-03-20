@@ -86,8 +86,9 @@ export async function runScribe(customPrompt) {
     if (scribeInProgress) return;
     setScribeInProgress(true);
 
-    // Capture epoch to detect if chat changes during async scribe work
+    // Capture epoch and chat length to detect changes during async scribe work
     const epoch = chatEpoch;
+    const chatLengthAtStart = chat?.length || 0;
 
     try {
         const settings = getSettings();
@@ -156,7 +157,7 @@ export async function runScribe(customPrompt) {
 
         if (data.ok) {
             setLastScribeSummary(sanitizedSummary.trim());
-            setLastScribeChatLength(chat.length);
+            setLastScribeChatLength(chatLengthAtStart);
             chat_metadata.deeplore_lastScribeSummary = lastScribeSummary;
             saveChatDebounced();
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });

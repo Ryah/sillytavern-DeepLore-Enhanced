@@ -19,9 +19,24 @@ export function parseFrontmatter(content) {
     const frontmatter = {};
     let currentKey = null;
     let currentArray = null;
+    let blockScalar = null; // { key, style: '|'|'>', lines: [] }
 
     for (const line of yamlText.split('\n')) {
         const trimmed = line.trimEnd();
+
+        // Block scalar continuation: accumulate indented lines after | or >
+        if (blockScalar) {
+            if (line.match(/^\s/) && trimmed !== '') {
+                blockScalar.lines.push(trimmed);
+                continue;
+            } else {
+                // End of block scalar — join with appropriate separator
+                const sep = blockScalar.style === '|' ? '\n' : ' ';
+                frontmatter[blockScalar.key] = blockScalar.lines.join(sep).trim();
+                blockScalar = null;
+                // Fall through to process current line
+            }
+        }
 
         // Array item: "  - value"
         if (/^\s+-\s+/.test(trimmed) && currentKey) {
@@ -41,7 +56,11 @@ export function parseFrontmatter(content) {
             const rawValue = kvMatch[2].trim();
             currentArray = null;
 
-            if (rawValue === '' || rawValue === '[]') {
+            if (rawValue === '|' || rawValue === '>') {
+                // YAML block scalar: accumulate subsequent indented lines
+                blockScalar = { key: currentKey, style: rawValue, lines: [] };
+                continue;
+            } else if (rawValue === '' || rawValue === '[]') {
                 // Value will come as array items on next lines, or is empty
                 frontmatter[currentKey] = [];
                 currentArray = frontmatter[currentKey];
@@ -52,13 +71,15 @@ export function parseFrontmatter(content) {
                     frontmatter[currentKey] = [];
                 } else {
                     // Quote-aware split: respects commas inside quoted values
+                    // Only enters quote mode when quote char is at value boundary (not mid-word like King's)
                     const items = [];
                     let current = '';
                     let inQuote = false;
                     let quoteChar = '';
                     for (const ch of inner) {
-                        if (!inQuote && (ch === '"' || ch === "'")) { inQuote = true; quoteChar = ch; }
-                        else if (inQuote && ch === quoteChar) { inQuote = false; }
+                        if (!inQuote && (ch === '"' || ch === "'") && current.trim() === '') {
+                            inQuote = true; quoteChar = ch;
+                        } else if (inQuote && ch === quoteChar) { inQuote = false; }
                         else if (!inQuote && ch === ',') {
                             items.push(current.trim().replace(/^['"]|['"]$/g, ''));
                             current = '';
@@ -81,6 +102,12 @@ export function parseFrontmatter(content) {
                 frontmatter[currentKey] = rawValue.replace(/^['"]|['"]$/g, '');
             }
         }
+    }
+
+    // Flush any pending block scalar at end of YAML
+    if (blockScalar) {
+        const sep = blockScalar.style === '|' ? '\n' : ' ';
+        frontmatter[blockScalar.key] = blockScalar.lines.join(sep).trim();
     }
 
     return { frontmatter, body };
@@ -209,6 +236,7 @@ export function buildScanText(chat, depth) {
     if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
+        .filter(m => m != null)
         .map(m => `${m.name || ''}: ${typeof m.mes === 'string' ? m.mes : ''}`)
         .join('\n');
 }

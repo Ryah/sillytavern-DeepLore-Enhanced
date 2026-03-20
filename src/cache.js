@@ -93,6 +93,24 @@ export async function saveIndexToCache(entries) {
 }
 
 /**
+ * Validate a cached entry has the structural invariants needed by the pipeline.
+ * Discards corrupt entries (from browser crashes, quota pressure, etc.) rather than
+ * letting them propagate through the system.
+ * @param {object} entry
+ * @returns {boolean}
+ */
+function validateCachedEntry(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    if (typeof entry.title !== 'string' || !entry.title) return false;
+    if (!Array.isArray(entry.keys)) return false;
+    if (typeof entry.content !== 'string') return false;
+    if (typeof entry.tokenEstimate !== 'number' || entry.tokenEstimate < 0) return false;
+    if (entry.links !== undefined && !Array.isArray(entry.links)) return false;
+    if (entry.tags !== undefined && !Array.isArray(entry.tags)) return false;
+    return true;
+}
+
+/**
  * Load the vault index from IndexedDB cache.
  * @returns {Promise<{ entries: import('../core/pipeline.js').VaultEntry[], timestamp: number } | null>}
  */
@@ -119,8 +137,16 @@ export async function loadIndexFromCache() {
             return null;
         }
 
+        // Validate structural invariants — discard corrupt entries from browser crashes/quota pressure
+        const validEntries = result.entries.filter(e => {
+            const ok = validateCachedEntry(e);
+            if (!ok) console.warn(`[DLE] Discarding corrupt cached entry: ${e?.title || '(no title)'}`);
+            return ok;
+        });
+        if (validEntries.length === 0) return null;
+
         return {
-            entries: result.entries,
+            entries: validEntries,
             timestamp: result.timestamp || 0,
         };
     } catch (err) {

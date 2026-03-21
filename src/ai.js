@@ -15,7 +15,7 @@ import {
 } from './state.js';
 // Re-export pure functions from helpers.js (moved there for testability in Node.js)
 export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from './helpers.js';
-import { normalizeResults } from './helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from './helpers.js';
 
 // extractAiResponseClient — imported from ./helpers.js
 
@@ -274,7 +274,7 @@ export async function hierarchicalPreFilter(candidates, chat) {
 
         // Always include force-injected entries
         const forceInjected = candidates.filter(e => isForceInjected(e));
-        const result = [...forceInjected, ...filtered];
+        const filteredResult = [...forceInjected, ...filtered];
 
         if (settings.debugMode) {
             console.log(`[DLE] Hierarchical pre-filter: ${clusters.size} categories → ${selectedCategories.size} selected, ${selectable.length} → ${filtered.length} entries`);
@@ -286,7 +286,7 @@ export async function hierarchicalPreFilter(candidates, chat) {
             return null;
         }
 
-        return result;
+        return filteredResult;
     } catch (err) {
         if (settings.debugMode) console.warn('[DLE] Hierarchical pre-filter failed:', err.message);
         return null; // Fall back to single-call
@@ -308,7 +308,7 @@ export async function hierarchicalPreFilter(candidates, chat) {
  * @param {VaultEntry[]} [snapshot] - Vault index snapshot (avoids stale global reads after await)
  * @returns {Promise<{ results: AiSearchMatch[], error: boolean }>}
  */
-export async function aiSearch(chat, candidateManifest, candidateHeader, snapshot) {
+export async function aiSearch(chat, candidateManifest, candidateHeader, snapshot, candidateEntries) {
     const settings = getSettings();
 
     if (!settings.aiSearchEnabled || !candidateManifest) {
@@ -488,7 +488,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
 
         /** @type {AiSearchMatch[]} */
         const results = [];
-        const indexToSearch = snapshot || vaultIndex;
+        const indexToSearch = candidateEntries || snapshot || vaultIndex;
         for (const entry of indexToSearch) {
             const aiResult = aiResultMap.get(entry.title.toLowerCase());
             if (aiResult) {

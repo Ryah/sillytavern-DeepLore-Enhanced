@@ -13,7 +13,7 @@ export function parseFrontmatter(content) {
     const cleaned = content.charCodeAt(0) === 0xFEFF ? content.slice(1) : content;
     const match = cleaned.match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/);
     if (!match) {
-        return { frontmatter: {}, body: content };
+        return { frontmatter: {}, body: cleaned };
     }
 
     const yamlText = match[1];

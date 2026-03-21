@@ -10,9 +10,8 @@ import {
 } from '../../../../../script.js';
 import { getSettings, getPrimaryVault } from '../settings.js';
 import { writeNote } from './obsidian-api.js';
-import { callProxyViaCorsBridge } from './proxy-api.js';
 import { buildAiChatContext } from '../core/utils.js';
-import { callViaProfile } from './ai.js';
+import { callAI } from './ai.js';
 import { stripObsidianSyntax } from './helpers.js';
 import {
     scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
@@ -42,27 +41,15 @@ Format with markdown headings and bullet points. Be specific — use character n
 export async function callScribe(systemPrompt, userMessage, settings) {
     const mode = settings.scribeConnectionMode || 'st';
 
-    if (mode === 'profile') {
-        const result = await callViaProfile(
-            systemPrompt,
-            userMessage,
-            settings.scribeMaxTokens,
-            settings.scribeTimeout,
-            settings.scribeProfileId,
-            settings.scribeModel,
-        );
-        return result.text || '';
-    }
-
-    if (mode === 'proxy') {
-        const result = await callProxyViaCorsBridge(
-            settings.scribeProxyUrl,
-            settings.scribeModel || 'claude-haiku-4-5-20251001',
-            systemPrompt,
-            userMessage,
-            settings.scribeMaxTokens,
-            settings.scribeTimeout,
-        );
+    if (mode === 'profile' || mode === 'proxy') {
+        const result = await callAI(systemPrompt, userMessage, {
+            mode,
+            profileId: settings.scribeProfileId,
+            proxyUrl: settings.scribeProxyUrl,
+            model: settings.scribeModel,
+            maxTokens: settings.scribeMaxTokens,
+            timeout: settings.scribeTimeout,
+        });
         return result.text || '';
     }
 
@@ -71,12 +58,13 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
     const timeout = settings.scribeTimeout || 60000;
     const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens });
+    let scribeTimer;
     return await Promise.race([
-        quietPromise,
-        new Promise((_, reject) => setTimeout(() => {
+        quietPromise.finally(() => clearTimeout(scribeTimer)),
+        new Promise((_, reject) => { scribeTimer = setTimeout(() => {
             console.warn('[DLE] Scribe quiet prompt timed out — orphaned generation may still complete in background');
             reject(new Error(`Scribe quiet prompt timed out (${Math.round(timeout / 1000)}s)`));
-        }, timeout)),
+        }, timeout); }),
     ]);
 }
 

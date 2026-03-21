@@ -4,13 +4,14 @@
  */
 import { getSettings, PROMPT_TAG_PREFIX } from '../settings.js';
 import { buildScanText } from '../core/utils.js';
-import { testEntryMatch, countKeywordOccurrences, applyGating, formatAndGroup } from '../core/matching.js';
+import { testEntryMatch, countKeywordOccurrences, formatAndGroup } from '../core/matching.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from './stages.js';
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
-    trackerKey, setLastPipelineTrace,
+    trackerKey, setLastPipelineTrace, fuzzySearchIndex,
 } from './state.js';
 import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from './ai.js';
-import { ensureIndexFresh } from './vault.js';
+import { ensureIndexFresh, queryBM25 } from './vault.js';
 import { name2 } from '../../../../../script.js';
 
 /**
@@ -200,6 +201,33 @@ export function matchEntries(chat, snapshot = null) {
         }
     }
 
+    // BM25 fuzzy search: supplement keyword matches with TF-IDF scored results
+    if (settings.fuzzySearchEnabled && fuzzySearchIndex && settings.scanDepth > 0) {
+        const scanTextMemo2 = new Map();
+        function getScanText2(depth) {
+            if (!scanTextMemo2.has(depth)) scanTextMemo2.set(depth, buildScanText(chat, depth));
+            return scanTextMemo2.get(depth);
+        }
+        const fuzzyText = getScanText2(settings.scanDepth);
+        const bm25Results = queryBM25(fuzzySearchIndex, fuzzyText, 20);
+        for (const result of bm25Results) {
+            const entry = result.entry;
+            if (matchedSet.has(entry)) continue; // Already matched by keywords
+            if (entry.constant) continue;         // Constants already handled
+
+            // Respect cooldown
+            const remaining = cooldownTracker.get(trackerKey(entry));
+            if (remaining !== undefined && remaining > 0) continue;
+
+            // Respect probability
+            if (entry.probability === 0) continue;
+            if (entry.probability !== null && entry.probability < 1.0 && Math.random() > entry.probability) continue;
+
+            matchedSet.add(entry);
+            matchedKeys.set(entry.title, `(fuzzy, score: ${result.score.toFixed(1)})`);
+        }
+    }
+
     // Sort by priority (ascending - lower number = higher priority)
     const matched = [...matchedSet].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
@@ -214,9 +242,10 @@ export function matchEntries(chat, snapshot = null) {
  * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
-export async function runPipeline(chat, externalSnapshot) {
+export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [] } = {}) {
     // Snapshot settings and vault index so async stages (AI search) see a consistent view
-    const settings = { ...getSettings() };
+    const rawSettings = getSettings();
+    const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
     const vaultSnapshot = externalSnapshot || [...vaultIndex];
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
@@ -249,6 +278,12 @@ export async function runPipeline(chat, externalSnapshot) {
             }
         }
 
+        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
+        if (contextualGatingContext) {
+            const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
+            aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode);
+        }
+
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
         const alwaysInject = vaultSnapshot.filter(e => e.constant || (bootstrapActive && e.bootstrap));
 
@@ -263,7 +298,7 @@ export async function runPipeline(chat, externalSnapshot) {
         }
 
         if (candidateManifest) {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot);
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates);
             if (aiResult.error) {
                 trace.aiFallback = true;
                 const kwResult = matchEntries(chat, vaultSnapshot);
@@ -307,12 +342,18 @@ export async function runPipeline(chat, externalSnapshot) {
             }
         }
 
+        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
+        if (contextualGatingContext) {
+            const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
+            twoStageCandidates = applyContextualGating(twoStageCandidates, contextualGatingContext, prePolicy, settings.debugMode);
+        }
+
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(twoStageCandidates, bootstrapActive);
 
         if (!candidateManifest) {
             finalEntries = keywordResult.matched;
         } else {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot);
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates);
             if (aiResult.error) {
                 trace.aiFallback = true;
                 finalEntries = keywordResult.matched;
@@ -367,7 +408,8 @@ export async function matchTextForExternal(scanInput) {
         : scanInput;
 
     const { matched } = matchEntries(fakeChat);
-    const gated = applyGating(matched);
+    const policy = buildExemptionPolicy(matched, [], []);
+    const { result: gated } = applyRequiresExcludesGating(matched, policy, false);
     const { groups, count, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
 
     const combinedText = groups.map(g => g.text).join('\n\n');

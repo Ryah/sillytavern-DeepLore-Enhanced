@@ -106,9 +106,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Ensure index is fresh (with timeout to prevent indefinite hangs)
         const INDEX_TIMEOUT_MS = 60_000;
         try {
+            let indexTimer;
             await Promise.race([
-                ensureIndexFresh(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Index refresh timed out')), INDEX_TIMEOUT_MS)),
+                ensureIndexFresh().finally(() => clearTimeout(indexTimer)),
+                new Promise((_, reject) => { indexTimer = setTimeout(() => reject(new Error('Index refresh timed out')), INDEX_TIMEOUT_MS); }),
             ]);
         } catch (timeoutErr) {
             console.warn(`[DLE] ${timeoutErr.message} — proceeding with stale data`);
@@ -140,11 +141,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Contextual gating context: passed to both pipeline (pre-filter) and post-pipeline stages
         const ctx = chat_metadata.deeplore_context || {};
 
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx);
-
-        // Build ExemptionPolicy: single source of truth for what skips all gating
         const pins = chat_metadata.deeplore_pins || [];
         const blocks = chat_metadata.deeplore_blocks || [];
+
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx, { pins, blocks });
         const policy = buildExemptionPolicy(vaultSnapshot, pins, blocks);
 
         // Stage 1: Pin/Block overrides
@@ -270,7 +270,8 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // Author's Notebook injection (independent of entry pipeline)
         if (settings.notebookEnabled && chat_metadata?.deeplore_notebook?.trim()) {
-            const notebookContent = chat_metadata.deeplore_notebook.trim();
+            const rawNotebook = chat_metadata.deeplore_notebook.trim();
+            const notebookContent = rawNotebook.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const usePromptList = settings.injectionMode === 'prompt_list';
             if (usePromptList && promptManager) {
                 const pmEntry = promptManager.getPromptById('deeplore_notebook');
@@ -288,6 +289,12 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Stage 7: Track cooldowns and injection history (epoch-guarded)
         if (epoch === chatEpoch) {
             trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings);
+        }
+
+        // Clear stale injection log when dedup is toggled off
+        if (!settings.stripDuplicateInjections && chat_metadata.deeplore_injection_log?.length > 0) {
+            chat_metadata.deeplore_injection_log = [];
+            saveChatDebounced();
         }
 
         // Record injection for deduplication (epoch-guarded to avoid writing to wrong chat)
@@ -312,11 +319,14 @@ async function onGenerate(chat, contextSize, abort, type) {
             saveChatDebounced();
         }
 
-        // Stage 8: Analytics
-        if (finalEntries.length > 0) {
-            recordAnalytics(finalEntries, injectedEntries, settings.analyticsData);
-            invalidateSettingsCache();
-            saveSettingsDebounced();
+        // Stage 8: Analytics (use postDedup — entries that passed all gating — as "matched")
+        if (postDedup.length > 0) {
+            recordAnalytics(postDedup, injectedEntries, settings.analyticsData);
+            // Only persist analytics every 5 generations to reduce write amplification
+            if (generationCount % 5 === 0) {
+                invalidateSettingsCache();
+                saveSettingsDebounced();
+            }
         }
 
         if (groups.length > 0) {
@@ -595,11 +605,16 @@ jQuery(async function () {
                     setTimeout(() => injectAllSourceButtons(attempt + 1), 200 * (attempt + 1));
                     return;
                 }
-                for (let i = 0; i < chat.length; i++) {
-                    if (chat[i]?.extra?.deeplore_sources) {
-                        injectSourcesButton(i);
+                // Batch DOM reads/writes in rAF to avoid layout thrashing
+                requestAnimationFrame(() => {
+                    // Only inject for the last N visible messages to avoid O(n) on large chats
+                    const start = Math.max(0, chat.length - 50);
+                    for (let i = start; i < chat.length; i++) {
+                        if (chat[i]?.extra?.deeplore_sources) {
+                            injectSourcesButton(i);
+                        }
                     }
-                }
+                });
             };
             setTimeout(injectAllSourceButtons, 100);
         });

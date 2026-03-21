@@ -10,9 +10,8 @@ import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { getSettings, getPrimaryVault } from '../settings.js';
 import { writeNote } from './obsidian-api.js';
-import { callProxyViaCorsBridge } from './proxy-api.js';
 import { buildAiChatContext, yamlEscape } from '../core/utils.js';
-import { callViaProfile, extractAiResponseClient } from './ai.js';
+import { callAI, extractAiResponseClient } from './ai.js';
 import { vaultIndex } from './state.js';
 import { stripObsidianSyntax } from './helpers.js';
 import { ensureIndexFresh } from './vault.js';
@@ -44,26 +43,24 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
         const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
         const effectiveTimeout = timeout || 60000;
         const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
+        let suggestTimer;
         const response = await Promise.race([
-            quietPromise,
-            new Promise((_, reject) => setTimeout(() => {
+            quietPromise.finally(() => clearTimeout(suggestTimer)),
+            new Promise((_, reject) => { suggestTimer = setTimeout(() => {
                 console.warn('[DLE] Auto-suggest quiet prompt timed out — orphaned generation may still complete in background');
                 reject(new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`));
-            }, effectiveTimeout)),
+            }, effectiveTimeout); }),
         ]);
         return { text: response, usage: null };
-    } else if (mode === 'profile') {
-        return await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, settings.autoSuggestProfileId, settings.autoSuggestModel);
-    } else if (mode === 'proxy') {
-        const result = await callProxyViaCorsBridge(
-            settings.autoSuggestProxyUrl,
-            settings.autoSuggestModel || 'claude-haiku-4-5-20251001',
-            systemPrompt,
-            userMessage,
+    } else if (mode === 'profile' || mode === 'proxy') {
+        return await callAI(systemPrompt, userMessage, {
+            mode,
+            profileId: settings.autoSuggestProfileId,
+            proxyUrl: settings.autoSuggestProxyUrl,
+            model: settings.autoSuggestModel,
             maxTokens,
             timeout,
-        );
-        return { text: result.text, usage: result.usage };
+        });
     }
     throw new Error(`Unknown auto-suggest connection mode: ${mode}`);
 }

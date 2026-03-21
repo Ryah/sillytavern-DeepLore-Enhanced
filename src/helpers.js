@@ -186,9 +186,10 @@ export function buildObsidianURI(vaultName, filename) {
  */
 export function convertWiEntry(wiEntry, lorebookTag) {
     // Extract title from comment field (ST convention) or first key
-    const title = (wiEntry.comment || '').trim()
+    // Strip newlines to prevent H1 heading injection
+    const title = ((wiEntry.comment || '').trim()
         || (wiEntry.key || []).join(', ').substring(0, 50)
-        || `Entry_${wiEntry.uid || Date.now()}`;
+        || `Entry_${wiEntry.uid || Date.now()}`).replace(/[\r\n]+/g, ' ');
 
     // Clean title for filename
     let safeTitle = title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();

@@ -8,6 +8,7 @@ const DEFAULT_TIMEOUT = 30000;
 // ── Circuit Breaker (per-vault) ──
 // Prevents hammering Obsidian when it's down. Short backoffs (it's local and free).
 // Each vault (keyed by port) gets its own circuit breaker to avoid cross-contamination.
+// Note: keyed by port only since Obsidian always runs on localhost.
 
 /** @type {Map<number, {failures: number, maxFailures: number, state: string, openedAt: number, baseBackoff: number, maxBackoff: number}>} */
 const circuitBreakers = new Map();
@@ -70,13 +71,12 @@ function recordSuccess(port) {
 
 function recordFailure(port) {
     const cb = getCircuitBreaker(port);
-    const wasOpen = cb.state === 'open';
     cb.failures++;
     cb.halfOpenProbe = false;
     if (cb.failures >= cb.maxFailures) {
-        // Only reset openedAt on fresh closed→open transition (not half-open→open re-entry)
-        // to preserve exponential backoff progression
-        if (cb.state === 'closed') cb.openedAt = Date.now();
+        // Reset openedAt on every transition to open (including half-open → open)
+        // so exponential backoff recalculates from this failure, not the original one
+        cb.openedAt = Date.now();
         cb.state = 'open';
     }
 }

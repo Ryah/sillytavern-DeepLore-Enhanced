@@ -99,7 +99,12 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
                 throw new Error('SillyTavern CORS proxy is not enabled. Set enableCorsProxy: true in config.yaml, or use a Connection Profile instead of Custom Proxy mode.');
             }
             // Truncate and scrub error response to avoid leaking sensitive data
-            const safeText = text.substring(0, 150).replace(/sk-[a-zA-Z0-9_-]{10,}/g, 'sk-***');
+            const safeText = text.substring(0, 150)
+                .replace(/sk-[a-zA-Z0-9_-]{10,}/g, 'sk-***')          // Anthropic
+                .replace(/sk-proj-[a-zA-Z0-9_-]{10,}/g, 'sk-proj-***') // OpenAI
+                .replace(/AIza[a-zA-Z0-9_-]{10,}/g, 'AIza***')         // Google
+                .replace(/gsk_[a-zA-Z0-9_-]{10,}/g, 'gsk_***')         // Groq
+                .replace(/Bearer\s+[A-Za-z0-9_\-./]{10,}/g, 'Bearer ***'); // Generic Bearer tokens
             throw new Error(`Proxy returned HTTP ${response.status}: ${safeText}`);
         }
 

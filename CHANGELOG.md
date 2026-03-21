@@ -1,71 +1,5 @@
 # Changelog
 
-## 0.2.1-BETA — Pre-Release Bug Audit
-
-8-expert parallel audit (UI/UX ×2, Race Conditions, Performance, Security, Data Integrity, Chaos Engineering, Parsers/Compilers). 99 raw bugs found, 73 unique after dedup, 44 fixed.
-
-### Bug Fixes
-
-**Critical/High (15 fixed):**
-- **Generation lock hangs indefinitely** — `ensureIndexFresh` could block for minutes with a flaky Obsidian. Added 60s timeout; proceeds with stale data if available. (`index.js`)
-- **Stale generation lock with no recovery** — Lock had no timeout. Added 120s staleness detection with auto-release. Added `/dle-refresh` hint to toast. (`index.js`, `state.js`)
-- **`_pinned` flag leaks permanently** — Setting `entry._pinned = true` directly on shared VaultEntry objects caused pinned entries cut by budget/gating to bypass contextual gating, re-injection cooldown, and dedup on ALL subsequent generations. Replaced with local `pinnedTitles` Set. (`index.js`)
-- **`matchEntries()` reads global vaultIndex** — Keyword matching used the live global while AI search used the snapshot, causing entry mismatches during concurrent index rebuilds. Added `snapshot` parameter. (`src/pipeline.js`)
-- **Health check on hot path O(n²)** — `runHealthCheck()` with its O(n²) circular-requires check ran synchronously in `buildIndex()`. Deferred via `setTimeout(0)`. Also surfaces errors as toast. (`src/vault.js`)
-- **SSRF via proxy URL** — Blocklist only covered 3 IPs. Added IPv6 variants, localhost, RFC 1918/6598/link-local ranges, CGNAT, ULA, numeric IP shorthands. (`src/proxy-api.js`)
-- **Multi-vault partial failure persists to cache** — If one vault fails in multi-vault, the incomplete index was persisted to IndexedDB. Now skips cache save on failure. (`src/vault.js`)
-- **Entity name min length mismatch** — `buildIndex` used `>= 2`, `buildIndexDelta` used `>= 3`. Two-char keys like "AI" silently dropped from sliding window cache after delta sync. Fixed to `>= 2` in both. (`src/vault.js`)
-- **Cache validation misses critical fields** — `validateCachedEntry` didn't check `priority`, `constant`, `requires`, `excludes`, or `probability`. Missing `priority` caused `NaN` in sort comparator. Now defaults missing fields. (`src/cache.js`)
-- **TDZ crash in Analytics handler** — `const settings = getSettings()` shadowed the outer `settings` before it was initialized, throwing `ReferenceError` on every Analytics button click. (`src/settings-ui.js`)
-- **`escapeXml` missing `"` in AI manifest** — Titles with quotes like `The "Bloodchain" Protocol` produced malformed XML attributes. Added `&quot;` escaping. (`src/ai.js`)
-- **Template `{{content}}` breaks XML envelope** — Content containing `</EntryTitle>` could break out of the entry's XML wrapper. Now escapes closing tags when template uses XML wrappers. (`core/matching.js`)
-- **`%%` regex eats prose** — `%%[\s\S]*?%%` matched across `100%%` and `50%%` in prose, deleting text between them. Split into inline (same-line) and block (line-boundary) passes. (`core/utils.js`)
-
-**Medium (21 fixed):**
-- **Blur-clamping IDs don't match HTML** — Auto-suggest and decay input IDs in `inputToConstraint` map had wrong naming (`dle_auto_suggest_*` vs `dle_autosuggest_*`, `dle_decay_boost` vs `dle_decay_boost_threshold`). 5 inputs never clamped. (`src/settings-ui.js`)
-- **Empty tag fields silently disable features** — Clearing constantTag/neverInsertTag/seedTag/bootstrapTag fields saved empty strings, silently disabling those features. Now falls back to defaults. (`src/settings-ui.js`)
-- **Vault port accepts negative numbers** — Clamped to 1-65535. (`src/settings-ui.js`)
-- **AI search cache holds stale entry refs** — Cache stored direct VaultEntry references that went stale after index rebuilds. Now caches by title, resolves to current entries on hit. (`src/ai.js`)
-- **Premature chatLines split** — `chatContext.split('\n')` ran before the exact-match cache check that made it unnecessary. Deferred via lazy getter. (`src/ai.js`)
-- **Stale cache after failed background rebuild** — `setIndexTimestamp(Date.now())` on hydration failure prevented retries until TTL expired. Now sets timestamp for ~30s retry. (`src/vault.js`)
-- **`buildIndexDelta` never sets `indexEverLoaded`** — Successful delta syncs left `indexEverLoaded` false, causing misleading "No vault entries loaded" toasts. (`src/vault.js`)
-- **`buildIndexDelta` race condition** — Guard check before `setIndexing(true)` had a 19-line gap allowing duplicate concurrent deltas. Moved flag immediately after guard. (`src/vault.js`)
-- **Scribe writes metadata to wrong chat** — `chat_metadata` reference could swap during async `writeNote`. Added epoch re-check after write. Also fixed stale `lastScribeChatLength`. (`src/scribe.js`)
-- **WI import content injection** — Imported content could contain YAML delimiters (`---`), `%%deeplore-exclude%%` blocks, or Obsidian comments. Now sanitized. (`src/import.js`)
-- **`yamlEscape` misses newlines/tabs** — Strings with `\n`, `\r`, or `\t` passed through unquoted, breaking YAML structure. (`src/import.js`)
-- **WI import wrong position mapping** — ST position 3 (after_AN) mapped to `'before'` instead of `'after'`. (`src/import.js`)
-- **`matchWholeWords` NFD mismatch** — Regex tested against raw text while pattern was NFC-normalized. macOS input methods produce NFD, causing match failures. Now tests against normalized haystack. (`core/matching.js`)
-- **Contextual gating exact match** — `era.includes(activeEra)` required exact string match. "tavern" wouldn't match "The Tavern". Now uses case-insensitive bidirectional substring matching. (`index.js`)
-- **Injection dedup ignores content changes** — Dedup key didn't include content hash, so updated entries were suppressed. Added `contentHash` to dedup key. (`index.js`)
-- **Cartographer button injection race** — Fixed 100ms timeout replaced with retry-with-backoff for slow DOM rendering. (`index.js`)
-- **Circuit breaker blocks Test Connection** — User-initiated test was rejected by circuit breaker with implementation-detail error. Now bypasses circuit for explicit tests. (`src/obsidian-api.js`)
-- **API key fragment leakage in errors** — Proxy error responses truncated and scrubbed of `sk-*` patterns. (`src/proxy-api.js`)
-- **Block scalar drops blank lines** — YAML `|` block scalars terminated on blank lines within paragraphs. (`core/utils.js`)
-- **Frontmatter rejects dotted keys** — Key regex `\w[\w-]*` couldn't match `character.name`. Added `.` to allowed chars. (`core/utils.js`)
-- **`probability: .5` parsed as string** — Numeric regex required leading digit. `.5` silently became string, defaulting to 100% instead of 50%. (`core/utils.js`)
-
-**Also fixed:** Inline array escape handling, quoted array item quote preservation.
-
-### Deferred (29 bugs, documented for post-release)
-- N+1 HTTP request storm in `fetchAllMdFiles` (performance)
-- `buildIndexDelta` re-fetches all content (performance)
-- Multi-vault title collisions in link resolution (data integrity)
-- Orphaned `generateQuietPrompt` after timeout (race condition)
-- `resolveLinks` mutates entries visible through snapshots (race condition)
-- `autoSuggestMessageCount` is dead state (cleanup)
-- Graph popup `requestAnimationFrame` leak (performance)
-- Sync polling never stops when disabled (resource leak)
-- Health grade inconsistency between quick action and badge (UI)
-- Notebook controls not disabled when feature off (UI)
-- Duplicate vault names on Add (UI)
-- Stale depth/role after switching injection mode (UI)
-- Various slash command toast issues (UX)
-- Plaintext API key storage (security, needs ST secrets API)
-- AI search prompt injection via summaries (inherent to AI retrieval)
-- No AI call rate limiting (design decision)
-
----
-
 ## 0.2.0-BETA
 
 ### New Features
@@ -155,10 +89,43 @@
 - Auto-runs on extension load, surfaces warnings via toast (silent if clean).
 
 ### Refactor: Module Decomposition
-- Decomposed monolithic `index.js` (4619 lines) into 13 focused modules. `index.js` is now ~270 lines (entry point + `onGenerate`).
-- New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`.
+- Decomposed monolithic `index.js` (4619 lines) into 19 focused modules. `index.js` is now ~620 lines (entry point + `onGenerate`).
+- New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`, `src/stages.js`, `src/helpers.js`, `src/cache.js`, `src/import.js`, `src/obsidian-api.js`, `src/proxy-api.js`, `src/toast-dedup.js`.
 
-### Bug Fixes
+### Bug Fixes (Pre-Release Audit)
+
+**Critical/High (from 7-expert code audit):**
+- **`const result` redeclared in same scope** — `hierarchicalPreFilter()` had two `const result` declarations in the same block, causing SyntaxError in strict mode. (`src/ai.js`)
+- **Re-exported functions used locally without import** — ES module `export { X } from '...'` does NOT create a local binding. Three modules called re-exported functions without a local `import`, causing ReferenceErrors. (`src/ai.js`, `src/import.js`, `src/cartographer.js`)
+- **Circuit breaker backoff broken** — Half-open → open transition didn't reset `openedAt`, causing the first backoff to be reused for all subsequent failures. (`src/obsidian-api.js`)
+- **Author's Notebook bypasses XML escaping** — Notebook content injected raw into prompts without escaping `<`, `>`, `&`. (`index.js`)
+- **AI response matches against full vault** — AI-returned titles were looked up against the full vault index instead of the candidate manifest, allowing phantom matches. (`src/ai.js`)
+- **Pinned entries excluded from AI pre-filter** — `buildExemptionPolicy` in the pre-filter used empty pins/blocks arrays, silently gating out pinned entries before AI search. (`src/pipeline.js`)
+- **Diagnostic tools use old `applyGating`** — Test Match and `/dle-context` used the core `applyGating()` instead of `applyRequiresExcludesGating()` with proper exemption policy. (`src/commands.js`, `src/settings-ui.js`)
+- **`parseFrontmatter` BOM handling returns wrong body** — BOM was stripped from `cleaned` but the no-frontmatter path returned the original `content` with BOM still present. (`core/utils.js`)
+- **`buildPromise` race window** — `setBuildPromise(null)` in `finally` could clear the promise before the outer `setBuildPromise(promise)` ran. (`src/vault.js`)
+- **Generation lock hangs indefinitely** — `ensureIndexFresh` could block for minutes with a flaky Obsidian. Added 60s timeout. (`index.js`)
+- **`_pinned` flag leaks permanently** — Setting `entry._pinned = true` on shared VaultEntry objects caused permanent bypass of gating. Replaced with local `pinnedTitles` Set. (`index.js`)
+- **SSRF via proxy URL** — Blocklist only covered 3 IPs. Added IPv6, localhost, RFC 1918/6598/link-local, CGNAT, ULA ranges. (`src/proxy-api.js`)
+- **`escapeXml` missing `"` in AI manifest** — Titles with quotes produced malformed XML. Added `&quot;` escaping. (`src/ai.js`)
+- **Template `{{content}}` breaks XML envelope** — Content containing closing tags could break the XML wrapper. (`core/matching.js`)
+
+**Medium:**
+- **Analytics records wrong entry set** — `recordAnalytics` received pre-gating entries instead of post-dedup entries. (`index.js`)
+- **`saveSettingsDebounced()` write amplification** — Analytics save fired on every generation. Now saves every 5 generations. (`index.js`)
+- **O(n) DOM manipulation on CHAT_CHANGED** — Source button injection now uses `requestAnimationFrame` and limits to last 50 messages. (`index.js`)
+- **`convertWiEntry` title injection** — Newlines in WI comment field could break the H1 heading. (`src/helpers.js`)
+- **API key scrubbing incomplete** — Added generic `Bearer` token scrubbing pattern. (`src/proxy-api.js`)
+- **Shallow settings copy** — `runPipeline` spread didn't deep-copy `analyticsData`. (`src/pipeline.js`)
+- **Blur-clamping IDs don't match HTML** — 5 settings inputs never clamped due to ID mismatches. (`src/settings-ui.js`)
+- **Various YAML parsing issues** — Block scalar blank lines, dotted keys, `.5` numeric format. (`core/utils.js`)
+
+**Low:**
+- **Promise.race timeout timers never cleared** — 3 locations leaked timers on success path. (`index.js`, `src/scribe.js`, `src/auto-suggest.js`)
+- **`deeplore_injection_log` never cleared when dedup toggled off** — Stale log persisted in chat metadata. (`index.js`)
+- **Internal `_` properties persisted to IndexedDB** — Cache saved transient internal fields. (`src/cache.js`)
+
+### Bug Fixes (Development)
 
 **Critical:**
 - **Health badge click handler accesses wrong properties** — Click handler referenced `result.grade` and `result.items`, but `runHealthCheck()` returns `{ issues, errors, warnings }`. Badge showed "Grade: undefined" on click. Now computes grade locally and iterates `result.issues` with correct `severity`/`detail` fields.
@@ -181,7 +148,7 @@
 - Pipeline trace (`lastPipelineTrace`) now populates the previously-empty `gatedOut`, `budgetCut`, and `injected` arrays, plus `totalTokens` and `budgetLimit`.
 - New `probability`, `vaultSource`, `era`, `location`, `sceneType`, `characterPresent` fields on VaultEntry
 - New modules: `src/cache.js` (IndexedDB persistent cache), `src/import.js` (WI import bridge)
-- New server endpoint `POST /scribe-notes` for session timeline
+- Scribe session timeline fetched directly from Obsidian (no server endpoint needed)
 - `chat_metadata` now stores: `deeplore_notebook`, `deeplore_lastScribeSummary`, `deeplore_injection_log`, `deeplore_pins`, `deeplore_blocks`, `deeplore_context`
 - `matchEntries()` now returns `probabilitySkipped` array
 - `onGenerate()` uses `pipelineRan` flag + `finally` block for generation tracking
@@ -189,7 +156,7 @@
 - New state: `decayTracker`, `lastHealthResult`
 - Init hydrates from IndexedDB cache, falls back to full Obsidian fetch
 - Delta sync fetches file listing first, downloads only new files
-- 227 passing tests
+- 518 passing tests
 - Bumped version to 0.2.0-BETA
 
 ## 0.14-ALPHA
@@ -213,7 +180,7 @@
 - Refactored `callViaProfile()` to accept optional `profileId` and `modelOverride` params (shared by AI Search and Scribe)
 - New `callScribe()` routing function for connection mode dispatch
 - New `populateScribeProfileDropdown()` and `updateScribeConnectionVisibility()` UI helpers
-- New server endpoint `POST /scribe` for proxy mode summary generation
+- Scribe proxy mode routes through ST's built-in CORS proxy (no custom server endpoint)
 - `runScribe()` now uses `buildAiChatContext()` from `core/utils.js` for consistent message formatting
 - Scribe profile dropdown auto-refreshes on Connection Manager profile events
 - Bumped version to 0.14-ALPHA

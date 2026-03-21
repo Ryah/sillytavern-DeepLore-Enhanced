@@ -8,6 +8,7 @@ import { getSettings } from '../settings.js';
 import { vaultIndex, lastInjectionSources, vaultAvgTokens, previousSources, setPreviousSources } from './state.js';
 // Re-export from helpers.js (moved there for testability in Node.js)
 export { buildObsidianURI } from './helpers.js';
+import { buildObsidianURI } from './helpers.js';
 
 /**
  * Reset cartographer state on chat change.
@@ -84,9 +85,10 @@ export function showSourcesPopup(sources) {
     const positionLabels = { 0: 'After Main Prompt', 1: 'In-chat', 2: 'Before Main Prompt' };
 
     // Group sources by injection position
+    const entryByTitle = new Map(vaultIndex.map(e => [e.title, e]));
     const groups = new Map();
     for (const src of sources) {
-        const entry = vaultIndex.find(e => e.title === src.title);
+        const entry = entryByTitle.get(src.title);
         const pos = entry?.injectionPosition ?? settings.injectionPosition;
         const depth = entry?.injectionDepth ?? settings.injectionDepth;
         const posKey = pos === 1 ? `In-chat @depth ${depth}` : (positionLabels[pos] || 'Unknown');
@@ -147,7 +149,7 @@ export function showSourcesPopup(sources) {
             const rawPreview = src.entry ? src.entry.content.substring(0, 300) + (src.entry.content.length > 300 ? '...' : '') : '';
 
             html += `<div style="margin-bottom: 6px; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px;">`;
-            html += `<div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="document.getElementById('dle_ctx_${entryId}').style.display = document.getElementById('dle_ctx_${entryId}').style.display === 'none' ? 'block' : 'none'">`;
+            html += `<div class="dle_ctx_toggle" data-target="dle_ctx_${entryId}" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">`;
             html += `<span><strong>${titleHtml}</strong> <small style="opacity: 0.6;">pri ${src.priority}</small></span>`;
             html += `<small style="color: ${barColor};">~${src.tokens} tok</small>`;
             html += `</div>`;
@@ -197,5 +199,17 @@ export function showSourcesPopup(sources) {
         : '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Set vault names in Vault Connections to enable deep links.</p>';
     html += '</div>';
 
-    callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+    const container = document.createElement('div');
+    container.innerHTML = html;
+
+    // Event delegation for entry detail expansion
+    container.addEventListener('click', (e) => {
+        const toggle = e.target.closest('.dle_ctx_toggle');
+        if (!toggle) return;
+        const targetId = toggle.dataset.target;
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+    });
+
+    callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
 }

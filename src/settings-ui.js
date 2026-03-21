@@ -4,13 +4,15 @@
 import {
     saveSettingsDebounced,
     chat,
+    chat_metadata,
 } from '../../../../../script.js';
 import { ConnectionManagerRequestService } from '../../../shared.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { eventSource, event_types } from '../../../../events.js';
 import { buildAiChatContext, simpleHash } from '../core/utils.js';
-import { applyGating, formatAndGroup } from '../core/matching.js';
+import { formatAndGroup } from '../core/matching.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating } from './stages.js';
 import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache } from '../settings.js';
 import { testConnection } from './obsidian-api.js';
 import { testProxyConnection } from './proxy-api.js';
@@ -1515,8 +1517,10 @@ export function bindSettingsEvents(buildIndexFn) {
                 afterCooldown = finalEntries.filter(e => !cooldownBlocked.includes(e));
             }
 
-            const gated = applyGating(afterCooldown);
-            const gatedRemoved = afterCooldown.filter(e => !gated.includes(e));
+            const uiPins = chat_metadata?.deeplore_pins || [];
+            const uiBlocks = chat_metadata?.deeplore_blocks || [];
+            const uiPolicy = buildExemptionPolicy(vaultIndex, uiPins, uiBlocks);
+            const { result: gated, removed: gatedRemoved } = applyRequiresExcludesGating(afterCooldown, uiPolicy, settings.debugMode);
 
             const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
 

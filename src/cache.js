@@ -63,7 +63,7 @@ export async function saveIndexToCache(entries) {
         const cacheData = {
             schemaVersion: CACHE_SCHEMA_VERSION,
             timestamp: Date.now(),
-            entries: entries.map(e => ({ ...e })),
+            entries: entries.map(e => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('_')))),
         };
 
         store.put(cacheData, getCacheKey());

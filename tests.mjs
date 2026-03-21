@@ -5,6 +5,11 @@
  * Tests shared core functions (imported from core/) and Enhanced-specific functions.
  */
 
+import { readFileSync, readdirSync } from 'node:fs';
+import { Script } from 'node:vm';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+
 import {
     parseFrontmatter, extractWikiLinks, cleanContent, extractTitle,
     truncateToSentence, simpleHash, escapeRegex,
@@ -2331,6 +2336,285 @@ test('integration: full 4-stage chain with budget truncation', () => {
     assert(acceptedEntries.some(e => e.title === 'Const'), 'Const always included');
     assert(totalTokens <= 700, `total tokens ${totalTokens} within budget 700`);
     assert(!acceptedEntries.some(e => e.title === 'Overflow'), 'Overflow cut by budget');
+});
+
+// ============================================================================
+// Module Graph Integrity Tests
+// ============================================================================
+// These tests catch breakage that unit tests on pure helpers.js cannot:
+// - SyntaxErrors in browser-only modules (duplicate const, etc.)
+// - Re-exported functions used locally without a local import binding
+// Both failure modes produce ReferenceError/SyntaxError at runtime in the browser
+// but are invisible to tests that only import from helpers.js.
+
+const EXT_DIR = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Strip ESM import/export syntax so the file body can be parsed by vm.Script.
+ * Preserves function/class/variable declarations so scope analysis catches
+ * duplicate bindings (e.g. two `const result` in the same block).
+ */
+function stripESMForParsing(src) {
+    let s = src.replace(/\r\n/g, '\n');
+    // Strip multi-line and single-line imports
+    s = s.replace(/^import\s+\{[^}]*\}\s+from\s+['"].*?['"];?\s*$/gm, '');
+    s = s.replace(/^import\s+.*$/gm, '');
+    // Strip re-exports: export { ... } from '...'
+    s = s.replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '');
+    // Transform export declarations into plain declarations
+    s = s.replace(/^export\s+async\s+function/gm, 'async function');
+    s = s.replace(/^export\s+function/gm, 'function');
+    s = s.replace(/^export\s+const/gm, 'const');
+    s = s.replace(/^export\s+let/gm, 'let');
+    s = s.replace(/^export\s+class/gm, 'class');
+    s = s.replace(/^export\s+default/gm, 'const _default_ =');
+    return s;
+}
+
+/**
+ * Find re-exported names that are used in the file body without a local import.
+ * `export { X } from './helpers.js'` does NOT create a local binding — X cannot
+ * be called inside the same file unless there is also `import { X } from './helpers.js'`.
+ */
+function findMissingReExportBindings(src) {
+    const normalized = src.replace(/\r\n/g, '\n');
+    const issues = [];
+
+    // Collect re-exported names
+    const reExportRe = /^export\s+\{([^}]+)\}\s+from\s+['"].*?['"];?\s*$/gm;
+    const reExported = new Set();
+    let m;
+    while ((m = reExportRe.exec(normalized)) !== null) {
+        for (const part of m[1].split(',')) {
+            const name = part.trim().split(/\s+as\s+/)[0].trim();
+            if (name) reExported.add(name);
+        }
+    }
+    if (reExported.size === 0) return [];
+
+    // Collect locally imported names (both single-line and multi-line)
+    const imported = new Set();
+    const importRe = /^import\s+\{([^}]+)\}\s+from\s+/gm;
+    while ((m = importRe.exec(normalized)) !== null) {
+        for (const part of m[1].split(',')) {
+            const segments = part.trim().split(/\s+as\s+/);
+            const localName = (segments[1] || segments[0]).trim();
+            if (localName) imported.add(localName);
+        }
+    }
+
+    // For each re-exported name not also locally imported, check body usage
+    for (const name of reExported) {
+        if (imported.has(name)) continue;
+        const useRe = new RegExp(name); // simple substring is fine — names are unique identifiers
+        const lines = normalized.split('\n');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (/^(import|export)\s/.test(trimmed)) continue;
+            if (/^\/\//.test(trimmed)) continue;
+            if (/^\*/.test(trimmed)) continue;
+            if (/^\/\*/.test(trimmed)) continue;
+            if (useRe.test(line)) {
+                issues.push(name);
+                break;
+            }
+        }
+    }
+    return issues;
+}
+
+test('module-graph: all src/ modules parse without SyntaxError', () => {
+    const srcDir = join(EXT_DIR, 'src');
+    const files = readdirSync(srcDir).filter(f => f.endsWith('.js'));
+    assert(files.length > 0, 'found src/ JS files to check');
+    for (const file of files) {
+        const src = readFileSync(join(srcDir, file), 'utf8');
+        const stripped = stripESMForParsing(src);
+        try {
+            new Script(stripped, { filename: `src/${file}` });
+            assert(true, `src/${file} parses OK`);
+        } catch (e) {
+            assert(false, `src/${file} has SyntaxError: ${e.message}`);
+        }
+    }
+});
+
+test('module-graph: all core/ modules parse without SyntaxError', () => {
+    const coreDir = join(EXT_DIR, 'core');
+    const files = readdirSync(coreDir).filter(f => f.endsWith('.js'));
+    assert(files.length > 0, 'found core/ JS files to check');
+    for (const file of files) {
+        const src = readFileSync(join(coreDir, file), 'utf8');
+        const stripped = stripESMForParsing(src);
+        try {
+            new Script(stripped, { filename: `core/${file}` });
+            assert(true, `core/${file} parses OK`);
+        } catch (e) {
+            assert(false, `core/${file} has SyntaxError: ${e.message}`);
+        }
+    }
+});
+
+test('module-graph: re-exported functions have local import when used in body', () => {
+    // These files re-export from helpers.js and may use those functions locally.
+    // export { X } from './helpers.js' does NOT bind X locally — a separate
+    // import { X } from './helpers.js' is required for local use.
+    const srcDir = join(EXT_DIR, 'src');
+    const files = readdirSync(srcDir).filter(f => f.endsWith('.js'));
+    for (const file of files) {
+        const src = readFileSync(join(srcDir, file), 'utf8');
+        const missing = findMissingReExportBindings(src);
+        if (missing.length > 0) {
+            assert(false, `src/${file} uses re-exported name(s) without local import: ${missing.join(', ')}`);
+        } else {
+            assert(true, `src/${file} re-export bindings OK`);
+        }
+    }
+});
+
+test('module-graph: index.js parses without SyntaxError', () => {
+    const src = readFileSync(join(EXT_DIR, 'index.js'), 'utf8');
+    const stripped = stripESMForParsing(src);
+    try {
+        new Script(stripped, { filename: 'index.js' });
+        assert(true, 'index.js parses OK');
+    } catch (e) {
+        assert(false, `index.js has SyntaxError: ${e.message}`);
+    }
+});
+
+// ============================================================================
+// Phase 6: Test coverage gaps (from audit)
+// ============================================================================
+
+test('parseFrontmatter: BOM handling returns cleaned body', () => {
+    const bom = '\uFEFF';
+    const content = `${bom}No frontmatter here, just content.`;
+    const result = parseFrontmatter(content);
+    assertEqual(result.frontmatter, {}, 'BOM-only content should have empty frontmatter');
+    assert(!result.body.startsWith(bom), 'body should not start with BOM');
+    assertEqual(result.body, 'No frontmatter here, just content.', 'body should be BOM-stripped');
+});
+
+test('parseFrontmatter: BOM with valid frontmatter', () => {
+    const bom = '\uFEFF';
+    const content = `${bom}---\ntitle: Test\n---\nBody here`;
+    const result = parseFrontmatter(content);
+    assertEqual(result.frontmatter.title, 'Test', 'should parse frontmatter after BOM');
+    assertEqual(result.body, 'Body here', 'body should not contain BOM');
+});
+
+test('formatAndGroup: prompt_list injection mode', () => {
+    const entries = [
+        { title: 'A', content: 'Content A', tokenEstimate: 10, priority: 50, injectionPosition: 0 },
+    ];
+    const settings = {
+        injectionMode: 'prompt_list',
+        injectionTemplate: '{{content}}',
+        injectionPosition: 0,
+        injectionDepth: 4,
+        injectionRole: 0,
+        maxEntries: 10,
+        unlimitedEntries: false,
+        maxTokensBudget: 1000,
+        unlimitedBudget: false,
+    };
+    const result = formatAndGroup(entries, settings, 'deeplore_');
+    assert(result.count > 0, 'prompt_list mode should produce output');
+    assert(result.groups.length > 0, 'should have at least one group');
+});
+
+test('testEntryMatch: refineKeys narrows matching', () => {
+    const entry = {
+        title: 'Refined',
+        keys: ['magic'],
+        refineKeys: ['ancient'],
+        scanDepth: 10,
+    };
+    const chat = [
+        { mes: 'The magic was strong', is_user: true },
+    ];
+    const scanText = buildScanText(chat, 10, null);
+    // Should match 'magic' but refineKeys requires 'ancient' in chat too
+    const matchNoRefine = testEntryMatch({ ...entry, refineKeys: [] }, scanText, false, false, null);
+    const matchWithRefine = testEntryMatch(entry, scanText, false, false, null);
+    assert(matchNoRefine, 'should match without refineKeys');
+    assert(!matchWithRefine, 'refineKeys should prevent match when refine term is absent');
+});
+
+test('testEntryMatch: refineKeys allows match when both present', () => {
+    const entry = {
+        title: 'Refined',
+        keys: ['magic'],
+        refineKeys: ['ancient'],
+        scanDepth: 10,
+    };
+    const chat = [
+        { mes: 'The ancient magic was strong', is_user: true },
+    ];
+    const scanText = buildScanText(chat, 10, null);
+    const match = testEntryMatch(entry, scanText, false, false, null);
+    assert(match, 'should match when both key and refineKey are present');
+});
+
+test('XML escaping in content templates', () => {
+    const entries = [
+        { title: 'Test<Entry>', content: 'Has <xml> & "quotes"', tokenEstimate: 10, priority: 50, injectionPosition: 0 },
+    ];
+    const settings = {
+        injectionTemplate: '<{{title}}>\\n{{content}}\\n</{{title}}>',
+        injectionPosition: 0,
+        injectionDepth: 4,
+        injectionRole: 0,
+        maxEntries: 10,
+        unlimitedEntries: false,
+        maxTokensBudget: 1000,
+        unlimitedBudget: false,
+    };
+    const result = formatAndGroup(entries, settings, 'deeplore_');
+    if (result.groups.length > 0) {
+        const text = result.groups[0].text;
+        assert(!text.includes('<Test<Entry>>'), 'title should be XML-escaped in template');
+        assert(text.includes('&lt;'), 'should contain escaped angle brackets');
+    }
+});
+
+test('normalizeResults: production function handles all formats', () => {
+    // Test with the production normalizeResults function
+    const stringArr = ['Entry A', 'Entry B'];
+    const r1 = normalizeResultsProd(stringArr);
+    assertEqual(r1.length, 2, 'should normalize string array');
+    assertEqual(r1[0].title, 'Entry A', 'string items become titles');
+
+    const objArr = [{ title: 'X', confidence: 'high', reason: 'test' }];
+    const r2 = normalizeResultsProd(objArr);
+    assertEqual(r2[0].confidence, 'high', 'should preserve confidence');
+
+    const nameArr = [{ name: 'Y' }];
+    const r3 = normalizeResultsProd(nameArr);
+    assertEqual(r3[0].title, 'Y', 'should map name to title');
+});
+
+test('convertWiEntry: newlines in comment stripped from title', () => {
+    const wiEntry = {
+        comment: 'Line1\nLine2\rLine3',
+        key: ['test'],
+        content: 'Some content',
+    };
+    const result = convertWiEntry(wiEntry, 'lorebook');
+    assert(!result.filename.includes('\n'), 'filename should not contain newlines');
+    assert(result.content.includes('# Line1 Line2 Line3'), 'H1 heading should have newlines replaced with spaces');
+});
+
+test('convertWiEntry: YAML delimiter injection prevented', () => {
+    const wiEntry = {
+        comment: 'Test Entry',
+        key: ['test'],
+        content: 'Before\n---\nAfter',
+    };
+    const result = convertWiEntry(wiEntry, 'lorebook');
+    assert(!result.content.match(/^---$/m) || result.content.split('---').length <= 3,
+        'YAML delimiters in content should be sanitized');
 });
 
 // ============================================================================

@@ -14,7 +14,8 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
 import { parseFrontmatter, simpleHash, buildAiChatContext } from '../core/utils.js';
-import { applyGating, formatAndGroup } from '../core/matching.js';
+import { formatAndGroup } from '../core/matching.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating } from './stages.js';
 import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, invalidateSettingsCache } from '../settings.js';
 import { fetchScribeNotes } from './obsidian-api.js';
 import {
@@ -28,7 +29,7 @@ import { matchEntries, runPipeline } from './pipeline.js';
 import { runScribe } from './scribe.js';
 import { runAutoSuggest, showSuggestionPopup } from './auto-suggest.js';
 import { showSourcesPopup } from './cartographer.js';
-import { runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup, showNotebookPopup, showBrowsePopup } from './popups.js';
+import { runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup, showNotebookPopup, showBrowsePopup, buildCopyButton, attachCopyHandler } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
 import { parseWorldInfoJson, importEntries } from './import.js';
 import { world_names, loadWorldInfo } from '../../../../world-info.js';
@@ -166,7 +167,10 @@ export function registerSlashCommands() {
                 });
             }
 
-            const gated = applyGating(filtered);
+            const cmdPins = chat_metadata.deeplore_pins || [];
+            const cmdBlocks = chat_metadata.deeplore_blocks || [];
+            const cmdPolicy = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
+            const { result: gated } = applyRequiresExcludesGating(filtered, cmdPolicy, settings.debugMode);
             const { count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
             const injected = acceptedEntries || gated.slice(0, injectedCount);
 
@@ -250,8 +254,11 @@ export function registerSlashCommands() {
                 `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
             ];
             const msg = lines.join('\n');
-            const html = `<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(msg)}</pre>`;
-            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true });
+            const html = `<div style="text-align: left;">${buildCopyButton(msg)}<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(msg)}</pre></div>`;
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                wide: true,
+                onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+            });
             return msg;
         },
         helpString: 'Show DeepLore Enhanced connection status and index stats.',
@@ -313,7 +320,7 @@ export function registerSlashCommands() {
                     const noteId = simpleHash(note.filename);
 
                     html += `<div style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 5px; padding: 10px; margin-bottom: 8px;">`;
-                    html += `<div style="display: flex; justify-content: space-between; cursor: pointer;" onclick="document.getElementById('dle_note_${noteId}').style.display = document.getElementById('dle_note_${noteId}').style.display === 'none' ? 'block' : 'none'">`;
+                    html += `<div class="dle_note_toggle" data-target="dle_note_${noteId}" style="display: flex; justify-content: space-between; cursor: pointer;">`;
                     html += `<strong>${escapeHtml(note.character || 'Unknown')}</strong>`;
                     html += `<small style="opacity: 0.7;">${escapeHtml(dateDisplay)}</small>`;
                     html += `</div>`;
@@ -323,7 +330,17 @@ export function registerSlashCommands() {
                 }
                 html += '</div>';
 
-                await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+                const container = document.createElement('div');
+                container.innerHTML = html;
+                container.addEventListener('click', (e) => {
+                    const toggle = e.target.closest('.dle_note_toggle');
+                    if (!toggle) return;
+                    const targetId = toggle.dataset.target;
+                    const targetEl = document.getElementById(targetId);
+                    if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+                });
+
+                await callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
             } catch (err) {
                 console.error('[DLE] Scribe history error:', err);
                 toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
@@ -387,7 +404,25 @@ export function registerSlashCommands() {
             const analytics = settings.analyticsData || {};
             const titles = Object.keys(analytics).sort((a, b) => (analytics[b].injected || 0) - (analytics[a].injected || 0));
 
-            let html = '<table style="width:100%;border-collapse:collapse;font-size:0.9em;">';
+            // Build plain-text version for clipboard
+            const plainLines = ['Entry Analytics', '', 'Entry\tMatched\tInjected\tLast Used'];
+            for (const title of titles) {
+                const d = analytics[title];
+                const lastUsed = d.lastTriggered ? new Date(d.lastTriggered).toLocaleString() : 'Never';
+                plainLines.push(`${title}\t${d.matched || 0}\t${d.injected || 0}\t${lastUsed}`);
+            }
+            const neverInjected = vaultIndex.filter(e => !analytics[trackerKey(e)] || (analytics[trackerKey(e)].injected || 0) === 0);
+            if (neverInjected.length > 0) {
+                plainLines.push('', 'Never Injected:');
+                for (const e of neverInjected) {
+                    plainLines.push(`  ${e.title} (${e.keys.length} keys, priority ${e.priority})`);
+                }
+            }
+            const plainText = plainLines.join('\n');
+
+            let html = '<div style="text-align: left;">';
+            html += buildCopyButton(plainText);
+            html += '<table style="width:100%;border-collapse:collapse;font-size:0.9em;">';
             html += '<tr><th style="text-align:left;border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Entry</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Matched</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Injected</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Last Used</th></tr>';
 
             for (const title of titles) {
@@ -397,7 +432,6 @@ export function registerSlashCommands() {
             }
             html += '</table>';
 
-            const neverInjected = vaultIndex.filter(e => !analytics[trackerKey(e)] || (analytics[trackerKey(e)].injected || 0) === 0);
             if (neverInjected.length > 0) {
                 html += '<hr><h4>Never Injected</h4><ul>';
                 for (const e of neverInjected) {
@@ -410,7 +444,11 @@ export function registerSlashCommands() {
                 html = '<p>No analytics data yet. Generate some messages first.</p>';
             }
 
-            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+            html += '</div>';
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                wide: true, large: true, allowVerticalScrolling: true,
+                onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+            });
             return '';
         },
         helpString: 'Show entry usage analytics: how often each entry was matched and injected.',
@@ -426,17 +464,39 @@ export function registerSlashCommands() {
             const { issues, errors, warnings } = health;
             const infos = issues.filter(i => i.severity === 'info').length;
 
+            // Build plain-text version for clipboard
+            const plainLines = [];
+            if (issues.length === 0) {
+                plainLines.push('Health Check: No issues found.');
+            } else {
+                plainLines.push(`Health Check: ${errors} errors, ${warnings} warnings, ${infos} info`, '');
+                const grouped = {};
+                for (const issue of issues) {
+                    if (!grouped[issue.type]) grouped[issue.type] = [];
+                    grouped[issue.type].push(issue);
+                }
+                for (const [type, items] of Object.entries(grouped)) {
+                    plainLines.push(`[${type}] (${items.length})`);
+                    for (const item of items) {
+                        plainLines.push(`  [${item.severity}] ${item.entry}: ${item.detail}`);
+                    }
+                    plainLines.push('');
+                }
+            }
+            const plainText = plainLines.join('\n');
+
             let html = '<div style="text-align: left;">';
 
             if (issues.length === 0) {
                 html += '<p style="color: var(--SmartThemeQuoteColor, #4caf50);">No issues found! All entries and settings look healthy.</p>';
             } else {
                 html += `<h3>Health Check: ${errors} errors, ${warnings} warnings, ${infos} info</h3>`;
+                html += buildCopyButton(plainText);
 
-                const grouped = {};
+                const grouped2 = {};
                 for (const issue of issues) {
-                    if (!grouped[issue.type]) grouped[issue.type] = [];
-                    grouped[issue.type].push(issue);
+                    if (!grouped2[issue.type]) grouped2[issue.type] = [];
+                    grouped2[issue.type].push(issue);
                 }
 
                 const severityBadge = (sev) => {
@@ -444,7 +504,7 @@ export function registerSlashCommands() {
                     return `<span style="color: ${colors[sev] || '#999'}; font-size: 0.8em; font-weight: bold;">[${sev}]</span>`;
                 };
 
-                for (const [type, items] of Object.entries(grouped)) {
+                for (const [type, items] of Object.entries(grouped2)) {
                     const typeErrors = items.filter(i => i.severity === 'error').length;
                     html += `<details ${typeErrors > 0 ? 'open' : ''}><summary style="cursor: pointer; margin: 8px 0;"><strong>${escapeHtml(type)}</strong> (${items.length})</summary>`;
                     html += `<ul style="margin: 4px 0 8px 20px;">`;
@@ -456,7 +516,10 @@ export function registerSlashCommands() {
             }
 
             html += '</div>';
-            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                wide: true, large: true, allowVerticalScrolling: true,
+                onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+            });
             return '';
         },
         helpString: 'Run 30+ health checks on vault entries and settings: circular requires, duplicates, orphaned references, conflicting overrides, budget warnings, and more.',
@@ -1247,8 +1310,53 @@ export function registerSlashCommands() {
             }
             const t = lastPipelineTrace;
             const statusIcon = (ok) => ok ? '✓' : '✗';
+
+            // Build plain-text version for clipboard
+            const plainLines = [
+                'Pipeline Inspector',
+                `Mode: ${t.mode} | Indexed: ${t.indexed} | Bootstrap active: ${t.bootstrapActive ? 'yes' : 'no'} | AI fallback: ${t.aiFallback ? 'yes' : 'no'}`,
+                '',
+            ];
+            if (t.keywordMatched.length > 0) {
+                plainLines.push(`Keyword Matched (${t.keywordMatched.length}):`);
+                for (const m of t.keywordMatched) plainLines.push(`  ${m.title} — ${m.matchedBy}`);
+                plainLines.push('');
+            }
+            if (t.aiSelected.length > 0) {
+                plainLines.push(`AI Selected (${t.aiSelected.length}):`);
+                for (const m of t.aiSelected) plainLines.push(`  ${m.title} [${m.confidence}] — ${m.reason}`);
+                plainLines.push('');
+            }
+            if (t.aiFallback) plainLines.push('WARNING: AI search failed — keyword results used as fallback', '');
+            if (t.injected && t.injected.length > 0) {
+                const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
+                plainLines.push(`Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel}):`);
+                for (const e of t.injected) {
+                    const truncLabel = e.truncated ? ` [truncated from ~${e.originalTokens}]` : '';
+                    plainLines.push(`  ${e.title} (~${e.tokens} tokens)${truncLabel}`);
+                }
+                plainLines.push('');
+            }
+            if (t.gatedOut && t.gatedOut.length > 0) {
+                plainLines.push(`Gated Out (${t.gatedOut.length}):`);
+                for (const e of t.gatedOut) {
+                    const reasons = [];
+                    if (e.requires?.length > 0) reasons.push(`requires: ${e.requires.join(', ')}`);
+                    if (e.excludes?.length > 0) reasons.push(`excludes: ${e.excludes.join(', ')}`);
+                    plainLines.push(`  ${e.title} — ${reasons.join('; ') || 'gating rule'}`);
+                }
+                plainLines.push('');
+            }
+            if (t.budgetCut && t.budgetCut.length > 0) {
+                plainLines.push(`Budget/Max Cut (${t.budgetCut.length}):`);
+                for (const e of t.budgetCut) plainLines.push(`  ${e.title} (pri ${e.priority}, ~${e.tokens} tokens)`);
+                plainLines.push('');
+            }
+            const plainText = plainLines.join('\n');
+
             let html = `<div style="text-align: left; font-family: monospace; font-size: 0.85em;">`;
             html += `<h3>Pipeline Inspector</h3>`;
+            html += buildCopyButton(plainText);
             html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
 
             if (t.keywordMatched.length > 0) {
@@ -1304,7 +1412,10 @@ export function registerSlashCommands() {
             }
 
             html += '</div>';
-            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                wide: true, allowVerticalScrolling: true,
+                onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+            });
             return '';
         },
         helpString: 'Show the last pipeline trace: which entries matched, why, and what the AI selected.',

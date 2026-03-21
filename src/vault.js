@@ -312,7 +312,6 @@ export async function buildIndex() {
         dedupError(userMsg, 'obsidian_connect');
     } finally {
         setIndexing(false);
-        setBuildPromise(null);
     }
     })();
     setBuildPromise(promise);
@@ -515,7 +514,6 @@ export async function buildIndexWithReuse() {
         return false;
     } finally {
         setIndexing(false);
-        setBuildPromise(null);
     }
     })();
     setBuildPromise(promise);

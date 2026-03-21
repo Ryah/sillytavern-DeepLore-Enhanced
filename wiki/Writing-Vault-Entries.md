@@ -35,9 +35,9 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `warmup` | number | *(none)* | Require the keyword to appear N or more times in the scan text before triggering. |
 | `probability` | number | *(none)* | Chance of triggering when matched (0.0-1.0). Omit or set to 1.0 for always trigger. |
 | `enabled` | boolean | `true` | Set to `false` to completely skip this entry during indexing. The entry won't appear in the vault index at all. Useful for temporarily disabling an entry without removing the `#lorebook` tag. |
-| `era` | string | *(none)* | Contextual gating: only inject when the active era matches this value. See [[Features#Contextual Gating]]. |
-| `location` | string | *(none)* | Contextual gating: only inject when the active location matches this value. |
-| `scene_type` | string | *(none)* | Contextual gating: only inject when the active scene type matches this value. |
+| `era` | string \| string[] | *(none)* | Contextual gating: only inject when the active era matches one of these values. See [[Features#Contextual Gating]]. |
+| `location` | string \| string[] | *(none)* | Contextual gating: only inject when the active location matches one of these values. |
+| `scene_type` | string \| string[] | *(none)* | Contextual gating: only inject when the active scene type matches one of these values. |
 | `character_present` | array | `[]` | Contextual gating: only inject when any listed character is among the present characters. |
 
 ### Priority Guidelines

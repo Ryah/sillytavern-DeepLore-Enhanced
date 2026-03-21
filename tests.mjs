@@ -8,23 +8,17 @@
 import {
     parseFrontmatter, extractWikiLinks, cleanContent, extractTitle,
     truncateToSentence, simpleHash, escapeRegex,
-    buildScanText, buildAiChatContext, validateSettings,
+    buildScanText, buildAiChatContext, validateSettings, yamlEscape,
 } from './core/utils.js';
 import { testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, formatAndGroup } from './core/matching.js';
 import { parseVaultFile, clearPrompts } from './core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from './core/sync.js';
 
-// ============================================================================
-// Enhanced-only functions (not in core, tested inline)
-// ============================================================================
+// Enhanced-only pure functions (imported from production code, not reimplemented)
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry } from './src/helpers.js';
+import { encodeVaultPath, validateVaultPath } from './src/obsidian-api.js';
 
-function buildObsidianURI(vaultName, filename) {
-    if (!vaultName) return null;
-    const encodedVault = encodeURIComponent(vaultName);
-    const encodedFile = filename.split('/').map(s => encodeURIComponent(s)).join('/');
-    return `obsidian://open?vault=${encodedVault}&file=${encodedFile}`;
-}
-
+// normalizeResults is a test-only utility (inlined in aiSearch() in production)
 function normalizeResults(arr) {
     return arr.map(item => {
         if (typeof item === 'string') {
@@ -1039,7 +1033,10 @@ test('normalizeResults: empty array', () => {
 
 /**
  * Portable health check for testing detection patterns.
- * Mirrors the real runHealthCheck() from index.js but accepts params.
+ * NOTE: This is intentionally a parameterized shadow of src/diagnostics.js::runHealthCheck()
+ * because the production function reads global state and cannot be imported in Node.js.
+ * Tests a subset (8 checks) of the production function's 30+ checks.
+ * Keep in sync when modifying detection patterns in diagnostics.js.
  */
 function testHealthCheck(vaultIndex, settings = {}) {
     const issues = [];
@@ -1335,20 +1332,7 @@ test('sliding window cache: entity mention detection', () => {
 });
 
 test('hierarchical clustering: clusterEntries groups by tag', () => {
-    // Inline cluster function for testing
-    function clusterEntries(entries) {
-        const clusters = new Map();
-        for (const entry of entries) {
-            let category = 'Uncategorized';
-            if (entry.tags && entry.tags.length > 0) {
-                category = entry.tags[0];
-            }
-            if (!clusters.has(category)) clusters.set(category, []);
-            clusters.get(category).push(entry);
-        }
-        return clusters;
-    }
-
+    // clusterEntries imported from ./src/helpers.js (production code)
     const entries = [
         makeEntry('Alice', { tags: ['character'] }),
         makeEntry('Bob', { tags: ['character'] }),
@@ -1365,16 +1349,7 @@ test('hierarchical clustering: clusterEntries groups by tag', () => {
 });
 
 test('hierarchical clustering: buildCategoryManifest formats correctly', () => {
-    function buildCategoryManifest(clusters) {
-        const lines = [];
-        for (const [category, entries] of clusters) {
-            const samples = entries.slice(0, 5).map(e => e.title).join(', ');
-            const more = entries.length > 5 ? ` (+${entries.length - 5} more)` : '';
-            lines.push(`[${category}] (${entries.length} entries): ${samples}${more}`);
-        }
-        return lines.join('\n');
-    }
-
+    // buildCategoryManifest imported from ./src/helpers.js (production code)
     const clusters = new Map();
     clusters.set('character', [makeEntry('A'), makeEntry('B'), makeEntry('C'), makeEntry('D'), makeEntry('E'), makeEntry('F')]);
     clusters.set('location', [makeEntry('Place1')]);
@@ -1385,8 +1360,8 @@ test('hierarchical clustering: buildCategoryManifest formats correctly', () => {
     assert(manifest.includes('[location] (1 entries)'), 'should show location count');
 });
 
-test('delta sync: file set comparison logic', () => {
-    // Simulate delta sync logic
+test('reuse sync: file set comparison logic', () => {
+    // Simulate reuse sync file detection logic
     const knownFiles = new Set(['Alice.md', 'Bob.md', 'Forest.md']);
     const currentFiles = ['Alice.md', 'Bob.md', 'NewEntry.md'];
 
@@ -1397,7 +1372,7 @@ test('delta sync: file set comparison logic', () => {
     assertEqual(removedFiles, ['Forest.md'], 'should detect removed files');
 });
 
-test('delta sync: no changes returns empty diff', () => {
+test('reuse sync: no changes returns empty diff', () => {
     const knownFiles = new Set(['Alice.md', 'Bob.md']);
     const currentFiles = ['Alice.md', 'Bob.md'];
 
@@ -1406,6 +1381,223 @@ test('delta sync: no changes returns empty diff', () => {
 
     assertEqual(newFiles.length, 0, 'no new files');
     assertEqual(removedFiles.length, 0, 'no removed files');
+});
+
+// ============================================================================
+// Tests: extractAiResponseClient (src/helpers.js — production code)
+// ============================================================================
+
+test('extractAiResponseClient: direct JSON array', () => {
+    const result = extractAiResponseClient('[{"title":"Alice","confidence":"high","reason":"mentioned"}]');
+    assert(Array.isArray(result), 'should parse direct JSON array');
+    assertEqual(result[0].title, 'Alice', 'should have correct title');
+});
+
+test('extractAiResponseClient: string array', () => {
+    const result = extractAiResponseClient('["Alice", "Bob"]');
+    assert(Array.isArray(result), 'should parse string array');
+    assertEqual(result.length, 2, 'should have 2 entries');
+    assertEqual(result[0], 'Alice', 'first should be Alice');
+});
+
+test('extractAiResponseClient: markdown code fence', () => {
+    const result = extractAiResponseClient('Here are results:\n```json\n["Alice"]\n```\nDone.');
+    assert(Array.isArray(result), 'should extract from code fence');
+    assertEqual(result[0], 'Alice', 'should have Alice');
+});
+
+test('extractAiResponseClient: embedded in prose', () => {
+    const result = extractAiResponseClient('I selected these entries: [{"title":"Bob","confidence":"medium","reason":"relevant"}] based on context.');
+    assert(Array.isArray(result), 'should extract from prose');
+    assertEqual(result[0].title, 'Bob', 'should have Bob');
+});
+
+test('extractAiResponseClient: empty array', () => {
+    const result = extractAiResponseClient('[]');
+    assert(Array.isArray(result), 'should parse empty array');
+    assertEqual(result.length, 0, 'should be empty');
+});
+
+test('extractAiResponseClient: null/undefined/empty', () => {
+    assertEqual(extractAiResponseClient(null), null, 'null input → null');
+    assertEqual(extractAiResponseClient(''), null, 'empty string → null');
+    assertEqual(extractAiResponseClient(undefined), null, 'undefined → null');
+});
+
+test('extractAiResponseClient: non-JSON text', () => {
+    assertEqual(extractAiResponseClient('Just some text with no JSON'), null, 'no JSON → null');
+});
+
+test('extractAiResponseClient: nested brackets in strings', () => {
+    const result = extractAiResponseClient('[{"title":"Entry [with brackets]","confidence":"high","reason":"test"}]');
+    assert(Array.isArray(result), 'should handle brackets in strings');
+    assertEqual(result[0].title, 'Entry [with brackets]', 'should preserve bracket content');
+});
+
+test('extractAiResponseClient: multiple arrays picks largest', () => {
+    const result = extractAiResponseClient('Small: ["A"]. Larger: [{"title":"B","confidence":"high","reason":"r"},{"title":"C","confidence":"low","reason":"r"}]');
+    assert(Array.isArray(result), 'should find arrays');
+    assertEqual(result.length, 2, 'should pick larger array');
+});
+
+test('extractAiResponseClient: object with name field', () => {
+    const result = extractAiResponseClient('[{"name":"Alice"}]');
+    assert(Array.isArray(result), 'should accept name field');
+    assertEqual(result[0].name, 'Alice', 'should have name field');
+});
+
+test('extractAiResponseClient: invalid JSON object (not array)', () => {
+    assertEqual(extractAiResponseClient('{"title":"Alice"}'), null, 'object not array → null');
+});
+
+test('extractAiResponseClient: escaped quotes in strings', () => {
+    const result = extractAiResponseClient('[{"title":"Alice\\"s Entry","confidence":"high","reason":"test"}]');
+    assert(Array.isArray(result), 'should handle escaped quotes');
+});
+
+// ============================================================================
+// Tests: convertWiEntry (src/helpers.js — production code)
+// ============================================================================
+
+test('convertWiEntry: basic entry', () => {
+    const result = convertWiEntry({ comment: 'Alice', key: ['alice', 'wonderland'], content: 'Alice is a character.' }, 'lorebook');
+    assert(result.filename === 'Alice.md', 'filename from comment');
+    assert(result.content.includes('keys:'), 'should have keys section');
+    assert(result.content.includes('  - alice'), 'should list keys');
+    assert(result.content.includes('  - lorebook'), 'should have lorebook tag');
+    assert(result.content.includes('# Alice'), 'should have H1 title');
+    assert(result.content.includes('Alice is a character.'), 'should include content');
+});
+
+test('convertWiEntry: constant entry gets lorebook-always tag', () => {
+    const result = convertWiEntry({ comment: 'World', key: ['world'], constant: true, content: 'The world.' }, 'lorebook');
+    assert(result.content.includes('  - lorebook-always'), 'should have lorebook-always tag');
+});
+
+test('convertWiEntry: position mapping', () => {
+    const afterChar = convertWiEntry({ comment: 'A', key: ['a'], position: 0, content: 'c' }, 'lorebook');
+    assert(afterChar.content.includes('position: after'), 'position 0 → after');
+    const inChat = convertWiEntry({ comment: 'B', key: ['b'], position: 4, content: 'c' }, 'lorebook');
+    assert(inChat.content.includes('position: in_chat'), 'position 4 → in_chat');
+});
+
+test('convertWiEntry: probability conversion (100-scale to 0-1)', () => {
+    const result = convertWiEntry({ comment: 'A', key: ['a'], probability: 75, content: 'c' }, 'lorebook');
+    assert(result.content.includes('probability: 0.75'), 'should convert 75 to 0.75');
+});
+
+test('convertWiEntry: unsafe filename chars stripped', () => {
+    const result = convertWiEntry({ comment: 'Alice: The "Queen"', key: ['a'], content: 'c' }, 'lorebook');
+    assert(!result.filename.includes(':'), 'no colons in filename');
+    assert(!result.filename.includes('"'), 'no quotes in filename');
+});
+
+test('convertWiEntry: YAML delimiter injection sanitized', () => {
+    const result = convertWiEntry({ comment: 'A', key: ['a'], content: 'before\n---\nafter' }, 'lorebook');
+    assert(!result.content.match(/^---$/m) || result.content.indexOf('---') === 0, 'content --- should be sanitized');
+});
+
+test('convertWiEntry: keysecondary as refine_keys', () => {
+    const result = convertWiEntry({ comment: 'A', key: ['a'], keysecondary: ['secondary1', 'secondary2'], content: 'c' }, 'lorebook');
+    assert(result.content.includes('refine_keys:'), 'should have refine_keys');
+    assert(result.content.includes('  - secondary1'), 'should list secondary keys');
+});
+
+test('convertWiEntry: missing comment falls back to keys', () => {
+    const result = convertWiEntry({ key: ['fallback_key'], content: 'c' }, 'lorebook');
+    assert(result.filename === 'fallback_key.md', 'filename from key fallback');
+});
+
+test('convertWiEntry: depth only included when > 0', () => {
+    const noDepth = convertWiEntry({ comment: 'A', key: ['a'], depth: 0, content: 'c' }, 'lorebook');
+    assert(!noDepth.content.includes('depth:'), 'depth 0 should be omitted');
+    const withDepth = convertWiEntry({ comment: 'A', key: ['a'], depth: 3, content: 'c' }, 'lorebook');
+    assert(withDepth.content.includes('depth: 3'), 'depth 3 should be included');
+});
+
+// ============================================================================
+// Tests: encodeVaultPath + validateVaultPath (src/obsidian-api.js — production code)
+// ============================================================================
+
+test('encodeVaultPath: encodes spaces in segments', () => {
+    assertEqual(encodeVaultPath('LA World/Characters/Alice Smith.md'), 'LA%20World/Characters/Alice%20Smith.md', 'spaces encoded per segment');
+});
+
+test('encodeVaultPath: preserves slashes', () => {
+    assertEqual(encodeVaultPath('folder/subfolder/file.md'), 'folder/subfolder/file.md', 'slashes preserved');
+});
+
+test('encodeVaultPath: encodes special chars', () => {
+    const result = encodeVaultPath('notes/café.md');
+    assert(result.includes('caf%C3%A9'), 'should encode unicode');
+});
+
+test('encodeVaultPath: simple filename', () => {
+    assertEqual(encodeVaultPath('Alice.md'), 'Alice.md', 'no encoding needed');
+});
+
+test('validateVaultPath: normal path passes', () => {
+    assertEqual(validateVaultPath('folder/file.md'), 'folder/file.md', 'normal path passes');
+});
+
+test('validateVaultPath: backslashes normalized', () => {
+    assertEqual(validateVaultPath('folder\\file.md'), 'folder/file.md', 'backslashes to forward');
+});
+
+test('validateVaultPath: path traversal blocked', () => {
+    let threw = false;
+    try { validateVaultPath('../secret/file.md'); } catch { threw = true; }
+    assert(threw, 'should throw on path traversal with ..');
+});
+
+test('validateVaultPath: dot segment blocked', () => {
+    let threw = false;
+    try { validateVaultPath('folder/./file.md'); } catch { threw = true; }
+    assert(threw, 'should throw on dot segment');
+});
+
+test('validateVaultPath: absolute path blocked', () => {
+    let threw = false;
+    try { validateVaultPath('/etc/passwd'); } catch { threw = true; }
+    assert(threw, 'should throw on absolute path');
+});
+
+// ============================================================================
+// Tests: yamlEscape (core/utils.js — production code)
+// ============================================================================
+
+test('yamlEscape: plain string passes through', () => {
+    assertEqual(yamlEscape('hello'), 'hello', 'plain string unchanged');
+});
+
+test('yamlEscape: special chars get quoted', () => {
+    assertEqual(yamlEscape('key: value'), '"key: value"', 'colon triggers quoting');
+    assertEqual(yamlEscape('has # hash'), '"has # hash"', 'hash triggers quoting');
+    assertEqual(yamlEscape('[array]'), '"[array]"', 'bracket triggers quoting');
+});
+
+test('yamlEscape: newlines get quoted', () => {
+    // In YAML double-quoted strings, literal newlines are valid — function wraps but doesn't escape \n
+    const result = yamlEscape('line1\nline2');
+    assert(result.startsWith('"') && result.endsWith('"'), 'newline triggers quoting');
+});
+
+test('yamlEscape: leading/trailing whitespace gets quoted', () => {
+    assertEqual(yamlEscape(' leading'), '" leading"', 'leading space triggers quoting');
+});
+
+test('yamlEscape: internal quotes escaped', () => {
+    assertEqual(yamlEscape('say "hello"'), '"say \\"hello\\""', 'quotes escaped');
+});
+
+test('yamlEscape: backslash alone does not trigger quoting', () => {
+    // Backslash is not a YAML special character — no quoting needed
+    assertEqual(yamlEscape('path\\to'), 'path\\to', 'backslash alone = no quoting');
+});
+
+test('yamlEscape: backslash inside quoted string gets escaped', () => {
+    // When quoting is triggered by another char (colon), backslashes are escaped
+    assertEqual(yamlEscape('path\\to: here'), '"path\\\\to: here"', 'backslash escaped when quoting triggered');
 });
 
 // ============================================================================

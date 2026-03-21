@@ -346,8 +346,9 @@ export function trackGeneration(injectedEntries, generationCount, cooldownTracke
  * @param {Map} decayTracker
  * @param {Array} injectedEntries
  * @param {object} settings
+ * @param {Map} [consecutiveInjections] - Mutable consecutive injection counter
  */
-export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings) {
+export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings, consecutiveInjections) {
     // Decrement cooldown counters; remove expired ones
     for (const [title, remaining] of cooldownTracker) {
         if (remaining <= 1) {
@@ -371,6 +372,17 @@ export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries
                 } else {
                     decayTracker.set(tk, staleness + 1);
                 }
+            }
+        }
+
+        // Consecutive injection counter: increment for injected, reset for not injected
+        if (consecutiveInjections) {
+            for (const entry of injectedEntries) {
+                const tk = trackerKey(entry);
+                consecutiveInjections.set(tk, (consecutiveInjections.get(tk) || 0) + 1);
+            }
+            for (const [tk] of consecutiveInjections) {
+                if (!injectedKeys.has(tk)) consecutiveInjections.delete(tk);
             }
         }
     }

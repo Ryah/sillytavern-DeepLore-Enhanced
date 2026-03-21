@@ -11,21 +11,11 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { getSettings, getPrimaryVault } from '../settings.js';
 import { writeNote } from './obsidian-api.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
-import { buildAiChatContext } from '../core/utils.js';
+import { buildAiChatContext, yamlEscape } from '../core/utils.js';
 import { callViaProfile, extractAiResponseClient } from './ai.js';
 import { vaultIndex } from './state.js';
+import { stripObsidianSyntax } from './helpers.js';
 import { ensureIndexFresh } from './vault.js';
-
-/**
- * Escape a string for safe use as a YAML value.
- * Wraps in double quotes if the string contains special YAML characters.
- */
-function yamlEscape(str) {
-    if (/[:\#\[\]\{\}&*!|>'"%@`]/.test(str) || str.trim() !== str) {
-        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-    }
-    return str;
-}
 
 const DEFAULT_AUTO_SUGGEST_PROMPT = `You are a lore analyst for a roleplay session. Analyze the recent chat and identify characters, locations, items, concepts, or events that are mentioned but do NOT have an existing lorebook entry.
 
@@ -178,8 +168,8 @@ export async function showSuggestionPopup(suggestions) {
                         : `${safeTitle}.md`;
 
                     const keysYaml = (s.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
-                    // Sanitize AI-generated content: strip bare YAML frontmatter delimiters (same as Scribe)
-                    const safeContent = (s.content || '').replace(/^---$/gm, '- - -');
+                    // Sanitize AI-generated content: strip Obsidian-interpretable syntax and bare YAML delimiters
+                    const safeContent = stripObsidianSyntax(s.content || '').replace(/^---$/gm, '- - -');
                     const fileContent = `---
 type: ${yamlEscape(s.type || 'lore')}
 priority: 50

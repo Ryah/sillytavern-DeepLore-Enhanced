@@ -100,7 +100,7 @@ export function testEntryMatch(entry, scanText, settings) {
     if (cached.refine.length > 0) {
         const hasRefine = cached.refine.some(item => {
             if (settings.matchWholeWords) {
-                return item.regex.test(scanText);
+                return item.regex.test(haystack);
             }
             return haystack.includes(item.rKey);
         });
@@ -259,6 +259,8 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                     tokenEstimate: Math.ceil(truncatedContent.length / 3.5),
                     _truncated: true,
                     _originalTokens: entry.tokenEstimate,
+                    // Recompute content hash so strip-dedup doesn't use the pre-truncation hash
+                    _contentHash: typeof entry._contentHash === 'string' ? entry._contentHash + '_trunc' : '',
                 };
                 accepted.push({
                     entry: truncatedEntry,
@@ -290,13 +292,9 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
     const escapeXml = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const formatEntry = (entry) => {
         let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
-        // Only escape content when the template uses XML-like wrappers (default template)
-        // to prevent content from breaking out of the entry's XML envelope
-        if (template.includes('</')) {
-            text = text.replace(/\{\{content\}\}/g, entry.content.replace(/<\//g, '&lt;/'));
-        } else {
-            text = text.replace(/\{\{content\}\}/g, entry.content);
-        }
+        // Always escape content to prevent injection of structural XML elements
+        // (e.g. <system>) regardless of template format
+        text = text.replace(/\{\{content\}\}/g, entry.content.replace(/</g, '&lt;'));
         return text;
     };
 

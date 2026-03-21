@@ -4,17 +4,8 @@
  */
 import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../settings.js';
-
-/**
- * Escape a string for safe use as a YAML value.
- * Wraps in double quotes if the string contains special YAML characters.
- */
-function yamlEscape(str) {
-    if (/[:#\[\]{}&*!|>'"%@`\n\r\t]/.test(str) || str.trim() !== str) {
-        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-    }
-    return str;
-}
+// Re-export from helpers.js (moved there for testability in Node.js)
+export { convertWiEntry } from './helpers.js';
 
 /**
  * Map a SillyTavern World Info entry to Obsidian frontmatter + content.
@@ -22,74 +13,7 @@ function yamlEscape(str) {
  * @param {string} lorebookTag - The lorebook tag to add
  * @returns {{ filename: string, content: string }}
  */
-export function convertWiEntry(wiEntry, lorebookTag) {
-    // Extract title from comment field (ST convention) or first key
-    const title = (wiEntry.comment || '').trim()
-        || (wiEntry.key || []).join(', ').substring(0, 50)
-        || `Entry_${wiEntry.uid || Date.now()}`;
-
-    // Clean title for filename
-    let safeTitle = title.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, ' ').trim();
-    if (!safeTitle) safeTitle = 'Untitled';
-
-    // Build keys from ST's key and keysecondary
-    const keys = [];
-    if (Array.isArray(wiEntry.key)) {
-        keys.push(...wiEntry.key.filter(k => k && k.trim()));
-    } else if (typeof wiEntry.key === 'string' && wiEntry.key.trim()) {
-        keys.push(...wiEntry.key.split(',').map(k => k.trim()).filter(Boolean));
-    }
-
-    // Map ST position to DLE position (lossy: ST has 5 values, DLE has 3)
-    // ST: 0=after_char, 1=before_char, 2=before_AN, 3=after_AN, 4=in_chat
-    const positionMap = { 0: 'after', 1: 'before', 2: 'before', 3: 'after', 4: 'in_chat' };
-    const position = positionMap[wiEntry.position] || null;
-
-    // Build frontmatter
-    const fm = [];
-    fm.push('---');
-    fm.push(`type: lore`);
-    fm.push(`status: active`);
-    if (wiEntry.position !== undefined) fm.push(`# original_st_position: ${wiEntry.position}`);
-    fm.push(`priority: ${wiEntry.order ?? 50}`);
-    fm.push(`tags:`);
-    fm.push(`  - ${lorebookTag}`);
-    if (wiEntry.constant) fm.push(`  - lorebook-always`);
-    if (keys.length > 0) {
-        fm.push(`keys:`);
-        for (const k of keys) {
-            fm.push(`  - ${yamlEscape(k)}`);
-        }
-    }
-    if (wiEntry.keysecondary && wiEntry.keysecondary.length > 0) {
-        const secondary = Array.isArray(wiEntry.keysecondary)
-            ? wiEntry.keysecondary.filter(k => k && k.trim())
-            : wiEntry.keysecondary.split(',').map(k => k.trim()).filter(Boolean);
-        if (secondary.length > 0) {
-            fm.push(`refine_keys:`);
-            for (const k of secondary) {
-                fm.push(`  - ${yamlEscape(k)}`);
-            }
-        }
-    }
-    if (position) fm.push(`position: ${position}`);
-    if (wiEntry.depth != null && wiEntry.depth > 0) fm.push(`depth: ${wiEntry.depth}`);
-    if (wiEntry.probability != null && wiEntry.probability < 100) {
-        fm.push(`probability: ${(wiEntry.probability / 100).toFixed(2)}`);
-    }
-    if (wiEntry.scanDepth) fm.push(`scanDepth: ${wiEntry.scanDepth}`);
-    fm.push(`summary: "Imported from SillyTavern World Info"`);
-    fm.push('---');
-
-    // Build content — sanitize to prevent YAML/control sequence injection
-    let content = wiEntry.content || '';
-    content = content.replace(/^---$/gm, '- - -'); // prevent YAML frontmatter delimiter injection
-    content = content.replace(/%%deeplore-exclude%%[\s\S]*?%%\/deeplore-exclude%%/g, ''); // strip control sequences
-    content = content.replace(/^%%[\s\S]*?^%%/gm, ''); // strip Obsidian comment blocks
-    const fullContent = `${fm.join('\n')}\n\n# ${title}\n\n${content}`;
-
-    return { filename: `${safeTitle}.md`, content: fullContent };
-}
+// convertWiEntry — re-exported from ./helpers.js above
 
 /**
  * Import an array of ST World Info entries into the Obsidian vault.

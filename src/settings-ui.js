@@ -17,19 +17,20 @@ import {
     vaultIndex, aiSearchStats, indexTimestamp,
     injectionHistory, generationCount, lastHealthResult,
     lastInjectionSources, lastPipelineTrace, trackerKey,
-    setVaultIndex, setIndexTimestamp,
+    setVaultIndex, setIndexTimestamp, setLastHealthResult,
+    onIndexUpdated,
 } from './state.js';
 import { ensureIndexFresh, getMaxResponseTokens } from './vault.js';
 import {
     callViaProfile, getProfileModelHint,
-    populateProfileDropdown, updateAiConnectionVisibility,
+    populateAiProfileDropdown, updateAiConnectionVisibility,
     populateScribeProfileDropdown, updateScribeConnectionVisibility,
-    populateAutoSuggestProfileDropdown,
+    populateAutoSuggestProfileDropdown, updateAutoSuggestConnectionVisibility,
     buildCandidateManifest,
 } from './ai.js';
 import { matchEntries, runPipeline } from './pipeline.js';
 import { setupSyncPolling } from './sync.js';
-import { buildIndexDelta } from './vault.js';
+import { buildIndexWithReuse } from './vault.js';
 import { showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup } from './popups.js';
 import { diagnoseEntry, runHealthCheck } from './diagnostics.js';
 import { showSourcesPopup } from './cartographer.js';
@@ -371,7 +372,7 @@ export function loadSettingsUI() {
 
     // AI Search settings
     $('input[name="dle_ai_connection_mode"][value="' + settings.aiSearchConnectionMode + '"]').prop('checked', true);
-    populateProfileDropdown();
+    populateAiProfileDropdown();
     updateAiConnectionVisibility();
     $('#dle_ai_proxy_url').val(settings.aiSearchProxyUrl);
     $('#dle_ai_model').val(settings.aiSearchModel);
@@ -439,9 +440,7 @@ export function loadSettingsUI() {
     $('#dle_autosuggest_model').val(settings.autoSuggestModel);
     $('#dle_autosuggest_max_tokens').val(settings.autoSuggestMaxTokens);
     // Show/hide connection fields based on mode
-    const asMode = settings.autoSuggestConnectionMode;
-    $('#dle_autosuggest_profile_container').toggle(asMode === 'profile');
-    $('#dle_autosuggest_proxy_container').toggle(asMode === 'proxy');
+    updateAutoSuggestConnectionVisibility();
     populateAutoSuggestProfileDropdown();
 
     // Injection Deduplication
@@ -454,6 +453,26 @@ export function loadSettingsUI() {
 
     // Restore advanced section toggle states
     restoreAdvancedSections(settings);
+
+    // Register vault.js → UI notification callback.
+    // When the vault index is rebuilt, vault.js calls notifyIndexUpdated() which
+    // triggers these UI/diagnostic updates — without vault.js importing from settings-ui.js.
+    onIndexUpdated(() => {
+        updateIndexStats();
+
+        // Deferred health check — avoids blocking the pipeline
+        setTimeout(() => {
+            try {
+                const health = runHealthCheck();
+                setLastHealthResult(health);
+                if (health.errors > 0 || health.warnings > 0) {
+                    console.log(`[DLE] Health: ${health.errors} error(s), ${health.warnings} warning(s). Run /dle-health for details.`);
+                }
+            } catch (healthErr) {
+                console.warn('[DLE] Health check error:', healthErr.message);
+            }
+        }, 0);
+    });
 }
 
 // ============================================================================
@@ -474,7 +493,7 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_enabled').on('change', function () {
         settings.enabled = $(this).prop('checked');
         saveSettingsDebounced();
-        setupSyncPolling(buildIndexFn, buildIndexDelta); // Stop/start polling based on enabled state
+        setupSyncPolling(buildIndexFn, buildIndexWithReuse); // Stop/start polling based on enabled state
         $(this).closest('.inline-drawer-content').find('> :not(:first-child)').css('opacity', settings.enabled ? 1 : 0.5);
     });
 
@@ -661,7 +680,7 @@ export function bindSettingsEvents(buildIndexFn) {
         ].filter(e => e !== undefined);
         for (const evt of refreshProfileEvents) {
             eventSource.on(evt, () => {
-                populateProfileDropdown();
+                populateAiProfileDropdown();
                 populateScribeProfileDropdown();
                 populateAutoSuggestProfileDropdown();
             });
@@ -812,7 +831,7 @@ export function bindSettingsEvents(buildIndexFn) {
         const val = Number($(this).val());
         settings.syncPollingInterval = isNaN(val) ? 0 : val;
         saveSettingsDebounced();
-        setupSyncPolling(buildIndexFn, buildIndexDelta);
+        setupSyncPolling(buildIndexFn, buildIndexWithReuse);
     });
 
     $('#dle_show_sync_toasts').on('change', function () {
@@ -848,10 +867,8 @@ export function bindSettingsEvents(buildIndexFn) {
     $('input[name="dle_autosuggest_connection_mode"]').on('change', function () {
         settings.autoSuggestConnectionMode = $(this).val();
         saveSettingsDebounced();
-        const m = settings.autoSuggestConnectionMode;
-        $('#dle_autosuggest_profile_container').toggle(m === 'profile');
-        $('#dle_autosuggest_proxy_container').toggle(m === 'proxy');
-        if (m === 'profile') populateAutoSuggestProfileDropdown();
+        updateAutoSuggestConnectionVisibility();
+        if (settings.autoSuggestConnectionMode === 'profile') populateAutoSuggestProfileDropdown();
     });
 
     $('#dle_autosuggest_profile').on('change', function () {

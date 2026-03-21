@@ -5,30 +5,16 @@ import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { simpleHash } from '../core/utils.js';
 import { getSettings } from '../settings.js';
-import { vaultIndex, lastInjectionSources, vaultAvgTokens } from './state.js';
-
-/** Track previous sources for diff display */
-let previousSources = null;
+import { vaultIndex, lastInjectionSources, vaultAvgTokens, previousSources, setPreviousSources } from './state.js';
+// Re-export from helpers.js (moved there for testability in Node.js)
+export { buildObsidianURI } from './helpers.js';
 
 /**
  * Reset cartographer state on chat change.
  * Clears previousSources so stale diffs don't carry across chats.
  */
 export function resetCartographer() {
-    previousSources = null;
-}
-
-/**
- * Build an obsidian:// URI to open a note in Obsidian.
- * @param {string} vaultName - Name of the Obsidian vault
- * @param {string} filename - File path within the vault
- * @returns {string|null} URI string, or null if vault name not configured
- */
-export function buildObsidianURI(vaultName, filename) {
-    if (!vaultName) return null;
-    const encodedVault = encodeURIComponent(vaultName);
-    const encodedFile = filename.split('/').map(s => encodeURIComponent(s)).join('/');
-    return `obsidian://open?vault=${encodedVault}&file=${encodedFile}`;
+    setPreviousSources(null);
 }
 
 /**
@@ -113,7 +99,7 @@ export function showSourcesPopup(sources) {
     const currTitles = new Set(sources.map(s => s.title));
     const added = prevMap ? sources.filter(s => !prevMap.has(s.title)) : [];
     const removed = prevMap ? previousSources.filter(s => !currTitles.has(s.title)) : [];
-    previousSources = sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy }));
+    setPreviousSources(sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy })));
 
     let html = `<div style="text-align: left;">`;
     html += `<h3>Context Map (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
@@ -158,7 +144,7 @@ export function showSourcesPopup(sources) {
                 ? `<a href="${escapeHtml(uri)}" target="_blank" style="color: var(--SmartThemeQuoteColor, #aac8ff); text-decoration: none;">${escapeHtml(src.title)}</a>`
                 : escapeHtml(src.title);
             const entryId = simpleHash(src.filename + '_ctx');
-            const contentPreview = src.entry ? escapeHtml(src.entry.content.substring(0, 300)) + (src.entry.content.length > 300 ? '...' : '') : '';
+            const rawPreview = src.entry ? src.entry.content.substring(0, 300) + (src.entry.content.length > 300 ? '...' : '') : '';
 
             html += `<div style="margin-bottom: 6px; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px;">`;
             html += `<div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="document.getElementById('dle_ctx_${entryId}').style.display = document.getElementById('dle_ctx_${entryId}').style.display === 'none' ? 'block' : 'none'">`;
@@ -180,15 +166,19 @@ export function showSourcesPopup(sources) {
                 if (src.entry.resolvedLinks?.length > 0) meta.push(`Links: ${src.entry.resolvedLinks.slice(0, 5).join(', ')}`);
 
                 // Highlight matched keywords in content preview
-                let highlighted = contentPreview;
+                // Run regex on raw text BEFORE escaping to avoid matching inside HTML entities
+                let highlighted = rawPreview;
                 if (src.matchedBy && !src.matchedBy.startsWith('(')) {
-                    // Extract the keyword from matchedBy (may have "→ AI:" suffix)
                     const keyword = src.matchedBy.split('→')[0].trim();
                     if (keyword.length >= 2) {
                         const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                        highlighted = highlighted.replace(new RegExp(`(${escaped})`, 'gi'), '<mark style="background: rgba(255,193,7,0.3); padding: 0 2px; border-radius: 2px;">$1</mark>');
+                        // Use a placeholder that won't be escaped, then swap after escapeHtml
+                        highlighted = highlighted.replace(new RegExp(`(${escaped})`, 'gi'), '\x00MARK_START\x00$1\x00MARK_END\x00');
                     }
                 }
+                highlighted = escapeHtml(highlighted)
+                    .replace(/\x00MARK_START\x00/g, '<mark style="background: rgba(255,193,7,0.3); padding: 0 2px; border-radius: 2px;">')
+                    .replace(/\x00MARK_END\x00/g, '</mark>');
 
                 html += `<div id="dle_ctx_${entryId}" style="display: none; margin-top: 6px;">`;
                 if (meta.length > 0) {

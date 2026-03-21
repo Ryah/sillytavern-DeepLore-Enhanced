@@ -524,16 +524,17 @@ The parsed vault index is saved to IndexedDB (`DeepLoreEnhanced` database, `vaul
 
 ---
 
-## Incremental Delta Sync
+## Reuse Sync
 
-When auto-sync triggers, instead of re-fetching all vault files, the extension:
-1. Fetches the file listing from Obsidian (lightweight call)
-2. Compares against the known index
-3. Downloads content only for new files
-4. Removes entries for deleted files
-5. Falls back to full rebuild if the delta approach fails
+When auto-sync triggers, the extension fetches all vault file contents but avoids redundant work:
+1. Fetches all file contents from Obsidian (local fetch is fast)
+2. Computes content hashes and compares against the existing index
+3. Reuses already-parsed entries for unchanged files (skips parse + tokenize)
+4. Re-parses only new or modified files
+5. Removes entries for deleted files
+6. Falls back to full rebuild if the reuse approach fails
 
-Reduces sync overhead significantly for large vaults where only a few files change between syncs.
+The savings come from skipping the expensive parse/tokenize step for unchanged entries, not from reducing network calls.
 
 ---
 

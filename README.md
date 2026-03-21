@@ -23,7 +23,7 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 - **Quick actions bar** -- One-click toolbar in settings for Browse, Health, Graph, Simulate, and more
 - **Fine-grained matching** -- Conditional gating, cooldown/warmup, probability, refine keys, cascade links, per-entry injection overrides
 - **Diagnostic toolkit** -- 30+ health checks, pipeline inspector, activation simulation, "Why Not?" diagnostics, entry browser, relationship graph
-- **Smart caching** -- IndexedDB persistence for instant page loads, incremental delta sync, circuit breaker for Obsidian connection
+- **Smart caching** -- IndexedDB persistence for instant page loads, reuse sync for unchanged entries, circuit breaker for Obsidian connection
 
 See the [Wiki: Features](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Features) for the full list.
 

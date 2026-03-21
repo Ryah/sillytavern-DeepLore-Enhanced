@@ -23,7 +23,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 - **Quick actions bar:** One-click toolbar for common operations in settings
 - **Fine-grained matching:** Conditional gating, cooldown/warmup, probability, refine keys, cascade links, per-entry injection overrides, entry decay & freshness
 - **New chat bootstrapping:** Seed entries and bootstrap injection for early conversations
-- **Smart infrastructure:** IndexedDB persistent cache, incremental delta sync, circuit breaker, prompt cache optimization
+- **Smart infrastructure:** IndexedDB persistent cache, reuse sync (skip re-parse of unchanged entries), circuit breaker, prompt cache optimization
 - **Diagnostic tools:** Analytics, health checks, pipeline inspector, activation simulation, "Why Not?" diagnostics, entry browser, relationship graph
 
 ## Prerequisites

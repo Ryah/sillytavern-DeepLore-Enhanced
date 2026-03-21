@@ -45,9 +45,9 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **Re-injection Cooldown** | `0` | 0-50 | Skip re-injecting an entry for N generations after last injection. 0 = disabled. Constants are exempt. |
 | **Strip Duplicate Injections** | Off | Toggle | Skip re-injecting entries that were already injected in recent generations. Tracked per-chat. Constants are exempt. |
 | **Lookback Depth** | `2` | 1-10 | Number of previous generations to check for already-injected entries (when Strip Duplicate Injections is on). Higher = more aggressive deduplication. |
-| **Unlimited Entries** | On | Toggle | Remove the cap on how many entries can be injected per generation. |
+| **Unlimited Entries** | Off | Toggle | Remove the cap on how many entries can be injected per generation. |
 | **Max Entries** | `10` | 1-100 | Maximum entries to inject (when Unlimited Entries is off). Sorted by priority. |
-| **Unlimited Token Budget** | On | Toggle | Remove the token budget cap. A warning toast appears if injected lore exceeds 20% of context. |
+| **Unlimited Token Budget** | Off | Toggle | Remove the token budget cap. A warning toast appears if injected lore exceeds 20% of context. |
 | **Token Budget** | `2048` | 100-100000 | Maximum total tokens to inject (when Unlimited Token Budget is off). Entries added in priority order until budget is reached. |
 
 ## Injection
@@ -180,7 +180,7 @@ These features work automatically with no configuration:
 
 - **Circuit Breaker:** Obsidian connection uses a circuit breaker pattern (closed/open/half-open) with exponential backoff (2s-15s). Prevents hammering a down server. Resets automatically when a call succeeds.
 - **IndexedDB Persistent Cache:** Parsed vault index is saved to IndexedDB after every successful build. On page load, hydrates instantly from cache, then validates in background. No settings to configure.
-- **Incremental Delta Sync:** Auto-sync fetches only the file listing first, then downloads content only for new files. Falls back to full rebuild automatically.
+- **Reuse Sync:** Auto-sync fetches all file contents but skips re-parsing/tokenizing unchanged entries (detected by content hash). Falls back to full rebuild automatically.
 - **Hierarchical Manifest Clustering:** For vaults with 40+ entries and 4+ categories, automatically uses two-call AI approach for better scaling.
 - **Sliding Window AI Cache:** AI search cache tracks manifest and chat hashes separately for smarter cache reuse.
 - **Confidence-Gated Budget:** AI search over-requests entries (2x), sorts by confidence tier before budget cap.

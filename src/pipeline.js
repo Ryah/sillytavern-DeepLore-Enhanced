@@ -117,7 +117,7 @@ export function matchEntries(chat, snapshot = null) {
         // Active Character Boost: auto-match active character's vault entry
         if (settings.characterContextScan && name2) {
             const nameLower = name2.toLowerCase();
-            const charEntry = titleMap.get(nameLower) || vaultIndex.find(e =>
+            const charEntry = titleMap.get(nameLower) || entries.find(e =>
                 e.keys.some(k => k.toLowerCase() === nameLower)
             );
             if (charEntry && !matchedSet.has(charEntry)) {

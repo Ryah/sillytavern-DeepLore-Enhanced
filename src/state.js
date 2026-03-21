@@ -53,8 +53,14 @@ export let autoSuggestMessageCount = 0;
 /** Entry Decay: title → generations since last injection (reset per chat) */
 export let decayTracker = new Map();
 
+/** Consecutive injection counter: title → consecutive generations injected (reset per chat) */
+export let consecutiveInjections = new Map();
+
 /** Last health check result for settings badge */
 export let lastHealthResult = null;
+
+/** Context Cartographer: previous sources for diff display */
+export let previousSources = null;
 
 /** Average token estimate across all vault entries (computed at index build) */
 export let vaultAvgTokens = 0;
@@ -92,7 +98,9 @@ export function setLastWarningRatio(v) { lastWarningRatio = v; }
 export function setLastPipelineTrace(v) { lastPipelineTrace = v; }
 export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
+export function setConsecutiveInjections(v) { consecutiveInjections = v; }
 export function setLastHealthResult(v) { lastHealthResult = v; }
+export function setPreviousSources(v) { previousSources = v; }
 export function setVaultAvgTokens(v) { vaultAvgTokens = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
 
@@ -116,3 +124,22 @@ export function setEntityNameSet(v) { entityNameSet = v; }
 /** Pre-compiled word-boundary regexes for short entity names (≤3 chars) */
 export let entityShortNameRegexes = new Map();
 export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }
+
+// ── Index lifecycle callbacks ──
+// Registered by the UI layer so the data layer (vault.js) can notify without importing UI modules.
+// This breaks the vault.js → settings-ui.js inverted dependency.
+
+/** @type {Array<() => void>} */
+const indexUpdatedCallbacks = [];
+
+/** Register a callback to run after the vault index is updated (built, delta-synced, or hydrated). */
+export function onIndexUpdated(callback) {
+    indexUpdatedCallbacks.push(callback);
+}
+
+/** Invoke all registered index-updated callbacks. Called by vault.js after index changes. */
+export function notifyIndexUpdated() {
+    for (const cb of indexUpdatedCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] Index update callback error:', err.message); }
+    }
+}

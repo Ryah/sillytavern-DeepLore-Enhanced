@@ -107,8 +107,8 @@ An automatic protection that stops making requests to an Obsidian vault after re
 **IndexedDB Cache**
 Browser-side persistent storage used to cache the vault index. Enables instant page load without waiting for Obsidian — the index is hydrated from cache, then validated in the background.
 
-**Delta Sync**
-An optimization where only changed files are re-fetched from Obsidian instead of the full vault. Reduces sync time for large vaults.
+**Reuse Sync**
+An optimization where all files are fetched from Obsidian, but unchanged entries (detected by content hash) skip re-parsing and tokenization. The savings come from avoiding the expensive parse/tokenize step, not from reducing network calls.
 
 **Cache TTL**
 Time-to-live for the vault index cache, in seconds. After this period, the index is refreshed from Obsidian on the next generation.

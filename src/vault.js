@@ -12,15 +12,94 @@ import {
     aiSearchCache, previousIndexSnapshot, trackerKey,
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
-    setLastHealthResult, setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
+    setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
+    notifyIndexUpdated,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 import { showChangesToast } from './sync.js';
-import { updateIndexStats } from './settings-ui.js';
-import { runHealthCheck } from './diagnostics.js';
 import { saveIndexToCache, loadIndexFromCache } from './cache.js';
+import { dedupError, dedupWarning } from './toast-dedup.js';
+
+/**
+ * Shared post-processing after entries are parsed (used by both buildIndex and buildIndexWithReuse).
+ * Computes derived state, invalidates caches, prunes analytics, persists to IndexedDB,
+ * and notifies the UI layer (stats, health checks) via registered callbacks.
+ *
+ * @param {object} options
+ * @param {Array} options.entries - The parsed VaultEntry array (already set into vaultIndex)
+ * @param {object} options.settings - Current extension settings
+ * @param {boolean} [options.skipCacheSave=false] - If true, skip persisting to IndexedDB (e.g. when a vault fetch failed)
+ */
+async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
+    // Compute vault average token count for Context Map coloring
+    const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
+    setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
+
+    // Resolve wiki-links to confirmed entry titles
+    resolveLinks(vaultIndex);
+
+    // Pre-compute entity name Set for AI cache sliding window check
+    const names = new Set();
+    for (const entry of entries) {
+        if (entry.title.length >= 1) names.add(entry.title.toLowerCase());
+        for (const key of entry.keys) {
+            if (key.length >= 2) names.add(key.toLowerCase());
+        }
+    }
+    setEntityNameSet(names);
+
+    // Pre-compile word-boundary regexes for short entity names (≤3 chars)
+    // Avoids constructing new RegExp objects per-generation in the AI cache sliding window check
+    const shortRegexes = new Map();
+    for (const name of names) {
+        if (name.length <= 3) {
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            shortRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
+        }
+    }
+    setEntityShortNameRegexes(shortRegexes);
+
+    // Invalidate AI search cache on re-index
+    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
+
+    // Vault change detection
+    const newSnapshot = takeIndexSnapshot(vaultIndex);
+    if (previousIndexSnapshot) {
+        const changes = detectChanges(previousIndexSnapshot, newSnapshot);
+        if (changes.hasChanges) {
+            if (settings.showSyncToasts) {
+                showChangesToast(changes);
+            }
+            if (settings.debugMode) {
+                console.log('[DLE] Vault changes detected:', changes);
+            }
+        }
+    }
+    setPreviousIndexSnapshot(newSnapshot);
+
+    setIndexEverLoaded(true);
+
+    // Prune analytics data for entries no longer in the vault
+    const analytics = settings.analyticsData;
+    if (analytics) {
+        const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
+        for (const key of Object.keys(analytics)) {
+            if (!activeKeys.has(key)) delete analytics[key];
+        }
+    }
+
+    // Persist to IndexedDB for instant hydration on next page load
+    if (!skipCacheSave) {
+        saveIndexToCache(entries).catch(() => {});
+    }
+
+    // Notify UI layer (stats display, health check badge, etc.)
+    // Callbacks are registered by settings-ui.js during init — this avoids
+    // the data layer (vault.js) importing from the UI layer (settings-ui.js).
+    notifyIndexUpdated();
+}
 
 /**
  * Build the vault index by fetching all files directly from Obsidian.
@@ -101,84 +180,9 @@ export async function buildIndex() {
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
 
-        // Compute vault average token count for Context Map coloring
-        const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
-        setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
-
-        // Resolve wiki-links to confirmed entry titles
-        resolveLinks(vaultIndex);
-
-        // Pre-compute entity name Set for AI cache sliding window check
-        const names = new Set();
-        for (const entry of entries) {
-            if (entry.title.length >= 1) names.add(entry.title.toLowerCase());
-            for (const key of entry.keys) {
-                if (key.length >= 2) names.add(key.toLowerCase());
-            }
-        }
-        setEntityNameSet(names);
-
-        // Pre-compile word-boundary regexes for short entity names (≤3 chars)
-        // Avoids constructing new RegExp objects per-generation in the AI cache sliding window check
-        const shortRegexes = new Map();
-        for (const name of names) {
-            if (name.length <= 3) {
-                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                shortRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
-            }
-        }
-        setEntityShortNameRegexes(shortRegexes);
-
-        // Invalidate AI search cache on re-index
-        setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
-
-        // Vault change detection
-        const newSnapshot = takeIndexSnapshot(vaultIndex);
-        if (previousIndexSnapshot) {
-            const changes = detectChanges(previousIndexSnapshot, newSnapshot);
-            if (changes.hasChanges) {
-                if (settings.showSyncToasts) {
-                    showChangesToast(changes);
-                }
-                if (settings.debugMode) {
-                    console.log('[DLE] Vault changes detected:', changes);
-                }
-            }
-        }
-        setPreviousIndexSnapshot(newSnapshot);
-
-        setIndexEverLoaded(true);
-
-        // Prune analytics data for entries no longer in the vault
-        const analytics = settings.analyticsData;
-        if (analytics) {
-            const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
-            for (const key of Object.keys(analytics)) {
-                if (!activeKeys.has(key)) delete analytics[key];
-            }
-        }
-
         console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
-        updateIndexStats();
 
-        // Persist to IndexedDB for instant hydration on next page load
-        // Skip if any vault failed to avoid caching incomplete data
-        if (!vaultFetchFailed) {
-            saveIndexToCache(entries).catch(() => {});
-        }
-
-        // Auto health check after index build — deferred to avoid blocking the pipeline
-        setTimeout(() => {
-            try {
-                const health = runHealthCheck();
-                setLastHealthResult(health);
-                if (health.errors > 0 || health.warnings > 0) {
-                    console.log(`[DLE] Health: ${health.errors} error(s), ${health.warnings} warning(s). Run /dle-health for details.`);
-                }
-            } catch (healthErr) {
-                console.warn('[DLE] Health check error:', healthErr.message);
-            }
-        }, 0);
+        await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
     } catch (err) {
         console.error('[DLE] Failed to build index:', err);
         const raw = String(err.message || err);
@@ -192,7 +196,7 @@ export async function buildIndex() {
         } else if (/timeout|timed out/i.test(raw)) {
             userMsg = `Obsidian connection timed out. Check that the REST API plugin is running.\n(${raw})`;
         }
-        toastr.error(userMsg, 'DeepLore Enhanced', { preventDuplicates: true, timeOut: 10000 });
+        dedupError(userMsg, 'obsidian_connect');
     } finally {
         setIndexing(false);
         setBuildPromise(null);
@@ -227,7 +231,7 @@ export async function hydrateFromCache() {
         resolveLinks(vaultIndex);
         // Note: indexEverLoaded is NOT set here — it's set in buildIndex() after
         // a successful Obsidian fetch confirms the vault is reachable.
-        updateIndexStats();
+        notifyIndexUpdated();
 
         console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
 
@@ -239,7 +243,7 @@ export async function hydrateFromCache() {
                 // (not Date.now() which would prevent retries until TTL expires)
                 const s = getSettings();
                 setIndexTimestamp(Date.now() - (s.cacheTTL * 1000) + 30_000); // retry in ~30s
-                toastr.warning('Using cached vault data — Obsidian is unreachable. Reconnect and refresh when ready.', 'DeepLore Enhanced', { timeOut: 10000, preventDuplicates: true });
+                dedupWarning('Using cached vault data — Obsidian is unreachable. Reconnect and refresh when ready.', 'obsidian_connect', { timeOut: 10000 });
             }
         });
 
@@ -251,12 +255,14 @@ export async function hydrateFromCache() {
 }
 
 /**
- * Incremental delta sync: fetch file listing, detect added/removed files,
- * only re-fetch content for new files. Existing entries are preserved.
- * Falls back to full buildIndex if delta detection fails.
- * @returns {Promise<boolean>} True if delta sync was sufficient (no full rebuild needed)
+ * Rebuild vault index with reuse: fetches ALL file contents from every vault,
+ * but skips re-parsing/tokenizing entries whose content hash is unchanged.
+ * Despite fetching everything, this is faster than buildIndex() because
+ * parse + tokenize is the expensive part — not the Obsidian fetch.
+ * Falls back to full buildIndex if detection fails.
+ * @returns {Promise<boolean>} True if rebuild-with-reuse was sufficient (no full rebuild needed)
  */
-export async function buildIndexDelta() {
+export async function buildIndexWithReuse() {
     if (indexing || vaultIndex.length === 0) {
         // If a build is in progress, await it and report that delta didn't run
         if (buildPromise) await buildPromise;
@@ -267,7 +273,7 @@ export async function buildIndexDelta() {
     const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     if (enabledVaults.length === 0) return false;
 
-    // Set indexing flag BEFORE any async work to prevent concurrent delta calls
+    // Set indexing flag BEFORE any async work to prevent concurrent reuse sync calls
     setIndexing(true);
 
     const tagConfig = {
@@ -300,7 +306,7 @@ export async function buildIndexDelta() {
                 // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
                 const data = await fetchAllMdFiles(vault.port, vault.apiKey);
                 if (!data.files || !Array.isArray(data.files)) {
-                    console.warn(`[DLE] Delta: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
+                    console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
                     // Carry forward existing entries for this vault (same as catch block)
                     for (const entry of vaultIndex) {
@@ -348,7 +354,7 @@ export async function buildIndexDelta() {
                     }
                 }
             } catch (vaultErr) {
-                console.warn(`[DLE] Delta sync failed for vault "${vault.name}":`, vaultErr.message);
+                console.warn(`[DLE] Reuse sync failed for vault "${vault.name}":`, vaultErr.message);
                 anyVaultFailed = true;
                 // Carry forward all existing entries for this vault to avoid silent data loss
                 for (const entry of indexSnapshot) {
@@ -369,89 +375,28 @@ export async function buildIndexDelta() {
             }
             setIndexEverLoaded(true);
             if (settings.debugMode) {
-                console.debug(`[DLE] Delta sync: no changes detected${anyVaultFailed ? ' (some vaults failed)' : ''}`);
+                console.debug(`[DLE] Reuse sync: no changes detected${anyVaultFailed ? ' (some vaults failed)' : ''}`);
             }
             return true;
         }
 
         if (settings.debugMode) {
-            console.log(`[DLE] Delta sync: +${newCount} new, ~${modifiedCount} modified, -${removedCount} removed`);
+            console.log(`[DLE] Reuse sync: +${newCount} new, ~${modifiedCount} modified, -${removedCount} removed`);
         }
 
         // Apply changes
         setVaultIndex(allEntries);
         setIndexTimestamp(Date.now());
-        setIndexEverLoaded(true);
-        resolveLinks(vaultIndex);
 
-        // Recompute vault average token count
-        const deltaTotalTokens = allEntries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
-        setVaultAvgTokens(allEntries.length > 0 ? deltaTotalTokens / allEntries.length : 0);
-
-        // Pre-compute entity name Set for AI cache sliding window check
-        const deltaNames = new Set();
-        for (const entry of allEntries) {
-            if (entry.title.length >= 1) deltaNames.add(entry.title.toLowerCase());
-            for (const key of entry.keys) {
-                if (key.length >= 2) deltaNames.add(key.toLowerCase());
-            }
-        }
-        setEntityNameSet(deltaNames);
-
-        // Pre-compile word-boundary regexes for short entity names (≤3 chars)
-        const deltaShortRegexes = new Map();
-        for (const name of deltaNames) {
-            if (name.length <= 3) {
-                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                deltaShortRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
-            }
-        }
-        setEntityShortNameRegexes(deltaShortRegexes);
-
-        setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
-
-        // Prune analytics data for entries no longer in the vault
-        const analytics = settings.analyticsData;
-        if (analytics) {
-            const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
-            for (const key of Object.keys(analytics)) {
-                if (!activeKeys.has(key)) delete analytics[key];
-            }
-        }
-
-        // Change detection
-        const newSnapshot = takeIndexSnapshot(vaultIndex);
-        if (previousIndexSnapshot) {
-            const changes = detectChanges(previousIndexSnapshot, newSnapshot);
-            if (changes.hasChanges && settings.showSyncToasts) {
-                showChangesToast(changes);
-            }
-        }
-        setPreviousIndexSnapshot(newSnapshot);
-
-        updateIndexStats();
-        saveIndexToCache(allEntries).catch(() => {});
-
-        // Defer health check to avoid blocking the pipeline (matches buildIndex behavior)
-        setTimeout(() => {
-            try {
-                const health = runHealthCheck();
-                setLastHealthResult(health);
-                if (health.errors > 0 || health.warnings > 0) {
-                    console.log(`[DLE] Health: ${health.errors} error(s), ${health.warnings} warning(s). Run /dle-health for details.`);
-                }
-            } catch (healthErr) {
-                console.warn('[DLE] Health check error:', healthErr.message);
-            }
-        }, 0);
+        await finalizeIndex({ entries: allEntries, settings });
 
         if (settings.debugMode) {
-            console.log(`[DLE] Delta sync: ${allEntries.length} entries after delta`);
+            console.log(`[DLE] Reuse sync: ${allEntries.length} entries after reuse rebuild`);
         }
 
         return true;
     } catch (err) {
-        console.warn('[DLE] Delta sync error:', err.message);
+        console.warn('[DLE] Reuse sync error:', err.message);
         return false;
     } finally {
         setIndexing(false);

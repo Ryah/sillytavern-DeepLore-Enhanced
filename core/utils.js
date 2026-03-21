@@ -9,7 +9,9 @@
  * @returns {{ frontmatter: object, body: string }}
  */
 export function parseFrontmatter(content) {
-    const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+    // Strip UTF-8 BOM if present — it prevents the ^--- anchor from matching
+    const cleaned = content.charCodeAt(0) === 0xFEFF ? content.slice(1) : content;
+    const match = cleaned.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
     if (!match) {
         return { frontmatter: {}, body: content };
     }
@@ -25,8 +27,9 @@ export function parseFrontmatter(content) {
         const trimmed = line.trimEnd();
 
         // Block scalar continuation: accumulate indented lines after | or >
+        // End the block if the line looks like a YAML key (even if indented by 1 space)
         if (blockScalar) {
-            if (line.match(/^\s/) || trimmed === '') {
+            if ((line.match(/^\s/) && !trimmed.match(/^\w[\w.-]*\s*:/)) || trimmed === '') {
                 blockScalar.lines.push(trimmed === '' ? '' : trimmed);
                 continue;
             } else {
@@ -39,8 +42,8 @@ export function parseFrontmatter(content) {
         }
 
         // Array item: "  - value"
-        if (/^\s+-\s+/.test(trimmed) && currentKey) {
-            let value = trimmed.replace(/^\s+-\s+/, '').trim();
+        if (/^\s*-\s+/.test(trimmed) && currentKey) {
+            let value = trimmed.replace(/^\s*-\s+/, '').trim();
             // Strip surrounding quotes if present (same as scalar values)
             value = value.replace(/^['"]|['"]$/g, '');
             if (!currentArray) {
@@ -107,6 +110,8 @@ export function parseFrontmatter(content) {
                 frontmatter[currentKey] = true;
             } else if (rawValue === 'false') {
                 frontmatter[currentKey] = false;
+            } else if (rawValue === 'null' || rawValue === '~') {
+                frontmatter[currentKey] = null;
             } else if (/^-?(\d+\.?\d*|\.\d+)$/.test(rawValue)) {
                 frontmatter[currentKey] = Number(rawValue);
             } else {
@@ -296,6 +301,20 @@ function clampWithLog(obj, key, min, max, label) {
  * @param {object} settings - Settings object to validate in-place
  * @param {object} constraints - Map of setting key to { min, max, label }
  */
+/**
+ * Escape a string for safe use as a YAML value.
+ * Wraps in double quotes if the string contains special YAML characters,
+ * leading/trailing whitespace, or control characters (newline, return, tab).
+ * @param {string} str
+ * @returns {string}
+ */
+export function yamlEscape(str) {
+    if (/[:#\[\]{}&*!|>'"%@`\n\r\t]/.test(str) || str.trim() !== str) {
+        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+    }
+    return str;
+}
+
 export function validateSettings(settings, constraints) {
     for (const [key, { min, max, label }] of Object.entries(constraints)) {
         if (typeof settings[key] === 'number') {

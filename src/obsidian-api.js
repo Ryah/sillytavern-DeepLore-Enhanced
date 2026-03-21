@@ -76,7 +76,7 @@ function recordFailure(port) {
     if (cb.failures >= cb.maxFailures) {
         // Only reset openedAt on fresh closed→open transition (not half-open→open re-entry)
         // to preserve exponential backoff progression
-        if (!wasOpen) cb.openedAt = Date.now();
+        if (cb.state === 'closed') cb.openedAt = Date.now();
         cb.state = 'open';
     }
 }
@@ -119,7 +119,7 @@ export function encodeVaultPath(vaultPath) {
  * @returns {string} Normalized filename
  * @throws {Error} If path traversal is detected
  */
-function validateVaultPath(filename) {
+export function validateVaultPath(filename) {
     const normalized = filename.replace(/\\/g, '/');
     const segments = normalized.split('/');
     if (normalized.startsWith('/') || segments.some(s => s === '..' || s === '.')) {
@@ -253,7 +253,10 @@ export async function testConnection(port, apiKey) {
         // Bypass circuit breaker for explicit user-initiated test (reset circuit on success)
         const cb = getCircuitBreaker(port);
         const wasOpen = cb.state === 'open';
-        if (wasOpen) cb.state = 'half-open'; // Allow the test through
+        if (wasOpen) {
+            cb.state = 'half-open'; // Allow the test through
+            cb.halfOpenProbe = true; // Prevent concurrent auto-probes
+        }
         const result = await obsidianFetch({ port, apiKey: apiKey || '', path: '/vault/', timeout: 10000 });
         if (result.status === 200) {
             return { ok: true, authenticated: true };
@@ -312,61 +315,6 @@ export async function fetchAllMdFiles(port, apiKey) {
     }
 
     return { files: results, total: mdFiles.length, failed };
-}
-
-/**
- * Fetch only new or changed .md files from the vault (incremental delta sync).
- * Compares file listing against known filenames; only fetches content for new files.
- * Returns the full file list for removal detection + fetched content for new files.
- * @param {number} port
- * @param {string} apiKey
- * @param {Set<string>} knownFiles - Filenames already in the index
- * @returns {Promise<{allMdFiles: string[], newFiles: Array<{filename: string, content: string}>, failed: number}>}
- */
-export async function fetchMdFilesDelta(port, apiKey, knownFiles) {
-    const allFiles = await listAllFiles(port, apiKey);
-    const allMdFiles = allFiles.filter(f => f.endsWith('.md'));
-
-    // Only fetch content for files not in our existing index
-    const newFilenames = allMdFiles.filter(f => !knownFiles.has(f));
-
-    if (newFilenames.length === 0) {
-        return { allMdFiles, newFiles: [], failed: 0 };
-    }
-
-    const BATCH_SIZE = 10;
-    const results = [];
-    let failed = 0;
-
-    for (let i = 0; i < newFilenames.length; i += BATCH_SIZE) {
-        const batch = newFilenames.slice(i, i + BATCH_SIZE);
-        const batchSettled = await Promise.allSettled(
-            batch.map(async (filename) => {
-                try {
-                    const result = await obsidianFetch({
-                        port,
-                        apiKey,
-                        path: `/vault/${encodeVaultPath(filename)}`,
-                        accept: 'text/markdown',
-                    });
-                    if (result.status === 200) {
-                        return { filename, content: result.data };
-                    }
-                    failed++;
-                    return null;
-                } catch {
-                    failed++;
-                    return null;
-                }
-            }),
-        );
-        for (const r of batchSettled) {
-            if (r.status === 'fulfilled' && r.value) results.push(r.value);
-            else if (r.status === 'rejected') { failed++; console.warn(`[DeepLore] Batch file fetch rejected: ${r.reason?.message || r.reason}`); }
-        }
-    }
-
-    return { allMdFiles, newFiles: results, failed };
 }
 
 /**

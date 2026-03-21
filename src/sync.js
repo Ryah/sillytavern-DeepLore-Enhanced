@@ -43,12 +43,12 @@ export function showChangesToast(changes) {
 
 /**
  * Set up or tear down periodic vault sync polling.
- * Uses delta sync when possible (lightweight file listing check),
- * falling back to full rebuild if delta sync fails.
+ * Uses reuse sync when possible (fetch all, skip re-parse of unchanged),
+ * falling back to full rebuild if reuse sync fails.
  * @param {Function} [buildIndexFn] - The buildIndex function
- * @param {Function} [buildIndexDeltaFn] - The buildIndexDelta function (optional)
+ * @param {Function} [buildIndexWithReuseFn] - The buildIndexWithReuse function (optional)
  */
-export function setupSyncPolling(buildIndexFn, buildIndexDeltaFn) {
+export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
     const settings = getSettings();
 
     if (syncIntervalId) {
@@ -84,9 +84,9 @@ export function setupSyncPolling(buildIndexFn, buildIndexDeltaFn) {
                 }
 
                 try {
-                    // Try delta sync first (lightweight), fall back to full rebuild
-                    if (buildIndexDeltaFn) {
-                        const deltaOk = await buildIndexDeltaFn();
+                    // Try reuse sync first (skip re-parse of unchanged), fall back to full rebuild
+                    if (buildIndexWithReuseFn) {
+                        const deltaOk = await buildIndexWithReuseFn();
                         if (deltaOk) { scheduleNext(); return; }
                     }
                     await buildIndexFn();

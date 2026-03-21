@@ -24,7 +24,7 @@ import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache } f
 import {
     vaultIndex, indexEverLoaded, indexing,
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
-    cooldownTracker, generationCount, injectionHistory,
+    cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
     lastWarningRatio, decayTracker, chatEpoch,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
@@ -32,13 +32,14 @@ import {
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress,
 } from './src/state.js';
-import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexDelta } from './src/vault.js';
+import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault.js';
 import { runPipeline } from './src/pipeline.js';
 import { setupSyncPolling } from './src/sync.js';
 import { runScribe } from './src/scribe.js';
 import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/cartographer.js';
 import { loadSettingsUI, bindSettingsEvents } from './src/settings-ui.js';
 import { registerSlashCommands } from './src/commands.js';
+import { dedupError, dedupWarning } from './src/toast-dedup.js';
 
 // ============================================================================
 // Generation Interceptor
@@ -106,7 +107,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (timeoutErr) {
             console.warn(`[DLE] ${timeoutErr.message} — proceeding with stale data`);
             if (vaultIndex.length === 0) {
-                toastr.warning('Obsidian connection timed out and no cached data available. Check that Obsidian is running with the REST API plugin.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+                dedupWarning('Obsidian connection timed out and no cached data available. Check that Obsidian is running with the REST API plugin.', 'obsidian_connect');
                 return;
             }
         }
@@ -116,9 +117,9 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         if (vaultSnapshot.length === 0) {
             if (!indexEverLoaded) {
-                toastr.warning(
+                dedupWarning(
                     'No vault entries loaded. Possible causes: (1) No notes tagged with your lorebook tag, (2) Obsidian connection failed, (3) Wrong tag name in settings. Run /dle-health for diagnostics.',
-                    'DeepLore Enhanced', { timeOut: 10000, preventDuplicates: true },
+                    'obsidian_connect', { timeOut: 10000 },
                 );
             }
             if (settings.debugMode) {
@@ -154,7 +155,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             else if (/5\d\d|502|503|server/i.test(aiErr)) fallbackMsg += ' (server error — try again later)';
             else if (aiErr) fallbackMsg += ` (${aiErr.slice(0, 80)})`;
             console.warn('[DLE] AI search error:', aiErr);
-            toastr.warning(`${fallbackMsg} — using keyword fallback`, 'DeepLore Enhanced', { timeOut: 6000, preventDuplicates: true });
+            dedupWarning(`${fallbackMsg} — using keyword fallback`, 'ai_search', { timeOut: 6000 });
         }
 
         if (settings.debugMode && trace) {
@@ -342,7 +343,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
-        toastr.error('Lore injection failed — check console for details.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+        dedupError('Lore injection failed — check console for details.', 'pipeline');
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
@@ -350,7 +351,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         try {
             if (pipelineRan && epoch === chatEpoch && lockEpoch === generationLockEpoch) {
                 setGenerationCount(generationCount + 1);
-                decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings);
+                decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings, consecutiveInjections);
             }
         } catch (trackingErr) {
             console.error('[DLE] Error in generation tracking:', trackingErr);
@@ -386,7 +387,7 @@ jQuery(async function () {
         loadSettingsUI();
         bindSettingsEvents(buildIndex);
         registerSlashCommands();
-        setupSyncPolling(buildIndex, buildIndexDelta);
+        setupSyncPolling(buildIndex, buildIndexWithReuse);
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.
         // Content is written directly to PM entries at generation time (not via setExtensionPrompt),
@@ -505,6 +506,7 @@ jQuery(async function () {
             injectionHistory.clear();
             cooldownTracker.clear();
             decayTracker.clear();
+            consecutiveInjections.clear();
             setGenerationCount(0);
             setLastWarningRatio(0);
             setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });

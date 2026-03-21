@@ -13,10 +13,12 @@ import { writeNote } from './obsidian-api.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import { buildAiChatContext } from '../core/utils.js';
 import { callViaProfile } from './ai.js';
+import { stripObsidianSyntax } from './helpers.js';
 import {
     scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
     setScribeInProgress, setLastScribeSummary, setLastScribeChatLength,
 } from './state.js';
+import { dedupError } from './toast-dedup.js';
 
 export const DEFAULT_SCRIBE_PROMPT = `Summarize this roleplay session segment. Write in past tense, third person.
 
@@ -126,8 +128,8 @@ export async function runScribe(customPrompt) {
             return;
         }
 
-        // Sanitize AI output: strip bare YAML frontmatter delimiters to prevent parsing breakage
-        const sanitizedSummary = summary.replace(/^---$/gm, '- - -');
+        // Sanitize AI output: strip Obsidian-interpretable syntax and bare YAML delimiters
+        const sanitizedSummary = stripObsidianSyntax(summary).replace(/^---$/gm, '- - -');
 
         // Build filename and content
         const now = new Date();
@@ -167,11 +169,11 @@ export async function runScribe(customPrompt) {
             saveChatDebounced();
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
         } else {
-            toastr.error(`Failed to save session note: ${data.error}`, 'DeepLore Enhanced');
+            dedupError(`Failed to save session note: ${data.error}`, 'scribe');
         }
     } catch (err) {
         console.error('[DLE] Session Scribe error:', err);
-        toastr.error(`Scribe error: ${err.message}`, 'DeepLore Enhanced');
+        dedupError(`Scribe error: ${err.message}`, 'scribe');
     } finally {
         setScribeInProgress(false);
     }

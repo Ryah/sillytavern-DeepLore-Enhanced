@@ -9,72 +9,13 @@ import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
-    trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, generationCount, injectionHistory,
+    trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
 } from './state.js';
 import { updateAiStats } from './settings-ui.js';
+// Re-export pure functions from helpers.js (moved there for testability in Node.js)
+export { extractAiResponseClient, clusterEntries, buildCategoryManifest } from './helpers.js';
 
-/**
- * Extract AI response JSON from text (handles direct JSON, markdown code fences, raw arrays).
- * Uses non-greedy regex and tries last match first.
- * @param {string} text - Raw AI response text
- * @returns {Array} Parsed JSON array of results
- */
-export function extractAiResponseClient(text) {
-    if (!text || typeof text !== 'string') return null;
-
-    /** Validate that a parsed value is a usable results array (strings or objects with title/name). */
-    function isValidResultArray(val) {
-        if (!Array.isArray(val)) return false;
-        if (val.length === 0) return true; // valid empty response (AI says nothing relevant)
-        const first = val[0];
-        return typeof first === 'string'
-            || (typeof first === 'object' && first !== null && (first.title || first.name));
-    }
-
-    // Try direct JSON parse
-    try {
-        const parsed = JSON.parse(text);
-        if (isValidResultArray(parsed)) return parsed;
-    } catch { /* noop */ }
-    // Try markdown code fence
-    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenceMatch) {
-        try {
-            const parsed = JSON.parse(fenceMatch[1]);
-            if (isValidResultArray(parsed)) return parsed;
-        } catch { /* noop */ }
-    }
-    // Find bracket-balanced JSON arrays, prefer last (largest) match
-    // Non-greedy regex fails on nested arrays like ["a", ["b"]] — use bracket counting instead
-    const candidates = [];
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] === '[') {
-            let depth = 1, inStr = false, escape = false;
-            for (let j = i + 1; j < text.length && depth > 0; j++) {
-                const c = text[j];
-                if (escape) { escape = false; continue; }
-                if (c === '\\') { escape = true; continue; }
-                if (c === '"') { inStr = !inStr; continue; }
-                if (inStr) continue;
-                if (c === '[') depth++;
-                else if (c === ']') depth--;
-                if (depth === 0) {
-                    candidates.push(text.substring(i, j + 1));
-                    break;
-                }
-            }
-        }
-    }
-    // Try largest candidates first (outer arrays before inner)
-    candidates.sort((a, b) => b.length - a.length);
-    for (const candidate of candidates) {
-        try {
-            const parsed = JSON.parse(candidate);
-            if (isValidResultArray(parsed)) return parsed;
-        } catch { /* noop */ }
-    }
-    return null;
-}
+// extractAiResponseClient — imported from ./helpers.js
 
 /**
  * Get the model name from the selected Connection Manager profile.
@@ -166,14 +107,16 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
 }
 
 /**
- * Populate the profile dropdown with saved Connection Manager profiles.
+ * Populate a profile dropdown with saved Connection Manager profiles.
+ * @param {string} selectElementId - DOM id of the <select> element
+ * @param {string} settingsKey - Settings property holding the current profile ID
  */
-export function populateProfileDropdown() {
-    const select = document.getElementById('dle_ai_profile_select');
+export function populateProfileDropdown(selectElementId, settingsKey) {
+    const select = document.getElementById(selectElementId);
     if (!select) return;
 
     const settings = getSettings();
-    const currentId = settings.aiSearchProfileId;
+    const currentId = settings[settingsKey];
 
     select.innerHTML = '<option value="">— Select a profile —</option>';
     try {
@@ -195,111 +138,103 @@ export function populateProfileDropdown() {
 }
 
 /**
- * Update the visibility of AI search connection fields based on selected mode.
+ * Update visibility of connection fields based on connection mode.
+ *
+ * @param {object} config
+ * @param {string} config.modeSettingsKey - Settings key for the connection mode value
+ * @param {string} config.profileRowSelector - jQuery selector for the profile row
+ * @param {string} config.proxyRowSelector - jQuery selector for the proxy row
+ * @param {string} [config.modelInputSelector] - jQuery selector for the model input (for placeholder updates)
+ * @param {string} [config.profileIdSettingsKey] - Settings key for the profile ID (for model hint lookup)
+ * @param {string[]} [config.externalOnlySelectors] - jQuery selectors to show only when mode is profile or proxy (not 'st')
+ * @param {boolean} [config.hasStMode=false] - Whether this feature supports an 'st' mode (3-way: st/profile/proxy)
  */
-export function updateAiConnectionVisibility() {
+export function updateConnectionVisibility(config) {
     const settings = getSettings();
-    const isProfile = settings.aiSearchConnectionMode === 'profile';
-    $('#dle_ai_profile_row').toggle(isProfile);
-    $('#dle_ai_proxy_row').toggle(!isProfile);
-
-    // Update model placeholder based on mode
-    const modelInput = $('#dle_ai_model');
-    if (isProfile) {
-        const hint = getProfileModelHint();
-        modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
-    } else {
-        modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
-    }
-}
-
-/**
- * Populate the Scribe profile dropdown with saved Connection Manager profiles.
- */
-export function populateScribeProfileDropdown() {
-    const select = document.getElementById('dle_scribe_profile_select');
-    if (!select) return;
-
-    const settings = getSettings();
-    const currentId = settings.scribeProfileId;
-
-    select.innerHTML = '<option value="">— Select a profile —</option>';
-    try {
-        const profiles = ConnectionManagerRequestService.getSupportedProfiles();
-        for (const p of profiles) {
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = `${p.name} (${p.api}${p.model ? ' / ' + p.model : ''})`;
-            if (p.id === currentId) opt.selected = true;
-            select.appendChild(opt);
-        }
-    } catch {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'Connection Manager not available';
-        opt.disabled = true;
-        select.appendChild(opt);
-    }
-}
-
-/**
- * Populate the Auto Lorebook profile dropdown with saved Connection Manager profiles.
- */
-export function populateAutoSuggestProfileDropdown() {
-    const select = document.getElementById('dle_autosuggest_profile');
-    if (!select) return;
-
-    const settings = getSettings();
-    const currentId = settings.autoSuggestProfileId;
-
-    select.innerHTML = '<option value="">— Select a profile —</option>';
-    try {
-        const profiles = ConnectionManagerRequestService.getSupportedProfiles();
-        for (const p of profiles) {
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = `${p.name} (${p.api}${p.model ? ' / ' + p.model : ''})`;
-            if (p.id === currentId) opt.selected = true;
-            select.appendChild(opt);
-        }
-    } catch {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'Connection Manager not available';
-        opt.disabled = true;
-        select.appendChild(opt);
-    }
-}
-
-/**
- * Update the visibility of Scribe connection fields based on selected mode.
- */
-export function updateScribeConnectionVisibility() {
-    const settings = getSettings();
-    const mode = settings.scribeConnectionMode || 'st';
+    const mode = settings[config.modeSettingsKey] || (config.hasStMode ? 'st' : 'profile');
     const isProfile = mode === 'profile';
     const isProxy = mode === 'proxy';
-    const isExternal = isProfile || isProxy;
 
-    $('#dle_scribe_profile_row').toggle(isProfile);
-    $('#dle_scribe_proxy_row').toggle(isProxy);
-    $('#dle_scribe_model_row').toggle(isExternal);
-    $('#dle_scribe_advanced_row').toggle(isExternal);
+    $(config.profileRowSelector).toggle(isProfile);
+    $(config.proxyRowSelector).toggle(isProxy);
+
+    // Show/hide rows that only apply to external (non-ST) modes
+    if (config.externalOnlySelectors) {
+        const isExternal = isProfile || isProxy;
+        for (const sel of config.externalOnlySelectors) {
+            $(sel).toggle(isExternal);
+        }
+    }
 
     // Update model placeholder based on mode
-    const modelInput = $('#dle_scribe_model');
-    if (isProfile) {
-        let hint = '';
-        try {
-            if (settings.scribeProfileId) {
-                const profile = ConnectionManagerRequestService.getProfile(settings.scribeProfileId);
-                hint = profile.model || '';
+    if (config.modelInputSelector) {
+        const modelInput = $(config.modelInputSelector);
+        if (isProfile) {
+            let hint = '';
+            if (config.profileIdSettingsKey) {
+                try {
+                    const profileId = settings[config.profileIdSettingsKey];
+                    if (profileId) {
+                        const profile = ConnectionManagerRequestService.getProfile(profileId);
+                        hint = profile.model || '';
+                    }
+                } catch { /* noop */ }
             }
-        } catch { /* noop */ }
-        modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
-    } else if (isProxy) {
-        modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
+            modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
+        } else if (isProxy) {
+            modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
+        }
     }
+}
+
+// ── Convenience wrappers (preserve call-site readability) ──
+
+/** Populate the AI Search profile dropdown. */
+export function populateAiProfileDropdown() {
+    populateProfileDropdown('dle_ai_profile_select', 'aiSearchProfileId');
+}
+
+/** Populate the Session Scribe profile dropdown. */
+export function populateScribeProfileDropdown() {
+    populateProfileDropdown('dle_scribe_profile_select', 'scribeProfileId');
+}
+
+/** Populate the Auto Lorebook profile dropdown. */
+export function populateAutoSuggestProfileDropdown() {
+    populateProfileDropdown('dle_autosuggest_profile', 'autoSuggestProfileId');
+}
+
+/** Update AI Search connection field visibility. */
+export function updateAiConnectionVisibility() {
+    updateConnectionVisibility({
+        modeSettingsKey: 'aiSearchConnectionMode',
+        profileRowSelector: '#dle_ai_profile_row',
+        proxyRowSelector: '#dle_ai_proxy_row',
+        modelInputSelector: '#dle_ai_model',
+        profileIdSettingsKey: 'aiSearchProfileId',
+    });
+}
+
+/** Update Session Scribe connection field visibility. */
+export function updateScribeConnectionVisibility() {
+    updateConnectionVisibility({
+        modeSettingsKey: 'scribeConnectionMode',
+        profileRowSelector: '#dle_scribe_profile_row',
+        proxyRowSelector: '#dle_scribe_proxy_row',
+        modelInputSelector: '#dle_scribe_model',
+        profileIdSettingsKey: 'scribeProfileId',
+        externalOnlySelectors: ['#dle_scribe_model_row', '#dle_scribe_advanced_row'],
+        hasStMode: true,
+    });
+}
+
+/** Update Auto Lorebook connection field visibility. */
+export function updateAutoSuggestConnectionVisibility() {
+    updateConnectionVisibility({
+        modeSettingsKey: 'autoSuggestConnectionMode',
+        profileRowSelector: '#dle_autosuggest_profile_container',
+        proxyRowSelector: '#dle_autosuggest_proxy_container',
+    });
 }
 
 /**
@@ -333,17 +268,10 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                     decayHint = ' [STALE — consider refreshing]';
                 }
                 // Penalty: entries injected many consecutive times get a nudge.
-                // Note: injectionHistory only tracks last-injected gen, not consecutive streak count.
-                // As a conservative proxy, require the chat to be mature (2x threshold) before applying.
-                // TODO: Track per-entry consecutive injection counter for proper streak detection.
                 if (!decayHint && settings.decayPenaltyThreshold > 0) {
-                    const entryStaleness = decayTracker.get(trackerKey(entry));
-                    if (entryStaleness !== undefined && entryStaleness === 0) {
-                        const lastGen = injectionHistory.get(trackerKey(entry));
-                        if (lastGen !== undefined && (generationCount - lastGen) <= 1
-                            && generationCount >= settings.decayPenaltyThreshold * 2) {
-                            decayHint = ' [FREQUENT — consider diversifying]';
-                        }
+                    const streak = consecutiveInjections.get(trackerKey(entry));
+                    if (streak !== undefined && streak >= settings.decayPenaltyThreshold) {
+                        decayHint = ' [FREQUENT — consider diversifying]';
                     }
                 }
             }
@@ -372,41 +300,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
     return { manifest, header };
 }
 
-/**
- * Cluster entries by type/tag for hierarchical manifest (large vaults).
- * @param {VaultEntry[]} entries - Selectable entries (non-constant)
- * @returns {Map<string, VaultEntry[]>} Category name → entries in that category
- */
-export function clusterEntries(entries) {
-    const clusters = new Map();
-    for (const entry of entries) {
-        // Use first meaningful tag, or type frontmatter field, or 'Uncategorized'
-        let category = 'Uncategorized';
-        if (entry.tags && entry.tags.length > 0) {
-            // Use the most specific tag (first non-generic tag)
-            category = entry.tags[0];
-        }
-        if (!clusters.has(category)) clusters.set(category, []);
-        clusters.get(category).push(entry);
-    }
-    return clusters;
-}
-
-/**
- * Build a compact category manifest for the first stage of hierarchical search.
- * Lists category names with entry count and sample titles.
- * @param {Map<string, VaultEntry[]>} clusters
- * @returns {string}
- */
-export function buildCategoryManifest(clusters) {
-    const lines = [];
-    for (const [category, entries] of clusters) {
-        const samples = entries.slice(0, 5).map(e => e.title).join(', ');
-        const more = entries.length > 5 ? ` (+${entries.length - 5} more)` : '';
-        lines.push(`[${category}] (${entries.length} entries): ${samples}${more}`);
-    }
-    return lines.join('\n');
-}
+// clusterEntries, buildCategoryManifest — imported from ./helpers.js
 
 /** Threshold for enabling hierarchical two-call search */
 const HIERARCHICAL_THRESHOLD = 40;

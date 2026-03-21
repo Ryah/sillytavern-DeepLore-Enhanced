@@ -10,7 +10,7 @@ onGenerate(chat)
   ├─ hydrateFromCache()               On first load: instant hydration from IndexedDB
   │
   ├─ ensureIndexFresh()               Refresh from Obsidian if cache expired
-  │    └─ buildIndexDelta()             Try incremental sync first, fall back to full
+  │    └─ buildIndexWithReuse()          Fetch all, skip re-parse of unchanged, fall back to full
   │
   ├─ runPipeline(chat)                Core matching pipeline
   │    ├─ matchEntries(chat)            Stage 1: Keyword scan (broad pre-filter)
@@ -97,7 +97,7 @@ No API calls, no latency. Good for simple setups or when you want full control v
 On first page load, the extension attempts to load the vault index from IndexedDB (browser-side persistent cache). If found, the index is available immediately — no Obsidian call needed. A background validation against Obsidian runs to ensure the cache is still fresh.
 
 ### Index Refresh
-Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL). If expired, it first tries **incremental delta sync** (fetch file listing, download only new files, remove deleted entries). If delta sync fails, it falls back to a full re-fetch of all `#lorebook` entries from Obsidian's Local REST API. The Obsidian connection uses a **circuit breaker** (closed/open/half-open with 2s-15s exponential backoff) to avoid hammering a down server. After a successful build, the index is saved to IndexedDB.
+Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL). If expired, it first tries **reuse sync** (fetch all files, but skip re-parsing/tokenizing entries whose content hash is unchanged). If reuse sync fails, it falls back to a full rebuild of all `#lorebook` entries from Obsidian's Local REST API. The Obsidian connection uses a **circuit breaker** (closed/open/half-open with 2s-15s exponential backoff) to avoid hammering a down server. After a successful build, the index is saved to IndexedDB.
 
 ### Keyword Matching
 1. **Build scan text**: Concatenate the last N messages (Scan Depth setting, default 4)

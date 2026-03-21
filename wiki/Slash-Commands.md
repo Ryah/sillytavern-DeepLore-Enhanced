@@ -88,7 +88,7 @@ Show all session notes from the configured scribe folder in a browsable popup.
 
 ---
 
-### `/dle-newlore`
+### `/dle-newlore` (alias: `/dle-suggest`)
 AI analyzes the current chat for characters, locations, items, concepts, or events that are mentioned but don't have an existing lorebook entry, then suggests new entries.
 
 **Shows:**
@@ -100,6 +100,7 @@ AI analyzes the current chat for characters, locations, items, concepts, or even
 - Works on-demand without needing Auto Lorebook enabled
 - Filters out entries that already exist (case-insensitive)
 - Uses the Auto Lorebook connection settings (SillyTavern, Profile, or Proxy)
+- `/dle-suggest` is a backwards-compatible alias for this command
 
 ---
 
@@ -257,7 +258,7 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-review [question]` | Send vault to AI for review |
 | `/dle-scribe [focus]` | Write session note to Obsidian |
 | `/dle-scribe-history` | View all session notes |
-| `/dle-newlore` | AI suggests new lorebook entries |
+| `/dle-newlore` (`/dle-suggest`) | AI suggests new lorebook entries |
 | `/dle-optimize-keys <name>` | AI optimizes entry keywords |
 | `/dle-simulate` | Replay chat showing entry activation |
 | `/dle-graph` | Visualize entry relationships |

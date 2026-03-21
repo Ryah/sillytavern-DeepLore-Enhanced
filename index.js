@@ -97,6 +97,12 @@ async function onGenerate(chat, contextSize, abort, type) {
                 if (pmEntry) pmEntry.content = '';
             }
         }
+        // On first generation after hydration, clear stale dedup logs
+        // (cached _contentHash values may not match current Obsidian content)
+        if (!indexEverLoaded && vaultIndex.length > 0 && chat_metadata?.deeplore_injection_log?.length > 0) {
+            chat_metadata.deeplore_injection_log = [];
+        }
+
         // Ensure index is fresh (with timeout to prevent indefinite hangs)
         const INDEX_TIMEOUT_MS = 60_000;
         try {
@@ -131,7 +137,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         // From here on, generation tracking must run even if no entries match
         pipelineRan = true;
 
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot);
+        // Contextual gating context: passed to both pipeline (pre-filter) and post-pipeline stages
+        const ctx = chat_metadata.deeplore_context || {};
+
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx);
 
         // Build ExemptionPolicy: single source of truth for what skips all gating
         const pins = chat_metadata.deeplore_pins || [];
@@ -142,7 +151,6 @@ async function onGenerate(chat, contextSize, abort, type) {
         let finalEntries = applyPinBlock(pipelineEntries, vaultSnapshot, policy, matchedKeys);
 
         // Stage 2: Contextual gating (era, location, scene, character)
-        const ctx = chat_metadata.deeplore_context || {};
         finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode);
 
         if (trace?.aiFallback) {
@@ -216,6 +224,11 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         if (groups.length > 0) {
+            // Bail if chat changed during pipeline — lore belongs to the old chat
+            if (epoch !== chatEpoch) {
+                console.warn('[DLE] Chat changed during pipeline — discarding results');
+                return;
+            }
             // Bail if this pipeline was superseded by a force-released stale lock
             if (lockEpoch !== generationLockEpoch) {
                 console.warn('[DLE] Pipeline superseded by newer generation (lock epoch mismatch) — discarding results');
@@ -388,6 +401,42 @@ jQuery(async function () {
         bindSettingsEvents(buildIndex);
         registerSlashCommands();
         setupSyncPolling(buildIndex, buildIndexWithReuse);
+
+        // First-run detection: if no vaults configured and setup not dismissed, show toast
+        const firstRunSettings = getSettings();
+        const hasEnabledVaults = (firstRunSettings.vaults || []).some(v => v.enabled);
+        if (!hasEnabledVaults && !firstRunSettings._setupDismissed) {
+            // Delay slightly so the UI is fully loaded before showing the toast
+            setTimeout(() => {
+                let setupLaunched = false;
+                toastr.info(
+                    'Welcome to DeepLore Enhanced! Click here to run the setup wizard, or close this to set up later via /dle-setup.',
+                    'DeepLore Enhanced — First Run',
+                    {
+                        timeOut: 0,
+                        extendedTimeOut: 0,
+                        closeButton: true,
+                        tapToDismiss: false,
+                        onclick: () => {
+                            setupLaunched = true;
+                            // Use SillyTavern's executeSlashCommands to trigger /dle-setup
+                            const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+                            if (ctx?.executeSlashCommands) {
+                                ctx.executeSlashCommands('/dle-setup');
+                            }
+                        },
+                        onHidden: () => {
+                            // Mark setup as dismissed so we don't nag on every reload
+                            if (!setupLaunched) {
+                                firstRunSettings._setupDismissed = true;
+                                invalidateSettingsCache();
+                                saveSettingsDebounced();
+                            }
+                        },
+                    },
+                );
+            }, 2000);
+        }
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.
         // Content is written directly to PM entries at generation time (not via setExtensionPrompt),

@@ -11,7 +11,7 @@
 export function parseFrontmatter(content) {
     // Strip UTF-8 BOM if present — it prevents the ^--- anchor from matching
     const cleaned = content.charCodeAt(0) === 0xFEFF ? content.slice(1) : content;
-    const match = cleaned.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+    const match = cleaned.match(/^---\r?\n([\s\S]*?)\r?\n---[ \t]*\r?\n?([\s\S]*)$/);
     if (!match) {
         return { frontmatter: {}, body: content };
     }
@@ -27,9 +27,10 @@ export function parseFrontmatter(content) {
         const trimmed = line.trimEnd();
 
         // Block scalar continuation: accumulate indented lines after | or >
-        // End the block if the line looks like a YAML key (even if indented by 1 space)
+        // In YAML, block scalars continue as long as lines are indented or empty.
+        // They end when indentation returns to column 0 (a real YAML key).
         if (blockScalar) {
-            if ((line.match(/^\s/) && !trimmed.match(/^\w[\w.-]*\s*:/)) || trimmed === '') {
+            if (line.match(/^\s/) || trimmed === '') {
                 blockScalar.lines.push(trimmed === '' ? '' : trimmed);
                 continue;
             } else {

@@ -22,7 +22,7 @@ import { trackerKey } from './state.js';
 export function buildExemptionPolicy(vaultSnapshot, pins, blocks) {
     const forceInject = new Set();
     for (const entry of vaultSnapshot) {
-        if (entry.constant || entry.bootstrap) forceInject.add(entry.title);
+        if (entry.constant) forceInject.add(entry.title);
     }
     // Pins are treated as constants with priority 10 — add them to forceInject
     for (const title of pins) forceInject.add(title);
@@ -56,17 +56,19 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
     // Add pinned entries not already in results
     if (policy.pins.size > 0) {
         const pinLower = new Set([...policy.pins].map(t => t.toLowerCase()));
+        const resultTitles = new Set(result.map(e => e.title.toLowerCase()));
         for (const entry of vaultSnapshot) {
             if (pinLower.has(entry.title.toLowerCase())) {
-                if (!result.includes(entry)) {
+                if (!resultTitles.has(entry.title.toLowerCase())) {
                     // Create shallow copy with pin overrides to avoid mutating shared objects
                     const pinned = { ...entry, constant: true, priority: 10 };
                     result.push(pinned);
+                    resultTitles.add(entry.title.toLowerCase());
                     matchedKeys.set(entry.title, '(pinned)');
                 } else {
                     // Entry already matched — replace with pinned copy
-                    const idx = result.indexOf(entry);
-                    result[idx] = { ...entry, constant: true, priority: 10 };
+                    const idx = result.findIndex(e => e.title.toLowerCase() === entry.title.toLowerCase());
+                    if (idx !== -1) result[idx] = { ...entry, constant: true, priority: 10 };
                 }
             }
         }
@@ -206,31 +208,36 @@ export function applyRequiresExcludesGating(entries, policy, debugMode) {
     let iterations = 0;
     const MAX_ITERATIONS = 10;
 
+    let activeTitles = new Set(result.map(e => e.title.toLowerCase()));
+
     while (changed && iterations < MAX_ITERATIONS) {
         changed = false;
         iterations++;
-        const activeTitles = new Set(result.map(e => e.title.toLowerCase()));
 
-        result = result.filter(entry => {
+        const nextResult = [];
+        for (const entry of result) {
             // ForceInject entries skip requires/excludes gating entirely
-            if (policy.forceInject.has(entry.title)) return true;
+            if (policy.forceInject.has(entry.title)) { nextResult.push(entry); continue; }
 
             if (entry.requires && entry.requires.length > 0) {
                 const allPresent = entry.requires.every(r => activeTitles.has(r.toLowerCase()));
                 if (!allPresent) {
                     changed = true;
-                    return false;
+                    activeTitles.delete(entry.title.toLowerCase());
+                    continue;
                 }
             }
             if (entry.excludes && entry.excludes.length > 0) {
                 const anyPresent = entry.excludes.some(r => activeTitles.has(r.toLowerCase()));
                 if (anyPresent) {
                     changed = true;
-                    return false;
+                    activeTitles.delete(entry.title.toLowerCase());
+                    continue;
                 }
             }
-            return true;
-        });
+            nextResult.push(entry);
+        }
+        result = nextResult;
     }
 
     // Detect contradictory gating for debugging
@@ -358,9 +365,11 @@ export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries
         }
     }
 
+    // Compute injectedKeys once (shared by decay and consecutive tracking)
+    const injectedKeys = new Set(injectedEntries.map(e => trackerKey(e)));
+
     // Entry decay/freshness tracking
     if (settings.decayEnabled) {
-        const injectedKeys = new Set(injectedEntries.map(e => trackerKey(e)));
         for (const entry of injectedEntries) {
             decayTracker.set(trackerKey(entry), 0);
         }
@@ -374,16 +383,17 @@ export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries
                 }
             }
         }
+    }
 
-        // Consecutive injection counter: increment for injected, reset for not injected
-        if (consecutiveInjections) {
-            for (const entry of injectedEntries) {
-                const tk = trackerKey(entry);
-                consecutiveInjections.set(tk, (consecutiveInjections.get(tk) || 0) + 1);
-            }
-            for (const [tk] of consecutiveInjections) {
-                if (!injectedKeys.has(tk)) consecutiveInjections.delete(tk);
-            }
+    // Consecutive injection counter — tracked independently of decay
+    // (used by AI manifest builder for [FREQUENT] hints)
+    if (consecutiveInjections) {
+        for (const entry of injectedEntries) {
+            const tk = trackerKey(entry);
+            consecutiveInjections.set(tk, (consecutiveInjections.get(tk) || 0) + 1);
+        }
+        for (const [tk] of consecutiveInjections) {
+            if (!injectedKeys.has(tk)) consecutiveInjections.delete(tk);
         }
     }
 }

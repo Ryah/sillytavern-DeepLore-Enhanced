@@ -125,6 +125,38 @@ export function setEntityNameSet(v) { entityNameSet = v; }
 export let entityShortNameRegexes = new Map();
 export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }
 
+/** BM25 fuzzy search index: { idf: Map<term, number>, docs: Map<title, {tf: Map<term, number>, len: number}>, avgDl: number } */
+export let fuzzySearchIndex = null;
+export function setFuzzySearchIndex(v) { fuzzySearchIndex = v; }
+
+// ── AI service circuit breaker ──
+// Prevents repeated full-timeout waits when AI services are down.
+// Mirrors the per-vault Obsidian circuit breaker pattern.
+export let aiCircuitOpen = false;
+export let aiCircuitFailures = 0;
+export let aiCircuitOpenedAt = 0;
+const AI_CIRCUIT_THRESHOLD = 2;      // consecutive failures to trip
+const AI_CIRCUIT_COOLDOWN = 30_000;  // ms before half-open probe
+
+export function recordAiFailure() {
+    aiCircuitFailures++;
+    if (aiCircuitFailures >= AI_CIRCUIT_THRESHOLD) {
+        aiCircuitOpen = true;
+        aiCircuitOpenedAt = Date.now();
+    }
+}
+export function recordAiSuccess() {
+    aiCircuitFailures = 0;
+    aiCircuitOpen = false;
+    aiCircuitOpenedAt = 0;
+}
+export function isAiCircuitOpen() {
+    if (!aiCircuitOpen) return false;
+    // Half-open: allow a probe after cooldown
+    if (Date.now() - aiCircuitOpenedAt > AI_CIRCUIT_COOLDOWN) return false;
+    return true;
+}
+
 // ── Index lifecycle callbacks ──
 // Registered by the UI layer so the data layer (vault.js) can notify without importing UI modules.
 // This breaks the vault.js → settings-ui.js inverted dependency.
@@ -137,9 +169,33 @@ export function onIndexUpdated(callback) {
     indexUpdatedCallbacks.push(callback);
 }
 
+/** Clear all registered index-updated callbacks (call before re-registering to prevent accumulation). */
+export function clearIndexUpdatedCallbacks() { indexUpdatedCallbacks.length = 0; }
+
 /** Invoke all registered index-updated callbacks. Called by vault.js after index changes. */
 export function notifyIndexUpdated() {
     for (const cb of indexUpdatedCallbacks) {
         try { cb(); } catch (err) { console.warn('[DLE] Index update callback error:', err.message); }
+    }
+}
+
+// ── AI stats lifecycle callbacks ──
+// Same observer pattern: breaks the ai.js → settings-ui.js circular dependency.
+
+/** @type {Array<() => void>} */
+const aiStatsCallbacks = [];
+
+/** Register a callback to run when AI search stats are updated. */
+export function onAiStatsUpdated(callback) {
+    aiStatsCallbacks.push(callback);
+}
+
+/** Clear all registered AI stats callbacks (call before re-registering to prevent accumulation). */
+export function clearAiStatsCallbacks() { aiStatsCallbacks.length = 0; }
+
+/** Invoke all registered AI stats callbacks. Called by ai.js after stats change. */
+export function notifyAiStatsUpdated() {
+    for (const cb of aiStatsCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] AI stats callback error:', err.message); }
     }
 }

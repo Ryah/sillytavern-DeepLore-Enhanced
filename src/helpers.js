@@ -27,6 +27,12 @@ export function stripObsidianSyntax(text) {
     result = result.replace(/`=\s[^`]*`/g, '');
     // Strip dataview/dataviewjs code blocks
     result = result.replace(/```(?:dataview|dataviewjs)\s*\n[\s\S]*?```/gi, '');
+    // Strip obsidian:// protocol links that could trigger vault actions
+    result = result.replace(/\[([^\]]*)\]\(obsidian:\/\/[^)]*\)/g, '$1');
+    // Strip Buttons plugin syntax
+    result = result.replace(/```button\s*\n[\s\S]*?```/gi, '');
+    // Strip CustomJS blocks
+    result = result.replace(/```customjs\s*\n[\s\S]*?```/gi, '');
     return result;
 }
 
@@ -93,6 +99,28 @@ export function extractAiResponseClient(text) {
         } catch { /* noop */ }
     }
     return null;
+}
+
+/**
+ * Normalize AI search results to a consistent format.
+ * Handles string items, objects with title/name, and mixed arrays.
+ * @param {Array} arr - Raw parsed AI response array
+ * @returns {Array<{title: string, confidence: string, reason: string}>}
+ */
+export function normalizeResults(arr) {
+    return arr.map(item => {
+        if (typeof item === 'string') {
+            return { title: item, confidence: 'medium', reason: 'AI search' };
+        }
+        if (typeof item === 'object' && item !== null && (item.title || item.name)) {
+            return {
+                title: item.title || item.name || '',
+                confidence: ['high', 'medium', 'low'].includes(item.confidence) ? item.confidence : 'medium',
+                reason: typeof item.reason === 'string' ? item.reason : 'AI search',
+            };
+        }
+        return { title: String(item), confidence: 'medium', reason: 'AI search' };
+    });
 }
 
 // ── Hierarchical Clustering ──
@@ -223,4 +251,91 @@ export function convertWiEntry(wiEntry, lorebookTag) {
     const fullContent = `${fm.join('\n')}\n\n# ${title}\n\n${content}`;
 
     return { filename: `${safeTitle}.md`, content: fullContent };
+}
+
+// ── Health Check Pure Functions ──
+
+/**
+ * Portable health check for vault entries. Runs the same detection logic as
+ * runHealthCheck() in diagnostics.js but takes explicit parameters instead of
+ * reading global state, making it importable and testable in Node.js.
+ *
+ * Tests a subset (8 per-entry checks + 2 aggregate checks) of the production
+ * function's 30+ checks. The production function calls these same checks.
+ *
+ * @param {Array} vaultIndex - All parsed VaultEntry objects
+ * @param {object} [settings] - Settings object (for budget checks)
+ * @returns {Array<{type: string, entry: string, [target]: string, [ref]: string, [tokens]: number}>}
+ */
+export function checkHealthPure(vaultIndex, settings = {}) {
+    const issues = [];
+    const allTitles = new Set(vaultIndex.map(e => e.title));
+    const titleCounts = new Map();
+
+    for (const entry of vaultIndex) {
+        titleCounts.set(entry.title, (titleCounts.get(entry.title) || 0) + 1);
+
+        // Circular requires
+        for (const req of entry.requires) {
+            const target = vaultIndex.find(e => e.title.toLowerCase() === req.toLowerCase());
+            if (target && target.requires.some(r => r.toLowerCase() === entry.title.toLowerCase())) {
+                if (entry.title < target.title) {
+                    issues.push({ type: 'circular_requires', entry: entry.title, target: target.title });
+                }
+            }
+        }
+
+        // Requires AND excludes same title
+        for (const req of entry.requires) {
+            if (entry.excludes.some(exc => exc.toLowerCase() === req.toLowerCase())) {
+                issues.push({ type: 'requires_excludes_conflict', entry: entry.title, ref: req });
+            }
+        }
+
+        // Orphaned cascade_links
+        if (entry.cascadeLinks) {
+            for (const cl of entry.cascadeLinks) {
+                if (!allTitles.has(cl)) {
+                    issues.push({ type: 'orphaned_cascade', entry: entry.title, ref: cl });
+                }
+            }
+        }
+
+        // Cooldown on constant
+        if (entry.constant && entry.cooldown !== null) {
+            issues.push({ type: 'cooldown_on_constant', entry: entry.title });
+        }
+
+        // Depth override without in_chat
+        if (entry.injectionDepth !== null && entry.injectionPosition !== 1) {
+            issues.push({ type: 'depth_without_inchat', entry: entry.title });
+        }
+
+        // Empty content
+        if (!entry.content || !entry.content.trim()) {
+            issues.push({ type: 'empty_content', entry: entry.title });
+        }
+
+        // Probability zero
+        if (entry.probability === 0) {
+            issues.push({ type: 'probability_zero', entry: entry.title });
+        }
+    }
+
+    // Duplicate titles
+    for (const [title, count] of titleCounts) {
+        if (count > 1) {
+            issues.push({ type: 'duplicate_title', entry: title });
+        }
+    }
+
+    // Constants exceeding budget
+    if (settings.maxTokensBudget && !settings.unlimitedBudget) {
+        const constantTokens = vaultIndex.filter(e => e.constant).reduce((s, e) => s + e.tokenEstimate, 0);
+        if (constantTokens > settings.maxTokensBudget) {
+            issues.push({ type: 'constants_over_budget', tokens: constantTokens });
+        }
+    }
+
+    return issues;
 }

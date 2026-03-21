@@ -5,6 +5,7 @@ import {
     saveSettingsDebounced,
     chat,
 } from '../../../../../script.js';
+import { ConnectionManagerRequestService } from '../../../shared.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { eventSource, event_types } from '../../../../events.js';
@@ -18,14 +19,12 @@ import {
     injectionHistory, generationCount, lastHealthResult,
     lastInjectionSources, lastPipelineTrace, trackerKey,
     setVaultIndex, setIndexTimestamp, setLastHealthResult,
-    onIndexUpdated,
+    onIndexUpdated, onAiStatsUpdated,
+    clearIndexUpdatedCallbacks, clearAiStatsCallbacks,
 } from './state.js';
 import { ensureIndexFresh, getMaxResponseTokens } from './vault.js';
 import {
     callViaProfile, getProfileModelHint,
-    populateAiProfileDropdown, updateAiConnectionVisibility,
-    populateScribeProfileDropdown, updateScribeConnectionVisibility,
-    populateAutoSuggestProfileDropdown, updateAutoSuggestConnectionVisibility,
     buildCandidateManifest,
 } from './ai.js';
 import { matchEntries, runPipeline } from './pipeline.js';
@@ -34,6 +33,141 @@ import { buildIndexWithReuse } from './vault.js';
 import { showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup } from './popups.js';
 import { diagnoseEntry, runHealthCheck } from './diagnostics.js';
 import { showSourcesPopup } from './cartographer.js';
+
+// ============================================================================
+// Connection UI Helpers (moved from ai.js)
+// ============================================================================
+
+/**
+ * Populate a profile dropdown with saved Connection Manager profiles.
+ * @param {string} selectElementId - DOM id of the <select> element
+ * @param {string} settingsKey - Settings property holding the current profile ID
+ */
+export function populateProfileDropdown(selectElementId, settingsKey) {
+    const select = document.getElementById(selectElementId);
+    if (!select) return;
+
+    const settings = getSettings();
+    const currentId = settings[settingsKey];
+
+    select.innerHTML = '<option value="">— Select a profile —</option>';
+    try {
+        const profiles = ConnectionManagerRequestService.getSupportedProfiles();
+        for (const p of profiles) {
+            const opt = document.createElement('option');
+            opt.value = p.id;
+            opt.textContent = `${p.name} (${p.api}${p.model ? ' / ' + p.model : ''})`;
+            if (p.id === currentId) opt.selected = true;
+            select.appendChild(opt);
+        }
+    } catch {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'Connection Manager not available';
+        opt.disabled = true;
+        select.appendChild(opt);
+    }
+}
+
+/**
+ * Update visibility of connection fields based on connection mode.
+ *
+ * @param {object} config
+ * @param {string} config.modeSettingsKey - Settings key for the connection mode value
+ * @param {string} config.profileRowSelector - jQuery selector for the profile row
+ * @param {string} config.proxyRowSelector - jQuery selector for the proxy row
+ * @param {string} [config.modelInputSelector] - jQuery selector for the model input (for placeholder updates)
+ * @param {string} [config.profileIdSettingsKey] - Settings key for the profile ID (for model hint lookup)
+ * @param {string[]} [config.externalOnlySelectors] - jQuery selectors to show only when mode is profile or proxy (not 'st')
+ * @param {boolean} [config.hasStMode=false] - Whether this feature supports an 'st' mode (3-way: st/profile/proxy)
+ */
+export function updateConnectionVisibility(config) {
+    const settings = getSettings();
+    const mode = settings[config.modeSettingsKey] || (config.hasStMode ? 'st' : 'profile');
+    const isProfile = mode === 'profile';
+    const isProxy = mode === 'proxy';
+
+    $(config.profileRowSelector).toggle(isProfile);
+    $(config.proxyRowSelector).toggle(isProxy);
+
+    // Show/hide rows that only apply to external (non-ST) modes
+    if (config.externalOnlySelectors) {
+        const isExternal = isProfile || isProxy;
+        for (const sel of config.externalOnlySelectors) {
+            $(sel).toggle(isExternal);
+        }
+    }
+
+    // Update model placeholder based on mode
+    if (config.modelInputSelector) {
+        const modelInput = $(config.modelInputSelector);
+        if (isProfile) {
+            let hint = '';
+            if (config.profileIdSettingsKey) {
+                try {
+                    const profileId = settings[config.profileIdSettingsKey];
+                    if (profileId) {
+                        const profile = ConnectionManagerRequestService.getProfile(profileId);
+                        hint = profile.model || '';
+                    }
+                } catch { /* noop */ }
+            }
+            modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
+        } else if (isProxy) {
+            modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
+        }
+    }
+}
+
+// ── Convenience wrappers (preserve call-site readability) ──
+
+/** Populate the AI Search profile dropdown. */
+export function populateAiProfileDropdown() {
+    populateProfileDropdown('dle_ai_profile_select', 'aiSearchProfileId');
+}
+
+/** Populate the Session Scribe profile dropdown. */
+export function populateScribeProfileDropdown() {
+    populateProfileDropdown('dle_scribe_profile_select', 'scribeProfileId');
+}
+
+/** Populate the Auto Lorebook profile dropdown. */
+export function populateAutoSuggestProfileDropdown() {
+    populateProfileDropdown('dle_autosuggest_profile', 'autoSuggestProfileId');
+}
+
+/** Update AI Search connection field visibility. */
+export function updateAiConnectionVisibility() {
+    updateConnectionVisibility({
+        modeSettingsKey: 'aiSearchConnectionMode',
+        profileRowSelector: '#dle_ai_profile_row',
+        proxyRowSelector: '#dle_ai_proxy_row',
+        modelInputSelector: '#dle_ai_model',
+        profileIdSettingsKey: 'aiSearchProfileId',
+    });
+}
+
+/** Update Session Scribe connection field visibility. */
+export function updateScribeConnectionVisibility() {
+    updateConnectionVisibility({
+        modeSettingsKey: 'scribeConnectionMode',
+        profileRowSelector: '#dle_scribe_profile_row',
+        proxyRowSelector: '#dle_scribe_proxy_row',
+        modelInputSelector: '#dle_scribe_model',
+        profileIdSettingsKey: 'scribeProfileId',
+        externalOnlySelectors: ['#dle_scribe_model_row', '#dle_scribe_advanced_row'],
+        hasStMode: true,
+    });
+}
+
+/** Update Auto Lorebook connection field visibility. */
+export function updateAutoSuggestConnectionVisibility() {
+    updateConnectionVisibility({
+        modeSettingsKey: 'autoSuggestConnectionMode',
+        profileRowSelector: '#dle_autosuggest_profile_container',
+        proxyRowSelector: '#dle_autosuggest_proxy_container',
+    });
+}
 
 // ============================================================================
 // Vault List UI
@@ -326,6 +460,10 @@ function restoreAdvancedSections(settings) {
 // ============================================================================
 
 export function loadSettingsUI() {
+    // Clear previous callbacks to prevent accumulation on repeated init
+    clearIndexUpdatedCallbacks();
+    clearAiStatsCallbacks();
+
     const settings = getSettings();
 
     $('#dle_enabled').prop('checked', settings.enabled);
@@ -363,6 +501,7 @@ export function loadSettingsUI() {
     $('#dle_case_sensitive').prop('checked', settings.caseSensitive);
     $('#dle_match_whole_words').prop('checked', settings.matchWholeWords);
     $('#dle_char_context_scan').prop('checked', settings.characterContextScan);
+    $('#dle_fuzzy_search').prop('checked', settings.fuzzySearchEnabled);
     $('#dle_debug').prop('checked', settings.debugMode);
 
     // Search Mode dropdown (replaces separate AI enable + mode radios)
@@ -472,6 +611,13 @@ export function loadSettingsUI() {
                 console.warn('[DLE] Health check error:', healthErr.message);
             }
         }, 0);
+    });
+
+    // Register ai.js → UI notification callback.
+    // When AI search stats change, ai.js calls notifyAiStatsUpdated() which
+    // triggers the DOM update — without ai.js importing from settings-ui.js.
+    onAiStatsUpdated(() => {
+        updateAiStats();
     });
 }
 
@@ -640,6 +786,14 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_char_context_scan').on('change', function () {
         settings.characterContextScan = $(this).is(':checked');
         saveSettingsDebounced();
+    });
+
+    $('#dle_fuzzy_search').on('change', function () {
+        settings.fuzzySearchEnabled = $(this).is(':checked');
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+        // Rebuild index to construct/clear the BM25 index
+        if (typeof buildIndexFn === 'function') buildIndexFn();
     });
 
     $('#dle_debug').on('change', function () {
@@ -1494,7 +1648,7 @@ export function bindSettingsEvents(buildIndexFn) {
                         ai_rejected: '#2196f3', budget_cut: '#ff9800',
                     };
                     const stageColor = stageColors[diagnosis.stage] || '#999';
-                    html += `<li style="cursor: pointer; margin-bottom: 4px;" onclick="document.getElementById('dle_diag_${diagId}').style.display = document.getElementById('dle_diag_${diagId}').style.display === 'none' ? 'block' : 'none'">`;
+                    html += `<li class="dle_diag_toggle" data-target="dle_diag_${diagId}" style="cursor: pointer; margin-bottom: 4px;">`;
                     html += `${escapeHtml(entry.title)} — keys: ${escapeHtml(entry.keys.join(', '))}${escapeHtml(probInfo)}`;
                     html += `<div id="dle_diag_${diagId}" style="display: none; margin-top: 4px; padding: 6px; background: var(--SmartThemeBlurTintColor, #1a1a2e); border-radius: 4px; border-left: 3px solid ${stageColor};">`;
                     html += `<strong style="color: ${stageColor};">${escapeHtml(diagnosis.stage.replace(/_/g, ' '))}</strong>: ${escapeHtml(diagnosis.detail)}`;
@@ -1525,7 +1679,17 @@ export function bindSettingsEvents(buildIndexFn) {
 
             html += `</div>`;
 
-            callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+            const popupContainer = document.createElement('div');
+            popupContainer.innerHTML = html;
+            popupContainer.addEventListener('click', (e) => {
+                const toggle = e.target.closest('.dle_diag_toggle');
+                if (!toggle) return;
+                const targetId = toggle.dataset.target;
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+            });
+
+            callGenericPopup(popupContainer, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
         } catch (err) {
             console.error('[DLE] Test Match error:', err);
             toastr.error(String(err), 'DeepLore Enhanced');

@@ -15,7 +15,7 @@ import { parseVaultFile, clearPrompts } from './core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from './core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry } from './src/helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure } from './src/helpers.js';
 import { encodeVaultPath, validateVaultPath } from './src/obsidian-api.js';
 
 // normalizeResults is a test-only utility (inlined in aiSearch() in production)
@@ -202,6 +202,37 @@ test('parseFrontmatter: position, depth, role fields', () => {
     assertEqual(result.frontmatter.position, 'before', 'should parse position string');
     assertEqual(result.frontmatter.depth, 2, 'should parse depth number');
     assertEqual(result.frontmatter.role, 'user', 'should parse role string');
+});
+
+test('parseFrontmatter: trailing whitespace on closing delimiter', () => {
+    const input = '---\ntitle: Foo\n---   \nBody text here';
+    const result = parseFrontmatter(input);
+    assertEqual(result.frontmatter.title, 'Foo', 'should parse despite trailing spaces on ---');
+    assertEqual(result.body, 'Body text here', 'body should be correct');
+});
+
+test('parseFrontmatter: trailing tab on closing delimiter', () => {
+    const input = '---\ntitle: Bar\n---\t\nBody';
+    const result = parseFrontmatter(input);
+    assertEqual(result.frontmatter.title, 'Bar', 'should parse despite trailing tab on ---');
+});
+
+test('parseFrontmatter: block scalar with colons in content', () => {
+    const input = '---\nsummary: |\n  Known for: charisma and power.\n  Role: leader of the council.\nnext_key: value\n---\nBody';
+    const result = parseFrontmatter(input);
+    assert(result.frontmatter.summary.includes('Known for: charisma'), 'colon line should be part of summary');
+    assert(result.frontmatter.summary.includes('Role: leader'), 'second colon line should be part of summary');
+    assertEqual(result.frontmatter.next_key, 'value', 'key after block scalar should parse');
+});
+
+test('parseFrontmatter: block scalar with multiple indented colon lines', () => {
+    const input = '---\nsummary: >\n  weakness: arrogance\n  habitat: forests\n  status: active\ntags:\n  - lorebook\n---\nBody';
+    const result = parseFrontmatter(input);
+    assert(result.frontmatter.summary.includes('weakness: arrogance'), 'first colon line preserved');
+    assert(result.frontmatter.summary.includes('habitat: forests'), 'second colon line preserved');
+    assert(result.frontmatter.summary.includes('status: active'), 'third colon line preserved');
+    assert(Array.isArray(result.frontmatter.tags), 'tags array should parse after block scalar');
+    assertEqual(result.frontmatter.tags[0], 'lorebook', 'tag value correct');
 });
 
 // ============================================================================
@@ -1031,85 +1062,8 @@ test('normalizeResults: empty array', () => {
 // Tests: runHealthCheck detection patterns (mirrors index.js logic)
 // ============================================================================
 
-/**
- * Portable health check for testing detection patterns.
- * NOTE: This is intentionally a parameterized shadow of src/diagnostics.js::runHealthCheck()
- * because the production function reads global state and cannot be imported in Node.js.
- * Tests a subset (8 checks) of the production function's 30+ checks.
- * Keep in sync when modifying detection patterns in diagnostics.js.
- */
-function testHealthCheck(vaultIndex, settings = {}) {
-    const issues = [];
-    const allTitles = new Set(vaultIndex.map(e => e.title));
-    const titleCounts = new Map();
-
-    for (const entry of vaultIndex) {
-        titleCounts.set(entry.title, (titleCounts.get(entry.title) || 0) + 1);
-
-        // Circular requires
-        for (const req of entry.requires) {
-            const target = vaultIndex.find(e => e.title.toLowerCase() === req.toLowerCase());
-            if (target && target.requires.some(r => r.toLowerCase() === entry.title.toLowerCase())) {
-                if (entry.title < target.title) {
-                    issues.push({ type: 'circular_requires', entry: entry.title, target: target.title });
-                }
-            }
-        }
-
-        // Requires AND excludes same title
-        for (const req of entry.requires) {
-            if (entry.excludes.some(exc => exc.toLowerCase() === req.toLowerCase())) {
-                issues.push({ type: 'requires_excludes_conflict', entry: entry.title, ref: req });
-            }
-        }
-
-        // Orphaned cascade_links
-        if (entry.cascadeLinks) {
-            for (const cl of entry.cascadeLinks) {
-                if (!allTitles.has(cl)) {
-                    issues.push({ type: 'orphaned_cascade', entry: entry.title, ref: cl });
-                }
-            }
-        }
-
-        // Cooldown on constant
-        if (entry.constant && entry.cooldown !== null) {
-            issues.push({ type: 'cooldown_on_constant', entry: entry.title });
-        }
-
-        // Depth override without in_chat
-        if (entry.injectionDepth !== null && entry.injectionPosition !== 1) {
-            issues.push({ type: 'depth_without_inchat', entry: entry.title });
-        }
-
-        // Empty content
-        if (!entry.content || !entry.content.trim()) {
-            issues.push({ type: 'empty_content', entry: entry.title });
-        }
-
-        // Probability zero
-        if (entry.probability === 0) {
-            issues.push({ type: 'probability_zero', entry: entry.title });
-        }
-    }
-
-    // Duplicate titles
-    for (const [title, count] of titleCounts) {
-        if (count > 1) {
-            issues.push({ type: 'duplicate_title', entry: title });
-        }
-    }
-
-    // Constants exceeding budget
-    if (settings.maxTokensBudget && !settings.unlimitedBudget) {
-        const constantTokens = vaultIndex.filter(e => e.constant).reduce((s, e) => s + e.tokenEstimate, 0);
-        if (constantTokens > settings.maxTokensBudget) {
-            issues.push({ type: 'constants_over_budget', tokens: constantTokens });
-        }
-    }
-
-    return issues;
-}
+// Use production health check from helpers.js (replaces shadow reimplementation)
+const testHealthCheck = checkHealthPure;
 
 test('health: circular requires detection', () => {
     const index = [
@@ -1626,10 +1580,10 @@ test('buildExemptionPolicy: pins are in forceInject', () => {
     assert(!policy.forceInject.has('B'), 'non-pinned B should NOT be in forceInject');
 });
 
-test('buildExemptionPolicy: bootstrap entries are in forceInject', () => {
+test('buildExemptionPolicy: bootstrap entries are NOT in forceInject (fixed: bootstrap only force-injects on short chats via pipeline)', () => {
     const vault = [makeEntry('Boot', { bootstrap: true }), makeEntry('Normal')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(policy.forceInject.has('Boot'), 'bootstrap should be in forceInject');
+    assert(!policy.forceInject.has('Boot'), 'bootstrap should NOT be in forceInject (gating handled by pipeline)');
     assert(!policy.forceInject.has('Normal'), 'normal should NOT be in forceInject');
 });
 
@@ -2166,6 +2120,217 @@ test('integration: constant entry with unmet requires survives (NEW behavior)', 
     const { result } = applyRequiresExcludesGating(vault, policy, false);
     assertEqual(result.length, 1, 'constant entry survives unmet requires');
     assertEqual(result[0].title, 'Lore', 'Lore kept as forceInject');
+});
+
+// ============================================================================
+// stripObsidianSyntax tests (Item 7)
+// ============================================================================
+
+test('stripObsidianSyntax: strips Templater expressions', () => {
+    assertEqual(stripObsidianSyntax('Hello {{tp.date.now()}} world'), 'Hello  world');
+    assertEqual(stripObsidianSyntax('Before {{multi\nline}} after'), 'Before  after');
+});
+
+test('stripObsidianSyntax: strips Templater alternative syntax', () => {
+    assertEqual(stripObsidianSyntax('Hello <% tp.file.title %> world'), 'Hello  world');
+});
+
+test('stripObsidianSyntax: strips Obsidian comments', () => {
+    assertEqual(stripObsidianSyntax('Before %%hidden comment%% after'), 'Before  after');
+    assertEqual(stripObsidianSyntax('Before %%multi\nline%% after'), 'Before  after');
+});
+
+test('stripObsidianSyntax: strips dataview inline queries', () => {
+    assertEqual(stripObsidianSyntax('Value is `= this.field` here'), 'Value is  here');
+});
+
+test('stripObsidianSyntax: strips dataview code blocks', () => {
+    const input = 'Before\n```dataview\nTABLE file.name FROM "folder"\n```\nAfter';
+    assertEqual(stripObsidianSyntax(input), 'Before\n\nAfter');
+});
+
+test('stripObsidianSyntax: handles null/empty/non-string', () => {
+    assertEqual(stripObsidianSyntax(null), '');
+    assertEqual(stripObsidianSyntax(''), '');
+    assertEqual(stripObsidianSyntax(undefined), '');
+    assertEqual(stripObsidianSyntax('plain text'), 'plain text');
+});
+
+test('stripObsidianSyntax: strips obsidian:// URI links', () => {
+    const input = 'See [open vault](obsidian://open?vault=test&file=note) for details.';
+    const result = stripObsidianSyntax(input);
+    assert(!result.includes('obsidian://'), 'obsidian:// URI should be stripped');
+    assert(result.includes('open vault'), 'link text should be preserved');
+});
+
+test('stripObsidianSyntax: strips Buttons plugin blocks', () => {
+    const input = 'Before\n```button\nname Click Me\ntype command\n```\nAfter';
+    const result = stripObsidianSyntax(input);
+    assert(!result.includes('button'), 'button block should be stripped');
+    assert(result.includes('Before') && result.includes('After'), 'surrounding text preserved');
+});
+
+test('stripObsidianSyntax: strips CustomJS blocks', () => {
+    const input = 'Before\n```customjs\nconst x = 1;\n```\nAfter';
+    const result = stripObsidianSyntax(input);
+    assert(!result.includes('customjs'), 'customjs block should be stripped');
+    assert(result.includes('Before') && result.includes('After'), 'surrounding text preserved');
+});
+
+// ============================================================================
+// normalizeResults tests (Item 10 — testing production-equivalent logic)
+// ============================================================================
+
+test('normalizeResults: string items get default confidence/reason', () => {
+    const result = normalizeResults(['Eris', 'Kael']);
+    assertEqual(result[0].title, 'Eris');
+    assertEqual(result[0].confidence, 'medium');
+    assertEqual(result[0].reason, 'AI search');
+});
+
+test('normalizeResults: object items preserve fields', () => {
+    const result = normalizeResults([{ title: 'Eris', confidence: 'high', reason: 'directly mentioned' }]);
+    assertEqual(result[0].confidence, 'high');
+    assertEqual(result[0].reason, 'directly mentioned');
+});
+
+test('normalizeResults: invalid confidence defaults to medium', () => {
+    const result = normalizeResults([{ title: 'Eris', confidence: 'extreme', reason: 'test' }]);
+    assertEqual(result[0].confidence, 'medium');
+});
+
+// ============================================================================
+// Tests: Integration — multi-stage pipeline chains
+// ============================================================================
+
+test('integration: budget interaction with gating — gated entry frees budget for lower-priority', () => {
+    // A (constant, 400tok), B (requires C, 400tok), C (regular, 200tok), D (regular, 300tok)
+    // Budget: 900tok. If B survives gating: A(400)+B(400)+C(200)=1000 > 900, D cut.
+    // If B is gated: A(400)+C(200)+D(300)=900 fits.
+    const vault = [
+        makeEntry('A', { constant: true, tokenEstimate: 400, priority: 10, content: 'AAA' }),
+        makeEntry('B', { tokenEstimate: 400, priority: 20, requires: ['Missing'], content: 'BBB' }),
+        makeEntry('C', { tokenEstimate: 200, priority: 30, content: 'CCC' }),
+        makeEntry('D', { tokenEstimate: 300, priority: 40, content: 'DDD' }),
+    ];
+    const policy = buildExemptionPolicy(vault, [], []);
+    const { result: gated } = applyRequiresExcludesGating(vault, policy, false);
+    // B should be removed (requires Missing)
+    assert(!gated.some(e => e.title === 'B'), 'B gated out by requires');
+    // Format with 900 budget — A+C+D = 900, should all fit
+    const settings = { maxTokensBudget: 900, unlimitedBudget: false, unlimitedEntries: false, maxEntries: 10,
+        injectionPosition: 0, injectionDepth: 0, injectionRole: 'system', injectionTemplate: '' };
+    const { acceptedEntries } = formatAndGroup(gated, settings, 'dle_');
+    assert(acceptedEntries.some(e => e.title === 'D'), 'D now fits after B is gated');
+    assertEqual(acceptedEntries.length, 3, 'A+C+D all fit in budget');
+});
+
+test('integration: dedup + cooldown interaction — entry removed by first filter', () => {
+    const vault = [
+        makeEntry('A', { priority: 20, cooldown: 3, content: 'Entry A content' }),
+        makeEntry('B', { priority: 30, content: 'Entry B content' }),
+    ];
+    const policy = buildExemptionPolicy(vault, [], []);
+
+    // Simulate: A is on cooldown AND in dedup log
+    const injectionLog = [{ gen: 1, entries: [{ title: 'A', pos: 0, depth: 0, role: 'system', contentHash: '' }] }];
+    const defaultSettings = { injectionPosition: 0, injectionDepth: 0, injectionRole: 'system' };
+
+    // Re-injection cooldown removes A first
+    const injHistory = new Map([[':A', 8]]);
+    let entries = applyReinjectionCooldown(vault, policy, injHistory, 9, 5, false);
+    assert(!entries.some(e => e.title === 'A'), 'A removed by reinjection cooldown');
+
+    // Strip dedup would also remove A, but it's already gone
+    entries = applyStripDedup(entries, policy, injectionLog, 3, defaultSettings, false);
+    assertEqual(entries.length, 1, 'only B remains');
+    assertEqual(entries[0].title, 'B', 'B survives both filters');
+});
+
+test('integration: decay tracking after full pipeline stages', () => {
+    const cooldowns = new Map();
+    const decay = new Map();
+    const injHistory = new Map();
+    const settings = { reinjectionCooldown: 0, decayEnabled: true, decayBoostThreshold: 5, decayPenaltyThreshold: 0 };
+
+    const injected = [
+        makeEntry('A', { cooldown: 2 }),
+        makeEntry('B', { cooldown: null }),
+    ];
+
+    // Track generation
+    trackGeneration(injected, 0, cooldowns, decay, injHistory, settings);
+    assertEqual(cooldowns.get(':A'), 3, 'A cooldown set to cooldown+1');
+    assert(!cooldowns.has(':B'), 'B has no cooldown');
+
+    // Decrement
+    decrementTrackers(cooldowns, decay, injected, settings);
+    assertEqual(cooldowns.get(':A'), 2, 'A cooldown decremented');
+    assertEqual(decay.get(':A'), 0, 'A decay reset to 0 (just injected)');
+    assertEqual(decay.get(':B'), 0, 'B decay reset to 0 (just injected)');
+
+    // Second generation without A
+    decrementTrackers(cooldowns, decay, [injected[1]], settings);
+    assertEqual(cooldowns.get(':A'), 1, 'A cooldown decremented again');
+    assertEqual(decay.get(':A'), 1, 'A decay incremented (not injected this gen)');
+    assertEqual(decay.get(':B'), 0, 'B decay stays 0 (still injected)');
+});
+
+test('integration: analytics accuracy post-gating — gated entries matched but not injected', () => {
+    const vault = [
+        makeEntry('A', { constant: true, content: 'Constant A' }),
+        makeEntry('B', { requires: ['Missing'], content: 'Gated B' }),
+        makeEntry('C', { content: 'Regular C' }),
+    ];
+    const policy = buildExemptionPolicy(vault, [], []);
+    const { result: gated } = applyRequiresExcludesGating(vault, policy, false);
+
+    // All three were matched, but only A and C survived gating
+    const analytics = {};
+    recordAnalytics(vault, gated, analytics);
+
+    assertEqual(analytics[':A'].matched, 1, 'A counted as matched');
+    assertEqual(analytics[':A'].injected, 1, 'A counted as injected');
+    assertEqual(analytics[':B'].matched, 1, 'B counted as matched');
+    assertEqual(analytics[':B'].injected, 0, 'B NOT counted as injected (gated)');
+    assertEqual(analytics[':C'].matched, 1, 'C counted as matched');
+    assertEqual(analytics[':C'].injected, 1, 'C counted as injected');
+});
+
+test('integration: full 4-stage chain with budget truncation', () => {
+    // Constant + pinned + regular entries, budget forces truncation
+    const vault = [
+        makeEntry('Const', { constant: true, tokenEstimate: 300, priority: 10, content: 'Constant content' }),
+        makeEntry('Pinned', { tokenEstimate: 250, priority: 50, content: 'Pinned content' }),
+        makeEntry('Regular', { tokenEstimate: 200, priority: 30, requires: [], content: 'Regular content' }),
+        makeEntry('Overflow', { tokenEstimate: 400, priority: 60, content: 'Overflow content' }),
+    ];
+    const policy = buildExemptionPolicy(vault, ['Pinned'], []);
+    const matchedKeys = new Map();
+
+    // Stage 1: Pin/Block
+    let entries = applyPinBlock(vault, vault, policy, matchedKeys);
+    assert(entries.some(e => e.title === 'Pinned'), 'Pinned is in entries');
+
+    // Stage 2: Contextual gating (no context set — all pass)
+    entries = applyContextualGating(entries, {}, policy, false);
+    assertEqual(entries.length, 4, 'all entries pass (no context)');
+
+    // Stage 3: Requires/excludes
+    const { result: gated } = applyRequiresExcludesGating(entries, policy, false);
+    assertEqual(gated.length, 4, 'all pass requires/excludes');
+
+    // Stage 4: Format with budget — 700 tokens budget
+    const settings = { maxTokensBudget: 700, unlimitedBudget: false, unlimitedEntries: false, maxEntries: 10,
+        injectionPosition: 0, injectionDepth: 0, injectionRole: 'system', injectionTemplate: '' };
+    // Sort by priority first (like the real pipeline)
+    gated.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
+    const { acceptedEntries, totalTokens } = formatAndGroup(gated, settings, 'dle_');
+    // Const(300) + Pinned as constant(250) + Regular(200) = 750 > 700
+    // Budget should trim the lowest-priority entries
+    assert(acceptedEntries.some(e => e.title === 'Const'), 'Const always included');
+    assert(totalTokens <= 700, `total tokens ${totalTokens} within budget 700`);
+    assert(!acceptedEntries.some(e => e.title === 'Overflow'), 'Overflow cut by budget');
 });
 
 // ============================================================================

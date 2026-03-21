@@ -13,6 +13,7 @@ import {
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
     setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
+    setFuzzySearchIndex,
     notifyIndexUpdated,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
@@ -22,25 +23,108 @@ import { showChangesToast } from './sync.js';
 import { saveIndexToCache, loadIndexFromCache } from './cache.js';
 import { dedupError, dedupWarning } from './toast-dedup.js';
 
+// ============================================================================
+// BM25 Fuzzy Search Index
+// ============================================================================
+
+/** Simple tokenizer: lowercase, split on non-word characters, remove short tokens.
+ *  Uses Unicode-aware regex to support non-Latin scripts (Cyrillic, Arabic, etc.).
+ *  Note: CJK text without spaces will produce long unsplit tokens — a proper CJK
+ *  tokenizer would need n-gram splitting, which is out of scope. */
+function tokenize(text) {
+    return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 2);
+}
+
 /**
- * Shared post-processing after entries are parsed (used by both buildIndex and buildIndexWithReuse).
- * Computes derived state, invalidates caches, prunes analytics, persists to IndexedDB,
- * and notifies the UI layer (stats, health checks) via registered callbacks.
- *
- * @param {object} options
- * @param {Array} options.entries - The parsed VaultEntry array (already set into vaultIndex)
- * @param {object} options.settings - Current extension settings
- * @param {boolean} [options.skipCacheSave=false] - If true, skip persisting to IndexedDB (e.g. when a vault fetch failed)
+ * Build a BM25 index from vault entries.
+ * Each "document" is the concatenation of entry title, keys, and content.
+ * @param {Array} entries - VaultEntry array
+ * @returns {{ idf: Map<string, number>, docs: Map<string, {tf: Map<string, number>, len: number, entry: object}>, avgDl: number }}
  */
-async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
-    // Compute vault average token count for Context Map coloring
-    const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
-    setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
+export function buildBM25Index(entries) {
+    const N = entries.length;
+    if (N === 0) return { idf: new Map(), docs: new Map(), avgDl: 0 };
 
-    // Resolve wiki-links to confirmed entry titles
-    resolveLinks(vaultIndex);
+    // Document frequency: how many docs contain each term
+    const df = new Map();
+    const docs = new Map();
+    let totalLen = 0;
 
-    // Pre-compute entity name Set for AI cache sliding window check
+    for (const entry of entries) {
+        const text = `${entry.title} ${entry.keys.join(' ')} ${entry.content}`;
+        const tokens = tokenize(text);
+        const tf = new Map();
+        for (const token of tokens) {
+            tf.set(token, (tf.get(token) || 0) + 1);
+        }
+        docs.set(entry.title, { tf, len: tokens.length, entry });
+        totalLen += tokens.length;
+
+        // Count unique terms per document for DF
+        for (const term of tf.keys()) {
+            df.set(term, (df.get(term) || 0) + 1);
+        }
+    }
+
+    // Compute IDF: log((N - df + 0.5) / (df + 0.5) + 1)
+    const idf = new Map();
+    for (const [term, freq] of df) {
+        idf.set(term, Math.log((N - freq + 0.5) / (freq + 0.5) + 1));
+    }
+
+    return { idf, docs, avgDl: totalLen / N };
+}
+
+/**
+ * Query the BM25 index with a text string. Returns scored entry titles.
+ * @param {{ idf: Map, docs: Map, avgDl: number }} index
+ * @param {string} queryText
+ * @param {number} [topK=20] - Max results
+ * @param {number} [minScore=0.5] - Minimum BM25 score threshold
+ * @returns {Array<{title: string, score: number, entry: object}>}
+ */
+export function queryBM25(index, queryText, topK = 20, minScore = 0.5) {
+    if (!index || index.docs.size === 0) return [];
+
+    const queryTokens = tokenize(queryText);
+    if (queryTokens.length === 0) return [];
+
+    // Deduplicate query tokens and count frequency
+    const queryTf = new Map();
+    for (const t of queryTokens) {
+        queryTf.set(t, (queryTf.get(t) || 0) + 1);
+    }
+
+    const k1 = 1.5;
+    const b = 0.75;
+    const scores = [];
+
+    for (const [title, doc] of index.docs) {
+        let score = 0;
+        for (const [term, qtf] of queryTf) {
+            const termIdf = index.idf.get(term);
+            if (!termIdf) continue;
+            const tf = doc.tf.get(term) || 0;
+            if (tf === 0) continue;
+            // BM25 scoring formula
+            const tfNorm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc.len / index.avgDl));
+            score += termIdf * tfNorm;
+        }
+        if (score >= minScore) {
+            scores.push({ title, score, entry: doc.entry });
+        }
+    }
+
+    scores.sort((a, b) => b.score - a.score);
+    return scores.slice(0, topK);
+}
+
+/**
+ * Compute entity name Set and pre-compiled short-name regexes from vault entries.
+ * Used by both finalizeIndex (after full rebuild) and hydrateFromCache (instant startup).
+ * @param {Array} entries - VaultEntry array
+ */
+function computeEntityDerivedState(entries) {
     const names = new Set();
     for (const entry of entries) {
         if (entry.title.length >= 1) names.add(entry.title.toLowerCase());
@@ -60,6 +144,35 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
         }
     }
     setEntityShortNameRegexes(shortRegexes);
+}
+
+/**
+ * Shared post-processing after entries are parsed (used by both buildIndex and buildIndexWithReuse).
+ * Computes derived state, invalidates caches, prunes analytics, persists to IndexedDB,
+ * and notifies the UI layer (stats, health checks) via registered callbacks.
+ *
+ * @param {object} options
+ * @param {Array} options.entries - The parsed VaultEntry array (already set into vaultIndex)
+ * @param {object} options.settings - Current extension settings
+ * @param {boolean} [options.skipCacheSave=false] - If true, skip persisting to IndexedDB (e.g. when a vault fetch failed)
+ */
+async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
+    // Compute vault average token count for Context Map coloring
+    const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
+    setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
+
+    // Resolve wiki-links to confirmed entry titles
+    resolveLinks(vaultIndex);
+
+    // Pre-compute entity names and short-name regexes for AI cache sliding window
+    computeEntityDerivedState(entries);
+
+    // Build BM25 fuzzy search index if enabled
+    if (settings.fuzzySearchEnabled) {
+        setFuzzySearchIndex(buildBM25Index(entries));
+    } else {
+        setFuzzySearchIndex(null);
+    }
 
     // Invalidate AI search cache on re-index
     setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
@@ -229,6 +342,8 @@ export async function hydrateFromCache() {
         // (the cache is a fast approximation — Obsidian is the source of truth)
         setIndexTimestamp(0);
         resolveLinks(vaultIndex);
+        // Compute entity name set for AI cache sliding window validation on cold start
+        computeEntityDerivedState(cached.entries);
         // Note: indexEverLoaded is NOT set here — it's set in buildIndex() after
         // a successful Obsidian fetch confirms the vault is reachable.
         notifyIndexUpdated();
@@ -309,7 +424,7 @@ export async function buildIndexWithReuse() {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
                     // Carry forward existing entries for this vault (same as catch block)
-                    for (const entry of vaultIndex) {
+                    for (const entry of indexSnapshot) {
                         if (entry.vaultSource === vault.name) {
                             allEntries.push(entry);
                         }
@@ -320,7 +435,7 @@ export async function buildIndexWithReuse() {
                 const fetchedFilenames = new Set(data.files.map(f => f.filename));
 
                 // Detect removals: entries in index but not in current vault
-                for (const entry of vaultIndex) {
+                for (const entry of indexSnapshot) {
                     if (entry.vaultSource === vault.name && !fetchedFilenames.has(entry.filename)) {
                         hasChanges = true;
                         removedCount++;
@@ -417,6 +532,11 @@ export async function ensureIndexFresh() {
 
     // TTL=0 means "always fetch fresh" (rebuild every generation)
     if (vaultIndex.length === 0 || ttlMs === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
+        // Use reuse path when index already exists (faster: skips re-parse/tokenize for unchanged entries)
+        if (vaultIndex.length > 0 && ttlMs > 0) {
+            const usedReuse = await buildIndexWithReuse();
+            if (usedReuse) return;
+        }
         await buildIndex();
     }
 }

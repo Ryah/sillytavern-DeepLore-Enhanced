@@ -10,7 +10,7 @@ import { getSettings, getPrimaryVault } from '../settings.js';
  * Wraps in double quotes if the string contains special YAML characters.
  */
 function yamlEscape(str) {
-    if (/[:#\[\]{}&*!|>'"%@`]/.test(str) || str.trim() !== str) {
+    if (/[:#\[\]{}&*!|>'"%@`\n\r\t]/.test(str) || str.trim() !== str) {
         return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
     return str;
@@ -42,7 +42,7 @@ export function convertWiEntry(wiEntry, lorebookTag) {
 
     // Map ST position to DLE position (lossy: ST has 5 values, DLE has 3)
     // ST: 0=after_char, 1=before_char, 2=before_AN, 3=after_AN, 4=in_chat
-    const positionMap = { 0: 'after', 1: 'before', 2: 'before', 3: 'before', 4: 'in_chat' };
+    const positionMap = { 0: 'after', 1: 'before', 2: 'before', 3: 'after', 4: 'in_chat' };
     const position = positionMap[wiEntry.position] || null;
 
     // Build frontmatter
@@ -81,8 +81,11 @@ export function convertWiEntry(wiEntry, lorebookTag) {
     fm.push(`summary: "Imported from SillyTavern World Info"`);
     fm.push('---');
 
-    // Build content
-    const content = wiEntry.content || '';
+    // Build content — sanitize to prevent YAML/control sequence injection
+    let content = wiEntry.content || '';
+    content = content.replace(/^---$/gm, '- - -'); // prevent YAML frontmatter delimiter injection
+    content = content.replace(/%%deeplore-exclude%%[\s\S]*?%%\/deeplore-exclude%%/g, ''); // strip control sequences
+    content = content.replace(/^%%[\s\S]*?^%%/gm, ''); // strip Obsidian comment blocks
     const fullContent = `${fm.join('\n')}\n\n# ${title}\n\n${content}`;
 
     return { filename: `${safeTitle}.md`, content: fullContent };

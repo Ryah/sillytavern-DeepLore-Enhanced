@@ -50,6 +50,7 @@ export async function buildIndex() {
         };
 
         let totalFiles = 0;
+        let vaultFetchFailed = false;
         for (const vault of enabledVaults) {
             try {
                 const data = await fetchAllMdFiles(vault.port, vault.apiKey);
@@ -82,6 +83,7 @@ export async function buildIndex() {
                 }
             } catch (vaultErr) {
                 console.warn(`[DLE] Failed to index vault "${vault.name}":`, vaultErr.message);
+                vaultFetchFailed = true;
                 if (enabledVaults.length === 1) throw vaultErr;
             }
         }
@@ -145,14 +147,25 @@ export async function buildIndex() {
         updateIndexStats();
 
         // Persist to IndexedDB for instant hydration on next page load
-        saveIndexToCache(entries).catch(() => {});
-
-        // Auto health check after index build — store for settings badge
-        const health = runHealthCheck();
-        setLastHealthResult(health);
-        if (health.errors > 0 || health.warnings > 0) {
-            console.log(`[DLE] Health: ${health.errors} errors, ${health.warnings} warnings. Run /dle-health for details.`);
+        // Skip if any vault failed to avoid caching incomplete data
+        if (!vaultFetchFailed) {
+            saveIndexToCache(entries).catch(() => {});
         }
+
+        // Auto health check after index build — deferred to avoid blocking the pipeline
+        setTimeout(() => {
+            try {
+                const health = runHealthCheck();
+                setLastHealthResult(health);
+                if (health.errors > 0) {
+                    toastr.warning(`Vault health: ${health.errors} error(s), ${health.warnings} warning(s). Run /dle-health for details.`, 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+                } else if (health.warnings > 0) {
+                    console.log(`[DLE] Health: ${health.warnings} warning(s). Run /dle-health for details.`);
+                }
+            } catch (healthErr) {
+                console.warn('[DLE] Health check error:', healthErr.message);
+            }
+        }, 0);
     } catch (err) {
         console.error('[DLE] Failed to build index:', err);
         toastr.error(String(err), 'DeepLore Enhanced', { preventDuplicates: true });
@@ -198,9 +211,9 @@ export async function hydrateFromCache() {
         buildIndex().catch(err => {
             console.warn('[DLE] Background rebuild after cache hydration failed:', err.message);
             if (vaultIndex.length > 0) {
-                // Cached data exists — set a non-zero timestamp so ensureIndexFresh() doesn't retry every generation
-                setIndexTimestamp(Date.now());
-                setIndexEverLoaded(true);
+                // Cached data exists — set a short-lived timestamp so ensureIndexFresh() retries after a cooldown
+                // (not Date.now() which would prevent retries until TTL expires)
+                setIndexTimestamp(Date.now() - (settings.cacheTTL * 1000) + 30_000); // retry in ~30s
                 toastr.warning('Using cached vault data — Obsidian is unreachable. Reconnect and refresh when ready.', 'DeepLore Enhanced', { timeOut: 10000, preventDuplicates: true });
             }
         });
@@ -229,6 +242,9 @@ export async function buildIndexDelta() {
     const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     if (enabledVaults.length === 0) return false;
 
+    // Set indexing flag BEFORE any async work to prevent concurrent delta calls
+    setIndexing(true);
+
     const tagConfig = {
         lorebookTag: settings.lorebookTag,
         constantTag: settings.constantTag,
@@ -237,7 +253,6 @@ export async function buildIndexDelta() {
         bootstrapTag: settings.bootstrapTag,
     };
 
-    setIndexing(true);
     const promise = (async () => {
     try {
         // Build lookup of existing entries by vault:filename → entry (with content hash)
@@ -310,6 +325,7 @@ export async function buildIndexDelta() {
 
         if (!hasChanges) {
             setIndexTimestamp(Date.now());
+            setIndexEverLoaded(true);
             if (settings.debugMode) {
                 console.debug('[DLE] Delta sync: no changes detected');
             }
@@ -323,6 +339,7 @@ export async function buildIndexDelta() {
         // Apply changes
         setVaultIndex(allEntries);
         setIndexTimestamp(Date.now());
+        setIndexEverLoaded(true);
         resolveLinks(vaultIndex);
 
         // Pre-compute entity name Set for AI cache sliding window check
@@ -330,7 +347,7 @@ export async function buildIndexDelta() {
         for (const entry of allEntries) {
             if (entry.title.length >= 1) deltaNames.add(entry.title.toLowerCase());
             for (const key of entry.keys) {
-                if (key.length >= 3) deltaNames.add(key.toLowerCase());
+                if (key.length >= 2) deltaNames.add(key.toLowerCase());
             }
         }
         setEntityNameSet(deltaNames);

@@ -94,7 +94,11 @@ export function setChatEpoch(v) { chatEpoch = v; }
 
 /** Generation lock to prevent concurrent onGenerate runs */
 export let generationLock = false;
-export function setGenerationLock(v) { generationLock = v; }
+export let generationLockTimestamp = 0;
+export function setGenerationLock(v) {
+    generationLock = v;
+    generationLockTimestamp = v ? Date.now() : 0;
+}
 
 /** Pre-computed entity name Set for AI cache sliding window check */
 export let entityNameSet = new Set();

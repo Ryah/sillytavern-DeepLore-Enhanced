@@ -21,7 +21,7 @@ import {
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory,
     lastWarningRatio, decayTracker, chatEpoch, trackerKey,
-    generationLock, setGenerationLock,
+    generationLock, generationLockTimestamp, setGenerationLock,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
@@ -54,9 +54,16 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
     if (generationLock) {
-        console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
-        toastr.warning('Previous lore retrieval still in progress — this generation may lack lore context.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
-        return;
+        // Auto-recover stale locks after 120 seconds
+        const lockAge = Date.now() - generationLockTimestamp;
+        if (lockAge > 120_000) {
+            console.warn(`[DLE] Generation lock stale (${Math.round(lockAge / 1000)}s) — force-releasing`);
+            setGenerationLock(false);
+        } else {
+            console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
+            toastr.warning('Previous lore retrieval still in progress — this generation may lack lore context. If stuck, run /dle-refresh.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+            return;
+        }
     }
     setGenerationLock(true);
 
@@ -82,8 +89,20 @@ async function onGenerate(chat, contextSize, abort, type) {
     let injectedEntries = [];
 
     try {
-        // Ensure index is fresh
-        await ensureIndexFresh();
+        // Ensure index is fresh (with timeout to prevent indefinite hangs)
+        const INDEX_TIMEOUT_MS = 60_000;
+        try {
+            await Promise.race([
+                ensureIndexFresh(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Index refresh timed out')), INDEX_TIMEOUT_MS)),
+            ]);
+        } catch (timeoutErr) {
+            console.warn(`[DLE] ${timeoutErr.message} — proceeding with stale data`);
+            if (vaultIndex.length === 0) {
+                toastr.warning('Obsidian connection timed out and no cached data available.', 'DeepLore Enhanced', { timeOut: 8000 });
+                return;
+            }
+        }
 
         // Snapshot vaultIndex at pipeline start to avoid races with background rebuilds
         const vaultSnapshot = [...vaultIndex];
@@ -105,21 +124,19 @@ async function onGenerate(chat, contextSize, abort, type) {
         let finalEntries = pipelineEntries;
 
         // Per-chat pin/block overrides (stored in chat_metadata)
+        // Use a local Set instead of mutating shared VaultEntry objects to avoid stale _pinned flags
         const pins = chat_metadata.deeplore_pins || [];
         const blocks = chat_metadata.deeplore_blocks || [];
+        const pinnedTitles = new Set();
         if (pins.length > 0) {
             const pinSet = new Set(pins.map(t => t.toLowerCase()));
             for (const entry of vaultSnapshot) {
-                if (pinSet.has(entry.title.toLowerCase()) && !finalEntries.includes(entry)) {
-                    entry._pinned = true;
-                    finalEntries.push(entry);
-                    matchedKeys.set(entry.title, '(pinned)');
-                }
-            }
-            // Also mark existing matched entries that are pinned
-            for (const entry of finalEntries) {
                 if (pinSet.has(entry.title.toLowerCase())) {
-                    entry._pinned = true;
+                    pinnedTitles.add(entry.title);
+                    if (!finalEntries.includes(entry)) {
+                        finalEntries.push(entry);
+                        matchedKeys.set(entry.title, '(pinned)');
+                    }
                 }
             }
         }
@@ -139,29 +156,29 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (activeEra || activeLocation || activeScene || presentChars.length > 0) {
             const beforeCtx = finalEntries.length;
             finalEntries = finalEntries.filter(e => {
-                if (e.constant || e._pinned) return true; // Constants and pins bypass gating
-                // Era gating: if entry has era field, current era must match one
+                if (e.constant || pinnedTitles.has(e.title)) return true; // Constants and pins bypass gating
+                // Era gating: if entry has era field, current era must match one (case-insensitive substring)
                 if (e.era && e.era.length > 0 && activeEra) {
-                    if (!e.era.includes(activeEra)) return false;
+                    if (!e.era.some(v => v.toLowerCase().includes(activeEra) || activeEra.includes(v.toLowerCase()))) return false;
                 } else if (e.era && e.era.length > 0 && !activeEra) {
                     return false; // Entry requires an era but none is set
                 }
-                // Location gating
+                // Location gating (case-insensitive substring)
                 if (e.location && e.location.length > 0 && activeLocation) {
-                    if (!e.location.includes(activeLocation)) return false;
+                    if (!e.location.some(v => v.toLowerCase().includes(activeLocation) || activeLocation.includes(v.toLowerCase()))) return false;
                 } else if (e.location && e.location.length > 0 && !activeLocation) {
                     return false;
                 }
-                // Scene type gating
+                // Scene type gating (case-insensitive substring)
                 if (e.sceneType && e.sceneType.length > 0 && activeScene) {
-                    if (!e.sceneType.includes(activeScene)) return false;
+                    if (!e.sceneType.some(v => v.toLowerCase().includes(activeScene) || activeScene.includes(v.toLowerCase()))) return false;
                 } else if (e.sceneType && e.sceneType.length > 0 && !activeScene) {
                     return false;
                 }
-                // Character present gating
+                // Character present gating (case-insensitive substring)
                 if (e.characterPresent && e.characterPresent.length > 0) {
                     if (presentChars.length === 0) return false;
-                    if (!e.characterPresent.some(c => presentChars.includes(c))) return false;
+                    if (!e.characterPresent.some(c => presentChars.some(p => c.toLowerCase().includes(p) || p.includes(c.toLowerCase())))) return false;
                 }
                 return true;
             });
@@ -190,7 +207,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (settings.reinjectionCooldown > 0) {
             const before = finalEntries.length;
             finalEntries = finalEntries.filter(e => {
-                if (e.constant || e._pinned) return true; // Constants and pins always pass
+                if (e.constant || pinnedTitles.has(e.title)) return true; // Constants and pins always pass
                 const lastGen = injectionHistory.get(trackerKey(e));
                 if (lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown) {
                     if (settings.debugMode) {
@@ -235,13 +252,13 @@ async function onGenerate(chat, contextSize, abort, type) {
             const log = chat_metadata.deeplore_injection_log;
             const recentLogs = log.slice(-lookback);
             for (const logEntry of recentLogs.flatMap(l => l.entries || [])) {
-                recentEntries.add(`${logEntry.title}|${logEntry.pos}|${logEntry.depth}|${logEntry.role}`);
+                recentEntries.add(`${logEntry.title}|${logEntry.pos}|${logEntry.depth}|${logEntry.role}|${logEntry.contentHash || ''}`);
             }
 
             const before = gated.length;
             gated = gated.filter(e => {
-                if (e.constant || e._pinned) return true; // Constants and pins always inject
-                const key = `${e.title}|${e.injectionPosition ?? settings.injectionPosition}|${e.injectionDepth ?? settings.injectionDepth}|${e.injectionRole ?? settings.injectionRole}`;
+                if (e.constant || pinnedTitles.has(e.title)) return true; // Constants and pins always inject
+                const key = `${e.title}|${e.injectionPosition ?? settings.injectionPosition}|${e.injectionDepth ?? settings.injectionDepth}|${e.injectionRole ?? settings.injectionRole}|${e._contentHash || ''}`;
                 if (recentEntries.has(key)) {
                     if (settings.debugMode) {
                         console.debug(`[DLE] Strip: "${e.title}" already injected in recent ${lookback} gen(s) — skipping`);
@@ -356,6 +373,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                     pos: e.injectionPosition ?? settings.injectionPosition,
                     depth: e.injectionDepth ?? settings.injectionDepth,
                     role: e.injectionRole ?? settings.injectionRole,
+                    contentHash: e._contentHash || '',
                 })),
             });
             const maxHistory = settings.stripLookbackDepth + 1;
@@ -430,10 +448,6 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Clean up transient _pinned flags to avoid polluting vault index entries
-        for (const entry of injectedEntries) {
-            delete entry._pinned;
-        }
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
         toastr.error('Lore injection failed — check console for details.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
@@ -640,15 +654,22 @@ jQuery(async function () {
                 }
             }
 
-            setTimeout(() => {
+            // Retry with backoff to handle slow DOM rendering on large chats
+            const injectAllSourceButtons = (attempt = 0) => {
                 const settings = getSettings();
                 if (!settings.showLoreSources) return;
+                const chatEl = document.getElementById('chat');
+                if (!chatEl?.children.length && attempt < 5) {
+                    setTimeout(() => injectAllSourceButtons(attempt + 1), 200 * (attempt + 1));
+                    return;
+                }
                 for (let i = 0; i < chat.length; i++) {
                     if (chat[i]?.extra?.deeplore_sources) {
                         injectSourcesButton(i);
                     }
                 }
-            }, 100);
+            };
+            setTimeout(injectAllSourceButtons, 100);
         });
 
         console.log('[DLE] DeepLore Enhanced client extension initialized');

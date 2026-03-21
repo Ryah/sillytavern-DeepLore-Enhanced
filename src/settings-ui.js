@@ -104,7 +104,7 @@ function bindVaultListEvents(settings) {
             }
             settings.vaults[idx].name = newName;
         } else if ($(this).hasClass('dle_vault_port')) {
-            settings.vaults[idx].port = Number($(this).val()) || 27123;
+            settings.vaults[idx].port = Math.max(1, Math.min(65535, Number($(this).val()) || 27123));
         } else if ($(this).hasClass('dle_vault_key')) {
             settings.vaults[idx].apiKey = String($(this).val());
         }
@@ -457,25 +457,25 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_constant_tag').on('input', function () {
-        settings.constantTag = String($(this).val()).trim();
+        settings.constantTag = String($(this).val()).trim() || 'lorebook-always';
         saveSettingsDebounced();
         buildIndexFn();
     });
 
     $('#dle_never_insert_tag').on('input', function () {
-        settings.neverInsertTag = String($(this).val()).trim();
+        settings.neverInsertTag = String($(this).val()).trim() || 'lorebook-never';
         saveSettingsDebounced();
         buildIndexFn();
     });
 
     $('#dle_seed_tag').on('input', function () {
-        settings.seedTag = String($(this).val()).trim();
+        settings.seedTag = String($(this).val()).trim() || 'lorebook-seed';
         saveSettingsDebounced();
         buildIndexFn();
     });
 
     $('#dle_bootstrap_tag').on('input', function () {
-        settings.bootstrapTag = String($(this).val()).trim();
+        settings.bootstrapTag = String($(this).val()).trim() || 'lorebook-bootstrap';
         saveSettingsDebounced();
         buildIndexFn();
     });
@@ -987,9 +987,9 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_analytics').on('click', () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
-        const settings = getSettings();
-        const analytics = settings.analyticsData || {};
+        const currentSettings = getSettings();
+        if (!currentSettings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        const analytics = currentSettings.analyticsData || {};
         if (Object.keys(analytics).length === 0) {
             toastr.info('No analytics data yet. Generate some messages first.', 'DeepLore Enhanced');
             return;
@@ -1057,9 +1057,8 @@ export function bindSettingsEvents(buildIndexFn) {
         dle_scribe_timeout: 'scribeTimeout', dle_scribe_scan_depth: 'scribeScanDepth',
         dle_new_chat_threshold: 'newChatThreshold', dle_sync_interval: 'syncPollingInterval',
         dle_reinjection_cooldown: 'reinjectionCooldown', dle_strip_lookback: 'stripLookbackDepth',
-        dle_auto_suggest_interval: 'autoSuggestInterval', dle_auto_suggest_max_tokens: 'autoSuggestMaxTokens',
-        dle_auto_suggest_timeout: 'autoSuggestTimeout',
-        dle_decay_boost: 'decayBoostThreshold', dle_decay_penalty: 'decayPenaltyThreshold',
+        dle_autosuggest_interval: 'autoSuggestInterval', dle_autosuggest_max_tokens: 'autoSuggestMaxTokens',
+        dle_decay_boost_threshold: 'decayBoostThreshold', dle_decay_penalty_threshold: 'decayPenaltyThreshold',
     };
     for (const [inputId, settingName] of Object.entries(inputToConstraint)) {
         $(`#${inputId}`).on('blur', function () {

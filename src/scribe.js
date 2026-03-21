@@ -156,8 +156,13 @@ export async function runScribe(customPrompt) {
         const data = await writeNote(scribeVault.port, scribeVault.apiKey, filename, noteContent);
 
         if (data.ok) {
+            // Re-check epoch after async writeNote to avoid writing to wrong chat's metadata
+            if (epoch !== chatEpoch) {
+                console.log('[DLE] Scribe: chat changed during note write, skipping metadata update');
+                return;
+            }
             setLastScribeSummary(sanitizedSummary.trim());
-            setLastScribeChatLength(chatLengthAtStart);
+            setLastScribeChatLength(chat?.length || 0); // Use current length, not stale start value
             chat_metadata.deeplore_lastScribeSummary = lastScribeSummary;
             saveChatDebounced();
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });

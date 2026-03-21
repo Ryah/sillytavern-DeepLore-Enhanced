@@ -88,7 +88,8 @@ export function testEntryMatch(entry, scanText, settings) {
     let primaryMatch = null;
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            if (item.regex.test(scanText)) { primaryMatch = item.rawKey; break; }
+            // Test against normalized text to match NFC-normalized regex pattern
+            if (item.regex.test(haystack)) { primaryMatch = item.rawKey; break; }
         } else {
             if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
         }
@@ -287,9 +288,17 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
     }
 
     const escapeXml = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    const formatEntry = (entry) => template
-        .replace(/\{\{title\}\}/g, escapeXml(entry.title))
-        .replace(/\{\{content\}\}/g, entry.content);
+    const formatEntry = (entry) => {
+        let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
+        // Only escape content when the template uses XML-like wrappers (default template)
+        // to prevent content from breaking out of the entry's XML envelope
+        if (template.includes('</')) {
+            text = text.replace(/\{\{content\}\}/g, entry.content.replace(/<\//g, '&lt;/'));
+        } else {
+            text = text.replace(/\{\{content\}\}/g, entry.content);
+        }
+        return text;
+    };
 
     const mode = settings.injectionMode || 'extension';
 

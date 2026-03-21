@@ -107,6 +107,12 @@ function validateCachedEntry(entry) {
     if (typeof entry.tokenEstimate !== 'number' || entry.tokenEstimate < 0) return false;
     if (entry.links !== undefined && !Array.isArray(entry.links)) return false;
     if (entry.tags !== undefined && !Array.isArray(entry.tags)) return false;
+    // Default critical fields that may be missing from partial writes
+    if (typeof entry.priority !== 'number') entry.priority = 50;
+    if (typeof entry.constant !== 'boolean') entry.constant = false;
+    if (entry.requires !== undefined && !Array.isArray(entry.requires)) entry.requires = [];
+    if (entry.excludes !== undefined && !Array.isArray(entry.excludes)) entry.excludes = [];
+    if (entry.probability !== undefined && entry.probability !== null && typeof entry.probability !== 'number') entry.probability = null;
     return true;
 }
 

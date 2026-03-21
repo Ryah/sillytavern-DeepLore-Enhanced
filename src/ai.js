@@ -347,7 +347,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                 }
             }
             // Escape XML-like characters in title to prevent prompt structure injection
-            const safeTitle = entry.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeTitle = entry.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
             const header = `${safeTitle} (${entry.tokenEstimate}tok)${links}${decayHint}`;
 
             // Wrap each entry in structural delimiters to prevent summary content
@@ -550,28 +550,39 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // we can safely serve cached results (the new message doesn't reference any lore).
     const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${settings.aiSearchSystemPrompt?.length || 0}|${settings.aiSearchConnectionMode}|${settings.aiSearchProfileId}|${settings.aiSearchModel}`;
     const manifestHash = simpleHash(settingsKey + candidateManifest);
-    const chatLines = chatContext.split('\n').filter(l => l.trim());
     const chatHash = simpleHash(chatContext);
+    // Defer chatLines split until after exact cache hit check (avoid unnecessary work)
+    let chatLines = null;
+    const getChatLines = () => { if (!chatLines) chatLines = chatContext.split('\n').filter(l => l.trim()); return chatLines; };
+
+    // Resolve cached title-based results back to current VaultEntry objects
+    const resolveCachedResults = (cached) => {
+        const indexToSearch = snapshot || vaultIndex;
+        const titleMap = new Map(indexToSearch.map(e => [e.title.toLowerCase(), e]));
+        return cached
+            .map(r => ({ entry: titleMap.get(r.title.toLowerCase()), confidence: r.confidence, reason: r.reason }))
+            .filter(r => r.entry);
+    };
 
     if (aiSearchCache.hash === chatHash && aiSearchCache.manifestHash === manifestHash && aiSearchCache.results.length > 0) {
         // Exact match — nothing changed at all
         aiSearchStats.cachedHits++;
         updateAiStats();
         if (settings.debugMode) console.debug('[DLE] AI search cache hit (exact)');
-        return { results: aiSearchCache.results, error: false };
+        return { results: resolveCachedResults(aiSearchCache.results), error: false };
     }
 
     // Sliding window: manifest unchanged + only newest message(s) differ
     if (aiSearchCache.manifestHash === manifestHash
         && aiSearchCache.results.length > 0
         && aiSearchCache.chatLineCount > 0
-        && chatLines.length > aiSearchCache.chatLineCount) {
+        && getChatLines().length > aiSearchCache.chatLineCount) {
         // Extract only the new lines added since last cache
-        const newLines = chatLines.slice(aiSearchCache.chatLineCount);
+        const newLines = getChatLines().slice(aiSearchCache.chatLineCount);
         const newText = newLines.join(' ').toLowerCase();
 
         // Check if any vault entry title or key appears in the new text
-        // Uses pre-computed entityNameSet from buildIndex (titles min 1 char, keys min 3 chars)
+        // Uses pre-computed entityNameSet from buildIndex (titles min 1 char, keys min 2 chars)
         let hasNewEntityMention = false;
         for (const name of entityNameSet) {
             if (newText.includes(name)) {
@@ -584,7 +595,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             aiSearchStats.cachedHits++;
             updateAiStats();
             if (settings.debugMode) console.debug(`[DLE] AI search cache hit (sliding window: ${newLines.length} new lines, no entity mentions)`);
-            return { results: aiSearchCache.results, error: false };
+            return { results: resolveCachedResults(aiSearchCache.results), error: false };
         }
     }
 
@@ -720,12 +731,12 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         const confidenceOrder = { high: 0, medium: 1, low: 2 };
         results.sort((a, b) => (confidenceOrder[a.confidence] ?? 1) - (confidenceOrder[b.confidence] ?? 1));
 
-        // Cache the results with sliding window metadata
+        // Cache results by title (not entry reference) to survive index rebuilds
         setAiSearchCache({
             hash: chatHash,
             manifestHash,
-            chatLineCount: chatLines.length,
-            results,
+            chatLineCount: getChatLines().length,
+            results: results.map(r => ({ title: r.entry.title, confidence: r.confidence, reason: r.reason })),
         });
 
         if (settings.debugMode) {

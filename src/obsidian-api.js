@@ -247,6 +247,10 @@ export async function listAllFiles(port, apiKey, directory = '', depth = 0) {
  */
 export async function testConnection(port, apiKey) {
     try {
+        // Bypass circuit breaker for explicit user-initiated test (reset circuit on success)
+        const cb = getCircuitBreaker(port);
+        const wasOpen = cb.state === 'open';
+        if (wasOpen) cb.state = 'half-open'; // Allow the test through
         const result = await obsidianFetch({ port, apiKey: apiKey || '', path: '/vault/', timeout: 10000 });
         if (result.status === 200) {
             return { ok: true, authenticated: true };

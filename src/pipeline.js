@@ -18,8 +18,9 @@ import { name2 } from '../../../../../script.js';
  * @param {object[]} chat - Chat messages array
  * @returns {{ matched: VaultEntry[], matchedKeys: Map<string, string>, probabilitySkipped: Array<{title: string, probability: number, roll: number}> }}
  */
-export function matchEntries(chat) {
+export function matchEntries(chat, snapshot = null) {
     const settings = getSettings();
+    const entries = snapshot || vaultIndex;
     /** @type {Set<VaultEntry>} */
     const matchedSet = new Set();
     /** @type {Map<string, string>} entry title -> matched key */
@@ -28,7 +29,7 @@ export function matchEntries(chat) {
     const probabilitySkipped = [];
 
     // Always collect constants regardless of scan depth
-    for (const entry of vaultIndex) {
+    for (const entry of entries) {
         if (entry.constant) {
             matchedSet.add(entry);
             matchedKeys.set(entry.title, '(constant)');
@@ -37,7 +38,7 @@ export function matchEntries(chat) {
 
     // Collect bootstrap entries when chat is short (cold-start injection)
     if (chat.length <= settings.newChatThreshold) {
-        for (const entry of vaultIndex) {
+        for (const entry of entries) {
             if (entry.bootstrap && !matchedSet.has(entry)) {
                 matchedSet.add(entry);
                 matchedKeys.set(entry.title, '(bootstrap)');
@@ -56,7 +57,7 @@ export function matchEntries(chat) {
         const globalScanText = getScanText(settings.scanDepth);
 
         // Initial scan pass
-        for (const entry of vaultIndex) {
+        for (const entry of entries) {
             if (entry.constant) continue; // Already added above
 
             // Use per-entry scan depth if set, otherwise use global scan text
@@ -111,7 +112,7 @@ export function matchEntries(chat) {
         }
 
         // Pre-compute title lookup map for cascade links and character matching
-        const titleMap = new Map(vaultIndex.map(e => [e.title.toLowerCase(), e]));
+        const titleMap = new Map(entries.map(e => [e.title.toLowerCase(), e]));
 
         // Active Character Boost: auto-match active character's vault entry
         if (settings.characterContextScan && name2) {
@@ -173,7 +174,7 @@ export function matchEntries(chat) {
 
                 newlyMatched = new Set();
 
-                for (const entry of vaultIndex) {
+                for (const entry of entries) {
                     if (matchedSet.has(entry)) continue;
                     if (entry.constant) continue;
 
@@ -213,15 +214,16 @@ export function matchEntries(chat) {
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
 export async function runPipeline(chat) {
-    // Snapshot settings so async stages (AI search) see a consistent view
+    // Snapshot settings and vault index so async stages (AI search) see a consistent view
     const settings = { ...getSettings() };
+    const vaultSnapshot = [...vaultIndex];
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
     const trace = {
         mode: settings.aiSearchEnabled
             ? settings.aiSearchMode
             : 'keywords-only',
-        indexed: vaultIndex.length,
+        indexed: vaultSnapshot.length,
         keywordMatched: [],
         aiSelected: [],
         gatedOut: [],
@@ -237,17 +239,17 @@ export async function runPipeline(chat) {
 
     if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
         // Hierarchical pre-filter: for large vaults, narrow candidates by category first
-        let aiOnlyCandidates = vaultIndex;
-        const preFiltered = await hierarchicalPreFilter(vaultIndex, chat);
+        let aiOnlyCandidates = vaultSnapshot;
+        const preFiltered = await hierarchicalPreFilter(vaultSnapshot, chat);
         if (preFiltered) {
             aiOnlyCandidates = preFiltered;
             if (settings.debugMode) {
-                console.log(`[DLE] Hierarchical clustering: ${vaultIndex.length} → ${aiOnlyCandidates.length} candidates`);
+                console.log(`[DLE] Hierarchical clustering: ${vaultSnapshot.length} → ${aiOnlyCandidates.length} candidates`);
             }
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
-        const alwaysInject = vaultIndex.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+        const alwaysInject = vaultSnapshot.filter(e => e.constant || (bootstrapActive && e.bootstrap));
 
         if (bootstrapActive) {
             for (const e of alwaysInject) {
@@ -260,10 +262,10 @@ export async function runPipeline(chat) {
         }
 
         if (candidateManifest) {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot);
             if (aiResult.error) {
                 trace.aiFallback = true;
-                const kwResult = matchEntries(chat);
+                const kwResult = matchEntries(chat, vaultSnapshot);
                 finalEntries = kwResult.matched;
                 matchedKeys = kwResult.matchedKeys;
                 trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
@@ -289,7 +291,7 @@ export async function runPipeline(chat) {
         }
 
     } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
-        const keywordResult = matchEntries(chat);
+        const keywordResult = matchEntries(chat, vaultSnapshot);
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
@@ -309,7 +311,7 @@ export async function runPipeline(chat) {
         if (!candidateManifest) {
             finalEntries = keywordResult.matched;
         } else {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader);
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot);
             if (aiResult.error) {
                 trace.aiFallback = true;
                 finalEntries = keywordResult.matched;
@@ -330,7 +332,7 @@ export async function runPipeline(chat) {
         }
 
     } else {
-        const keywordResult = matchEntries(chat);
+        const keywordResult = matchEntries(chat, vaultSnapshot);
         finalEntries = keywordResult.matched;
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));

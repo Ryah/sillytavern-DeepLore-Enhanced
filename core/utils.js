@@ -26,8 +26,8 @@ export function parseFrontmatter(content) {
 
         // Block scalar continuation: accumulate indented lines after | or >
         if (blockScalar) {
-            if (line.match(/^\s/) && trimmed !== '') {
-                blockScalar.lines.push(trimmed);
+            if (line.match(/^\s/) || trimmed === '') {
+                blockScalar.lines.push(trimmed === '' ? '' : trimmed);
                 continue;
             } else {
                 // End of block scalar — join with appropriate separator
@@ -40,7 +40,9 @@ export function parseFrontmatter(content) {
 
         // Array item: "  - value"
         if (/^\s+-\s+/.test(trimmed) && currentKey) {
-            const value = trimmed.replace(/^\s+-\s+/, '').trim();
+            let value = trimmed.replace(/^\s+-\s+/, '').trim();
+            // Strip surrounding quotes if present (same as scalar values)
+            value = value.replace(/^['"]|['"]$/g, '');
             if (!currentArray) {
                 currentArray = [];
                 frontmatter[currentKey] = currentArray;
@@ -50,7 +52,7 @@ export function parseFrontmatter(content) {
         }
 
         // Key-value pair: "key: value" or "key:"
-        const kvMatch = trimmed.match(/^(\w[\w-]*)\s*:\s*(.*)/);
+        const kvMatch = trimmed.match(/^(\w[\w.-]*)\s*:\s*(.*)/);
         if (kvMatch) {
             currentKey = kvMatch[1];
             const rawValue = kvMatch[2].trim();
@@ -76,7 +78,17 @@ export function parseFrontmatter(content) {
                     let current = '';
                     let inQuote = false;
                     let quoteChar = '';
+                    let escaped = false;
                     for (const ch of inner) {
+                        if (escaped) {
+                            current += ch;
+                            escaped = false;
+                            continue;
+                        }
+                        if (ch === '\\' && inQuote) {
+                            escaped = true;
+                            continue;
+                        }
                         if (!inQuote && (ch === '"' || ch === "'") && current.trim() === '') {
                             inQuote = true; quoteChar = ch;
                         } else if (inQuote && ch === quoteChar) { inQuote = false; }
@@ -95,7 +107,7 @@ export function parseFrontmatter(content) {
                 frontmatter[currentKey] = true;
             } else if (rawValue === 'false') {
                 frontmatter[currentKey] = false;
-            } else if (/^-?\d+(\.\d+)?$/.test(rawValue)) {
+            } else if (/^-?(\d+\.?\d*|\.\d+)$/.test(rawValue)) {
                 frontmatter[currentKey] = Number(rawValue);
             } else {
                 // Strip surrounding quotes if present
@@ -144,7 +156,10 @@ export function cleanContent(content) {
     cleaned = cleaned.replace(/%%deeplore-exclude%%[\s\S]*?%%\/deeplore-exclude%%/g, '');
 
     // Strip remaining Obsidian %%...%% comment/plugin blocks (timeline annotations, dataview, etc.)
-    cleaned = cleaned.replace(/%%[\s\S]*?%%/g, '');
+    // Step 1: Strip inline %%...%% on a single line
+    cleaned = cleaned.replace(/%%[^%\n]+%%/g, '');
+    // Step 2: Strip multi-line %%...%% blocks (require %% at line boundaries)
+    cleaned = cleaned.replace(/^%%[\s\S]*?^%%$/gm, '');
 
     // Strip HTML div tags (keep content inside)
     cleaned = cleaned.replace(/<\/?div[^>]*>/g, '');

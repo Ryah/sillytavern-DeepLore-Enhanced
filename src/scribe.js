@@ -83,7 +83,7 @@ export async function runScribe(customPrompt) {
     try {
         const settings = getSettings();
         if (!chat || chat.length === 0) {
-            toastr.warning('No active chat to summarize.', 'DeepLore Enhanced');
+            toastr.info('No active chat to summarize.', 'DeepLore Enhanced');
             return;
         }
 

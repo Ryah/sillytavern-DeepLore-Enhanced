@@ -23,10 +23,12 @@ function getCachedRegexes(entry, settings) {
     const cacheKey = `${settings.caseSensitive}|${settings.matchWholeWords}`;
     if (cache && cache._key === cacheKey) return cache;
 
+    const MAX_KEYWORD_LENGTH = 200;
     cache = { _key: cacheKey, primary: [], refine: [] };
     for (const rawKey of entry.keys) {
         if (!rawKey || !rawKey.trim()) continue;
-        const key = settings.caseSensitive ? rawKey : rawKey.normalize('NFC').toLowerCase();
+        const truncatedKey = rawKey.length > MAX_KEYWORD_LENGTH ? rawKey.substring(0, MAX_KEYWORD_LENGTH) : rawKey;
+        const key = settings.caseSensitive ? truncatedKey : truncatedKey.normalize('NFC').toLowerCase();
         if (settings.matchWholeWords) {
             const escaped = escapeRegex(key);
             const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
@@ -158,30 +160,33 @@ export function applyGating(entries) {
     let iterations = 0;
     const MAX_ITERATIONS = 10;
 
+    let activeTitles = new Set(result.map(e => e.title.toLowerCase()));
+
     while (changed && iterations < MAX_ITERATIONS) {
         changed = false;
         iterations++;
-        const activeTitles = new Set(result.map(e => e.title.toLowerCase()));
 
-        result = result.filter(entry => {
-            // Check requires: ALL must be in the active set
+        const nextResult = [];
+        for (const entry of result) {
             if (entry.requires && entry.requires.length > 0) {
                 const allPresent = entry.requires.every(r => activeTitles.has(r.toLowerCase()));
                 if (!allPresent) {
                     changed = true;
-                    return false;
+                    activeTitles.delete(entry.title.toLowerCase());
+                    continue;
                 }
             }
-            // Check excludes: NONE should be in the active set
             if (entry.excludes && entry.excludes.length > 0) {
                 const anyPresent = entry.excludes.some(r => activeTitles.has(r.toLowerCase()));
                 if (anyPresent) {
                     changed = true;
-                    return false;
+                    activeTitles.delete(entry.title.toLowerCase());
+                    continue;
                 }
             }
-            return true;
-        });
+            nextResult.push(entry);
+        }
+        result = nextResult;
     }
 
     // Detect contradictory gating (A requires B, B excludes A) — warn for debugging
@@ -294,7 +299,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
         // Always escape content to prevent injection of structural XML elements
         // (e.g. <system>) regardless of template format
-        text = text.replace(/\{\{content\}\}/g, entry.content.replace(/</g, '&lt;'));
+        text = text.replace(/\{\{content\}\}/g, entry.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
         return text;
     };
 

@@ -53,13 +53,13 @@ cooldown: 3  # After triggering, skip for 3 generations
 
 ## Warmup
 
-Per-entry `warmup: N` in frontmatter. An entry's keywords must appear N or more times in the scan text before it triggers for the first time.
+Per-entry `warmup: N` in frontmatter. An entry's keywords must appear N or more times in the scan text before it triggers. This check runs every generation, not just the first time.
 
 **Use case:** Prevent entries from triggering on a single casual mention. Ensure a topic is being discussed in depth before injecting detailed lore.
 
 **Example:**
 ```yaml
-warmup: 3  # Keyword must appear 3+ times in scan text before first trigger
+warmup: 3  # Keyword must appear 3+ times in scan text each generation
 ```
 
 **Notes:**

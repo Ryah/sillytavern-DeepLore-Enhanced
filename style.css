@@ -6,7 +6,7 @@
 :root {
     --dle-success: var(--SmartThemeQuoteColor, #4caf50);
     --dle-error: #f44336;
-    --dle-warning: var(--warning, #ff9800);
+    --dle-warning: #ff9800;
     --dle-info: var(--SmartThemeAuxColor, #2196f3);
     --dle-accent: #9c27b0;
     --dle-border: var(--SmartThemeBorderColor, #444);

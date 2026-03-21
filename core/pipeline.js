@@ -139,7 +139,7 @@ export function parseVaultFile(file, tagConfig) {
     // Contextual gating fields: era, location, scene_type, character_present
     const toStringArray = (v) => Array.isArray(v) ? v.map(s => String(s).trim().toLowerCase()).filter(Boolean)
         : (typeof v === 'string' && v.trim()) ? [v.trim().toLowerCase()]
-        : (typeof v === 'number') ? [String(v).toLowerCase()] : [];
+        : (typeof v === 'number' || typeof v === 'boolean') ? [String(v).toLowerCase()] : [];
     const era = toStringArray(frontmatter.era);
     const location = toStringArray(frontmatter.location);
     const sceneType = toStringArray(frontmatter.scene_type);

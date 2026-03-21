@@ -1525,7 +1525,7 @@ export function registerSlashCommands() {
         callback: async () => {
             const commands = [
                 { cmd: '/dle-browse', desc: 'Search and preview vault entries' },
-                { cmd: '/dle-context', desc: 'Show context map for last generation' },
+                { cmd: '/dle-context', desc: 'Show what would inject right now (no generation needed)' },
                 { cmd: '/dle-inspect', desc: 'Inspect last pipeline trace in detail' },
                 { cmd: '/dle-health', desc: 'Run vault health check' },
                 { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian' },

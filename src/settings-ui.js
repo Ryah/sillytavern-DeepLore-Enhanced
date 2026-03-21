@@ -10,7 +10,7 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { eventSource, event_types } from '../../../../events.js';
 import { buildAiChatContext, simpleHash } from '../core/utils.js';
 import { applyGating, formatAndGroup } from '../core/matching.js';
-import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints } from '../settings.js';
+import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache } from '../settings.js';
 import { testConnection } from './obsidian-api.js';
 import { testProxyConnection } from './proxy-api.js';
 import {
@@ -466,6 +466,10 @@ export function loadSettingsUI() {
  */
 export function bindSettingsEvents(buildIndexFn) {
     const settings = getSettings();
+
+    // Invalidate settings cache on any input change in our settings panel.
+    // This covers all ~80 handlers below with a single delegated event.
+    $('.deeplore_enhanced_settings').on('change input', () => invalidateSettingsCache());
 
     $('#dle_enabled').on('change', function () {
         settings.enabled = $(this).prop('checked');

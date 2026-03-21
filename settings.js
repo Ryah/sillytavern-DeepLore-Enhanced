@@ -180,11 +180,28 @@ export const settingsConstraints = {
     decayPenaltyThreshold: { min: 2, max: 10 },
 };
 
+// Settings cache — avoids re-validating/coercing ~60 keys on every getSettings() call
+let _cacheValid = false;
+
+/**
+ * Invalidate the settings cache, forcing the next getSettings() call to re-validate.
+ * Call this whenever settings are mutated (UI changes, slash commands, etc.).
+ */
+export function invalidateSettingsCache() {
+    _cacheValid = false;
+}
+
 /** @returns {typeof defaultSettings} */
 export function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
     }
+
+    // Fast path: return cached reference if already validated
+    if (_cacheValid) {
+        return extension_settings[MODULE_NAME];
+    }
+
     // Fill in any missing defaults
     for (const [key, value] of Object.entries(defaultSettings)) {
         if (extension_settings[MODULE_NAME][key] === undefined) {
@@ -228,6 +245,7 @@ export function getSettings() {
         s._vaultsMigrated = true;
     }
 
+    _cacheValid = true;
     return s;
 }
 

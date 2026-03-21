@@ -112,3 +112,7 @@ export function setGenerationLockEpoch(v) { generationLockEpoch = v; }
 /** Pre-computed entity name Set for AI cache sliding window check */
 export let entityNameSet = new Set();
 export function setEntityNameSet(v) { entityNameSet = v; }
+
+/** Pre-compiled word-boundary regexes for short entity names (≤3 chars) */
+export let entityShortNameRegexes = new Map();
+export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }

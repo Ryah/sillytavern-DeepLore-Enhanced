@@ -3,7 +3,10 @@
  */
 import { escapeHtml } from '../../../../utils.js';
 import { getSettings } from '../settings.js';
-import { syncIntervalId, indexing, setSyncIntervalId } from './state.js';
+import { syncIntervalId, indexing, setSyncIntervalId, setIndexing } from './state.js';
+
+// Track when we first observe indexing=true, to detect stuck builds
+let _indexingSeenSince = 0;
 
 /**
  * Show a toast notification summarizing vault changes.
@@ -61,9 +64,23 @@ export function setupSyncPolling(buildIndexFn, buildIndexDeltaFn) {
             if (currentInterval <= 0) return; // Setting was changed to disabled mid-run
             setSyncIntervalId(setTimeout(async () => {
                 const current = getSettings();
-                if (!current.enabled || indexing) {
+                if (!current.enabled) {
                     scheduleNext();
                     return;
+                }
+                // Guard against stuck indexing flag — force-release after 120s
+                if (indexing) {
+                    if (!_indexingSeenSince) _indexingSeenSince = Date.now();
+                    if (Date.now() - _indexingSeenSince > 120_000) {
+                        console.warn('[DLE] Sync: indexing flag stuck for >120s, force-releasing');
+                        setIndexing(false);
+                        _indexingSeenSince = 0;
+                    } else {
+                        scheduleNext();
+                        return;
+                    }
+                } else {
+                    _indexingSeenSince = 0;
                 }
 
                 try {

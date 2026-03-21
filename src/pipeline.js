@@ -201,7 +201,7 @@ export function matchEntries(chat, snapshot = null) {
     }
 
     // Sort by priority (ascending - lower number = higher priority)
-    const matched = [...matchedSet].sort((a, b) => a.priority - b.priority);
+    const matched = [...matchedSet].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
     return { matched, matchedKeys, probabilitySkipped };
 }
@@ -339,6 +339,11 @@ export async function runPipeline(chat, externalSnapshot) {
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
     }
+
+    // Re-sort by user priority (with tiebreaker) after all modes.
+    // In AI modes, confidence sorting may have overridden user priority — this restores it
+    // so budget trimming respects the user's explicit priority field.
+    finalEntries.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
     setLastPipelineTrace(trace);
     return { finalEntries, matchedKeys, trace };

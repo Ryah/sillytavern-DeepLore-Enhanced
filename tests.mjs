@@ -125,6 +125,10 @@ function makeEntry(title, opts = {}) {
         refineKeys: opts.refineKeys || [],
         vaultSource: opts.vaultSource || '',
         filename: opts.filename || `${title}.md`,
+        era: opts.era || null,
+        location: opts.location || null,
+        sceneType: opts.sceneType || null,
+        characterPresent: opts.characterPresent || null,
     };
 }
 
@@ -1402,6 +1406,574 @@ test('delta sync: no changes returns empty diff', () => {
 
     assertEqual(newFiles.length, 0, 'no new files');
     assertEqual(removedFiles.length, 0, 'no removed files');
+});
+
+// ============================================================================
+// Tests: Pipeline Stages (src/stages.js)
+// ============================================================================
+
+import {
+    buildExemptionPolicy, applyPinBlock, applyContextualGating,
+    applyReinjectionCooldown, applyRequiresExcludesGating,
+    applyStripDedup, trackGeneration, decrementTrackers, recordAnalytics,
+} from './src/stages.js';
+
+// -- buildExemptionPolicy --
+
+test('buildExemptionPolicy: constants are in forceInject', () => {
+    const vault = [makeEntry('A', { constant: true }), makeEntry('B')];
+    const policy = buildExemptionPolicy(vault, [], []);
+    assert(policy.forceInject.has('A'), 'constant A should be in forceInject');
+    assert(!policy.forceInject.has('B'), 'non-constant B should NOT be in forceInject');
+});
+
+test('buildExemptionPolicy: pins are in forceInject', () => {
+    const vault = [makeEntry('A'), makeEntry('B')];
+    const policy = buildExemptionPolicy(vault, ['A'], []);
+    assert(policy.forceInject.has('A'), 'pinned A should be in forceInject');
+    assert(!policy.forceInject.has('B'), 'non-pinned B should NOT be in forceInject');
+});
+
+test('buildExemptionPolicy: bootstrap entries are in forceInject', () => {
+    const vault = [makeEntry('Boot', { bootstrap: true }), makeEntry('Normal')];
+    const policy = buildExemptionPolicy(vault, [], []);
+    assert(policy.forceInject.has('Boot'), 'bootstrap should be in forceInject');
+    assert(!policy.forceInject.has('Normal'), 'normal should NOT be in forceInject');
+});
+
+test('buildExemptionPolicy: blocks stored lowercase in policy', () => {
+    const vault = [makeEntry('A')];
+    const policy = buildExemptionPolicy(vault, [], ['Blocked Entry']);
+    assert(policy.blocks.has('blocked entry'), 'block should be stored lowercase');
+    assert(!policy.blocks.has('Blocked Entry'), 'original case should not match');
+});
+
+test('buildExemptionPolicy: empty inputs produce empty sets', () => {
+    const policy = buildExemptionPolicy([], [], []);
+    assertEqual(policy.forceInject.size, 0, 'empty vault = empty forceInject');
+    assertEqual(policy.pins.size, 0, 'empty pins');
+    assertEqual(policy.blocks.size, 0, 'empty blocks');
+});
+
+test('buildExemptionPolicy: pin and constant overlap is deduplicated', () => {
+    const vault = [makeEntry('A', { constant: true })];
+    const policy = buildExemptionPolicy(vault, ['A'], []);
+    assertEqual(policy.forceInject.size, 1, 'A appears once despite being constant and pinned');
+    assert(policy.forceInject.has('A'), 'A is in forceInject');
+});
+
+// -- applyPinBlock --
+
+test('applyPinBlock: pinned entries added with constant=true and priority=10', () => {
+    const vault = [makeEntry('A', { priority: 50 }), makeEntry('B', { priority: 80 })];
+    const policy = buildExemptionPolicy(vault, ['B'], []);
+    const matchedKeys = new Map();
+    const result = applyPinBlock([vault[0]], vault, policy, matchedKeys);
+    assertEqual(result.length, 2, 'B should be added');
+    const pinned = result.find(e => e.title === 'B');
+    assert(pinned.constant === true, 'pinned entry should have constant=true');
+    assertEqual(pinned.priority, 10, 'pinned entry should have priority=10');
+    assertEqual(matchedKeys.get('B'), '(pinned)', 'matchedKeys should record pin');
+});
+
+test('applyPinBlock: pinned entry already in results gets constant+priority override', () => {
+    const vault = [makeEntry('A', { priority: 50 })];
+    const policy = buildExemptionPolicy(vault, ['A'], []);
+    const matchedKeys = new Map();
+    const result = applyPinBlock([vault[0]], vault, policy, matchedKeys);
+    assertEqual(result.length, 1, 'no duplicate');
+    assert(result[0].constant === true, 'existing entry should get constant=true');
+    assertEqual(result[0].priority, 10, 'existing entry should get priority=10');
+});
+
+test('applyPinBlock: does not mutate original entry objects', () => {
+    const original = makeEntry('A', { priority: 50 });
+    const vault = [original];
+    const policy = buildExemptionPolicy(vault, ['A'], []);
+    applyPinBlock([original], vault, policy, new Map());
+    assertEqual(original.priority, 50, 'original entry priority unchanged');
+    assertEqual(original.constant, false, 'original entry constant unchanged');
+});
+
+test('applyPinBlock: blocked entries removed (override constants)', () => {
+    const vault = [makeEntry('A', { constant: true }), makeEntry('B')];
+    const policy = buildExemptionPolicy(vault, [], ['A']);
+    const result = applyPinBlock([vault[0], vault[1]], vault, policy, new Map());
+    assertEqual(result.length, 1, 'blocked entry removed');
+    assertEqual(result[0].title, 'B', 'only B remains');
+});
+
+test('applyPinBlock: block is case-insensitive', () => {
+    const vault = [makeEntry('Eris')];
+    const policy = buildExemptionPolicy(vault, [], ['ERIS']);
+    const result = applyPinBlock([vault[0]], vault, policy, new Map());
+    assertEqual(result.length, 0, 'case-insensitive block should remove Eris');
+});
+
+test('applyPinBlock: empty pins/blocks is a no-op', () => {
+    const vault = [makeEntry('A'), makeEntry('B')];
+    const policy = buildExemptionPolicy(vault, [], []);
+    const result = applyPinBlock([vault[0], vault[1]], vault, policy, new Map());
+    assertEqual(result.length, 2, 'all entries preserved');
+});
+
+test('applyPinBlock: pin on already-constant entry sets priority to 10', () => {
+    const vault = [makeEntry('A', { constant: true, priority: 50 })];
+    const policy = buildExemptionPolicy(vault, ['A'], []);
+    const result = applyPinBlock([vault[0]], vault, policy, new Map());
+    assertEqual(result[0].priority, 10, 'constant+pinned gets priority 10');
+    assert(result[0].constant === true, 'remains constant');
+});
+
+// -- applyContextualGating --
+
+test('applyContextualGating: no context set = return all entries unchanged', () => {
+    const entries = [makeEntry('A', { era: ['golden'] }), makeEntry('B')];
+    const result = applyContextualGating(entries, {}, { forceInject: new Set() }, false);
+    assertEqual(result.length, 2, 'no gating when no context dimensions set');
+});
+
+test('applyContextualGating: entry with era matches active era', () => {
+    const entries = [makeEntry('A', { era: ['golden'] }), makeEntry('B', { era: ['dark'] })];
+    const result = applyContextualGating(entries, { era: 'golden' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'only golden era entry kept');
+    assertEqual(result[0].title, 'A', 'A matches golden era');
+});
+
+test('applyContextualGating: entry with era dropped when no era active', () => {
+    const entries = [makeEntry('A', { era: ['golden'] }), makeEntry('B')];
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'era entry dropped when no era set');
+    assertEqual(result[0].title, 'B', 'ungated entry kept');
+});
+
+test('applyContextualGating: forceInject entries bypass era gating', () => {
+    const entries = [makeEntry('A', { era: ['golden'] })];
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set(['A']) }, false);
+    assertEqual(result.length, 1, 'forceInject entry kept despite era mismatch');
+});
+
+test('applyContextualGating: location gating works', () => {
+    const entries = [makeEntry('A', { location: ['tavern'] }), makeEntry('B', { location: ['castle'] })];
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'only matching location kept');
+    assertEqual(result[0].title, 'A', 'tavern entry kept');
+});
+
+test('applyContextualGating: sceneType gating works', () => {
+    const entries = [makeEntry('A', { sceneType: ['combat'] }), makeEntry('B')];
+    const result = applyContextualGating(entries, { scene_type: 'combat' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 2, 'combat entry and ungated entry both kept');
+});
+
+test('applyContextualGating: characterPresent gating works', () => {
+    const entries = [
+        makeEntry('A', { characterPresent: ['Eris'] }),
+        makeEntry('B', { characterPresent: ['Raven'] }),
+    ];
+    const result = applyContextualGating(entries, { characters_present: ['Eris'] }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'only Eris entry kept');
+    assertEqual(result[0].title, 'A', 'A kept for Eris');
+});
+
+test('applyContextualGating: characterPresent with no present chars drops entry', () => {
+    const entries = [makeEntry('A', { characterPresent: ['Eris'] }), makeEntry('B')];
+    const result = applyContextualGating(entries, { era: 'golden' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'character-gated entry dropped when no chars present');
+    assertEqual(result[0].title, 'B', 'ungated entry kept');
+});
+
+test('applyContextualGating: era matching is case-insensitive', () => {
+    const entries = [makeEntry('A', { era: ['Golden Age'] })];
+    const result = applyContextualGating(entries, { era: 'golden age' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'case-insensitive era match');
+});
+
+test('applyContextualGating: multiple era values, any match passes', () => {
+    const entries = [makeEntry('A', { era: ['golden', 'silver'] })];
+    const result = applyContextualGating(entries, { era: 'silver' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'silver matches one of the era values');
+});
+
+test('applyContextualGating: entry with no gating fields always passes', () => {
+    const entries = [makeEntry('A')];
+    const result = applyContextualGating(entries, { era: 'golden', location: 'tavern' }, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'ungated entry always passes regardless of active context');
+});
+
+// -- applyReinjectionCooldown --
+
+test('applyReinjectionCooldown: cooldown=0 is a no-op', () => {
+    const entries = [makeEntry('A')];
+    const history = new Map([['A', 5]]);
+    const result = applyReinjectionCooldown(entries, { forceInject: new Set() }, history, 6, 0, false);
+    assertEqual(result.length, 1, 'cooldown disabled = all pass');
+});
+
+test('applyReinjectionCooldown: recently injected entry is filtered', () => {
+    const a = makeEntry('A', { vaultSource: '' });
+    const history = new Map([[':A', 5]]);
+    const result = applyReinjectionCooldown([a], { forceInject: new Set() }, history, 6, 3, false);
+    assertEqual(result.length, 0, 'entry injected 1 gen ago filtered (cooldown 3)');
+});
+
+test('applyReinjectionCooldown: old injection passes cooldown', () => {
+    const a = makeEntry('A', { vaultSource: '' });
+    const history = new Map([[':A', 2]]);
+    const result = applyReinjectionCooldown([a], { forceInject: new Set() }, history, 6, 3, false);
+    assertEqual(result.length, 1, 'entry injected 4 gens ago passes (cooldown 3)');
+});
+
+test('applyReinjectionCooldown: forceInject entries always pass', () => {
+    const a = makeEntry('A', { vaultSource: '' });
+    const history = new Map([[':A', 5]]);
+    const result = applyReinjectionCooldown([a], { forceInject: new Set(['A']) }, history, 6, 3, false);
+    assertEqual(result.length, 1, 'forceInject bypasses cooldown');
+});
+
+test('applyReinjectionCooldown: no history = all pass', () => {
+    const entries = [makeEntry('A'), makeEntry('B')];
+    const result = applyReinjectionCooldown(entries, { forceInject: new Set() }, new Map(), 10, 5, false);
+    assertEqual(result.length, 2, 'no history = nothing filtered');
+});
+
+test('applyReinjectionCooldown: entry at exact cooldown boundary passes', () => {
+    const a = makeEntry('A', { vaultSource: '' });
+    const history = new Map([[':A', 4]]);
+    // generationCount=7, lastGen=4, diff=3, cooldown=3 → NOT less than → passes
+    const result = applyReinjectionCooldown([a], { forceInject: new Set() }, history, 7, 3, false);
+    assertEqual(result.length, 1, 'at exact cooldown boundary should pass');
+});
+
+// -- applyRequiresExcludesGating --
+
+test('applyRequiresExcludesGating: entry with met requires passes', () => {
+    const entries = [makeEntry('A'), makeEntry('B', { requires: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 2, 'B requires A, A is present → both pass');
+});
+
+test('applyRequiresExcludesGating: entry with unmet requires removed', () => {
+    const entries = [makeEntry('B', { requires: ['A'] })];
+    const { result, removed } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 0, 'B requires A, A absent → B removed');
+    assertEqual(removed.length, 1, 'B in removed list');
+});
+
+test('applyRequiresExcludesGating: entry with triggered excludes removed', () => {
+    const entries = [makeEntry('A'), makeEntry('B', { excludes: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'B excludes A → B removed');
+    assertEqual(result[0].title, 'A', 'A stays');
+});
+
+test('applyRequiresExcludesGating: forceInject entry with unmet requires kept (NEW behavior)', () => {
+    const entries = [makeEntry('B', { requires: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['B']) }, false);
+    assertEqual(result.length, 1, 'forceInject B kept despite unmet requires');
+    assertEqual(result[0].title, 'B', 'B is in result');
+});
+
+test('applyRequiresExcludesGating: forceInject entry with triggered excludes kept', () => {
+    const entries = [makeEntry('A'), makeEntry('B', { excludes: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['B']) }, false);
+    assertEqual(result.length, 2, 'forceInject B kept despite excludes match');
+});
+
+test('applyRequiresExcludesGating: mutual requires both kept (both present)', () => {
+    // When A requires B and B requires A, both are present so both requirements are met
+    const entries = [makeEntry('A', { requires: ['B'] }), makeEntry('B', { requires: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 2, 'mutual requires: both present → both kept');
+});
+
+test('applyRequiresExcludesGating: excludes removes the EXCLUDING entry, not the target', () => {
+    // C has excludes:['A'] → C is removed when A is present (not the other way around)
+    const entries = [makeEntry('A'), makeEntry('C', { excludes: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'C removed because it excludes A which is present');
+    assertEqual(result[0].title, 'A', 'A stays');
+});
+
+test('applyRequiresExcludesGating: cascade removal via third-party excludes', () => {
+    // A has excludes:['C'] → A removed because C present → B requires A (absent) → B removed
+    const entries = [
+        makeEntry('A', { excludes: ['C'] }),
+        makeEntry('B', { requires: ['A'] }),
+        makeEntry('C'),
+    ];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'A and B cascade-removed, C stays');
+    assertEqual(result[0].title, 'C', 'only C survives');
+});
+
+test('applyRequiresExcludesGating: circular requires with one forceInject breaks cycle', () => {
+    const entries = [makeEntry('A', { requires: ['B'] }), makeEntry('B', { requires: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['A']) }, false);
+    // A is forceInject so it stays. B requires A which is present → B also stays.
+    assertEqual(result.length, 2, 'forceInject A breaks the cycle');
+});
+
+test('applyRequiresExcludesGating: cascade removal (A→B→C chain)', () => {
+    const entries = [
+        makeEntry('A', { requires: ['X'] }), // X not present → A removed
+        makeEntry('B', { requires: ['A'] }), // A removed → B removed too
+        makeEntry('C'),                       // C has no deps → stays
+    ];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 1, 'cascade: A and B removed, C stays');
+    assertEqual(result[0].title, 'C', 'C survives');
+});
+
+test('applyRequiresExcludesGating: contradictory gating (A requires B, B excludes A)', () => {
+    const entries = [makeEntry('A', { requires: ['B'] }), makeEntry('B', { excludes: ['A'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    // Round 1: B excludes A (present) → B removed. Round 2: A requires B (absent) → A removed. Both dropped.
+    assertEqual(result.length, 0, 'contradictory: both A and B dropped');
+});
+
+test('applyRequiresExcludesGating: requires matching is case-insensitive', () => {
+    const entries = [makeEntry('Eris'), makeEntry('Bond', { requires: ['eris'] })];
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set() }, false);
+    assertEqual(result.length, 2, 'case-insensitive: "eris" matches "Eris"');
+});
+
+test('applyRequiresExcludesGating: empty entries list = empty result', () => {
+    const { result, removed } = applyRequiresExcludesGating([], { forceInject: new Set() }, false);
+    assertEqual(result.length, 0, 'empty in = empty out');
+    assertEqual(removed.length, 0, 'nothing removed');
+});
+
+// -- applyStripDedup --
+
+test('applyStripDedup: no injection log = no-op', () => {
+    const entries = [makeEntry('A')];
+    const result = applyStripDedup(entries, { forceInject: new Set() }, null, 2, {}, false);
+    assertEqual(result.length, 1, 'no log = all pass');
+});
+
+test('applyStripDedup: empty log = no-op', () => {
+    const entries = [makeEntry('A')];
+    const result = applyStripDedup(entries, { forceInject: new Set() }, [], 2, {}, false);
+    assertEqual(result.length, 1, 'empty log = all pass');
+});
+
+test('applyStripDedup: recently injected entry filtered', () => {
+    const entries = [makeEntry('A', { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 })];
+    const log = [{ gen: 1, entries: [{ title: 'A', pos: 1, depth: 4, role: 0, contentHash: '' }] }];
+    const result = applyStripDedup(entries, { forceInject: new Set() }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
+    assertEqual(result.length, 0, 'recently injected entry stripped');
+});
+
+test('applyStripDedup: forceInject entries never stripped', () => {
+    const entries = [makeEntry('A', { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 })];
+    const log = [{ gen: 1, entries: [{ title: 'A', pos: 1, depth: 4, role: 0, contentHash: '' }] }];
+    const result = applyStripDedup(entries, { forceInject: new Set(['A']) }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
+    assertEqual(result.length, 1, 'forceInject bypasses dedup');
+});
+
+test('applyStripDedup: lookback depth respected', () => {
+    const entries = [makeEntry('A', { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 })];
+    // Log has 3 entries but lookback is 1 — only most recent checked
+    const log = [
+        { gen: 1, entries: [{ title: 'A', pos: 1, depth: 4, role: 0, contentHash: '' }] },
+        { gen: 2, entries: [{ title: 'B', pos: 1, depth: 4, role: 0, contentHash: '' }] },
+        { gen: 3, entries: [{ title: 'C', pos: 1, depth: 4, role: 0, contentHash: '' }] },
+    ];
+    const result = applyStripDedup(entries, { forceInject: new Set() }, log, 1, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
+    assertEqual(result.length, 1, 'A only in gen1, lookback=1 checks gen3 only → A passes');
+});
+
+test('applyStripDedup: different content hash = not a duplicate', () => {
+    const entries = [{ ...makeEntry('A'), injectionPosition: 1, injectionDepth: 4, injectionRole: 0, _contentHash: 'abc123' }];
+    const log = [{ gen: 1, entries: [{ title: 'A', pos: 1, depth: 4, role: 0, contentHash: 'different' }] }];
+    const result = applyStripDedup(entries, { forceInject: new Set() }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
+    assertEqual(result.length, 1, 'different content hash = not a duplicate');
+});
+
+// -- trackGeneration --
+
+test('trackGeneration: sets cooldown for entries with cooldown value', () => {
+    const entries = [makeEntry('A', { cooldown: 3, vaultSource: '' })];
+    const cooldownTracker = new Map();
+    const decayTracker = new Map();
+    const injHistory = new Map();
+    trackGeneration(entries, 5, cooldownTracker, decayTracker, injHistory, { reinjectionCooldown: 0, decayEnabled: false });
+    assertEqual(cooldownTracker.get(':A'), 4, 'cooldown set to value+1 (compensates for immediate decrement)');
+});
+
+test('trackGeneration: no cooldown entries = tracker unchanged', () => {
+    const entries = [makeEntry('A', { cooldown: null, vaultSource: '' })];
+    const cooldownTracker = new Map();
+    trackGeneration(entries, 5, cooldownTracker, new Map(), new Map(), { reinjectionCooldown: 0, decayEnabled: false });
+    assert(!cooldownTracker.has(':A'), 'no cooldown set for entry without cooldown');
+});
+
+test('trackGeneration: records injection history when reinjectionCooldown > 0', () => {
+    const entries = [makeEntry('A', { vaultSource: '' })];
+    const injHistory = new Map();
+    trackGeneration(entries, 5, new Map(), new Map(), injHistory, { reinjectionCooldown: 3, decayEnabled: false });
+    assertEqual(injHistory.get(':A'), 6, 'injection history set to generationCount+1');
+});
+
+test('trackGeneration: skips injection history when reinjectionCooldown = 0', () => {
+    const entries = [makeEntry('A', { vaultSource: '' })];
+    const injHistory = new Map();
+    trackGeneration(entries, 5, new Map(), new Map(), injHistory, { reinjectionCooldown: 0, decayEnabled: false });
+    assert(!injHistory.has(':A'), 'no history when cooldown disabled');
+});
+
+// -- decrementTrackers --
+
+test('decrementTrackers: decrements cooldown counters', () => {
+    const cooldownTracker = new Map([['a', 3], ['b', 1]]);
+    decrementTrackers(cooldownTracker, new Map(), [], { decayEnabled: false });
+    assertEqual(cooldownTracker.get('a'), 2, 'a decremented to 2');
+    assert(!cooldownTracker.has('b'), 'b expired and deleted');
+});
+
+test('decrementTrackers: decay tracking resets injected entries to 0', () => {
+    const entries = [makeEntry('A', { vaultSource: '' })];
+    const decayTracker = new Map([[':A', 5]]);
+    decrementTrackers(new Map(), decayTracker, entries, { decayEnabled: true, decayBoostThreshold: 5 });
+    assertEqual(decayTracker.get(':A'), 0, 'injected entry reset to 0');
+});
+
+test('decrementTrackers: decay increments non-injected entries', () => {
+    const decayTracker = new Map([[':B', 2]]);
+    decrementTrackers(new Map(), decayTracker, [], { decayEnabled: true, decayBoostThreshold: 5 });
+    assertEqual(decayTracker.get(':B'), 3, 'non-injected entry incremented');
+});
+
+test('decrementTrackers: decay prunes entries past threshold', () => {
+    const decayTracker = new Map([[':B', 10]]); // threshold = 5*2=10, 10+1=11 > 10 → pruned
+    decrementTrackers(new Map(), decayTracker, [], { decayEnabled: true, decayBoostThreshold: 5 });
+    assert(!decayTracker.has(':B'), 'entry at 11 pruned (threshold is 10)');
+});
+
+test('decrementTrackers: decay disabled = no changes to decay tracker', () => {
+    const decayTracker = new Map([[':A', 5]]);
+    decrementTrackers(new Map(), decayTracker, [], { decayEnabled: false });
+    assertEqual(decayTracker.get(':A'), 5, 'decay tracker unchanged when disabled');
+});
+
+// -- recordAnalytics --
+
+test('recordAnalytics: records matched and injected counts', () => {
+    const matched = [makeEntry('A', { vaultSource: '' }), makeEntry('B', { vaultSource: '' })];
+    const injected = [makeEntry('A', { vaultSource: '' })];
+    const analytics = {};
+    recordAnalytics(matched, injected, analytics);
+    assertEqual(analytics[':A'].matched, 1, 'A matched once');
+    assertEqual(analytics[':A'].injected, 1, 'A injected once');
+    assertEqual(analytics[':B'].matched, 1, 'B matched once');
+    assertEqual(analytics[':B'].injected, 0, 'B not injected');
+});
+
+test('recordAnalytics: increments existing analytics', () => {
+    const analytics = { ':A': { matched: 5, injected: 3, lastTriggered: Date.now() - 1000 } };
+    recordAnalytics([makeEntry('A', { vaultSource: '' })], [makeEntry('A', { vaultSource: '' })], analytics);
+    assertEqual(analytics[':A'].matched, 6, 'matched incremented');
+    assertEqual(analytics[':A'].injected, 4, 'injected incremented');
+});
+
+test('recordAnalytics: prunes stale entries (>30 days)', () => {
+    const staleTime = Date.now() - (31 * 24 * 60 * 60 * 1000);
+    const analytics = { ':old': { matched: 1, injected: 0, lastTriggered: staleTime } };
+    recordAnalytics([], [], analytics);
+    assert(!(':old' in analytics), 'stale entry pruned');
+});
+
+test('recordAnalytics: prototype pollution guard', () => {
+    const analytics = {};
+    const evil = makeEntry('__proto__', { vaultSource: '' });
+    recordAnalytics([evil], [], analytics);
+    // Object.hasOwn should prevent pollution
+    assert(Object.hasOwn(analytics, ':__proto__'), 'analytics has the key via hasOwn');
+    assertEqual(typeof analytics[':__proto__']?.matched, 'number', 'value is a normal object');
+});
+
+test('recordAnalytics: empty inputs = no changes (except pruning)', () => {
+    const analytics = { ':A': { matched: 1, injected: 0, lastTriggered: Date.now() } };
+    recordAnalytics([], [], analytics);
+    assertEqual(analytics[':A'].matched, 1, 'existing analytics unchanged');
+});
+
+// ============================================================================
+// Tests: Priority tiebreaker
+// ============================================================================
+
+test('priority sort: tiebreaker is alphabetical by title', () => {
+    const entries = [
+        makeEntry('Zebra', { priority: 50 }),
+        makeEntry('Alpha', { priority: 50 }),
+        makeEntry('Middle', { priority: 50 }),
+    ];
+    const sorted = [...entries].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
+    assertEqual(sorted.map(e => e.title), ['Alpha', 'Middle', 'Zebra'], 'same priority → alphabetical order');
+});
+
+test('priority sort: lower priority number wins over alphabetical', () => {
+    const entries = [
+        makeEntry('Zebra', { priority: 10 }),
+        makeEntry('Alpha', { priority: 50 }),
+    ];
+    const sorted = [...entries].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
+    assertEqual(sorted.map(e => e.title), ['Zebra', 'Alpha'], 'priority 10 beats priority 50 regardless of name');
+});
+
+// ============================================================================
+// Tests: Integration — full pipeline stage sequence
+// ============================================================================
+
+test('integration: pinned entry survives all gating stages', () => {
+    const vault = [
+        makeEntry('A', { priority: 50, era: ['golden'], requires: ['X'] }),
+        makeEntry('B', { priority: 80 }),
+    ];
+    const policy = buildExemptionPolicy(vault, ['A'], []);
+
+    // Stage 1: Pin
+    let entries = applyPinBlock([vault[1]], vault, policy, new Map());
+    assertEqual(entries.length, 2, 'pinned A added');
+
+    // Stage 2: Contextual gating — no era set, but A has era field
+    entries = applyContextualGating(entries, { location: 'tavern' }, policy, false);
+    assert(entries.some(e => e.title === 'A'), 'pinned A survives era gating');
+
+    // Stage 3: Cooldown — A was recently injected
+    const history = new Map([[':A', 8]]);
+    entries = applyReinjectionCooldown(entries, policy, history, 9, 5, false);
+    assert(entries.some(e => e.title === 'A'), 'pinned A survives cooldown');
+
+    // Stage 4: Requires/excludes — A requires X which is absent
+    const { result } = applyRequiresExcludesGating(entries, policy, false);
+    assert(result.some(e => e.title === 'A'), 'pinned A survives requires gating (forceInject)');
+});
+
+test('integration: blocked entry removed even if constant', () => {
+    const vault = [makeEntry('A', { constant: true }), makeEntry('B')];
+    const policy = buildExemptionPolicy(vault, [], ['A']);
+    const entries = applyPinBlock([vault[0], vault[1]], vault, policy, new Map());
+    assertEqual(entries.length, 1, 'constant A blocked');
+    assertEqual(entries[0].title, 'B', 'only B remains');
+});
+
+test('integration: non-forceInject entry with era gated when no era set', () => {
+    const vault = [makeEntry('A', { era: ['golden'] }), makeEntry('B')];
+    const policy = buildExemptionPolicy(vault, [], []);
+    let entries = applyPinBlock([vault[0], vault[1]], vault, policy, new Map());
+    entries = applyContextualGating(entries, { location: 'tavern' }, policy, false);
+    assertEqual(entries.length, 1, 'A gated out (has era but no era active)');
+    assertEqual(entries[0].title, 'B', 'B stays');
+});
+
+test('integration: constant entry with unmet requires survives (NEW behavior)', () => {
+    const vault = [makeEntry('Lore', { constant: true, requires: ['Missing'] })];
+    const policy = buildExemptionPolicy(vault, [], []);
+    const { result } = applyRequiresExcludesGating(vault, policy, false);
+    assertEqual(result.length, 1, 'constant entry survives unmet requires');
+    assertEqual(result[0].title, 'Lore', 'Lore kept as forceInject');
 });
 
 // ============================================================================

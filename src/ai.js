@@ -9,7 +9,7 @@ import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
-    trackerKey, setAiSearchCache, entityNameSet, generationCount, injectionHistory,
+    trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, generationCount, injectionHistory,
 } from './state.js';
 import { updateAiStats } from './settings-ui.js';
 
@@ -332,16 +332,16 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                 if (staleness !== undefined && staleness >= settings.decayBoostThreshold) {
                     decayHint = ' [STALE — consider refreshing]';
                 }
-                // Penalty: entries injected many consecutive times get a nudge
-                // Check if entry has been continuously in the tracker with staleness 0
-                // (i.e., injected every generation) for at least decayPenaltyThreshold generations
+                // Penalty: entries injected many consecutive times get a nudge.
+                // Note: injectionHistory only tracks last-injected gen, not consecutive streak count.
+                // As a conservative proxy, require the chat to be mature (2x threshold) before applying.
+                // TODO: Track per-entry consecutive injection counter for proper streak detection.
                 if (!decayHint && settings.decayPenaltyThreshold > 0) {
                     const entryStaleness = decayTracker.get(trackerKey(entry));
                     if (entryStaleness !== undefined && entryStaleness === 0) {
-                        // Entry is being injected this gen — check injection history for consecutive streak
                         const lastGen = injectionHistory.get(trackerKey(entry));
-                        // If entry was injected last gen too, and gen count is high enough for a streak
-                        if (lastGen !== undefined && (generationCount - lastGen) <= 1 && generationCount >= settings.decayPenaltyThreshold) {
+                        if (lastGen !== undefined && (generationCount - lastGen) <= 1
+                            && generationCount >= settings.decayPenaltyThreshold * 2) {
                             decayHint = ' [FREQUENT — consider diversifying]';
                         }
                     }
@@ -582,11 +582,19 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         const newLines = getChatLines().slice(aiSearchCache.chatLineCount);
         const newText = newLines.join(' ').toLowerCase();
 
-        // Check if any vault entry title or key appears in the new text
+        // Check if any vault entry title or key appears in the new text (word-boundary match)
         // Uses pre-computed entityNameSet from buildIndex (titles min 1 char, keys min 2 chars)
         let hasNewEntityMention = false;
         for (const name of entityNameSet) {
-            if (newText.includes(name)) {
+            // Use pre-compiled word boundary regex for short names to avoid false positives
+            // (e.g. "an" matching inside "want", "Kai" matching inside "okay")
+            if (name.length <= 3) {
+                const regex = entityShortNameRegexes.get(name);
+                if (regex && regex.test(newText)) {
+                    hasNewEntityMention = true;
+                    break;
+                }
+            } else if (newText.includes(name)) {
                 hasNewEntityMention = true;
                 break;
             }
@@ -603,7 +611,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     try {
         // Resolve system prompt with {{maxEntries}} placeholder
         // Request 2x max entries so low-confidence candidates can fill remaining budget
-        const requestedEntries = settings.unlimitedEntries ? 0 : Math.min(settings.maxEntries * 2, vaultIndex.length);
+        const indexToUse = snapshot || vaultIndex;
+        const requestedEntries = settings.unlimitedEntries ? 0 : Math.min(settings.maxEntries * 2, indexToUse.length);
         const maxEntries = settings.unlimitedEntries ? 'as many as are relevant' : String(requestedEntries);
         let systemPrompt;
         if (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) {
@@ -622,7 +631,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
 
         // On new chats, tell AI to always fill to max selections
         if (isNewChat) {
-            const constantCount = vaultIndex.filter(e => e.constant).length;
+            const constantCount = indexToUse.filter(e => e.constant).length;
             const selectCount = Math.max(1, settings.maxEntries - constantCount);
             systemPrompt += '\n\nIMPORTANT: The conversation just started. You have story context above to help you understand the setting. Select exactly ' + selectCount + ' entries from the manifest — always fill to this count. The user needs rich context for the conversation start. Do not return fewer entries or an empty array.';
             if (settings.debugMode) {

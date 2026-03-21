@@ -13,14 +13,19 @@ import {
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { promptManager } from '../../../openai.js';
-import { applyGating, formatAndGroup } from './core/matching.js';
+import { formatAndGroup } from './core/matching.js';
+import {
+    buildExemptionPolicy, applyPinBlock, applyContextualGating,
+    applyReinjectionCooldown, applyRequiresExcludesGating,
+    applyStripDedup, trackGeneration, decrementTrackers, recordAnalytics,
+} from './src/stages.js';
 import { clearPrompts } from './core/pipeline.js';
-import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG } from './settings.js';
+import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache } from './settings.js';
 import {
     vaultIndex, indexEverLoaded, indexing,
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory,
-    lastWarningRatio, decayTracker, chatEpoch, trackerKey,
+    lastWarningRatio, decayTracker, chatEpoch,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
@@ -126,71 +131,18 @@ async function onGenerate(chat, contextSize, abort, type) {
         pipelineRan = true;
 
         const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot);
-        let finalEntries = pipelineEntries;
 
-        // Per-chat pin/block overrides (stored in chat_metadata)
-        // Use a local Set instead of mutating shared VaultEntry objects to avoid stale _pinned flags
+        // Build ExemptionPolicy: single source of truth for what skips all gating
         const pins = chat_metadata.deeplore_pins || [];
         const blocks = chat_metadata.deeplore_blocks || [];
-        const pinnedTitles = new Set();
-        if (pins.length > 0) {
-            const pinSet = new Set(pins.map(t => t.toLowerCase()));
-            for (const entry of vaultSnapshot) {
-                if (pinSet.has(entry.title.toLowerCase())) {
-                    pinnedTitles.add(entry.title);
-                    if (!finalEntries.includes(entry)) {
-                        finalEntries.push(entry);
-                        matchedKeys.set(entry.title, '(pinned)');
-                    }
-                }
-            }
-        }
-        // Blocks intentionally override constants — they are manual per-chat overrides
-        if (blocks.length > 0) {
-            const blockSet = new Set(blocks.map(t => t.toLowerCase()));
-            finalEntries = finalEntries.filter(e => !blockSet.has(e.title.toLowerCase()));
-        }
+        const policy = buildExemptionPolicy(vaultSnapshot, pins, blocks);
 
-        // Contextual gating: era, location, scene_type, character_present
+        // Stage 1: Pin/Block overrides
+        let finalEntries = applyPinBlock(pipelineEntries, vaultSnapshot, policy, matchedKeys);
+
+        // Stage 2: Contextual gating (era, location, scene, character)
         const ctx = chat_metadata.deeplore_context || {};
-        const activeEra = (ctx.era || '').toLowerCase();
-        const activeLocation = (ctx.location || '').toLowerCase();
-        const activeScene = (ctx.scene_type || '').toLowerCase();
-        const presentChars = (ctx.characters_present || []).map(c => c.toLowerCase());
-
-        if (activeEra || activeLocation || activeScene || presentChars.length > 0) {
-            const beforeCtx = finalEntries.length;
-            finalEntries = finalEntries.filter(e => {
-                if (e.constant || pinnedTitles.has(e.title)) return true; // Constants and pins bypass gating
-                // Era gating: if entry has era field, current era must match one (case-insensitive substring)
-                if (e.era && e.era.length > 0 && activeEra) {
-                    if (!e.era.some(v => v.toLowerCase().includes(activeEra) || activeEra.includes(v.toLowerCase()))) return false;
-                } else if (e.era && e.era.length > 0 && !activeEra) {
-                    return false; // Entry requires an era but none is set
-                }
-                // Location gating (case-insensitive substring)
-                if (e.location && e.location.length > 0 && activeLocation) {
-                    if (!e.location.some(v => v.toLowerCase().includes(activeLocation) || activeLocation.includes(v.toLowerCase()))) return false;
-                } else if (e.location && e.location.length > 0 && !activeLocation) {
-                    return false;
-                }
-                // Scene type gating (case-insensitive substring)
-                if (e.sceneType && e.sceneType.length > 0 && activeScene) {
-                    if (!e.sceneType.some(v => v.toLowerCase().includes(activeScene) || activeScene.includes(v.toLowerCase()))) return false;
-                } else if (e.sceneType && e.sceneType.length > 0 && !activeScene) {
-                    return false;
-                }
-                // Character present gating (case-insensitive substring)
-                if (e.characterPresent && e.characterPresent.length > 0) {
-                    if (presentChars.length === 0) return false;
-                    if (!e.characterPresent.some(c => presentChars.some(p => c.toLowerCase().includes(p) || p.includes(c.toLowerCase())))) return false;
-                }
-                return true;
-            });
-            if (settings.debugMode && finalEntries.length < beforeCtx) {
-                console.log(`[DLE] Contextual gating removed ${beforeCtx - finalEntries.length} entries (era: ${activeEra || 'none'}, location: ${activeLocation || 'none'}, scene: ${activeScene || 'none'})`);
-            }
-        }
+        finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode);
 
         if (trace?.aiFallback) {
             const aiErr = trace.aiError || '';
@@ -216,77 +168,30 @@ async function onGenerate(chat, contextSize, abort, type) {
             return;
         }
 
-        // Re-injection cooldown: filter out recently injected entries
-        if (settings.reinjectionCooldown > 0) {
-            const before = finalEntries.length;
-            finalEntries = finalEntries.filter(e => {
-                if (e.constant || pinnedTitles.has(e.title)) return true; // Constants and pins always pass
-                const lastGen = injectionHistory.get(trackerKey(e));
-                if (lastGen !== undefined && (generationCount - lastGen) < settings.reinjectionCooldown) {
-                    if (settings.debugMode) {
-                        console.debug(`[DLE] Re-injection cooldown: "${e.title}" was injected ${generationCount - lastGen} gens ago (cooldown: ${settings.reinjectionCooldown}) — skipping`);
-                    }
-                    return false;
-                }
-                return true;
-            });
-            if (settings.debugMode && finalEntries.length < before) {
-                console.log(`[DLE] Re-injection cooldown removed ${before - finalEntries.length} entries`);
-            }
-        }
+        // Stage 3: Re-injection cooldown
+        finalEntries = applyReinjectionCooldown(finalEntries, policy, injectionHistory, generationCount, settings.reinjectionCooldown, settings.debugMode);
 
         if (finalEntries.length === 0) {
-            if (settings.debugMode) {
-                console.debug('[DLE] All entries removed by re-injection cooldown');
-            }
+            if (settings.debugMode) console.debug('[DLE] All entries removed by re-injection cooldown');
             return;
         }
 
-        // Apply conditional gating (requires/excludes)
-        let gated = applyGating(finalEntries);
-        const gatingRemoved = finalEntries.filter(e => !gated.includes(e));
-
-        if (settings.debugMode && gatingRemoved.length > 0) {
-            console.log(`[DLE] Gating removed ${gatingRemoved.length} entries:`,
-                gatingRemoved.map(e => ({ title: e.title, requires: e.requires, excludes: e.excludes })));
-        }
+        // Stage 4: Requires/excludes gating (forceInject entries exempt)
+        const { result: gated, removed: gatingRemoved } = applyRequiresExcludesGating(finalEntries, policy, settings.debugMode);
 
         if (gated.length === 0) {
-            if (settings.debugMode) {
-                console.debug('[DLE] All entries removed by gating rules');
-            }
+            if (settings.debugMode) console.debug('[DLE] All entries removed by gating rules');
             return;
         }
 
-        // Strip duplicate injections from recent generations
-        if (settings.stripDuplicateInjections && chat_metadata.deeplore_injection_log?.length > 0) {
-            const recentEntries = new Set();
-            const lookback = settings.stripLookbackDepth;
-            const log = chat_metadata.deeplore_injection_log;
-            const recentLogs = log.slice(-lookback);
-            for (const logEntry of recentLogs.flatMap(l => l.entries || [])) {
-                recentEntries.add(`${logEntry.title}|${logEntry.pos}|${logEntry.depth}|${logEntry.role}|${logEntry.contentHash || ''}`);
-            }
-
-            const before = gated.length;
-            gated = gated.filter(e => {
-                if (e.constant || pinnedTitles.has(e.title)) return true; // Constants and pins always inject
-                const key = `${e.title}|${e.injectionPosition ?? settings.injectionPosition}|${e.injectionDepth ?? settings.injectionDepth}|${e.injectionRole ?? settings.injectionRole}|${e._contentHash || ''}`;
-                if (recentEntries.has(key)) {
-                    if (settings.debugMode) {
-                        console.debug(`[DLE] Strip: "${e.title}" already injected in recent ${lookback} gen(s) — skipping`);
-                    }
-                    return false;
-                }
-                return true;
-            });
-            if (settings.debugMode && gated.length < before) {
-                console.log(`[DLE] Strip dedup removed ${before - gated.length} entries`);
-            }
+        // Stage 5: Strip duplicate injections
+        let postDedup = gated;
+        if (settings.stripDuplicateInjections) {
+            postDedup = applyStripDedup(gated, policy, chat_metadata.deeplore_injection_log, settings.stripLookbackDepth, settings, settings.debugMode);
         }
 
-        // Format with budget, grouped by injection position
-        const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);
+        // Stage 6: Format with budget, grouped by injection position
+        const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(postDedup, getSettings(), PROMPT_TAG_PREFIX);
 
         injectedEntries = acceptedEntries;
 
@@ -296,7 +201,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 title: e.title, requires: e.requires, excludes: e.excludes,
             }));
             const acceptedTitles = new Set(acceptedEntries.map(e => e.title));
-            trace.budgetCut = gated.filter(e => !acceptedTitles.has(e.title))
+            trace.budgetCut = postDedup.filter(e => !acceptedTitles.has(e.title))
                 .map(e => ({ title: e.title, tokens: e.tokenEstimate, priority: e.priority }));
             trace.injected = acceptedEntries.map(e => ({
                 title: e.title,
@@ -366,22 +271,9 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Set cooldown for injected entries that have a cooldown value
-        // Skip if chat changed mid-generation to avoid contaminating new chat state
+        // Stage 7: Track cooldowns and injection history (epoch-guarded)
         if (epoch === chatEpoch) {
-            for (const entry of injectedEntries) {
-                if (entry.cooldown !== null && entry.cooldown > 0) {
-                    cooldownTracker.set(trackerKey(entry), entry.cooldown + 1); // +1 compensates for decrement in finally block of same generation
-                }
-            }
-
-            // Record injection history for re-injection cooldown
-            // Uses generationCount + 1 because the increment happens in finally
-            if (settings.reinjectionCooldown > 0) {
-                for (const entry of injectedEntries) {
-                    injectionHistory.set(trackerKey(entry), generationCount + 1);
-                }
-            }
+            trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings);
         }
 
         // Record injection for deduplication (epoch-guarded to avoid writing to wrong chat)
@@ -406,33 +298,10 @@ async function onGenerate(chat, contextSize, abort, type) {
             saveChatDebounced();
         }
 
-        // Update analytics data
+        // Stage 8: Analytics
         if (finalEntries.length > 0) {
-            const analytics = settings.analyticsData;
-            for (const entry of finalEntries) {
-                const aKey = trackerKey(entry);
-                // Guard against prototype pollution from titles like "__proto__" or "constructor"
-                if (!Object.hasOwn(analytics, aKey)) {
-                    analytics[aKey] = { matched: 0, injected: 0, lastTriggered: 0 };
-                }
-                analytics[aKey].matched++;
-                analytics[aKey].lastTriggered = Date.now();
-            }
-            for (const entry of injectedEntries) {
-                const aKey = trackerKey(entry);
-                if (!Object.hasOwn(analytics, aKey)) {
-                    analytics[aKey] = { matched: 0, injected: 0, lastTriggered: 0 };
-                }
-                analytics[aKey].injected++;
-            }
-            // Prune stale analytics entries not triggered in 30+ days
-            const ANALYTICS_STALE_MS = 30 * 24 * 60 * 60 * 1000;
-            const now = Date.now();
-            for (const key of Object.keys(analytics)) {
-                if (analytics[key].lastTriggered && (now - analytics[key].lastTriggered) > ANALYTICS_STALE_MS) {
-                    delete analytics[key];
-                }
-            }
+            recordAnalytics(finalEntries, injectedEntries, settings.analyticsData);
+            invalidateSettingsCache();
             saveSettingsDebounced();
         }
 
@@ -455,7 +324,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
 
             if (settings.debugMode) {
-                console.log(`[DLE] ${finalEntries.length} selected, ${gated.length} after gating, ${injectedCount} injected (~${totalTokens} tokens) in ${groups.length} group(s)` +
+                console.log(`[DLE] ${finalEntries.length} selected, ${postDedup.length} after gating+dedup, ${injectedCount} injected (~${totalTokens} tokens) in ${groups.length} group(s)` +
                     (contextSize > 0 ? ` (${Math.round(totalTokens / contextSize * 100)}% of ${contextSize} context)` : ''));
                 console.table(injectedEntries.map(e => ({
                     title: e.title,
@@ -479,43 +348,18 @@ async function onGenerate(chat, contextSize, abort, type) {
         // even if no entries matched — otherwise cooldown timers freeze permanently.
         // Wrapped in try/catch to prevent tracking errors from blocking ST generation.
         try {
-            if (pipelineRan && epoch === chatEpoch) {
+            if (pipelineRan && epoch === chatEpoch && lockEpoch === generationLockEpoch) {
                 setGenerationCount(generationCount + 1);
-
-                // Decrement cooldown counters; remove expired ones
-                for (const [title, remaining] of cooldownTracker) {
-                    if (remaining <= 1) {
-                        cooldownTracker.delete(title);
-                    } else {
-                        cooldownTracker.set(title, remaining - 1);
-                    }
-                }
-
-                // Entry decay/freshness tracking
-                if (settings.decayEnabled) {
-                    const injectedKeys = new Set(injectedEntries.map(e => trackerKey(e)));
-                    // Only track entries that were injected or already being tracked
-                    for (const entry of injectedEntries) {
-                        decayTracker.set(trackerKey(entry), 0);
-                    }
-                    // Increment staleness only for entries already in the tracker (previously injected)
-                    // Prune entries with staleness > 2x boost threshold to avoid unbounded growth
-                    const pruneThreshold = (settings.decayBoostThreshold || 5) * 2;
-                    for (const [tk, staleness] of decayTracker) {
-                        if (!injectedKeys.has(tk)) {
-                            if (staleness + 1 > pruneThreshold) {
-                                decayTracker.delete(tk);
-                            } else {
-                                decayTracker.set(tk, staleness + 1);
-                            }
-                        }
-                    }
-                }
+                decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings);
             }
         } catch (trackingErr) {
             console.error('[DLE] Error in generation tracking:', trackingErr);
         }
-        setGenerationLock(false);
+        // Only release lock if this pipeline still owns it (epoch matches).
+        // A force-released stale pipeline must NOT release the newer pipeline's lock.
+        if (lockEpoch === generationLockEpoch) {
+            setGenerationLock(false);
+        }
     }
 }
 

@@ -12,7 +12,7 @@ import {
     aiSearchCache, previousIndexSnapshot, trackerKey,
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
-    setLastHealthResult, setEntityNameSet, setVaultAvgTokens,
+    setLastHealthResult, setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
@@ -33,8 +33,8 @@ export async function buildIndex() {
 
     setIndexing(true);
     const promise = (async () => {
-    const settings = getSettings();
     try {
+        const settings = getSettings();
         const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
         if (enabledVaults.length === 0) {
             throw new Error('No enabled vaults configured');
@@ -117,6 +117,17 @@ export async function buildIndex() {
             }
         }
         setEntityNameSet(names);
+
+        // Pre-compile word-boundary regexes for short entity names (≤3 chars)
+        // Avoids constructing new RegExp objects per-generation in the AI cache sliding window check
+        const shortRegexes = new Map();
+        for (const name of names) {
+            if (name.length <= 3) {
+                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                shortRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
+            }
+        }
+        setEntityShortNameRegexes(shortRegexes);
 
         // Invalidate AI search cache on re-index
         setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
@@ -267,15 +278,19 @@ export async function buildIndexDelta() {
         bootstrapTag: settings.bootstrapTag,
     };
 
+    // Snapshot vaultIndex to avoid races with concurrent builds
+    const indexSnapshot = [...vaultIndex];
+
     const promise = (async () => {
     try {
         // Build lookup of existing entries by vault:filename → entry (with content hash)
         const existingMap = new Map();
-        for (const entry of vaultIndex) {
+        for (const entry of indexSnapshot) {
             existingMap.set(`${entry.vaultSource}\0${entry.filename}`, entry);
         }
 
         let hasChanges = false;
+        let anyVaultFailed = false;
         let newCount = 0, modifiedCount = 0, removedCount = 0;
         const allEntries = [];
 
@@ -285,8 +300,15 @@ export async function buildIndexDelta() {
                 // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
                 const data = await fetchAllMdFiles(vault.port, vault.apiKey);
                 if (!data.files || !Array.isArray(data.files)) {
-                    console.warn(`[DLE] Delta: vault "${vault.name}" returned invalid data`);
-                    return false;
+                    console.warn(`[DLE] Delta: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
+                    anyVaultFailed = true;
+                    // Carry forward existing entries for this vault (same as catch block)
+                    for (const entry of vaultIndex) {
+                        if (entry.vaultSource === vault.name) {
+                            allEntries.push(entry);
+                        }
+                    }
+                    continue;
                 }
 
                 const fetchedFilenames = new Set(data.files.map(f => f.filename));
@@ -327,8 +349,9 @@ export async function buildIndexDelta() {
                 }
             } catch (vaultErr) {
                 console.warn(`[DLE] Delta sync failed for vault "${vault.name}":`, vaultErr.message);
+                anyVaultFailed = true;
                 // Carry forward all existing entries for this vault to avoid silent data loss
-                for (const entry of vaultIndex) {
+                for (const entry of indexSnapshot) {
                     if (entry.vaultSource === vault.name) {
                         allEntries.push(entry);
                     }
@@ -338,10 +361,15 @@ export async function buildIndexDelta() {
         }
 
         if (!hasChanges) {
-            setIndexTimestamp(Date.now());
+            // If a vault failed, use a short-lived timestamp so retries happen sooner
+            if (anyVaultFailed) {
+                setIndexTimestamp(Date.now() - (settings.cacheTTL * 1000) + 30_000); // retry in ~30s
+            } else {
+                setIndexTimestamp(Date.now());
+            }
             setIndexEverLoaded(true);
             if (settings.debugMode) {
-                console.debug('[DLE] Delta sync: no changes detected');
+                console.debug(`[DLE] Delta sync: no changes detected${anyVaultFailed ? ' (some vaults failed)' : ''}`);
             }
             return true;
         }
@@ -370,6 +398,16 @@ export async function buildIndexDelta() {
         }
         setEntityNameSet(deltaNames);
 
+        // Pre-compile word-boundary regexes for short entity names (≤3 chars)
+        const deltaShortRegexes = new Map();
+        for (const name of deltaNames) {
+            if (name.length <= 3) {
+                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                deltaShortRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
+            }
+        }
+        setEntityShortNameRegexes(deltaShortRegexes);
+
         setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
 
         // Prune analytics data for entries no longer in the vault
@@ -394,8 +432,18 @@ export async function buildIndexDelta() {
         updateIndexStats();
         saveIndexToCache(allEntries).catch(() => {});
 
-        const health = runHealthCheck();
-        setLastHealthResult(health);
+        // Defer health check to avoid blocking the pipeline (matches buildIndex behavior)
+        setTimeout(() => {
+            try {
+                const health = runHealthCheck();
+                setLastHealthResult(health);
+                if (health.errors > 0 || health.warnings > 0) {
+                    console.log(`[DLE] Health: ${health.errors} error(s), ${health.warnings} warning(s). Run /dle-health for details.`);
+                }
+            } catch (healthErr) {
+                console.warn('[DLE] Health check error:', healthErr.message);
+            }
+        }, 0);
 
         if (settings.debugMode) {
             console.log(`[DLE] Delta sync: ${allEntries.length} entries after delta`);

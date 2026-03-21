@@ -15,10 +15,10 @@ import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParse
 import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
 import { parseFrontmatter, simpleHash, buildAiChatContext } from '../core/utils.js';
 import { applyGating, formatAndGroup } from '../core/matching.js';
-import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, invalidateSettingsCache } from '../settings.js';
 import { fetchScribeNotes } from './obsidian-api.js';
 import {
-    vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress,
+    vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress, buildPromise,
     lastPipelineTrace, injectionHistory, generationCount, generationLock,
     trackerKey, setIndexTimestamp,
 } from './state.js';
@@ -141,6 +141,8 @@ export function registerSlashCommands() {
                 toastr.warning('A generation is in progress — wait for it to finish.', 'DeepLore Enhanced');
                 return '';
             }
+            // Await any in-progress index build to prevent concurrent pipeline execution
+            if (buildPromise) await buildPromise;
             await ensureIndexFresh();
             if (vaultIndex.length === 0) {
                 toastr.warning('No entries indexed.', 'DeepLore Enhanced');
@@ -549,6 +551,7 @@ export function registerSlashCommands() {
             settings.vaults = [{ name: vaultName, port, apiKey, enabled: true }];
             settings.aiSearchEnabled = searchMode !== 'keywords';
             if (searchMode !== 'keywords') settings.aiSearchMode = searchMode;
+            invalidateSettingsCache();
             saveSettingsDebounced();
 
             // Step 3: Verify — build index

@@ -548,16 +548,23 @@ jQuery(async function () {
                 if (!promptManager) return false;
                 const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook'];
                 for (const id of ids) {
-                    if (!promptManager.getPromptById(id)) {
+                    const existing = promptManager.getPromptById(id);
+                    if (!existing) {
                         promptManager.addPrompt({
                             name: id,
                             content: '',
                             system_prompt: true,
                             role: 'system',
+                            position: 'end',
                             marker: false,
                             enabled: true,
                             extension: true,
                         }, id);
+                    } else {
+                        // Patch legacy entries missing role or position
+                        if (!existing.role) existing.role = 'system';
+                        if (!existing.position) existing.position = 'end';
+                        if (!existing.extension) existing.extension = true;
                     }
                     // Add to active character's prompt order if not already there
                     if (promptManager.activeCharacter) {
@@ -659,11 +666,16 @@ jQuery(async function () {
             if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {
                 const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook'];
                 for (const id of ids) {
-                    if (!promptManager.getPromptById(id)) {
+                    const existing = promptManager.getPromptById(id);
+                    if (!existing) {
                         promptManager.addPrompt({
                             name: id, content: '', system_prompt: true,
-                            role: 'system', marker: false, enabled: true, extension: true,
+                            role: 'system', position: 'end', marker: false, enabled: true, extension: true,
                         }, id);
+                    } else {
+                        if (!existing.role) existing.role = 'system';
+                        if (!existing.position) existing.position = 'end';
+                        if (!existing.extension) existing.extension = true;
                     }
                     const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter);
                     if (order && !order.find(e => e.identifier === id)) {

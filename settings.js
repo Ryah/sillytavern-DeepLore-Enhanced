@@ -53,7 +53,7 @@ export const defaultSettings = {
     scanDepth: 4,
     maxEntries: 10,
     unlimitedEntries: false,
-    maxTokensBudget: 2048,
+    maxTokensBudget: 3072,
     unlimitedBudget: false,
     injectionMode: 'extension', // 'extension' (current) or 'prompt_list' (PM integration)
     injectionPosition: 1,   // extension_prompt_types.IN_CHAT

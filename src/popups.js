@@ -43,7 +43,7 @@ function yamlSerializeValue(val) {
 }
 
 /**
- * Show the AI Notebook editor popup for the current chat.
+ * Show the Author's Notebook editor popup for the current chat.
  */
 export async function showNotebookPopup() {
     const currentContent = chat_metadata?.deeplore_notebook || '';
@@ -51,7 +51,7 @@ export async function showNotebookPopup() {
     const container = document.createElement('div');
     container.style.textAlign = 'left';
     container.innerHTML = `
-        <h3>AI Notebook</h3>
+        <h3>Author's Notebook</h3>
         <p style="opacity: 0.7; font-size: 0.85em;">Persistent scratchpad for this chat. Contents are injected into every generation when enabled. Use for character notes, plot threads, reminders, or anything the AI should always know.</p>
         <textarea id="dle_notebook_textarea" class="text_pole" rows="15" style="width: 100%; font-family: monospace; font-size: 0.9em;" placeholder="Write notes here...">${escapeHtml(currentContent)}</textarea>
         <small id="dle_notebook_token_count" style="opacity: 0.6;"></small>
@@ -118,10 +118,21 @@ export async function showBrowsePopup() {
                 <option value="seed">Seeds</option>
                 <option value="bootstrap">Bootstrap</option>
                 <option value="regular">Regular</option>
+                <option value="never_injected">Never Injected</option>
             </select>
             <select id="dle_browse_tag" class="text_pole" style="flex: 1; min-width: 120px;">
                 <option value="">All Tags</option>
                 ${allTags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}
+            </select>
+            <select id="dle_browse_sort" class="text_pole" style="flex: 1; min-width: 140px;">
+                <option value="priority_asc">Priority (high→low)</option>
+                <option value="priority_desc">Priority (low→high)</option>
+                <option value="alpha_asc">Alphabetical (A→Z)</option>
+                <option value="alpha_desc">Alphabetical (Z→A)</option>
+                <option value="tokens_desc">Token size (largest)</option>
+                <option value="tokens_asc">Token size (smallest)</option>
+                <option value="injected_desc">Most injected</option>
+                <option value="injected_asc">Least injected</option>
             </select>
         </div>
         <div id="dle_browse_list" style="max-height: 60vh; overflow-y: auto;"></div>
@@ -138,12 +149,14 @@ export async function showBrowsePopup() {
         const searchEl = container.querySelector('#dle_browse_search');
         const statusEl = container.querySelector('#dle_browse_status');
         const tagEl = container.querySelector('#dle_browse_tag');
+        const sortEl = container.querySelector('#dle_browse_sort');
         const listEl = container.querySelector('#dle_browse_list');
         const countEl = container.querySelector('#dle_browse_count');
 
         const search = (searchEl?.value || '').toLowerCase();
         const status = statusEl?.value || 'all';
         const tag = tagEl?.value || '';
+        const sort = sortEl?.value || 'priority_asc';
 
         let filtered = vaultIndex.filter(e => {
             if (status === 'pinned' && !pins.has(e.title.toLowerCase())) return false;
@@ -152,6 +165,10 @@ export async function showBrowsePopup() {
             if (status === 'seed' && !e.seed) return false;
             if (status === 'bootstrap' && !e.bootstrap) return false;
             if (status === 'regular' && (e.constant || e.seed || e.bootstrap)) return false;
+            if (status === 'never_injected') {
+                const a = analytics[trackerKey(e)];
+                if (a && a.injected > 0) return false;
+            }
             if (tag && !e.tags.includes(tag)) return false;
             if (search) {
                 if (!haystacks.get(e).includes(search)) return false;
@@ -159,7 +176,19 @@ export async function showBrowsePopup() {
             return true;
         });
 
-        filtered.sort((a, b) => a.priority - b.priority);
+        // Sort by selected method
+        const getInjected = (e) => (analytics[trackerKey(e)]?.injected || 0);
+        switch (sort) {
+            case 'priority_asc': filtered.sort((a, b) => a.priority - b.priority); break;
+            case 'priority_desc': filtered.sort((a, b) => b.priority - a.priority); break;
+            case 'alpha_asc': filtered.sort((a, b) => a.title.localeCompare(b.title)); break;
+            case 'alpha_desc': filtered.sort((a, b) => b.title.localeCompare(a.title)); break;
+            case 'tokens_desc': filtered.sort((a, b) => (b.tokenEstimate || 0) - (a.tokenEstimate || 0)); break;
+            case 'tokens_asc': filtered.sort((a, b) => (a.tokenEstimate || 0) - (b.tokenEstimate || 0)); break;
+            case 'injected_desc': filtered.sort((a, b) => getInjected(b) - getInjected(a)); break;
+            case 'injected_asc': filtered.sort((a, b) => getInjected(a) - getInjected(b)); break;
+            default: filtered.sort((a, b) => a.priority - b.priority);
+        }
         countEl.textContent = `Showing ${filtered.length} of ${vaultIndex.length} entries`;
 
         let html = '';
@@ -247,6 +276,7 @@ export async function showBrowsePopup() {
             });
             container.querySelector('#dle_browse_status')?.addEventListener('change', renderList);
             container.querySelector('#dle_browse_tag')?.addEventListener('change', renderList);
+            container.querySelector('#dle_browse_sort')?.addEventListener('change', renderList);
         },
     });
 }

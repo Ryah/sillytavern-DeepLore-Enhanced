@@ -84,7 +84,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // In prompt_list mode, also clear PM entry content from previous generation
         if (settings.injectionMode === 'prompt_list' && promptManager) {
-            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`]) {
+            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook']) {
                 const pmEntry = promptManager.getPromptById(id);
                 if (pmEntry) pmEntry.content = '';
             }
@@ -342,16 +342,21 @@ async function onGenerate(chat, contextSize, abort, type) {
             })));
         }
 
-        // AI Notebook injection (independent of entry pipeline)
+        // Author's Notebook injection (independent of entry pipeline)
         if (settings.notebookEnabled && chat_metadata?.deeplore_notebook?.trim()) {
-            setExtensionPrompt(
-                'deeplore_notebook',
-                chat_metadata.deeplore_notebook.trim(),
-                settings.notebookPosition,
-                settings.notebookDepth,
-                false, // no WI scan
-                settings.notebookRole,
-            );
+            const notebookContent = chat_metadata.deeplore_notebook.trim();
+            const usePromptList = settings.injectionMode === 'prompt_list';
+            if (usePromptList && promptManager) {
+                const pmEntry = promptManager.getPromptById('deeplore_notebook');
+                if (pmEntry) {
+                    pmEntry.content = notebookContent;
+                } else {
+                    // Fallback: PM entry not found
+                    setExtensionPrompt('deeplore_notebook', notebookContent, settings.notebookPosition, settings.notebookDepth, false, settings.notebookRole);
+                }
+            } else {
+                setExtensionPrompt('deeplore_notebook', notebookContent, settings.notebookPosition, settings.notebookDepth, false, settings.notebookRole);
+            }
         }
 
         // Set cooldown for injected entries that have a cooldown value
@@ -541,13 +546,14 @@ jQuery(async function () {
             // promptManager may not be initialized yet, so poll briefly.
             const registerPmEntries = () => {
                 if (!promptManager) return false;
-                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`];
+                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook'];
                 for (const id of ids) {
                     if (!promptManager.getPromptById(id)) {
                         promptManager.addPrompt({
                             name: id,
                             content: '',
                             system_prompt: true,
+                            role: 'system',
                             marker: false,
                             enabled: true,
                             extension: true,
@@ -651,12 +657,12 @@ jQuery(async function () {
 
             // Re-register PM entries for the new active character (prompt_list mode)
             if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {
-                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`];
+                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook'];
                 for (const id of ids) {
                     if (!promptManager.getPromptById(id)) {
                         promptManager.addPrompt({
                             name: id, content: '', system_prompt: true,
-                            marker: false, enabled: true, extension: true,
+                            role: 'system', marker: false, enabled: true, extension: true,
                         }, id);
                     }
                     const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter);

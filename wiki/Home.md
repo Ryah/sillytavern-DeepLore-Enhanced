@@ -18,7 +18,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 - **Context Cartographer:** See exactly which lore was injected and why on each message
 - **Session Scribe:** Auto-summarize sessions back to your Obsidian vault
 - **Auto Lorebook:** AI analyzes chat and suggests new entries you can accept or reject
-- **AI Notebook:** Persistent per-chat scratchpad injected into every generation
+- **Author's Notebook:** Persistent per-chat scratchpad injected into every generation
 - **ST lorebook import:** Convert SillyTavern World Info JSON exports into Obsidian vault notes
 - **Quick actions bar:** One-click toolbar for common operations in settings
 - **Fine-grained matching:** Conditional gating, cooldown/warmup, probability, refine keys, cascade links, per-entry injection overrides, entry decay & freshness

@@ -90,7 +90,7 @@ A SillyTavern Connection Manager profile used for AI search, Scribe, or Auto Lor
 **Session Scribe**
 An AI feature that periodically summarizes the chat and writes the summary to an Obsidian note. Useful for maintaining session continuity.
 
-**AI Notebook**
+**Author's Notebook**
 A per-chat scratchpad whose contents are injected into every generation as a system message. Use for character notes, plot reminders, or writing instructions.
 
 **Auto Lorebook**
@@ -122,7 +122,7 @@ An internal counter that increments on every chat switch. Prevents stale data fr
 A number controlling injection order. Lower = higher priority. Suggested ranges: 20 (inner circle), 35 (core lore), 50 (standard), 60+ (secondary/flavor).
 
 **Cooldown**
-Number of generations an entry skips after being injected. Prevents repetitive injection of the same entry.
+Number of generations an entry is suppressed after being injected. Important: the AI does NOT remember lore from prior generations — during the cooldown, the AI has no access to this entry's content. Use for rotating flavor/variety entries, not for entries the AI needs consistently.
 
 **Warmup**
 Minimum keyword hit count required before an entry triggers. Prevents entries from activating on a single casual mention.

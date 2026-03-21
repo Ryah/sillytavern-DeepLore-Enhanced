@@ -142,6 +142,11 @@
     }
 }
 
+/* --- Section spacing between settings groups --- */
+.deeplore_enhanced_settings .inline-drawer-content > hr {
+    margin: 10px 0;
+}
+
 /* --- Settings validation feedback --- */
 .deeplore_enhanced_settings .dle_input_error {
     border-color: var(--dle-error) !important;

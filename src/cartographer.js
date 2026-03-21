@@ -5,7 +5,7 @@ import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { simpleHash } from '../core/utils.js';
 import { getSettings } from '../settings.js';
-import { vaultIndex, lastInjectionSources } from './state.js';
+import { vaultIndex, lastInjectionSources, vaultAvgTokens } from './state.js';
 
 /** Track previous sources for diff display */
 let previousSources = null;
@@ -45,6 +45,48 @@ export function injectSourcesButton(messageId) {
 }
 
 /**
+ * Shorten a matchedBy string to a compact parenthetical label.
+ * e.g. "(Constant)", "(AI)", "(Keyword: Eris)", "(Pinned)", "(Bootstrap)"
+ */
+function shortenMatchReason(matchedBy) {
+    if (!matchedBy) return '';
+    const m = matchedBy.toLowerCase();
+    if (m.includes('constant') || m.includes('always')) return '(Constant)';
+    if (m.includes('pin')) return '(Pinned)';
+    if (m.includes('bootstrap')) return '(Bootstrap)';
+    if (m.includes('seed')) return '(Seed)';
+    // "keyword → AI" or just "keyword"
+    if (m.includes('→')) {
+        const keyword = matchedBy.split('→')[0].trim();
+        return `(Keyword: ${keyword})`;
+    }
+    // AI-only mode: matchedBy is just "(AI)" or similar
+    if (m.includes('ai')) return '(AI)';
+    // Bare keyword match
+    if (matchedBy.trim()) return `(Keyword: ${matchedBy.trim()})`;
+    return '';
+}
+
+/**
+ * Compute a color on a green→yellow→red gradient based on token count vs vault average.
+ * Returns an HSL color string.
+ */
+function tokenBarColor(tokens, avgTokens) {
+    if (!avgTokens || avgTokens <= 0) return 'var(--SmartThemeQuoteColor, #4caf50)';
+    const ratio = Math.min(tokens / avgTokens, 3.0);
+    // Map ratio to hue: 0.5 → 120 (green), 1.0 → 60 (yellow), 2.0+ → 0 (red)
+    let hue;
+    if (ratio <= 0.5) {
+        hue = 120;
+    } else if (ratio <= 1.0) {
+        hue = 120 - ((ratio - 0.5) / 0.5) * 60; // 120 → 60
+    } else {
+        hue = 60 - (Math.min(ratio - 1.0, 1.0)) * 60; // 60 → 0
+    }
+    return `hsl(${Math.round(hue)}, 70%, 45%)`;
+}
+
+/**
  * Show an enhanced popup with lore source details for a message.
  * @param {Array<{title: string, filename: string, matchedBy: string, priority: number, tokens: number}>} sources
  */
@@ -52,6 +94,7 @@ export function showSourcesPopup(sources) {
     const settings = getSettings();
     const totalTokens = sources.reduce((sum, s) => sum + s.tokens, 0);
     const maxTokens = Math.max(...sources.map(s => s.tokens), 1);
+    const avgTokens = vaultAvgTokens || 0;
     const positionLabels = { 0: 'After Main Prompt', 1: 'In-chat', 2: 'Before Main Prompt' };
 
     // Group sources by injection position
@@ -65,30 +108,47 @@ export function showSourcesPopup(sources) {
         groups.get(posKey).push({ ...src, entry });
     }
 
-    // Diff: compute added/removed since previous generation
-    const prevTitles = previousSources ? new Set(previousSources.map(s => s.title)) : null;
+    // 7.1: Diff with reasons — store matchedBy for removed-entry reasoning
+    const prevMap = previousSources ? new Map(previousSources.map(s => [s.title, s])) : null;
     const currTitles = new Set(sources.map(s => s.title));
-    const added = prevTitles ? sources.filter(s => !prevTitles.has(s.title)).map(s => s.title) : [];
-    const removed = prevTitles ? previousSources.filter(s => !currTitles.has(s.title)).map(s => s.title) : [];
-    previousSources = sources.map(s => ({ title: s.title, tokens: s.tokens })); // Save minimal data for next diff
+    const added = prevMap ? sources.filter(s => !prevMap.has(s.title)) : [];
+    const removed = prevMap ? previousSources.filter(s => !currTitles.has(s.title)) : [];
+    previousSources = sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy }));
 
     let html = `<div style="text-align: left;">`;
     html += `<h3>Context Map (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
 
-    // Diff display
+    // Diff display with reasons
     if (added.length > 0 || removed.length > 0) {
         html += `<div style="font-size: 0.85em; margin-bottom: 10px; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px;">`;
-        if (added.length > 0) html += `<span style="color: #4caf50;">+${added.length} new:</span> <span style="opacity: 0.8;">${added.map(t => escapeHtml(t)).join(', ')}</span><br>`;
-        if (removed.length > 0) html += `<span style="color: #f44336;">-${removed.length} removed:</span> <span style="opacity: 0.8;">${removed.map(t => escapeHtml(t)).join(', ')}</span>`;
+        if (added.length > 0) {
+            const addedLabels = added.map(s => `${escapeHtml(s.title)} ${shortenMatchReason(s.matchedBy)}`);
+            html += `<span style="color: var(--dle-success, #4caf50);">+${added.length} new:</span> <span style="opacity: 0.8;">${addedLabels.join(', ')}</span><br>`;
+        }
+        if (removed.length > 0) {
+            const removedLabels = removed.map(s => {
+                const prevReason = s.matchedBy?.toLowerCase() || '';
+                let reason = '(No longer matched)';
+                if (prevReason.includes('bootstrap')) reason = '(Bootstrap fall-off)';
+                else if (prevReason.includes('constant') || prevReason.includes('always')) reason = '(Constant removed?)';
+                return `${escapeHtml(s.title)} ${reason}`;
+            });
+            html += `<span style="color: var(--dle-error, #f44336);">-${removed.length} removed:</span> <span style="opacity: 0.8;">${removedLabels.join(', ')}</span>`;
+        }
         html += `</div>`;
     }
 
     for (const [posLabel, groupSources] of groups) {
+        // 7.4: Sort by priority ascending (lower number = higher priority)
+        groupSources.sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
+
         const groupTokens = groupSources.reduce((sum, s) => sum + s.tokens, 0);
         html += `<h4 style="margin: 12px 0 6px;">${escapeHtml(posLabel)} (~${groupTokens} tokens)</h4>`;
 
         for (const src of groupSources) {
             const pct = Math.max(2, Math.round((src.tokens / maxTokens) * 100));
+            // 7.14: Color bar and token text by vault-relative size
+            const barColor = tokenBarColor(src.tokens, avgTokens);
             const srcVault = src.vaultSource && settings.vaults
                 ? settings.vaults.find(v => v.name === src.vaultSource)
                 : null;
@@ -103,10 +163,10 @@ export function showSourcesPopup(sources) {
             html += `<div style="margin-bottom: 6px; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px;">`;
             html += `<div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="document.getElementById('dle_ctx_${entryId}').style.display = document.getElementById('dle_ctx_${entryId}').style.display === 'none' ? 'block' : 'none'">`;
             html += `<span><strong>${titleHtml}</strong> <small style="opacity: 0.6;">pri ${src.priority}</small></span>`;
-            html += `<small>~${src.tokens} tok</small>`;
+            html += `<small style="color: ${barColor};">~${src.tokens} tok</small>`;
             html += `</div>`;
             html += `<div style="background: var(--SmartThemeBorderColor, #333); border-radius: 2px; height: 6px; margin: 4px 0;">`;
-            html += `<div style="background: var(--SmartThemeQuoteColor, #4caf50); height: 100%; width: ${pct}%; border-radius: 2px;"></div>`;
+            html += `<div style="background: ${barColor}; height: 100%; width: ${pct}%; border-radius: 2px;"></div>`;
             html += `</div>`;
             const vaultLabel = src.vaultSource && (settings.vaults || []).length > 1 ? ` · <em>${escapeHtml(src.vaultSource)}</em>` : '';
             html += `<small style="opacity: 0.7;">${escapeHtml(src.matchedBy)}${vaultLabel}</small>`;

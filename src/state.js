@@ -56,6 +56,9 @@ export let decayTracker = new Map();
 /** Last health check result for settings badge */
 export let lastHealthResult = null;
 
+/** Average token estimate across all vault entries (computed at index build) */
+export let vaultAvgTokens = 0;
+
 /** Chat epoch counter — increments on every CHAT_CHANGED to detect stale onGenerate writes */
 export let chatEpoch = 0;
 
@@ -90,6 +93,7 @@ export function setLastPipelineTrace(v) { lastPipelineTrace = v; }
 export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
 export function setLastHealthResult(v) { lastHealthResult = v; }
+export function setVaultAvgTokens(v) { vaultAvgTokens = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
 
 /** Generation lock to prevent concurrent onGenerate runs */

@@ -54,7 +54,7 @@ onGenerate(chat)
   │
   ├─ setExtensionPrompt()            Inject each group into SillyTavern context
   │
-  ├─ AI Notebook injection            Inject per-chat notebook (if enabled)
+  ├─ Author's Notebook injection       Inject per-chat notebook (if enabled)
   │
   └─ Post-processing                  Update cooldowns, decay tracker, analytics, history
 ```
@@ -165,8 +165,8 @@ Each group is injected separately into SillyTavern via `setExtensionPrompt()`:
 
 If **Allow World Info Scan** is enabled, SillyTavern's built-in World Info system can scan the injected lore for additional WI keyword matches.
 
-### AI Notebook
-After lorebook entries are injected, the AI Notebook is injected separately (if enabled). The notebook has its own injection position, depth, and role settings. It is independent of the lorebook pipeline — it always injects when enabled, regardless of entry matching.
+### Author's Notebook
+After lorebook entries are injected, the Author's Notebook is injected separately (if enabled). The notebook has its own injection position, depth, and role settings. It is independent of the lorebook pipeline — it always injects when enabled, regardless of entry matching.
 
 ## Inspecting the Pipeline
 

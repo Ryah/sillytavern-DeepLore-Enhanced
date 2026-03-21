@@ -39,9 +39,9 @@ Open a searchable, filterable popup of all indexed entries.
 ---
 
 ### `/dle-notebook`
-Open the AI Notebook editor for the current chat.
+Open the Author's Notebook editor for the current chat.
 
-**When to use:** Edit the persistent per-chat scratchpad. Content is injected into every generation when AI Notebook is enabled. See [[Features#AI Notebook]].
+**When to use:** Edit the persistent per-chat scratchpad. Content is injected into every generation when Author's Notebook is enabled. See [[Features#Author's Notebook]].
 
 ---
 
@@ -88,7 +88,7 @@ Show all session notes from the configured scribe folder in a browsable popup.
 
 ---
 
-### `/dle-suggest`
+### `/dle-newlore`
 AI analyzes the current chat for characters, locations, items, concepts, or events that are mentioned but don't have an existing lorebook entry, then suggests new entries.
 
 **Shows:**
@@ -253,11 +253,11 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-status` | Show connection and index status |
 | `/dle-context` | Preview what would be injected now |
 | `/dle-browse` | Browse all indexed entries |
-| `/dle-notebook` | Open AI Notebook editor |
+| `/dle-notebook` | Open Author's Notebook editor |
 | `/dle-review [question]` | Send vault to AI for review |
 | `/dle-scribe [focus]` | Write session note to Obsidian |
 | `/dle-scribe-history` | View all session notes |
-| `/dle-suggest` | AI suggests new lorebook entries |
+| `/dle-newlore` | AI suggests new lorebook entries |
 | `/dle-optimize-keys <name>` | AI optimizes entry keywords |
 | `/dle-simulate` | Replay chat showing entry activation |
 | `/dle-graph` | Visualize entry relationships |

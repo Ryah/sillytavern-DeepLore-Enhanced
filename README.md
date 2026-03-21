@@ -17,7 +17,7 @@ DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytave
 - **Contextual gating** -- Filter entries by era, location, scene type, and present characters via frontmatter + slash commands
 - **Context Cartographer** -- Token bar charts, injection position grouping, vault attribution, expandable previews per message
 - **Session Scribe** -- Auto-summarize sessions to your Obsidian vault with session timeline
-- **AI Notebook** -- Persistent per-chat scratchpad injected every turn
+- **Author's Notebook** -- Persistent per-chat scratchpad injected every turn
 - **Auto Lorebook** -- AI suggests new entries from chat context with human review gate
 - **ST lorebook import** -- Convert SillyTavern World Info JSON exports into Obsidian vault notes (`/dle-import`)
 - **Quick actions bar** -- One-click toolbar in settings for Browse, Health, Graph, Simulate, and more

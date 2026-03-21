@@ -75,13 +75,13 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 
 ## AI-Powered Features
 
-AI Notebook, Session Scribe, and Auto Lorebook are grouped under one collapsible drawer in settings.
+Author's Notebook, Session Scribe, and Auto Lorebook are grouped under one collapsible drawer in settings.
 
-### AI Notebook
+### Author's Notebook
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| **Enable AI Notebook** | Off | Enable a persistent per-chat scratchpad that is injected into every generation. Edit via `/dle-notebook` or the Open Notebook button. See [[Features#AI Notebook]]. |
+| **Enable Author's Notebook** | Off | Enable a persistent per-chat scratchpad that is injected into every generation. Edit via `/dle-notebook` or the Open Notebook button. See [[Features#Author's Notebook]]. |
 | **Notebook Injection Position** | In-chat | Where to inject the notebook. Same options as main injection: Before Main Prompt, After Main Prompt, or In-chat @ Depth. |
 | **Notebook Injection Depth** | `4` | 0-9999. Chat depth for in-chat notebook injection. |
 | **Notebook Injection Role** | System | Message role for in-chat notebook injection: System, User, or Assistant. |
@@ -145,7 +145,7 @@ Visible when Search Mode is Two-Stage or AI Only.
 | **Model** | (none) | Text | Model override for suggestions. |
 | **Max Tokens** | `2048` | 256-4096 | Maximum tokens for the suggestion response. |
 
-Use `/dle-suggest` to trigger on-demand at any time.
+Use `/dle-newlore` to trigger on-demand at any time.
 
 ## Entry Decay
 

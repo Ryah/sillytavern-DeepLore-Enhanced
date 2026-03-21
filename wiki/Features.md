@@ -22,7 +22,7 @@ Adds a book icon button to each AI message's action bar. Click it to see which v
 
 ---
 
-## AI Notebook
+## Author's Notebook
 
 A persistent per-chat scratchpad that is injected into every generation. Use it for author notes, scene direction, tone guidance, or anything you want the writing AI to always see for this specific chat.
 
@@ -32,7 +32,7 @@ A persistent per-chat scratchpad that is injected into every generation. Use it 
 3. The notebook content is injected into every generation as a separate prompt, independent of the entry pipeline
 
 **Setup:**
-1. Enable "Enable AI Notebook" in [[Settings Reference|AI Notebook settings]]
+1. Enable "Enable Author's Notebook" in [[Settings Reference|Author's Notebook settings]]
 2. Choose injection position (Before Main Prompt, After Main Prompt, or In-chat @ Depth)
 3. Open the editor and start writing
 
@@ -48,7 +48,7 @@ A persistent per-chat scratchpad that is injected into every generation. Use it 
 AI analyzes your chat for characters, locations, items, and concepts that are mentioned but don't have an existing lorebook entry, then suggests new entries you can review and accept.
 
 **How it works:**
-1. After every N messages (configurable), or on-demand via `/dle-suggest`, the AI scans recent chat
+1. After every N messages (configurable), or on-demand via `/dle-newlore`, the AI scans recent chat
 2. It compares against existing entries and identifies gaps
 3. Suggestions appear in a popup with title, type, keywords, summary, and content
 4. Accept to write the entry to Obsidian, or reject to skip
@@ -67,7 +67,7 @@ AI analyzes your chat for characters, locations, items, and concepts that are me
 **Notes:**
 - Existing entries are filtered out (case-insensitive title match)
 - Accepted entries are written with proper frontmatter (type, priority, tags, keys, summary)
-- Use `/dle-suggest` to trigger on-demand without enabling automatic suggestions
+- Use `/dle-newlore` to trigger on-demand without enabling automatic suggestions
 
 ---
 

@@ -12,7 +12,7 @@ import {
     aiSearchCache, previousIndexSnapshot, trackerKey,
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
-    setLastHealthResult, setEntityNameSet,
+    setLastHealthResult, setEntityNameSet, setVaultAvgTokens,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
@@ -101,6 +101,10 @@ export async function buildIndex() {
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
 
+        // Compute vault average token count for Context Map coloring
+        const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
+        setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
+
         // Resolve wiki-links to confirmed entry titles
         resolveLinks(vaultIndex);
 
@@ -157,10 +161,8 @@ export async function buildIndex() {
             try {
                 const health = runHealthCheck();
                 setLastHealthResult(health);
-                if (health.errors > 0) {
-                    toastr.warning(`Vault health: ${health.errors} error(s), ${health.warnings} warning(s). Run /dle-health for details.`, 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
-                } else if (health.warnings > 0) {
-                    console.log(`[DLE] Health: ${health.warnings} warning(s). Run /dle-health for details.`);
+                if (health.errors > 0 || health.warnings > 0) {
+                    console.log(`[DLE] Health: ${health.errors} error(s), ${health.warnings} warning(s). Run /dle-health for details.`);
                 }
             } catch (healthErr) {
                 console.warn('[DLE] Health check error:', healthErr.message);
@@ -352,6 +354,10 @@ export async function buildIndexDelta() {
         setIndexTimestamp(Date.now());
         setIndexEverLoaded(true);
         resolveLinks(vaultIndex);
+
+        // Recompute vault average token count
+        const deltaTotalTokens = allEntries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
+        setVaultAvgTokens(allEntries.length > 0 ? deltaTotalTokens / allEntries.length : 0);
 
         // Pre-compute entity name Set for AI cache sliding window check
         const deltaNames = new Set();

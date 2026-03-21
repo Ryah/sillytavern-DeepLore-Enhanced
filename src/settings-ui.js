@@ -280,6 +280,10 @@ function updateModeVisibility(settings) {
     const isAiOnly = aiEnabled && settings.aiSearchMode === 'ai-only';
     $('#dle_scan_depth_row').toggle(!isAiOnly);
 
+    // Grey out Optimize Keys Mode in AI-only (keywords aren't used for matching)
+    $('#dle_optimize_keys_row').css('opacity', isAiOnly ? 0.4 : 1);
+    $('#dle_optimize_keys_mode').prop('disabled', isAiOnly);
+
     // Claude Code prefix toggle: only visible when proxy mode AND AI enabled
     $('#dle_ai_claude_prefix_row').toggle(aiEnabled && isProxy);
 }
@@ -292,6 +296,11 @@ function updateInjectionModeVisibility(settings) {
     const isPromptList = settings.injectionMode === 'prompt_list';
     $('#dle_extension_position_controls').toggle(!isPromptList);
     $('#dle_prompt_list_info').toggle(isPromptList);
+    // Grey out notebook position controls in prompt_list mode
+    const nbControls = $('#dle_notebook_position_controls');
+    nbControls.find('input, select').prop('disabled', isPromptList);
+    nbControls.css('opacity', isPromptList ? 0.4 : 1);
+    $('#dle_notebook_pm_note').toggle(isPromptList);
 }
 
 /**
@@ -543,6 +552,9 @@ export function bindSettingsEvents(buildIndexFn) {
         settings.injectionMode = String($(this).val());
         updateInjectionModeVisibility(settings);
         saveSettingsDebounced();
+        if (settings.injectionMode === 'prompt_list') {
+            toastr.warning('Reload the page to see DeepLore entries in the Prompt Manager.', 'DeepLore Enhanced', { timeOut: 10000 });
+        }
     });
 
     $('input[name="dle_position"]').on('change', function () {
@@ -721,7 +733,7 @@ export function bindSettingsEvents(buildIndexFn) {
 
     $('#dle_open_notebook').on('click', function () {
         if (!settings.notebookEnabled) {
-            toastr.warning('Enable AI Notebook first.', 'DeepLore Enhanced');
+            toastr.warning('Enable Author\'s Notebook first.', 'DeepLore Enhanced');
             return;
         }
         showNotebookPopup();
@@ -954,19 +966,20 @@ export function bindSettingsEvents(buildIndexFn) {
             toastr.warning('No entries indexed.', 'DeepLore Enhanced');
             return;
         }
-        const grade = health.errors === 0 && health.warnings === 0 ? 'A+'
-            : health.errors === 0 ? 'B' : health.errors <= 2 ? 'C' : 'D';
-        let msg = `Health: ${grade} — ${health.errors} errors, ${health.warnings} warnings`;
-        if (health.issues && health.issues.length > 0) {
-            msg += '\n' + health.issues.slice(0, 5).map(i => `${i.severity}: ${i.detail}`).join('\n');
+        let grade;
+        if (health.errors === 0 && health.warnings === 0) grade = 'A+';
+        else if (health.errors === 0 && health.warnings <= 3) grade = 'A';
+        else if (health.errors === 0 && health.warnings <= 6) grade = 'B';
+        else if (health.errors <= 2) grade = 'C';
+        else grade = 'D';
+        const lines = [];
+        lines.push(`Grade: ${grade} (${health.errors} errors, ${health.warnings} warnings)`);
+        for (const item of health.issues) {
+            const icon = item.severity === 'error' ? '\u274C' : item.severity === 'warning' ? '\u26A0\uFE0F' : '\u2705';
+            lines.push(`${icon} [${item.entry}] ${item.detail}`);
         }
-        if (health.errors === 0 && health.warnings === 0) {
-            toastr.success(msg, 'DeepLore Enhanced');
-        } else if (health.errors === 0) {
-            toastr.warning(msg, 'DeepLore Enhanced', { timeOut: 8000 });
-        } else {
-            toastr.error(msg, 'DeepLore Enhanced', { timeOut: 10000 });
-        }
+        const html = `<div style="text-align: left; max-height: 60vh; overflow-y: auto;"><h3>Health Check</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${escapeHtml(lines.join('\n'))}</pre></div>`;
+        callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     });
 
     $('#dle_qa_refresh').on('click', async function () {
@@ -1016,10 +1029,11 @@ export function bindSettingsEvents(buildIndexFn) {
             toastr.info('No analytics data yet. Generate some messages first.', 'DeepLore Enhanced');
             return;
         }
-        // Show quick analytics summary as toast
+        // Show analytics summary as popup
         const sorted = Object.entries(analytics).sort((a, b) => (b[1].injected || 0) - (a[1].injected || 0));
-        const top5 = sorted.slice(0, 5).map(([t, d]) => `${t}: ${d.injected || 0} injections`).join('\n');
-        toastr.info(`Top entries:\n${top5}`, 'DeepLore Analytics', { timeOut: 10000 });
+        const lines = sorted.slice(0, 15).map(([t, d]) => `${escapeHtml(t.replace(/^[^:]*:/, ''))}: ${d.injected || 0} injections, ${d.matched || 0} matches`);
+        const analyticsHtml = `<div style="text-align: left;"><h3>Entry Analytics</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${lines.join('\n')}</pre><small style="opacity: 0.6;">${sorted.length} entries tracked</small></div>`;
+        callGenericPopup(analyticsHtml, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     });
 
     $('#dle_qa_optimize').on('click', async () => {
@@ -1051,15 +1065,20 @@ export function bindSettingsEvents(buildIndexFn) {
             toastr.info('No pipeline trace yet. Generate a message first.', 'DeepLore Enhanced');
             return;
         }
+        // Reuse the /dle-inspect popup format
         const t = lastPipelineTrace;
-        const lines = [
-            `Mode: ${t.mode}`,
-            `Indexed: ${t.indexed}`,
-            `Keyword matched: ${t.keywordMatched.length}`,
-            `AI selected: ${t.aiSelected.length}`,
-            t.aiFallback ? 'AI FALLBACK: true' : '',
-        ].filter(Boolean);
-        toastr.info(lines.join('\n'), 'Pipeline Trace', { timeOut: 10000 });
+        const lines = [];
+        lines.push(`Mode: ${t.mode} | Indexed: ${t.indexed} | Bootstrap active: ${t.bootstrapActive ? 'yes' : 'no'} | AI fallback: ${t.aiFallback ? 'yes' : 'no'}`);
+        if (t.aiSelected.length > 0) {
+            lines.push('', `\u2713 AI Selected (${t.aiSelected.length})`);
+            for (const e of t.aiSelected) lines.push(`  \u2022 ${e.title} [${e.confidence || '?'}] — ${e.reason || ''}`);
+        }
+        if (t.injected.length > 0) {
+            lines.push('', `\u2713 Injected (${t.injected.length}, ~${t.injectedTokens} tokens / ${t.budgetLimit || '?'} budget)`);
+            for (const e of t.injected) lines.push(`  \u2022 ${e.title} (~${e.tokens} tokens)`);
+        }
+        const traceHtml = `<div style="text-align: left;"><h3>Pipeline Inspector</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${escapeHtml(lines.join('\n'))}</pre></div>`;
+        callGenericPopup(traceHtml, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     });
 
     $('#dle_qa_setup').on('click', async () => {

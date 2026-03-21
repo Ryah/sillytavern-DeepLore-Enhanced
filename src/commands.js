@@ -31,6 +31,7 @@ import { showSourcesPopup } from './cartographer.js';
 import { runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup, showNotebookPopup, showBrowsePopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
 import { parseWorldInfoJson, importEntries } from './import.js';
+import { world_names, loadWorldInfo } from '../../../../world-info.js';
 
 export function registerSlashCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -98,26 +99,34 @@ export function registerSlashCommands() {
         returns: 'Optimization popup',
     }));
 
+    const newloreCallback = async () => {
+        if (!chat || chat.length === 0) {
+            toastr.warning('No active chat.', 'DeepLore Enhanced');
+            return '';
+        }
+        const loadingToast = toastr.info('Analyzing chat for new entries...', 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
+        try {
+            const suggestions = await runAutoSuggest();
+            toastr.clear(loadingToast);
+            await showSuggestionPopup(suggestions);
+        } catch (err) {
+            toastr.clear(loadingToast);
+            console.error('[DLE] Auto-suggest error:', err);
+            toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
+        }
+        return '';
+    };
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-newlore',
+        callback: newloreCallback,
+        helpString: 'AI analyzes the chat for characters, locations, and concepts not in your lorebook, and suggests new entries to create.',
+        returns: 'Suggestion popup',
+    }));
+    // Backwards-compatible alias
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-suggest',
-        callback: async () => {
-            if (!chat || chat.length === 0) {
-                toastr.warning('No active chat.', 'DeepLore Enhanced');
-                return '';
-            }
-            const loadingToast = toastr.info('Analyzing chat for new entries...', 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
-            try {
-                const suggestions = await runAutoSuggest();
-                toastr.clear(loadingToast);
-                await showSuggestionPopup(suggestions);
-            } catch (err) {
-                toastr.clear(loadingToast);
-                console.error('[DLE] Auto-suggest error:', err);
-                toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
-            }
-            return '';
-        },
-        helpString: 'AI analyzes chat for entities not in the lorebook and suggests new entries with human review.',
+        callback: newloreCallback,
+        helpString: 'Alias for /dle-newlore.',
         returns: 'Suggestion popup',
     }));
 
@@ -194,7 +203,7 @@ export function registerSlashCommands() {
             await showNotebookPopup();
             return '';
         },
-        helpString: 'Open the AI Notebook editor for the current chat.',
+        helpString: 'Open the Author\'s Notebook editor for the current chat.',
         returns: 'Opens notebook popup',
     }));
 
@@ -714,22 +723,108 @@ export function registerSlashCommands() {
         callback: async (_args, folderArg) => {
             const folder = (folderArg || '').trim();
 
-            // Prompt user to paste JSON
+            // Build lorebook dropdown options
+            const hasLorebooks = Array.isArray(world_names) && world_names.length > 0;
+            const lbOptions = hasLorebooks
+                ? world_names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')
+                : '';
+
+            // Show popup with three input methods
             const jsonInput = await callGenericPopup(
                 `<div style="text-align: left;">
                     <h3>Import SillyTavern World Info</h3>
-                    <p>Paste the JSON content of a SillyTavern World Info export, or a V2 character card with an embedded lorebook.</p>
+                    <p>Import entries from an existing SillyTavern lorebook, a local JSON file, or paste JSON directly.</p>
                     ${folder ? `<p>Target folder: <strong>${escapeHtml(folder)}</strong></p>` : '<p>Entries will be created in the vault root. Pass a folder name as argument, e.g. <code>/dle-import Imported</code></p>'}
+
+                    <!-- Lorebook dropdown -->
+                    <div id="dle_import_lb_section" style="margin-bottom: 8px;${hasLorebooks ? '' : ' display: none;'}">
+                        <label><small>Select a SillyTavern Lorebook</small></label>
+                        <select id="dle_import_lorebook" class="text_pole">
+                            <option value="">— Select a lorebook —</option>
+                            ${lbOptions}
+                        </select>
+                    </div>
+
+                    <!-- File browse button -->
+                    <div style="margin-bottom: 8px;">
+                        <input type="file" id="dle_import_file" accept=".json" style="display: none;" />
+                        <div id="dle_import_browse" class="menu_button menu_button_icon" style="display: inline-flex;">
+                            <i class="fa-solid fa-file-import"></i>
+                            <span>Browse local JSON file...</span>
+                        </div>
+                    </div>
+
+                    <!-- Textarea for manual paste -->
+                    <label><small>Or paste JSON below</small></label>
                     <textarea id="dle_import_json" class="text_pole" style="height: 200px; font-family: monospace; font-size: 0.85em;" placeholder="Paste World Info JSON here..."></textarea>
                 </div>`,
-                POPUP_TYPE.CONFIRM, '', { wide: true },
+                POPUP_TYPE.CONFIRM, '', { wide: true, onOpen: () => {
+                    const lbSelect = document.getElementById('dle_import_lorebook');
+                    const textarea = document.getElementById('dle_import_json');
+
+                    // Wire lorebook dropdown → load and fill textarea
+                    if (lbSelect) {
+                        lbSelect.addEventListener('change', async () => {
+                            const name = lbSelect.value;
+                            if (!name) return;
+                            try {
+                                const data = await loadWorldInfo(name);
+                                if (!data) {
+                                    toastr.error(`Failed to load lorebook "${name}".`, 'DeepLore Enhanced');
+                                    return;
+                                }
+                                if (textarea) textarea.value = JSON.stringify(data, null, 2);
+                            } catch (err) {
+                                console.error('[DLE] loadWorldInfo error:', err);
+                                toastr.error(`Error loading lorebook: ${err.message}`, 'DeepLore Enhanced');
+                            }
+                        });
+                    }
+
+                    // Wire browse button → hidden file input
+                    const browseBtn = document.getElementById('dle_import_browse');
+                    const fileInput = document.getElementById('dle_import_file');
+                    if (browseBtn && fileInput) {
+                        browseBtn.addEventListener('click', () => fileInput.click());
+                        fileInput.addEventListener('change', () => {
+                            const file = fileInput.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                if (textarea) textarea.value = /** @type {string} */ (reader.result);
+                            };
+                            reader.onerror = () => {
+                                toastr.error('Failed to read file.', 'DeepLore Enhanced');
+                            };
+                            reader.readAsText(file);
+                        });
+                    }
+                } },
             );
 
             if (!jsonInput) return '';
 
+            // ── Validation ──
             const jsonText = document.getElementById('dle_import_json')?.value?.trim();
             if (!jsonText) {
                 toastr.warning('No JSON provided.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            // File size check (> 10 MB)
+            if (jsonText.length > 10 * 1024 * 1024) {
+                const proceed = await callGenericPopup(
+                    '<p>The input is larger than 10 MB. This may take a while to process. Continue?</p>',
+                    POPUP_TYPE.CONFIRM, '', {},
+                );
+                if (!proceed) return '';
+            }
+
+            // JSON parse validation
+            try {
+                JSON.parse(jsonText);
+            } catch (parseErr) {
+                toastr.error(`Invalid JSON: ${parseErr.message}`, 'DeepLore Enhanced');
                 return '';
             }
 
@@ -738,6 +833,14 @@ export function registerSlashCommands() {
                 if (entries.length === 0) {
                     toastr.info('No entries found in the JSON.', 'DeepLore Enhanced');
                     return '';
+                }
+
+                // Warn about empty entries (no content AND no keys)
+                const emptyCount = entries.filter(e =>
+                    (!e.content || !e.content.trim()) && (!e.key || !e.key.length || e.key.every(k => !k.trim())),
+                ).length;
+                if (emptyCount > 0) {
+                    toastr.warning(`${emptyCount} entries have no content and no keys — they will be imported but may be empty.`, 'DeepLore Enhanced');
                 }
 
                 // Confirm
@@ -898,63 +1001,199 @@ export function registerSlashCommands() {
         return chat_metadata.deeplore_context;
     };
 
+    /**
+     * Helper: collect unique values for a gating field from the vault index.
+     * Returns a Map<normalizedValue, { display: string, count: number }>.
+     * Fields (era, location, sceneType) are string arrays on VaultEntry.
+     */
+    const collectFieldValues = (entryField) => {
+        const valueMap = new Map();
+        for (const entry of vaultIndex) {
+            const arr = entry[entryField];
+            if (!Array.isArray(arr)) continue;
+            for (const raw of arr) {
+                const key = raw.toLowerCase().trim();
+                if (!key) continue;
+                if (valueMap.has(key)) {
+                    valueMap.get(key).count++;
+                } else {
+                    valueMap.set(key, { display: raw.trim(), count: 1 });
+                }
+            }
+        }
+        return valueMap;
+    };
+
+    /**
+     * Helper: count entries matching a value for a gating field (case-insensitive substring).
+     */
+    const countFieldMatches = (entryField, value) => {
+        const lower = value.toLowerCase();
+        let count = 0;
+        for (const entry of vaultIndex) {
+            const arr = entry[entryField];
+            if (!Array.isArray(arr)) continue;
+            if (arr.some(v => v.toLowerCase().includes(lower) || lower.includes(v.toLowerCase()))) {
+                count++;
+            }
+        }
+        return count;
+    };
+
+    /**
+     * Helper: build and show a selection popup for a gating field.
+     * @param {string} label - Display label (e.g. "Era", "Location", "Scene Type")
+     * @param {string} entryField - VaultEntry field name (e.g. "era", "location", "sceneType")
+     * @param {string} ctxField - chat_metadata.deeplore_context field name (e.g. "era", "location", "scene_type")
+     */
+    const showFieldSelectionPopup = async (label, entryField, ctxField) => {
+        const ctx = ensureCtx();
+        const valueMap = collectFieldValues(entryField);
+
+        if (valueMap.size === 0) {
+            await callGenericPopup(
+                `<div style="text-align:left;"><p>No entries have a <strong>${label.toLowerCase()}</strong> field set.</p></div>`,
+                POPUP_TYPE.TEXT, '', { wide: false },
+            );
+            return;
+        }
+
+        // Sort by count descending, then alphabetically
+        const sorted = [...valueMap.entries()].sort((a, b) => b[1].count - a[1].count || a[1].display.localeCompare(b[1].display));
+
+        const currentValue = ctx[ctxField] || '';
+        let html = `<div style="text-align:left;"><h4>Select ${label}</h4>`;
+        if (currentValue) {
+            html += `<p style="margin-bottom:8px;">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
+        }
+        html += '<div style="display:flex;flex-direction:column;gap:4px;">';
+        html += `<button class="menu_button dle-field-select" data-value="" style="text-align:left;">Clear filter</button>`;
+        for (const [, { display, count }] of sorted) {
+            const isActive = currentValue.toLowerCase() === display.toLowerCase();
+            const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid #4caf50;padding-left:8px;' : '';
+            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="text-align:left;${activeStyle}">${escapeHtml(display)} <span style="opacity:0.6;">(${count} ${count === 1 ? 'entry' : 'entries'})</span></button>`;
+        }
+        html += '</div></div>';
+
+        // Show popup and wire up click handlers via event delegation
+        const promise = callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
+
+        // After DOM renders, attach click handlers
+        await new Promise(r => setTimeout(r, 50));
+        const buttons = document.querySelectorAll('.dle-field-select');
+        for (const btn of buttons) {
+            btn.addEventListener('click', () => {
+                const selected = btn.getAttribute('data-value');
+                ctx[ctxField] = selected;
+                saveChatDebounced();
+                if (selected) {
+                    toastr.success(`${label} set to "${selected}" for this chat.`, 'DeepLore Enhanced');
+                } else {
+                    toastr.success(`${label} cleared.`, 'DeepLore Enhanced');
+                }
+                // Close the popup
+                document.querySelector('.popup-button-ok')?.click();
+            });
+        }
+
+        await promise;
+    };
+
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-set-era',
         callback: async (_args, value) => {
-            const ctx = ensureCtx();
             const v = (value || '').trim();
+
+            // No argument — show selection popup
             if (!v) {
-                ctx.era = '';
-                saveChatDebounced();
-                toastr.success('Era cleared.', 'DeepLore Enhanced');
+                await showFieldSelectionPopup('Era', 'era', 'era');
                 return '';
             }
+
+            // With argument — set directly with match feedback
+            const ctx = ensureCtx();
             ctx.era = v;
             saveChatDebounced();
-            toastr.success(`Era set to "${v}" for this chat.`, 'DeepLore Enhanced');
+
+            const matchCount = countFieldMatches('era', v);
+            if (matchCount === 0) {
+                const valueMap = collectFieldValues('era');
+                const available = [...valueMap.values()].map(x => x.display);
+                const listStr = available.length > 0 ? available.join(', ') : 'none';
+                await callGenericPopup(
+                    `<div style="text-align:left;"><p>Era set to <strong>"${escapeHtml(v)}"</strong> — <span style="color:#ff9800;">no entries match</span>.</p><p>Available eras: ${escapeHtml(listStr)}</p></div>`,
+                    POPUP_TYPE.TEXT, '', { wide: false },
+                );
+            } else {
+                toastr.success(`Era set to "${v}" — ${matchCount} ${matchCount === 1 ? 'entry matches' : 'entries match'}.`, 'DeepLore Enhanced');
+            }
             return '';
         },
-        helpString: 'Set the current era/time period for contextual gating. Entries with a matching "era" frontmatter field will be prioritized. Use without args to clear.',
+        helpString: 'Set the current era/time period for contextual gating. Use without args to browse and select from available values.',
         returns: 'Status message',
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-set-location',
         callback: async (_args, value) => {
-            const ctx = ensureCtx();
             const v = (value || '').trim();
+
             if (!v) {
-                ctx.location = '';
-                saveChatDebounced();
-                toastr.success('Location cleared.', 'DeepLore Enhanced');
+                await showFieldSelectionPopup('Location', 'location', 'location');
                 return '';
             }
+
+            const ctx = ensureCtx();
             ctx.location = v;
             saveChatDebounced();
-            toastr.success(`Location set to "${v}" for this chat.`, 'DeepLore Enhanced');
+
+            const matchCount = countFieldMatches('location', v);
+            if (matchCount === 0) {
+                const valueMap = collectFieldValues('location');
+                const available = [...valueMap.values()].map(x => x.display);
+                const listStr = available.length > 0 ? available.join(', ') : 'none';
+                await callGenericPopup(
+                    `<div style="text-align:left;"><p>Location set to <strong>"${escapeHtml(v)}"</strong> — <span style="color:#ff9800;">no entries match</span>.</p><p>Available locations: ${escapeHtml(listStr)}</p></div>`,
+                    POPUP_TYPE.TEXT, '', { wide: false },
+                );
+            } else {
+                toastr.success(`Location set to "${v}" — ${matchCount} ${matchCount === 1 ? 'entry matches' : 'entries match'}.`, 'DeepLore Enhanced');
+            }
             return '';
         },
-        helpString: 'Set the current location for contextual gating. Entries with a matching "location" frontmatter field will be prioritized. Use without args to clear.',
+        helpString: 'Set the current location for contextual gating. Use without args to browse and select from available values.',
         returns: 'Status message',
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-set-scene',
         callback: async (_args, value) => {
-            const ctx = ensureCtx();
             const v = (value || '').trim();
+
             if (!v) {
-                ctx.scene_type = '';
-                saveChatDebounced();
-                toastr.success('Scene type cleared.', 'DeepLore Enhanced');
+                await showFieldSelectionPopup('Scene Type', 'sceneType', 'scene_type');
                 return '';
             }
+
+            const ctx = ensureCtx();
             ctx.scene_type = v;
             saveChatDebounced();
-            toastr.success(`Scene type set to "${v}" for this chat.`, 'DeepLore Enhanced');
+
+            const matchCount = countFieldMatches('sceneType', v);
+            if (matchCount === 0) {
+                const valueMap = collectFieldValues('sceneType');
+                const available = [...valueMap.values()].map(x => x.display);
+                const listStr = available.length > 0 ? available.join(', ') : 'none';
+                await callGenericPopup(
+                    `<div style="text-align:left;"><p>Scene type set to <strong>"${escapeHtml(v)}"</strong> — <span style="color:#ff9800;">no entries match</span>.</p><p>Available scene types: ${escapeHtml(listStr)}</p></div>`,
+                    POPUP_TYPE.TEXT, '', { wide: false },
+                );
+            } else {
+                toastr.success(`Scene type set to "${v}" — ${matchCount} ${matchCount === 1 ? 'entry matches' : 'entries match'}.`, 'DeepLore Enhanced');
+            }
             return '';
         },
-        helpString: 'Set the current scene type (combat, exploration, social, etc.) for contextual gating. Use without args to clear.',
+        helpString: 'Set the current scene type for contextual gating. Use without args to browse and select from available values.',
         returns: 'Status message',
     }));
 
@@ -1082,10 +1321,10 @@ export function registerSlashCommands() {
                 { cmd: '/dle-simulate', desc: 'Replay chat showing entry activation timeline' },
                 { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph' },
                 { cmd: '/dle-analytics', desc: 'View entry match/injection analytics' },
-                { cmd: '/dle-notebook', desc: 'Edit the AI Notebook for this chat' },
+                { cmd: '/dle-notebook', desc: 'Edit the Author\'s Notebook for this chat' },
                 { cmd: '/dle-scribe', desc: 'Run Session Scribe now' },
                 { cmd: '/dle-scribe-history', desc: 'View past Scribe notes' },
-                { cmd: '/dle-suggest', desc: 'AI suggests new lorebook entries from chat' },
+                { cmd: '/dle-newlore', desc: 'AI suggests new lorebook entries from chat' },
                 { cmd: '/dle-optimize-keys &lt;name&gt;', desc: 'AI keyword suggestions for an entry' },
                 { cmd: '/dle-summarize &lt;name&gt;', desc: 'AI-generate a summary field for an entry' },
                 { cmd: '/dle-review', desc: 'AI reviews recent pipeline results' },
@@ -1098,9 +1337,9 @@ export function registerSlashCommands() {
                 { cmd: '/dle-unblock &lt;name&gt;', desc: 'Remove a block' },
                 { cmd: '/dle-pins', desc: 'Show all pins and blocks for this chat' },
                 { sep: true, label: 'Contextual Gating' },
-                { cmd: '/dle-set-era &lt;era&gt;', desc: 'Set active era filter' },
-                { cmd: '/dle-set-location &lt;loc&gt;', desc: 'Set active location filter' },
-                { cmd: '/dle-set-scene &lt;type&gt;', desc: 'Set scene type filter' },
+                { cmd: '/dle-set-era [era]', desc: 'Set era filter (no arg = browse values)' },
+                { cmd: '/dle-set-location [loc]', desc: 'Set location filter (no arg = browse values)' },
+                { cmd: '/dle-set-scene [type]', desc: 'Set scene type filter (no arg = browse values)' },
                 { cmd: '/dle-set-characters &lt;names&gt;', desc: 'Set present characters' },
                 { cmd: '/dle-context-state', desc: 'Show current gating state' },
             ];

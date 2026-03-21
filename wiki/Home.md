@@ -37,9 +37,13 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 | Page | Description |
 |------|-------------|
 | [[Installation]] | Step-by-step setup guide |
+| [[Quick Start]] | 5-minute getting started guide |
+| [[First Steps]] | Building your vault and tuning the extension |
+| [[Features]] | All features explained in detail |
 | [[Writing Vault Entries]] | How to create lorebook entries with copy-paste templates |
 | [[AI Search]] | How AI-powered semantic search works |
 | [[Pipeline]] | How the matching pipeline processes entries |
-| [[Features]] | All features explained in detail |
 | [[Settings Reference]] | Every setting documented |
 | [[Slash Commands]] | All available slash commands |
+| [[Glossary]] | Key terms and definitions |
+| [[Troubleshooting]] | Common issues and how to fix them |

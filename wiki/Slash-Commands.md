@@ -4,6 +4,11 @@ DeepLore Enhanced registers several slash commands in SillyTavern. Type them in 
 
 ## Commands
 
+### `/dle-help`
+Show a quick-reference list of all DeepLore Enhanced slash commands with brief descriptions. Organized by category (diagnostics, AI features, per-chat overrides, contextual gating).
+
+---
+
 ### `/dle-refresh`
 Force rebuild the vault index cache. Re-fetches all entries from Obsidian regardless of Cache TTL.
 
@@ -208,18 +213,18 @@ Show all pinned and blocked entries for the current chat. See [[Features#Per-Cha
 
 ---
 
-### `/dle-set-era <era>`
-Set the active era for contextual gating (e.g., `/dle-set-era pre-war`). Entries with a matching `era` frontmatter field are included; others with a non-matching `era` are filtered out. Clear with `/dle-set-era` (no argument).
+### `/dle-set-era [era]`
+Set the active era for contextual gating (e.g., `/dle-set-era pre-war`). Entries with a matching `era` frontmatter field are included; others with a non-matching `era` are filtered out. **With no argument:** opens a browse-and-select popup showing all era values found in the vault, with entry counts for each. Select a value or clear the filter from the popup.
 
 ---
 
-### `/dle-set-location <location>`
-Set the active location for contextual gating (e.g., `/dle-set-location The Docks`). Clear with no argument.
+### `/dle-set-location [location]`
+Set the active location for contextual gating (e.g., `/dle-set-location The Docks`). **With no argument:** opens a browse-and-select popup showing all location values in the vault with entry counts.
 
 ---
 
-### `/dle-set-scene <scene type>`
-Set the active scene type for contextual gating (e.g., `/dle-set-scene combat`). Clear with no argument.
+### `/dle-set-scene [scene type]`
+Set the active scene type for contextual gating (e.g., `/dle-set-scene combat`). **With no argument:** opens a browse-and-select popup showing all scene type values in the vault with entry counts.
 
 ---
 
@@ -234,7 +239,7 @@ Show the current contextual gating state (active era, location, scene type, pres
 ---
 
 ### `/dle-setup`
-Run the first-time setup wizard. Walks through Obsidian connection configuration, AI search setup, and initial index build. See [[Installation]].
+Run the first-time setup wizard. Walks through Obsidian vault connection, tag configuration, and search mode selection. AI search connection (profile or proxy) must be configured separately in the settings panel. See [[Installation]].
 
 ---
 
@@ -250,6 +255,7 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 
 | Command | Description |
 |---------|-------------|
+| `/dle-help` | Quick reference of all commands |
 | `/dle-refresh` | Force re-index vault |
 | `/dle-status` | Show connection and index status |
 | `/dle-context` | Preview what would be injected now |

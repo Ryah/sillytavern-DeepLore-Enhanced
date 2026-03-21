@@ -46,7 +46,7 @@ Stop and restart SillyTavern to load the new extension.
 
 ## First-Time Setup
 
-> **Quick alternative:** Run `/dle-setup` in the SillyTavern chat input to use the guided setup wizard. It walks through Obsidian connection, AI search, and initial index build step by step.
+> **Quick alternative:** Run `/dle-setup` in the SillyTavern chat input to use the guided setup wizard. It walks through Obsidian vault connection, tag configuration, and search mode selection. Note: AI search connection (profile or proxy) must still be configured separately in the settings panel.
 
 ### Obsidian Connection
 
@@ -54,7 +54,7 @@ Stop and restart SillyTavern to load the new extension.
 2. Go to **Settings > Local REST API** and note the **API port** (default: `27123`) and copy the **API key**
 3. In SillyTavern, go to **Extensions > DeepLore Enhanced**
 4. Enter the port and API key in the connection fields
-5. Click **Test Connection**. You should see a success message
+5. Click **Test All**. You should see a success message
 6. Check **Enable DeepLore Enhanced**
 7. Click **Refresh Index** to pull entries from your vault
 

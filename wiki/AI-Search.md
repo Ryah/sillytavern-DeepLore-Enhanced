@@ -44,7 +44,7 @@ Skips keyword matching entirely. A manifest of **all** non-constant vault entrie
 | 2. AI selection | AI picks the most relevant from the full vault |
 | 3. Output | AI selections + constants = final injection set |
 
-**Error fallback:** If the AI returns an error or times out, the full vault is used, sorted by priority. If the AI intentionally returns an empty array `[]`, only constants are injected.
+**Error fallback:** If the AI returns an error or times out, falls back to keyword matching (same behavior as Two-Stage error fallback). If the AI intentionally returns an empty array `[]`, only constants are injected.
 
 ---
 
@@ -77,17 +77,20 @@ This mode exists primarily for [claude-code-proxy](https://github.com/horselock/
 
 The manifest is a compact representation of entries sent to the AI. Each entry looks like this:
 
-```
-EntryName (150tok) -> LinkedEntry1, LinkedEntry2
+```xml
+<entry name="EntryName">
+EntryName (150tok) → LinkedEntry1, LinkedEntry2
 Summary or truncated content text. May include [Triggers: ...] [Related: ...] metadata.
----
+</entry>
+<entry name="NextEntry">
 NextEntry (80tok)
 Summary of the next entry.
----
+</entry>
 ```
 
+- **`<entry name="...">`:** Each entry is wrapped in XML delimiters to prevent summary content from being interpreted as manifest-level instructions.
 - **`(Ntok)`:** Estimated token cost of the full entry content. Helps the AI consider budget when selecting.
-- **`->`:** Shows wikilink relationships to other entries. Helps the AI follow relationship chains.
+- **`→`:** Shows wikilink relationships to other entries. Helps the AI follow relationship chains.
 - **Summary text:** Comes from the `summary` frontmatter field if present. Otherwise, the entry content is truncated to the **Manifest Summary Length** setting (default 600 characters).
 
 The manifest also includes a header that tells the AI:
@@ -166,7 +169,7 @@ AI search is designed to degrade gracefully:
 
 | Situation | Two-Stage behavior | AI-Only behavior |
 |-----------|-------------------|-----------------|
-| AI returns error | Fall back to keyword results | Fall back to full vault (sorted by priority) |
+| AI returns error | Fall back to keyword results | Fall back to keyword matching |
 | AI times out | Same as error | Same as error |
 | AI returns `[]` | Only constants injected | Only constants injected |
 | AI response unparseable | Same as error | Same as error |

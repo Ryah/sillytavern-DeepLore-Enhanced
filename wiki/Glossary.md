@@ -5,7 +5,7 @@ Key terms used throughout DeepLore Enhanced documentation and UI.
 ## Core Concepts
 
 **Vault Index**
-The in-memory collection of all parsed lorebook entries from your connected Obsidian vaults. Rebuilt on refresh or when cache expires.
+The in-memory collection of all parsed lorebook entries from your connected Obsidian vaults. Rebuilt on refresh or when cache expires. See [[Pipeline#Index Refresh]].
 
 **Entry / Vault Entry**
 A single Obsidian note that has been parsed into a lorebook entry. Contains frontmatter metadata (keys, priority, summary, etc.) and markdown content.
@@ -25,7 +25,7 @@ An entry tagged with `lorebook-bootstrap` that force-injects when the chat is sh
 ## Pipeline & Matching
 
 **Pipeline**
-The full sequence of steps DeepLore runs on each generation: index refresh → keyword matching → AI selection → gating → formatting → injection.
+The full sequence of steps DeepLore runs on each generation: index refresh → keyword matching → AI selection → gating → formatting → injection. See [[Pipeline]] for the full flow diagram.
 
 **Scan Depth**
 How many recent chat messages DeepLore searches for keywords. A scan depth of 4 means the last 4 messages are scanned.
@@ -34,7 +34,7 @@ How many recent chat messages DeepLore searches for keywords. A scan depth of 4 
 The first stage of entry selection. Scans recent chat messages for keywords defined in each entry's `keys:` field.
 
 **AI Search**
-The second stage (optional). An AI model evaluates keyword-matched candidates (or the full vault in AI-only mode) and selects the most relevant entries.
+The second stage (optional). An AI model evaluates keyword-matched candidates (or the full vault in AI-only mode) and selects the most relevant entries. See [[AI Search]].
 
 **Two-Stage Mode**
 The recommended search mode: keywords pre-filter candidates, then AI picks the best matches. Balances cost and quality.
@@ -57,7 +57,7 @@ A frontmatter field listing entry titles that must ALL be matched for this entry
 A frontmatter field listing entry titles that BLOCK this entry. If any excluded entry is matched, this entry is filtered out.
 
 **Contextual Gating**
-Filtering based on narrative context: era, location, scene type, and present characters. Set via `/dle-set-era`, `/dle-set-location`, etc.
+Filtering based on narrative context: era, location, scene type, and present characters. Set via `/dle-set-era`, `/dle-set-location`, etc. See [[Features#Contextual Gating]].
 
 **Pin**
 A per-chat override that forces an entry to always inject, bypassing keyword matching and gating. Set via `/dle-pin <name>`.
@@ -88,7 +88,7 @@ An alternative injection mode where entries register as Prompt Manager entries. 
 A SillyTavern Connection Manager profile used for AI search, Scribe, or Auto Lorebook. Configures which API provider and model to use.
 
 **Session Scribe**
-An AI feature that periodically summarizes the chat and writes the summary to an Obsidian note. Useful for maintaining session continuity.
+An AI feature that periodically summarizes the chat and writes the summary to an Obsidian note. Useful for maintaining session continuity. See [[Features#Session Scribe]].
 
 **Author's Notebook**
 A per-chat scratchpad whose contents are injected into every generation as a system message. Use for character notes, plot reminders, or writing instructions.
@@ -97,7 +97,7 @@ A per-chat scratchpad whose contents are injected into every generation as a sys
 An AI feature that analyzes the chat and suggests new lorebook entries to create in your vault.
 
 **Context Cartographer**
-A UI feature that shows which entries were injected into each AI response. Appears as a "Lore Sources" button on chat messages.
+A UI feature that shows which entries were injected into each AI response. Appears as a "Lore Sources" button on chat messages. See [[Features#Context Cartographer]].
 
 ## Infrastructure
 
@@ -125,10 +125,22 @@ A number controlling injection order. Lower = higher priority. Suggested ranges:
 Number of generations an entry is suppressed after being injected. Important: the AI does NOT remember lore from prior generations — during the cooldown, the AI has no access to this entry's content. Use for rotating flavor/variety entries, not for entries the AI needs consistently.
 
 **Warmup**
-Minimum keyword hit count required before an entry triggers. Prevents entries from activating on a single casual mention.
+Minimum keyword hit count required before an entry triggers. The warmup threshold is checked every generation — the keyword must meet the hit count each time, not just the first time. Prevents entries from activating on a single casual mention.
 
 **Probability**
 Chance (0.0-1.0) that a matched entry actually triggers. Use for variety — e.g., 0.5 means the entry injects ~50% of the time it matches.
+
+**Entry Decay**
+Tracks how many generations pass since each entry was last injected. Stale entries get a freshness boost in the AI manifest; frequently injected entries get a penalty. Helps rotate lore naturally. See [[Features#Entry Decay & Freshness]].
+
+**Refine Keys**
+A secondary AND filter (`refine_keys` in frontmatter) that requires at least one refine key to also appear in the scan text before the entry triggers. Reduces false positives for entries with common primary keywords. See [[Features#Refine Keys]].
+
+**Cascade Links**
+Unconditional entry links (`cascade_links` in frontmatter). When an entry matches, all entries listed in its cascade links are automatically pulled in without any keyword check. See [[Features#Cascade Links]].
+
+**Fuzzy Search (BM25)**
+An optional supplement to keyword matching that uses BM25/TF-IDF scoring to find entries with partial or approximate keyword matches. Enable in [[Settings Reference|Matching & Budget settings]].
 
 **Wikilinks**
 Obsidian-style `[[links]]` in entry content that reference other entries. DeepLore resolves these to actual entry titles for recursive matching.

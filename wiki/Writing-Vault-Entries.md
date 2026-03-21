@@ -20,7 +20,7 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `tags` | array | *(required)* | Must include `lorebook`. Can also include special tags (see below). |
 | `keys` | array | `[]` | Keywords that trigger this entry when they appear in chat. |
 | `priority` | number | `100` | Sort order. Lower numbers are injected first. See [priority guidelines](#priority-guidelines). |
-| `summary` | string | `""` | AI selection summary (up to 600 chars). Used by [[AI Search]] to decide relevance. **Not injected into the writing AI.** |
+| `summary` | string | `""` | AI selection summary (recommended under 600 chars). Used by [[AI Search]] to decide relevance. **Not injected into the writing AI.** |
 | `requires` | array | `[]` | Entry titles that must ALL be matched for this entry to activate. |
 | `excludes` | array | `[]` | Entry titles that, if ANY are matched, block this entry. |
 | `position` | string | *(global setting)* | Override injection position: `before`, `after`, or `in_chat`. |
@@ -39,6 +39,8 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `location` | string \| string[] | *(none)* | Contextual gating: only inject when the active location matches one of these values. |
 | `scene_type` | string \| string[] | *(none)* | Contextual gating: only inject when the active scene type matches one of these values. |
 | `character_present` | array | `[]` | Contextual gating: only inject when any listed character is among the present characters. |
+
+> **Note:** Frontmatter uses underscores (`scene_type`, `character_present`), but internally these are stored as camelCase (`sceneType`, `characterPresent`) on VaultEntry objects. Use underscores in your notes.
 
 ### Priority Guidelines
 
@@ -103,7 +105,7 @@ A good summary answers three questions:
 **Good summary** (lore concept):
 > "The biological dependency created when a vampire feeds from a mortal. Select when feeding, biting, addiction, venom, feeding sites, or chattel dynamics come up. Scales with vampire age."
 
-Keep summaries under 600 characters. Focus on *when to select*, not *what to write*.
+Keep summaries under 600 characters (recommended, not enforced). Focus on *when to select*, not *what to write*.
 
 ---
 
@@ -115,29 +117,31 @@ Your vault entry is used by two different AIs that see very different things. Un
 
 The selection AI **never sees your full entry**. It sees a compact one-line manifest entry and uses it to decide whether your entry is relevant to the current conversation:
 
-```
-Valen Ashwick (285tok) -> Ashwick Estate, Ironveil Guild, Sera Thornwick, Korrath
+```xml
+<entry name="Valen Ashwick">
+Valen Ashwick (285tok) → Ashwick Estate, Ironveil Guild, Sera Thornwick, Korrath
 Rogue spellsword and former member of the Ironveil Guild. Select when melee combat,
 dual-wielding, shadow magic, guild politics, or the Ashwick bloodline comes up.
 Close ally of Sera and rival of Korrath.
----
+</entry>
 ```
 
 | Part | Source | Purpose |
 |------|--------|---------|
 | `Valen Ashwick` | Entry title | Identifies the entry |
 | `(285tok)` | Estimated from content length | Helps the AI consider token budget |
-| `-> Ashwick Estate, ...` | Extracted from `[[wikilinks]]` in content | Shows relationships to other entries |
+| `→ Ashwick Estate, ...` | Extracted from `[[wikilinks]]` in content | Shows relationships to other entries |
 | Summary text | `summary` frontmatter field | Tells the AI *when* to select this entry |
 
 If an entry has no `summary` field, the content is truncated to ~600 characters instead. This is why writing good summaries matters — the selection AI's only context for your entry is this compact view.
 
 An entry without a summary or wikilinks gets an even simpler manifest line:
 
-```
+```xml
+<entry name="Silver Keep">
 Silver Keep (25tok)
 A crumbling fortress on the northern ridge, now home to bandits and bad memories.
----
+</entry>
 ```
 
 ### The Writing AI (injected context)

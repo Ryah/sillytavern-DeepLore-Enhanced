@@ -85,7 +85,7 @@ Start with **scan depth 4** and **budget 3000**, then adjust based on `/dle-insp
 When you're ready for smarter matching:
 
 1. Go to **Search Mode** → select **Two-Stage**
-2. Under **AI Search** (in Advanced), pick a connection mode:
+2. In the **AI Search Settings** drawer, pick a connection mode:
    - **Profile**: Uses a SillyTavern Connection Manager profile (recommended)
    - **Proxy**: Routes through a CORS proxy (for advanced setups)
 3. Select or create a connection profile with a fast, cheap model (Claude Haiku, GPT-4o-mini, etc.)

@@ -1,8 +1,8 @@
 **DeepLore Enhanced Wiki**
 
 **Getting Started**
-- [[Quick Start]]
 - [[Installation]]
+- [[Quick Start]]
 - [[First Steps]]
 
 **Reference**

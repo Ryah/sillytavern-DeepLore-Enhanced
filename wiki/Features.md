@@ -8,9 +8,14 @@ Adds a book icon button to each AI message's action bar. Click it to see which v
 
 **The popup shows:**
 - Entry name (clickable link to Obsidian if vault connection names match Obsidian vault names)
-- Match type: keyword, AI (with confidence and reason), or constant
+- Match type: keyword, AI (with confidence and reason), constant, pinned, or bootstrap
 - Priority value
-- Estimated token cost
+- Token cost with color-gradient bar (green/yellow/red relative to vault average token size)
+- Entries grouped by injection position (Before Main Prompt, In-chat @depth, After Main Prompt)
+- Generation-to-generation diff: shows +new and -removed entries with reasons (e.g., "Bootstrap fall-off", "No longer matched")
+- Expandable content preview (click to show first 300 chars with keyword highlighting)
+- Vault source label (when multiple vaults are connected)
+- Entry metadata: keys, requires, era, location, and wikilinks
 
 **Setup:**
 1. Enable "Show Lore Sources Button" in [[Settings Reference|Context Cartographer settings]]
@@ -163,7 +168,7 @@ warmup: 3  # Keyword must appear 3+ times in scan text before first trigger
 ```
 
 **Notes:**
-- Only affects the first trigger. Once an entry has triggered, it matches normally afterward.
+- The warmup threshold is checked every generation — the keyword must meet the hit count each time, not just the first time
 - Count is based on occurrences in the scan text, not unique messages
 
 ---
@@ -426,9 +431,9 @@ Filter entries based on the current story context using frontmatter fields: `era
 | `character_present` | string[] | Entry only injects when any listed character is present |
 
 **Commands:**
-- `/dle-set-era <era>` — Set the active era (e.g., "pre-war", "modern")
-- `/dle-set-location <location>` — Set the active location (e.g., "The Docks")
-- `/dle-set-scene <type>` — Set the active scene type (e.g., "combat", "romance")
+- `/dle-set-era [era]` — Set the active era. With no argument, opens a browse-and-select popup showing all era values in your vault with entry counts
+- `/dle-set-location [location]` — Set the active location. With no argument, shows a browse-and-select popup
+- `/dle-set-scene [type]` — Set the active scene type. With no argument, shows a browse-and-select popup
 - `/dle-set-characters <names>` — Set present characters (comma-separated)
 - `/dle-context-state` — Show the current contextual gating state
 
@@ -483,7 +488,7 @@ Generate AI summaries for entries that don't have a `summary` field. Good summar
 
 ## Setup Wizard
 
-A guided first-time setup experience. Walks through Obsidian connection configuration, AI search setup, and initial index building.
+A guided first-time setup experience. Walks through Obsidian vault connection, tag configuration, and search mode selection. AI search connection (profile or proxy) must be configured separately in the settings panel.
 
 **Usage:** `/dle-setup` or the Setup button in the Quick Actions bar.
 

@@ -5,9 +5,10 @@ DeepLore Enhanced uses a sequential pipeline to determine which vault entries ge
 ## Pipeline Flow
 
 ```
+init()
+  └─ hydrateFromCache()               On first load: instant hydration from IndexedDB
+
 onGenerate(chat)
-  │
-  ├─ hydrateFromCache()               On first load: instant hydration from IndexedDB
   │
   ├─ ensureIndexFresh()               Refresh from Obsidian if cache expired
   │    └─ buildIndexWithReuse()          Fetch all, skip re-parse of unchanged, fall back to full
@@ -40,7 +41,7 @@ onGenerate(chat)
   │
   ├─ Re-injection cooldown            Skip entries injected within N generations
   │
-  ├─ applyGating(entries)             Apply requires/excludes rules
+  ├─ applyRequiresExcludesGating()    Apply requires/excludes rules
   │    └─ iterative resolution          Cascade removals through dependencies
   │
   ├─ Strip duplicate injections       Skip entries injected in recent generations
@@ -80,7 +81,7 @@ Full vault (100 entries)  →  AI selects 10 most relevant  →  Inject 10 + con
 
 More thorough but uses more tokens per call. Best for vaults where keywords are sparse or unreliable.
 
-**Error fallback:** If AI fails, the full vault is used sorted by priority.
+**Error fallback:** If AI fails, falls back to keyword matching (same as Two-Stage error fallback).
 
 ### Keywords Only (AI disabled)
 When AI Search is disabled. Pure keyword matching.

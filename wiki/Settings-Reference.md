@@ -32,6 +32,12 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **Bootstrap Tag** | `lorebook-bootstrap` | Tag for entries that force-inject when chat is short, then become regular entries. See [[Features#New Chat Features]]. |
 | **New Chat Threshold** | `3` | 1-20. Message count below which seed context is sent and bootstrap entries are force-injected. |
 
+## Search Mode
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Search Mode** | Keyword Only | Dropdown. **Keyword Only**: keywords-only matching (no AI). **Two-Stage**: keywords pre-filter, then AI selects. **AI Only**: entire vault sent to AI. See [[AI Search]]. |
+
 ## Matching & Budget
 
 | Setting | Default | Range | Description |
@@ -40,15 +46,17 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **Case Sensitive** | Off | Toggle | When on, keyword matching respects case (`Eris` won't match `eris`). |
 | **Match Whole Words** | Off | Toggle | When on, keywords use word boundaries (`war` won't match `warning`). |
 | **Active Character Boost** | Off | Toggle | Auto-match the active character's vault entry by name or keyword, even if not mentioned in chat. See [[Features#Active Character Boost]]. |
+| **Fuzzy Search (BM25)** | Off | Toggle | Supplement keyword matching with BM25/TF-IDF scoring. Helps find entries with partial or approximate keyword matches. Built during index build. |
 | **Recursive Scanning** | Off | Toggle | After initial matches, scan matched entries' content for keywords that trigger more entries. |
 | **Max Recursion Steps** | `3` | 1-10 | Maximum recursive scan passes. Each pass scans newly matched entries for more triggers. |
 | **Re-injection Cooldown** | `0` | 0-50 | Skip re-injecting an entry for N generations after last injection. 0 = disabled. Constants are exempt. |
+| **Optimize Keys Mode** | `keyword-only` | Dropdown | Controls keyword optimization strategy. `keyword-only` uses only the entry's defined keys; `two-stage` uses keys plus content analysis for better matching. |
 | **Strip Duplicate Injections** | Off | Toggle | Skip re-injecting entries that were already injected in recent generations. Tracked per-chat. Constants are exempt. |
 | **Lookback Depth** | `2` | 1-10 | Number of previous generations to check for already-injected entries (when Strip Duplicate Injections is on). Higher = more aggressive deduplication. |
 | **Unlimited Entries** | Off | Toggle | Remove the cap on how many entries can be injected per generation. |
 | **Max Entries** | `10` | 1-100 | Maximum entries to inject (when Unlimited Entries is off). Sorted by priority. |
 | **Unlimited Token Budget** | Off | Toggle | Remove the token budget cap. A warning toast appears if injected lore exceeds 20% of context. |
-| **Token Budget** | `2048` | 100-100000 | Maximum total tokens to inject (when Unlimited Token Budget is off). Entries added in priority order until budget is reached. |
+| **Token Budget** | `3072` | 100-100000 | Maximum total tokens to inject (when Unlimited Token Budget is off). Entries added in priority order until budget is reached. |
 
 ## Injection
 
@@ -73,11 +81,7 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 
 > Deep links use the vault connection name to build Obsidian URIs. Set vault names in Vault Connections to match your Obsidian vault names exactly.
 
-## AI-Powered Features
-
-Author's Notebook, Session Scribe, and Auto Lorebook are grouped under one collapsible drawer in settings.
-
-### Author's Notebook
+## Author's Notebook
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -87,12 +91,6 @@ Author's Notebook, Session Scribe, and Auto Lorebook are grouped under one colla
 | **Notebook Injection Role** | System | Message role for in-chat notebook injection: System, User, or Assistant. |
 
 **Open Notebook** button opens the notebook editor for the current chat.
-
-## Search Mode
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| **Search Mode** | Keyword Only | Dropdown. **Keyword Only**: keywords-only matching (no AI). **Two-Stage**: keywords pre-filter, then AI selects. **AI Only**: entire vault sent to AI. See [[AI Search]]. |
 
 ## AI Search
 
@@ -115,6 +113,10 @@ Visible when Search Mode is Two-Stage or AI Only.
 **Test AI Search** button tests the AI connection. **Preview AI Prompt** button shows the full prompt that would be sent.
 
 **AI Stats** shows session usage: AI calls, cache hits, estimated input/output tokens.
+
+## AI-Powered Features
+
+Session Scribe and Auto Lorebook are grouped under one collapsible drawer in settings.
 
 ### Session Scribe
 
@@ -152,8 +154,8 @@ Use `/dle-newlore` to trigger on-demand at any time.
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
 | **Enable Entry Decay** | Off | Toggle | Track entry freshness and adjust AI manifest priorities. Stale entries get a boost; frequently injected entries get a penalty. See [[Features#Entry Decay & Freshness]]. |
-| **Boost Threshold** | `5` | 2-20 | Generations without injection before an entry gets a freshness boost in the AI manifest. |
-| **Penalty Threshold** | `2` | 2-10 | Consecutive injections before an entry gets a frequency penalty in the AI manifest. |
+| **Staleness Boost Threshold** | `5` | 2-20 | Generations without injection before an entry gets a freshness boost in the AI manifest. |
+| **Frequency Penalty Threshold** | `2` | 2-10 | Total injection count (from analytics) before an entry gets a frequency penalty in the AI manifest. |
 
 ## Index & Cache
 
@@ -165,7 +167,7 @@ Use `/dle-newlore` to trigger on-demand at any time.
 
 **Refresh Index** button clears the cache and re-fetches all entries. **Test Match** button simulates a generation to show which entries would match.
 
-> **Show Advanced toggles:** Several sections have "Show Advanced" toggles that reveal power-user settings. These toggles persist across sessions. Settings behind advanced toggles include: seed/bootstrap tags, case sensitivity, whole word matching, recursive scanning, re-injection cooldown, deduplication, injection template, WI scan, AI manifest summary length, system prompt override, Claude Code prefix, cache TTL, sync interval, and sync toasts.
+> **Show Advanced toggles:** Several sections have "Show Advanced" toggles that reveal power-user settings. These toggles persist across sessions. Settings behind advanced toggles include: seed/bootstrap tags, case sensitivity, whole word matching, fuzzy search (BM25), recursive scanning, re-injection cooldown, optimize keys mode, deduplication, injection template, WI scan, AI manifest summary length, system prompt override, Claude Code prefix, cache TTL, sync interval, and sync toasts.
 
 ## Advanced
 

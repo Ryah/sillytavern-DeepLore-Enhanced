@@ -50,7 +50,7 @@ Common issues and how to fix them. Run `/dle-health` first — it catches most p
 ## AI Search Issues
 
 ### "AI search failed — using keyword fallback"
-- **Timed out:** Increase the AI Search timeout setting (default: 30s)
+- **Timed out:** Increase the AI Search timeout setting (default: 10s)
 - **Auth error:** Check your connection profile or proxy API key
 - **Profile not found:** Select a profile in AI Search settings, or create one in Connection Manager
 - **Network error:** Check the proxy URL, or verify your connection profile works in Connection Manager

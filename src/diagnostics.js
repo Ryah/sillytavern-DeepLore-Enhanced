@@ -20,7 +20,7 @@ export function runHealthCheck() {
     // --- Multi-vault checks ---
     const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     if (enabledVaults.length === 0) {
-        issues.push({ type: 'Settings', severity: 'error', entry: '—', detail: 'No enabled vaults configured' });
+        issues.push({ type: 'Settings', severity: 'error', entry: '—', detail: 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and click "Add Vault".' });
     }
     for (const vault of enabledVaults) {
         if (!vault.apiKey) {

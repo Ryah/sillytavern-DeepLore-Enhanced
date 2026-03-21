@@ -1,10 +1,18 @@
 **DeepLore Enhanced Wiki**
 
-- [[Home]]
+**Getting Started**
+- [[Quick Start]]
 - [[Installation]]
+- [[First Steps]]
+
+**Reference**
+- [[Features]]
 - [[Writing Vault Entries]]
 - [[AI Search]]
 - [[Pipeline]]
-- [[Features]]
 - [[Settings Reference]]
 - [[Slash Commands]]
+- [[Glossary]]
+
+**Help**
+- [[Troubleshooting]]

@@ -1,3 +1,44 @@
+/* ============================================================================
+ * DeepLore Enhanced — Styles
+ * ============================================================================ */
+
+/* --- Theme-aware color variables --- */
+.deeplore_enhanced_settings {
+    --dle-success: var(--SmartThemeQuoteColor, #4caf50);
+    --dle-error: var(--warning, #f44336);
+    --dle-warning: var(--warning, #ff9800);
+    --dle-info: var(--SmartThemeAuxColor, #2196f3);
+    --dle-border: var(--SmartThemeBorderColor, #444);
+    --dle-bg-hover: var(--SmartThemeHoverColor, rgba(255, 255, 255, 0.05));
+    --dle-text-muted: var(--SmartThemeSecondaryColor, #888);
+}
+
+/* --- Utility classes --- */
+.deeplore_enhanced_settings .dle_header_badge {
+    font-size: 0.75em;
+    color: var(--dle-text-muted);
+    margin-left: 8px;
+}
+
+.deeplore_enhanced_settings .dle_text_sm {
+    font-size: 0.85em;
+}
+
+.deeplore_enhanced_settings .dle_text_xs {
+    font-size: 0.75em;
+}
+
+.deeplore_enhanced_settings .dle_muted {
+    color: var(--dle-text-muted);
+}
+
+.deeplore_enhanced_settings .dle_section_desc {
+    font-size: 0.85em;
+    color: var(--dle-text-muted);
+    margin: 2px 0 6px;
+}
+
+/* --- Status indicators --- */
 .deeplore_enhanced_settings .deeplore_enhanced_status {
     display: inline-block;
     margin-left: 10px;
@@ -5,29 +46,39 @@
 }
 
 .deeplore_enhanced_settings .deeplore_enhanced_status.success {
-    color: var(--SmartThemeQuoteColor, #4caf50);
+    color: var(--dle-success);
+}
+
+.deeplore_enhanced_settings .deeplore_enhanced_status.success::before {
+    content: '\2713 ';
 }
 
 .deeplore_enhanced_settings .deeplore_enhanced_status.failure {
-    color: var(--warning, #f44336);
+    color: var(--dle-error);
 }
 
+.deeplore_enhanced_settings .deeplore_enhanced_status.failure::before {
+    content: '\2717 ';
+}
+
+/* --- AI stats --- */
 .deeplore_enhanced_settings .deeplore_enhanced_ai_stats {
     font-size: 0.85em;
-    opacity: 0.8;
+    color: var(--dle-text-muted);
     margin-top: 4px;
 }
 
+/* --- Advanced toggle --- */
 .deeplore_enhanced_settings .dle_advanced_toggle {
     cursor: pointer;
-    opacity: 0.7;
+    color: var(--dle-text-muted);
     font-size: 0.85em;
     margin: 6px 0;
     user-select: none;
 }
 
 .deeplore_enhanced_settings .dle_advanced_toggle:hover {
-    opacity: 1;
+    color: var(--SmartThemeBodyColor, #eee);
 }
 
 .deeplore_enhanced_settings .dle_advanced_icon {
@@ -35,8 +86,70 @@
     margin-right: 4px;
 }
 
-/* Bug 19: .disabled class for div-based buttons that don't support the disabled attribute */
+/* --- Vault row --- */
+.deeplore_enhanced_settings .dle_vault_row {
+    border: 1px solid var(--dle-border);
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 6px;
+    transition: background 0.15s;
+}
+
+.deeplore_enhanced_settings .dle_vault_row:hover {
+    background: var(--dle-bg-hover);
+}
+
+.deeplore_enhanced_settings .dle_vault_remove {
+    color: var(--dle-error);
+}
+
+/* --- Disabled button class (for div-based buttons) --- */
 .deeplore_enhanced_settings .menu_button.disabled {
     opacity: 0.4;
     pointer-events: none;
+}
+
+/* --- Focus-visible styles (accessibility) --- */
+.deeplore_enhanced_settings button:focus-visible,
+.deeplore_enhanced_settings input:focus-visible,
+.deeplore_enhanced_settings select:focus-visible,
+.deeplore_enhanced_settings textarea:focus-visible,
+.deeplore_enhanced_settings .menu_button:focus-visible,
+.deeplore_enhanced_settings [tabindex="0"]:focus-visible {
+    outline: 2px solid var(--dle-success);
+    outline-offset: 2px;
+}
+
+/* --- Screen reader only --- */
+.deeplore_enhanced_settings .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
+
+/* --- Reduced motion support --- */
+@media (prefers-reduced-motion: reduce) {
+    .deeplore_enhanced_settings,
+    .deeplore_enhanced_settings * {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+}
+
+/* --- Settings validation feedback --- */
+.deeplore_enhanced_settings .dle_input_error {
+    border-color: var(--dle-error) !important;
+}
+
+.deeplore_enhanced_settings .dle_validation_msg {
+    font-size: 0.75em;
+    color: var(--dle-warning);
+    display: block;
+    margin-top: 2px;
 }

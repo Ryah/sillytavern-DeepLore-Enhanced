@@ -110,10 +110,10 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
     // Validate profile exists before making the API call
     try {
         const profile = ConnectionManagerRequestService.getProfile(resolvedProfileId);
-        if (!profile) throw new Error(`Connection profile "${resolvedProfileId}" not found. Check your AI Search settings.`);
+        if (!profile) throw new Error(`Connection profile not found. Select one in AI Search settings, or create one in SillyTavern's Connection Manager.`);
     } catch (e) {
-        if (e.message.includes('not found')) throw e;
-        throw new Error(`Connection profile "${resolvedProfileId}" not found or invalid. Check your AI Search settings.`);
+        if (e.message.includes('not found') || e.message.includes('Connection Manager')) throw e;
+        throw new Error(`Connection profile not found or invalid. Select one in AI Search settings, or create one in SillyTavern's Connection Manager.`);
     }
 
     // Some providers (e.g. Anthropic) require system prompt separately, not as a message.

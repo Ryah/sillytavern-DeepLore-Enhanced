@@ -51,22 +51,22 @@ function renderVaultList(settings) {
 
     for (let i = 0; i < vaults.length; i++) {
         const v = vaults[i];
-        html += `<div class="dle_vault_row" data-index="${i}" style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px; padding: 8px; margin-bottom: 6px;">
+        html += `<div class="dle_vault_row" data-index="${i}">
             <div class="flex-container" style="gap: 6px; align-items: center;">
                 <label class="checkbox_label" style="flex: 0 0 auto;" title="Enable/disable this vault">
                     <input type="checkbox" class="dle_vault_enabled checkbox" ${v.enabled ? 'checked' : ''} />
                 </label>
-                <input type="text" class="dle_vault_name text_pole" placeholder="Name" value="${escapeHtml(v.name)}" style="flex: 1; min-width: 80px;" />
-                <input type="number" class="dle_vault_port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" />
-                <input type="password" class="dle_vault_key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" />
-                <div class="dle_vault_test menu_button menu_button_icon" title="Test this vault" style="flex: 0 0 auto;">
-                    <i class="fa-solid fa-plug"></i>
+                <input type="text" class="dle_vault_name text_pole" placeholder="Name" value="${escapeHtml(v.name)}" style="flex: 1; min-width: 80px;" aria-label="Vault name" />
+                <input type="number" class="dle_vault_port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" aria-label="Vault port" />
+                <input type="password" class="dle_vault_key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" aria-label="API key" />
+                <div class="dle_vault_test menu_button menu_button_icon" title="Test this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Test vault connection">
+                    <i class="fa-solid fa-plug" aria-hidden="true"></i>
                 </div>
-                <div class="dle_vault_remove menu_button menu_button_icon" title="Remove this vault" style="flex: 0 0 auto; color: #f44336;">
-                    <i class="fa-solid fa-trash"></i>
+                <div class="dle_vault_remove menu_button menu_button_icon" title="Remove this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Remove vault">
+                    <i class="fa-solid fa-trash" aria-hidden="true"></i>
                 </div>
             </div>
-            <span class="dle_vault_status deeplore_enhanced_status" style="font-size: 0.8em;"></span>
+            <span class="dle_vault_status deeplore_enhanced_status dle_text_sm"></span>
         </div>`;
     }
 
@@ -139,16 +139,19 @@ function bindVaultListEvents(settings) {
             const data = await testConnection(vault.port, vault.apiKey);
             if (data.ok) {
                 statusEl.text(`Connected${data.authenticated ? '' : ' (no auth)'}`).addClass('success').removeClass('failure');
+                announceToSR(`Vault ${vault.name} connected successfully.`);
             } else {
                 statusEl.text(`Failed: ${data.error}`).addClass('failure').removeClass('success');
+                announceToSR(`Vault ${vault.name} connection failed: ${data.error}`);
             }
         } catch (err) {
             statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success');
+            announceToSR(`Vault ${vault.name} test error: ${err.message}`);
         }
     });
 
-    // Remove vault
-    container.on('click', '.dle_vault_remove', function () {
+    // Remove vault (with confirmation)
+    container.on('click', '.dle_vault_remove', async function () {
         const row = $(this).closest('.dle_vault_row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
@@ -156,6 +159,12 @@ function bindVaultListEvents(settings) {
             toastr.warning('Cannot remove the last vault.', 'DeepLore Enhanced');
             return;
         }
+        const vaultName = settings.vaults[idx].name || `Vault ${idx + 1}`;
+        const confirmed = await callGenericPopup(
+            `Remove vault "${escapeHtml(vaultName)}"? This cannot be undone.`,
+            POPUP_TYPE.CONFIRM, '', { okButton: 'Remove', cancelButton: 'Cancel' },
+        );
+        if (!confirmed) return;
         settings.vaults.splice(idx, 1);
         const primary = getPrimaryVault(settings);
         settings.obsidianPort = primary.port;
@@ -176,6 +185,15 @@ function bindVaultListEvents(settings) {
 // Stats Display
 // ============================================================================
 
+/**
+ * Announce a status message to screen readers via ARIA live region.
+ * @param {string} message
+ */
+function announceToSR(message) {
+    const el = document.getElementById('dle_sr_live');
+    if (el) el.textContent = message;
+}
+
 export function updateIndexStats() {
     const statsEl = document.getElementById('dle_index_stats');
     if (statsEl) {
@@ -187,13 +205,13 @@ export function updateIndexStats() {
             // Health score badge
             if (lastHealthResult) {
                 const { errors, warnings } = lastHealthResult;
-                let grade, color;
-                if (errors === 0 && warnings === 0) { grade = 'A+'; color = '#4caf50'; }
-                else if (errors === 0 && warnings <= 3) { grade = 'A'; color = '#8bc34a'; }
-                else if (errors === 0 && warnings <= 6) { grade = 'B'; color = '#ff9800'; }
-                else if (errors <= 2) { grade = 'C'; color = '#ff5722'; }
-                else { grade = 'D'; color = '#f44336'; }
-                statsText += ` · Health: <span id="dle_health_badge" style="color: ${color}; font-weight: bold; cursor: pointer;" title="Click for details. ${errors} errors, ${warnings} warnings">${grade}</span>`;
+                let grade, color, guidance;
+                if (errors === 0 && warnings === 0) { grade = 'A+'; color = 'var(--dle-success, #4caf50)'; guidance = 'Perfect — no issues found.'; }
+                else if (errors === 0 && warnings <= 3) { grade = 'A'; color = '#8bc34a'; guidance = 'Excellent — minor warnings only.'; }
+                else if (errors === 0 && warnings <= 6) { grade = 'B'; color = 'var(--dle-warning, #ff9800)'; guidance = 'Good — some warnings. Click to review.'; }
+                else if (errors <= 2) { grade = 'C'; color = '#ff5722'; guidance = 'Fair — errors found. Click to fix.'; }
+                else { grade = 'D'; color = 'var(--dle-error, #f44336)'; guidance = 'Poor — multiple errors. Review now.'; }
+                statsText += ` · Health: <span id="dle_health_badge" style="color: ${color}; font-weight: bold; cursor: pointer;" title="${guidance} (${errors} errors, ${warnings} warnings)">${grade}</span>`;
             }
             statsEl.innerHTML = statsText;
             // Bind health badge click
@@ -889,6 +907,8 @@ export function bindSettingsEvents(buildIndexFn) {
         icon.toggleClass('fa-chevron-right', !visible).toggleClass('fa-chevron-down', visible);
         // Update the text node
         $(this).contents().filter(function () { return this.nodeType === 3; }).last()[0].textContent = visible ? ' Hide Advanced' : ' Show Advanced';
+        // Update ARIA state
+        $(this).attr('aria-expanded', visible ? 'true' : 'false');
         // Persist
         if (!settings.advancedVisible) settings.advancedVisible = {};
         settings.advancedVisible[section] = visible;
@@ -965,8 +985,10 @@ export function bindSettingsEvents(buildIndexFn) {
         }
     });
 
-    $('#dle_qa_more_toggle').on('click', () => {
-        $('#dle_quick_actions_more').toggle();
+    $('#dle_qa_more_toggle').on('click', function () {
+        const more = $('#dle_quick_actions_more');
+        more.toggle();
+        $(this).attr('aria-expanded', more.is(':visible') ? 'true' : 'false');
     });
 
     $('#dle_qa_graph').on('click', async () => {
@@ -1066,12 +1088,22 @@ export function bindSettingsEvents(buildIndexFn) {
             if (constraints) {
                 const val = Number($(this).val());
                 const clamped = Math.max(constraints.min, Math.min(constraints.max, val));
-                if (val !== clamped) $(this).val(clamped);
+                if (val !== clamped) {
+                    $(this).val(clamped);
+                    // Show brief validation feedback
+                    $(this).addClass('dle_input_error');
+                    $(this).siblings('.dle_validation_msg').remove();
+                    $(this).after(`<span class="dle_validation_msg">Adjusted to ${clamped} (valid: ${constraints.min}–${constraints.max})</span>`);
+                    setTimeout(() => {
+                        $(this).removeClass('dle_input_error');
+                        $(this).siblings('.dle_validation_msg').fadeOut(300, function () { $(this).remove(); });
+                    }, 2500);
+                }
             }
         });
     }
 
-    // Test Connection button — tests all enabled vaults
+    // Test Connection button — tests all enabled vaults with per-vault results
     $('#dle_test_connection').on('click', async function () {
         const statusEl = $('#dle_connection_status');
         statusEl.text('Testing...').removeClass('success failure');
@@ -1079,7 +1111,7 @@ export function bindSettingsEvents(buildIndexFn) {
         try {
             const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
             if (enabledVaults.length === 0) {
-                throw new Error('No enabled vaults configured');
+                throw new Error('No enabled vaults configured. Add a vault first.');
             }
 
             const results = [];
@@ -1096,8 +1128,23 @@ export function bindSettingsEvents(buildIndexFn) {
             const summary = results.map(r => `${r.name}: ${r.ok ? (r.auth ? 'OK' : 'OK (no auth)') : 'FAIL'}`).join(', ');
             if (allOk) {
                 statusEl.text(summary).addClass('success').removeClass('failure');
+                announceToSR(`All ${results.length} vault(s) connected successfully.`);
             } else {
                 statusEl.text(summary).addClass('failure').removeClass('success');
+                announceToSR(`Some vaults failed connection test.`);
+            }
+
+            // Show detailed popup if multiple vaults or any failures
+            if (results.length > 1 || !allOk) {
+                let html = `<div style="text-align: left;"><h3>${allOk ? 'All Vaults Connected' : 'Connection Results'}</h3><ul style="list-style: none; padding: 0;">`;
+                for (const r of results) {
+                    const icon = r.ok ? '\u2713' : '\u2717';
+                    const color = r.ok ? 'var(--dle-success, #4caf50)' : 'var(--dle-error, #f44336)';
+                    const detail = r.ok ? (r.auth ? 'Connected' : 'Connected (no auth)') : (r.error || 'Failed');
+                    html += `<li style="margin-bottom: 6px;"><span style="color: ${color}; font-weight: bold;">${icon}</span> <strong>${escapeHtml(r.name)}</strong> — ${escapeHtml(detail)}</li>`;
+                }
+                html += '</ul></div>';
+                callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
             }
         } catch (err) {
             statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success');

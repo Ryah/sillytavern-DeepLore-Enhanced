@@ -25,6 +25,7 @@ import {
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
+    setScribeInProgress,
 } from './src/state.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexDelta } from './src/vault.js';
 import { runPipeline } from './src/pipeline.js';
@@ -70,25 +71,24 @@ async function onGenerate(chat, contextSize, abort, type) {
     // Capture chat epoch to detect stale writes if CHAT_CHANGED fires mid-generation
     const epoch = chatEpoch;
 
-    // Clear stale source data (after quiet check so Scribe doesn't wipe real sources)
-    setLastInjectionSources(null);
-
-    // Clear all previous DeepLore prompts
-    clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
-
-    // In prompt_list mode, also clear PM entry content from previous generation
-    if (settings.injectionMode === 'prompt_list' && promptManager) {
-        for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`]) {
-            const pmEntry = promptManager.getPromptById(id);
-            if (pmEntry) pmEntry.content = '';
-        }
-    }
-
     // Track whether the pipeline ran far enough to need generation tracking
     let pipelineRan = false;
     let injectedEntries = [];
 
     try {
+        // Clear stale source data (after quiet check so Scribe doesn't wipe real sources)
+        setLastInjectionSources(null);
+
+        // Clear all previous DeepLore prompts
+        clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
+
+        // In prompt_list mode, also clear PM entry content from previous generation
+        if (settings.injectionMode === 'prompt_list' && promptManager) {
+            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`]) {
+                const pmEntry = promptManager.getPromptById(id);
+                if (pmEntry) pmEntry.content = '';
+            }
+        }
         // Ensure index is fresh (with timeout to prevent indefinite hangs)
         const INDEX_TIMEOUT_MS = 60_000;
         try {
@@ -99,7 +99,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (timeoutErr) {
             console.warn(`[DLE] ${timeoutErr.message} — proceeding with stale data`);
             if (vaultIndex.length === 0) {
-                toastr.warning('Obsidian connection timed out and no cached data available.', 'DeepLore Enhanced', { timeOut: 8000 });
+                toastr.warning('Obsidian connection timed out and no cached data available. Check that Obsidian is running with the REST API plugin.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
                 return;
             }
         }
@@ -109,7 +109,10 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         if (vaultSnapshot.length === 0) {
             if (!indexEverLoaded) {
-                toastr.warning('No vault entries loaded. Check Obsidian connection.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+                toastr.warning(
+                    'No vault entries loaded. Possible causes: (1) No notes tagged with your lorebook tag, (2) Obsidian connection failed, (3) Wrong tag name in settings. Run /dle-health for diagnostics.',
+                    'DeepLore Enhanced', { timeOut: 10000, preventDuplicates: true },
+                );
             }
             if (settings.debugMode) {
                 console.debug('[DLE] No entries indexed, skipping');
@@ -188,8 +191,16 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         if (trace?.aiFallback) {
-            console.warn('[DLE] AI search failed, using fallback results');
-            toastr.warning('AI search unavailable — using keyword fallback', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+            const aiErr = trace.aiError || '';
+            let fallbackMsg = 'AI search failed';
+            if (/timeout|timed out|abort/i.test(aiErr)) fallbackMsg += ' (timed out — try increasing AI Search timeout)';
+            else if (/401|403|auth/i.test(aiErr)) fallbackMsg += ' (auth error — check API key or profile)';
+            else if (/not found|no.*profile/i.test(aiErr)) fallbackMsg += ' (connection profile not found — check AI Search settings)';
+            else if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch|network/i.test(aiErr)) fallbackMsg += ' (network error — check proxy URL or profile)';
+            else if (/5\d\d|502|503|server/i.test(aiErr)) fallbackMsg += ' (server error — try again later)';
+            else if (aiErr) fallbackMsg += ` (${aiErr.slice(0, 80)})`;
+            console.warn('[DLE] AI search error:', aiErr);
+            toastr.warning(`${fallbackMsg} — using keyword fallback`, 'DeepLore Enhanced', { timeOut: 6000, preventDuplicates: true });
         }
 
         if (settings.debugMode && trace) {
@@ -624,6 +635,7 @@ jQuery(async function () {
 
             setLastScribeChatLength(chat ? chat.length : 0);
             setLastScribeSummary(chat_metadata?.deeplore_lastScribeSummary || '');
+            setScribeInProgress(false); // Reset scribe lock so auto-scribe works in new chat
             // Reset per-chat tracking on chat change
             // Note: aiSearchStats is intentionally NOT reset — it tracks session-level cumulative stats
             injectionHistory.clear();

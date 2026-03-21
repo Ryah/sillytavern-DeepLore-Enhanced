@@ -168,7 +168,18 @@ export async function buildIndex() {
         }, 0);
     } catch (err) {
         console.error('[DLE] Failed to build index:', err);
-        toastr.error(String(err), 'DeepLore Enhanced', { preventDuplicates: true });
+        const raw = String(err.message || err);
+        let userMsg = raw;
+        if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
+            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin enabled, (3) Port is correct.\n(${raw})`;
+        } else if (/No enabled vaults/i.test(raw)) {
+            userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
+        } else if (/401|403|auth/i.test(raw)) {
+            userMsg = `Authentication failed. Check your vault API key in settings.\n(${raw})`;
+        } else if (/timeout|timed out/i.test(raw)) {
+            userMsg = `Obsidian connection timed out. Check that the REST API plugin is running.\n(${raw})`;
+        }
+        toastr.error(userMsg, 'DeepLore Enhanced', { preventDuplicates: true, timeOut: 10000 });
     } finally {
         setIndexing(false);
         setBuildPromise(null);

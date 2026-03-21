@@ -103,15 +103,15 @@ export function showSourcesPopup(sources) {
     const removed = prevMap ? previousSources.filter(s => !currTitles.has(s.title)) : [];
     setPreviousSources(sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy })));
 
-    let html = `<div style="text-align: left;">`;
+    let html = `<div class="dle-popup">`;
     html += `<h3>Context Map (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
 
     // Diff display with reasons
     if (added.length > 0 || removed.length > 0) {
-        html += `<div style="font-size: 0.85em; margin-bottom: 10px; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px;">`;
+        html += `<div class="dle-card dle-text-sm">`;
         if (added.length > 0) {
             const addedLabels = added.map(s => `${escapeHtml(s.title)} ${shortenMatchReason(s.matchedBy)}`);
-            html += `<span style="color: var(--dle-success, #4caf50);">+${added.length} new:</span> <span style="opacity: 0.8;">${addedLabels.join(', ')}</span><br>`;
+            html += `<span class="dle-success">+${added.length} new:</span> <span class="dle-muted">${addedLabels.join(', ')}</span><br>`;
         }
         if (removed.length > 0) {
             const removedLabels = removed.map(s => {
@@ -121,7 +121,7 @@ export function showSourcesPopup(sources) {
                 else if (prevReason.includes('constant') || prevReason.includes('always')) reason = '(Constant removed?)';
                 return `${escapeHtml(s.title)} ${reason}`;
             });
-            html += `<span style="color: var(--dle-error, #f44336);">-${removed.length} removed:</span> <span style="opacity: 0.8;">${removedLabels.join(', ')}</span>`;
+            html += `<span class="dle-error">-${removed.length} removed:</span> <span class="dle-muted">${removedLabels.join(', ')}</span>`;
         }
         html += `</div>`;
     }
@@ -131,7 +131,7 @@ export function showSourcesPopup(sources) {
         groupSources.sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
 
         const groupTokens = groupSources.reduce((sum, s) => sum + s.tokens, 0);
-        html += `<h4 style="margin: 12px 0 6px;">${escapeHtml(posLabel)} (~${groupTokens} tokens)</h4>`;
+        html += `<h4 style="margin: var(--dle-space-3) 0 var(--dle-space-1);">${escapeHtml(posLabel)} (~${groupTokens} tokens)</h4>`;
 
         for (const src of groupSources) {
             const pct = Math.max(2, Math.round((src.tokens / maxTokens) * 100));
@@ -148,16 +148,16 @@ export function showSourcesPopup(sources) {
             const entryId = simpleHash(src.filename + '_ctx');
             const rawPreview = src.entry ? src.entry.content.substring(0, 300) + (src.entry.content.length > 300 ? '...' : '') : '';
 
-            html += `<div style="margin-bottom: 6px; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px;">`;
-            html += `<div class="dle_ctx_toggle" data-target="dle_ctx_${entryId}" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;">`;
-            html += `<span><strong>${titleHtml}</strong> <small style="opacity: 0.6;">pri ${src.priority}</small></span>`;
+            html += `<div class="dle-card">`;
+            html += `<div class="dle_ctx_toggle dle-card-header" data-target="dle_ctx_${entryId}">`;
+            html += `<span><strong>${titleHtml}</strong> <small class="dle-faint">pri ${src.priority}</small></span>`;
             html += `<small style="color: ${barColor};">~${src.tokens} tok</small>`;
             html += `</div>`;
-            html += `<div style="background: var(--SmartThemeBorderColor, #333); border-radius: 2px; height: 6px; margin: 4px 0;">`;
-            html += `<div style="background: ${barColor}; height: 100%; width: ${pct}%; border-radius: 2px;"></div>`;
+            html += `<div class="dle-token-bar">`;
+            html += `<div class="dle-token-bar-fill" style="background: ${barColor}; width: ${pct}%;"></div>`;
             html += `</div>`;
             const vaultLabel = src.vaultSource && (settings.vaults || []).length > 1 ? ` · <em>${escapeHtml(src.vaultSource)}</em>` : '';
-            html += `<small style="opacity: 0.7;">${escapeHtml(src.matchedBy)}${vaultLabel}</small>`;
+            html += `<small class="dle-muted">${escapeHtml(src.matchedBy)}${vaultLabel}</small>`;
             if (src.entry) {
                 // Metadata line
                 const meta = [];
@@ -179,14 +179,14 @@ export function showSourcesPopup(sources) {
                     }
                 }
                 highlighted = escapeHtml(highlighted)
-                    .replace(/\x00MARK_START\x00/g, '<mark style="background: rgba(255,193,7,0.3); padding: 0 2px; border-radius: 2px;">')
+                    .replace(/\x00MARK_START\x00/g, '<mark class="dle-highlight">')
                     .replace(/\x00MARK_END\x00/g, '</mark>');
 
-                html += `<div id="dle_ctx_${entryId}" style="display: none; margin-top: 6px;">`;
+                html += `<div id="dle_ctx_${entryId}" style="display: none; margin-top: var(--dle-space-1);">`;
                 if (meta.length > 0) {
-                    html += `<div style="font-size: 0.8em; opacity: 0.6; margin-bottom: 4px;">${meta.map(m => escapeHtml(m)).join(' · ')}</div>`;
+                    html += `<div class="dle-text-xs dle-faint" style="margin-bottom: var(--dle-space-1);">${meta.map(m => escapeHtml(m)).join(' · ')}</div>`;
                 }
-                html += `<div style="padding: 6px; background: var(--SmartThemeBlurTintColor, #1a1a2e); border-radius: 4px; font-size: 0.85em; white-space: pre-wrap; max-height: 300px; overflow-y: auto;">${highlighted}</div>`;
+                html += `<div class="dle-preview">${highlighted}</div>`;
                 html += `</div>`;
             }
             html += `</div>`;
@@ -195,8 +195,8 @@ export function showSourcesPopup(sources) {
 
     const anyVaultNamed = settings.vaults && settings.vaults.some(v => v.name);
     html += anyVaultNamed
-        ? '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
-        : '<p style="opacity: 0.6; font-size: 0.8em; margin-top: 8px;">Set vault names in Vault Connections to enable deep links.</p>';
+        ? '<p class="dle-faint dle-text-xs" style="margin-top: var(--dle-space-2);">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
+        : '<p class="dle-faint dle-text-xs" style="margin-top: var(--dle-space-2);">Set vault names in Vault Connections to enable deep links.</p>';
     html += '</div>';
 
     const container = document.createElement('div');

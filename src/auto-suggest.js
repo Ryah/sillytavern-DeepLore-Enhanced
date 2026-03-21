@@ -10,7 +10,7 @@ import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { getSettings, getPrimaryVault } from '../settings.js';
 import { writeNote } from './obsidian-api.js';
-import { buildAiChatContext, yamlEscape } from '../core/utils.js';
+import { buildAiChatContext, yamlEscape, classifyError } from '../core/utils.js';
 import { callAI, extractAiResponseClient } from './ai.js';
 import { vaultIndex } from './state.js';
 import { stripObsidianSyntax } from './helpers.js';
@@ -104,37 +104,37 @@ export async function showSuggestionPopup(suggestions) {
 
     const settings = getSettings();
     const container = document.createElement('div');
-    container.style.textAlign = 'left';
+    container.classList.add('dle-popup');
 
     let cardsHtml = '';
     for (let i = 0; i < suggestions.length; i++) {
         const s = suggestions[i];
         cardsHtml += `
-            <div id="dle_suggest_${i}" class="dle_suggest_card" style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 5px; padding: 10px; margin-bottom: 10px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div id="dle_suggest_${i}" class="dle_suggest_card dle-card" style="padding: 10px; margin-bottom: 10px;">
+                <div class="dle-card-header" style="margin-bottom: var(--dle-space-1);">
                     <strong>${escapeHtml(s.title || 'Untitled')}</strong>
-                    <span style="font-size: 0.8em; opacity: 0.7;">${escapeHtml(s.type || 'lore')}</span>
+                    <span class="dle-text-xs dle-muted">${escapeHtml(s.type || 'lore')}</span>
                 </div>
-                <div style="font-size: 0.85em; margin-bottom: 4px;">
+                <div class="dle-text-sm" style="margin-bottom: var(--dle-space-1);">
                     <strong>Keywords:</strong> ${escapeHtml((s.keys || []).join(', '))}
                 </div>
-                <div style="font-size: 0.85em; margin-bottom: 4px;">
+                <div class="dle-text-sm" style="margin-bottom: var(--dle-space-1);">
                     <strong>Summary:</strong> ${escapeHtml(s.summary || '')}
                 </div>
                 <details>
-                    <summary style="cursor: pointer; font-size: 0.85em;">Content preview</summary>
-                    <div style="white-space: pre-wrap; font-size: 0.85em; max-height: 200px; overflow-y: auto; background: var(--SmartThemeBlurTintColor, #1a1a2e); padding: 6px; border-radius: 4px; margin-top: 4px;">${escapeHtml(s.content || '')}</div>
+                    <summary class="dle-text-sm" style="cursor: pointer;">Content preview</summary>
+                    <div class="dle-preview dle-preview--short" style="margin-top: var(--dle-space-1);">${escapeHtml(s.content || '')}</div>
                 </details>
-                <div style="margin-top: 6px; display: flex; gap: 6px;">
-                    <button class="menu_button dle_accept_suggest" data-index="${i}" style="font-size: 0.85em;">Accept</button>
-                    <button class="menu_button dle_reject_suggest" data-index="${i}" style="font-size: 0.85em; opacity: 0.7;">Reject</button>
+                <div style="margin-top: var(--dle-space-1); display: flex; gap: var(--dle-space-1);">
+                    <button class="menu_button dle_accept_suggest dle-text-sm" data-index="${i}">Accept</button>
+                    <button class="menu_button dle_reject_suggest dle-text-sm dle-muted" data-index="${i}">Reject</button>
                 </div>
             </div>`;
     }
 
     container.innerHTML = `
         <h3>Suggested Entries (${suggestions.length})</h3>
-        <p style="opacity: 0.7; font-size: 0.85em;">Review each suggestion. Accept to write to Obsidian, reject to skip.</p>
+        <p class="dle-muted dle-text-sm">Review each suggestion. Accept to write to Obsidian, reject to skip.</p>
         ${cardsHtml}
     `;
 
@@ -185,7 +185,7 @@ ${safeContent}`;
                         const data = await writeNote(suggestVault.port, suggestVault.apiKey, filename, fileContent);
                         if (data.ok) {
                             card.style.opacity = '0.4';
-                            card.style.borderColor = '#4caf50';
+                            card.style.borderColor = 'var(--dle-success, #4caf50)';
                             this.disabled = true;
                             this.textContent = 'Accepted';
                             toastr.success(`Created: ${s.title}`, 'DeepLore Enhanced');
@@ -193,7 +193,7 @@ ${safeContent}`;
                             toastr.error(`Failed: ${data.error}`, 'DeepLore Enhanced');
                         }
                     } catch (err) {
-                        toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
+                        toastr.error(classifyError(err), 'DeepLore Enhanced');
                         this.disabled = false; // Re-enable on error
                     }
                 });
@@ -205,7 +205,7 @@ ${safeContent}`;
                     const card = document.getElementById(`dle_suggest_${idx}`);
                     if (card) {
                         card.style.opacity = '0.3';
-                        card.style.borderColor = '#f44336';
+                        card.style.borderColor = 'var(--dle-error, #f44336)';
                     }
                 });
             });

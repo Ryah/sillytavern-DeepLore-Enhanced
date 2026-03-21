@@ -316,6 +316,33 @@ export function yamlEscape(str) {
     return str;
 }
 
+/**
+ * User-friendly message shown when no vault entries are loaded.
+ */
+export const NO_ENTRIES_MSG = 'No vault entries loaded. Run /dle-refresh or /dle-health to diagnose.';
+
+/**
+ * Classify an error into a user-friendly message based on common patterns.
+ * @param {Error|string} err - The error to classify
+ * @returns {string} A user-friendly error description
+ */
+export function classifyError(err) {
+    const raw = typeof err === 'string' ? err : String(err.message || err);
+    if (/timeout|timed out|AbortError/i.test(raw)) {
+        return 'The request timed out. Try increasing the timeout in settings.';
+    }
+    if (/401|403|auth/i.test(raw)) {
+        return 'Authentication failed. Check your API key or connection profile.';
+    }
+    if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch failed/i.test(raw)) {
+        return 'Could not connect. Check that the service is running.';
+    }
+    if (/5\d{2}|Internal Server Error|Bad Gateway|Service Unavailable/i.test(raw)) {
+        return 'The server returned an error. Try again in a moment.';
+    }
+    return raw.length > 120 ? raw.slice(0, 120) + '...' : raw;
+}
+
 export function validateSettings(settings, constraints) {
     for (const [key, { min, max, label }] of Object.entries(constraints)) {
         if (typeof settings[key] === 'number') {

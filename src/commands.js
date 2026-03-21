@@ -13,7 +13,7 @@ import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
-import { parseFrontmatter, simpleHash, buildAiChatContext } from '../core/utils.js';
+import { parseFrontmatter, simpleHash, buildAiChatContext, classifyError, NO_ENTRIES_MSG } from '../core/utils.js';
 import { formatAndGroup } from '../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating } from './stages.js';
 import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, invalidateSettingsCache } from '../settings.js';
@@ -39,12 +39,12 @@ export function registerSlashCommands() {
         name: 'dle-simulate',
         callback: async () => {
             if (!chat || chat.length === 0) {
-                toastr.warning('No active chat.', 'DeepLore Enhanced');
+                toastr.info('No active chat.', 'DeepLore Enhanced');
                 return '';
             }
             await ensureIndexFresh();
             if (vaultIndex.length === 0) {
-                toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
             }
             toastr.info('Running activation simulation...', 'DeepLore Enhanced', { timeOut: 2000 });
@@ -52,7 +52,7 @@ export function registerSlashCommands() {
             showSimulationPopup(timeline);
             return '';
         },
-        helpString: 'Replay chat history step-by-step showing which entries activate/deactivate at each message.',
+        helpString: 'Replay chat history step-by-step, showing which entries activate and deactivate at each message.',
         returns: 'Simulation timeline popup',
     }));
 
@@ -71,12 +71,12 @@ export function registerSlashCommands() {
         callback: async (_args, entryName) => {
             await ensureIndexFresh();
             if (vaultIndex.length === 0) {
-                toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
             }
             const name = (entryName || '').trim();
             if (!name) {
-                toastr.warning('Usage: /dle-optimize-keys <entry name>', 'DeepLore Enhanced');
+                toastr.info('Usage: /dle-optimize-keys <entry name>', 'DeepLore Enhanced');
                 return '';
             }
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
@@ -92,17 +92,17 @@ export function registerSlashCommands() {
             } catch (err) {
                 toastr.clear(loadingToast);
                 console.error('[DLE] Optimize keys error:', err);
-                toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
+                toastr.error(classifyError(err), 'DeepLore Enhanced');
             }
             return '';
         },
-        helpString: 'AI suggests better keywords for an entry. Usage: /dle-optimize-keys <entry name>',
+        helpString: 'Suggest better keywords for an entry using AI. Usage: /dle-optimize-keys <entry name>.',
         returns: 'Optimization popup',
     }));
 
     const newloreCallback = async () => {
         if (!chat || chat.length === 0) {
-            toastr.warning('No active chat.', 'DeepLore Enhanced');
+            toastr.info('No active chat.', 'DeepLore Enhanced');
             return '';
         }
         const loadingToast = toastr.info('Analyzing chat for new entries...', 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
@@ -113,21 +113,21 @@ export function registerSlashCommands() {
         } catch (err) {
             toastr.clear(loadingToast);
             console.error('[DLE] Auto-suggest error:', err);
-            toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
+            toastr.error(classifyError(err), 'DeepLore Enhanced');
         }
         return '';
     };
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-newlore',
         callback: newloreCallback,
-        helpString: 'AI analyzes the chat for characters, locations, and concepts not in your lorebook, and suggests new entries to create.',
+        helpString: 'Analyze the chat for characters, locations, and concepts not in your lorebook, and suggest new entries to create.',
         returns: 'Suggestion popup',
     }));
     // Backwards-compatible alias
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-suggest',
         callback: newloreCallback,
-        helpString: 'Alias for /dle-newlore.',
+        helpString: 'Analyze the chat and suggest new lorebook entries. Alias for /dle-newlore.',
         returns: 'Suggestion popup',
     }));
 
@@ -135,7 +135,7 @@ export function registerSlashCommands() {
         name: 'dle-context',
         callback: async () => {
             if (!chat || chat.length === 0) {
-                toastr.warning('No active chat.', 'DeepLore Enhanced');
+                toastr.info('No active chat.', 'DeepLore Enhanced');
                 return '';
             }
             if (generationLock) {
@@ -146,14 +146,14 @@ export function registerSlashCommands() {
             if (buildPromise) await buildPromise;
             await ensureIndexFresh();
             if (vaultIndex.length === 0) {
-                toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
             }
 
             const settings = getSettings();
             // Warn if AI search is enabled — this command makes real API calls
             if (settings.aiSearchEnabled) {
-                toastr.info('Running pipeline with live AI search — this uses API tokens.', 'DeepLore Enhanced', { timeOut: 4000, preventDuplicates: true });
+                toastr.warning('Running pipeline with live AI search — this uses API tokens.', 'DeepLore Enhanced', { timeOut: 4000, preventDuplicates: true });
             }
             const { finalEntries, matchedKeys } = await runPipeline(chat);
 
@@ -224,7 +224,7 @@ export function registerSlashCommands() {
             toastr.success(msg, 'DeepLore Enhanced');
             return msg;
         },
-        helpString: 'Force refresh the DeepLore Enhanced vault index cache.',
+        helpString: 'Rebuild the vault index by re-fetching all entries from Obsidian.',
         returns: 'Status message',
     }));
 
@@ -254,7 +254,7 @@ export function registerSlashCommands() {
                 `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
             ];
             const msg = lines.join('\n');
-            const html = `<div style="text-align: left;">${buildCopyButton(msg)}<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(msg)}</pre></div>`;
+            const html = `<div class="dle-popup">${buildCopyButton(msg)}<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(msg)}</pre></div>`;
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
                 wide: true,
                 onOpen: () => attachCopyHandler(document.querySelector('.popup')),
@@ -276,7 +276,7 @@ export function registerSlashCommands() {
             await runScribe(userPrompt?.trim() || '');
             return 'Session note written.';
         },
-        helpString: 'Write a session summary to Obsidian. Optionally provide a focus topic, e.g. /dle-scribe What happened with the sword?',
+        helpString: 'Write a session summary note to Obsidian. Usage: /dle-scribe <focus topic>. Example: /dle-scribe What happened with the sword?',
         returns: 'Status message',
     }));
 
@@ -311,7 +311,7 @@ export function registerSlashCommands() {
                     };
                 }).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-                let html = '<div style="text-align: left;">';
+                let html = '<div class="dle-popup">';
                 html += `<h3>Session Notes (${parsed.length})</h3>`;
 
                 for (const note of parsed) {
@@ -319,13 +319,13 @@ export function registerSlashCommands() {
                     const preview = note.body.substring(0, 200).replace(/\n/g, ' ') + (note.body.length > 200 ? '...' : '');
                     const noteId = simpleHash(note.filename);
 
-                    html += `<div style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 5px; padding: 10px; margin-bottom: 8px;">`;
-                    html += `<div class="dle_note_toggle" data-target="dle_note_${noteId}" style="display: flex; justify-content: space-between; cursor: pointer;">`;
+                    html += `<div class="dle-card" style="padding: 10px; margin-bottom: var(--dle-space-2);">`;
+                    html += `<div class="dle_note_toggle dle-card-header" data-target="dle_note_${noteId}">`;
                     html += `<strong>${escapeHtml(note.character || 'Unknown')}</strong>`;
-                    html += `<small style="opacity: 0.7;">${escapeHtml(dateDisplay)}</small>`;
+                    html += `<small class="dle-muted">${escapeHtml(dateDisplay)}</small>`;
                     html += `</div>`;
-                    html += `<small style="opacity: 0.6;">${escapeHtml(preview)}</small>`;
-                    html += `<div id="dle_note_${noteId}" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--SmartThemeBorderColor, #333); white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(note.body)}</div>`;
+                    html += `<small class="dle-faint">${escapeHtml(preview)}</small>`;
+                    html += `<div id="dle_note_${noteId}" style="display: none; margin-top: var(--dle-space-2); padding-top: var(--dle-space-2); border-top: 1px solid var(--dle-border); white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(note.body)}</div>`;
                     html += `</div>`;
                 }
                 html += '</div>';
@@ -343,7 +343,7 @@ export function registerSlashCommands() {
                 await callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
             } catch (err) {
                 console.error('[DLE] Scribe history error:', err);
-                toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
+                toastr.error(classifyError(err), 'DeepLore Enhanced');
             }
             return '';
         },
@@ -357,7 +357,7 @@ export function registerSlashCommands() {
             await ensureIndexFresh();
 
             if (vaultIndex.length === 0) {
-                toastr.warning('No entries indexed. Check your connection and lorebook tag settings.', 'DeepLore Enhanced');
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
             }
 
@@ -393,7 +393,7 @@ export function registerSlashCommands() {
 
             return '';
         },
-        helpString: 'Send the entire Obsidian vault to the AI for review. Optionally provide a custom question, e.g. /dle-review What inconsistencies do you see?',
+        helpString: 'Send the entire vault to the AI for review and feedback. Usage: /dle-review <question>. Example: /dle-review What inconsistencies do you see?',
         returns: 'AI review posted to chat',
     }));
 
@@ -420,15 +420,15 @@ export function registerSlashCommands() {
             }
             const plainText = plainLines.join('\n');
 
-            let html = '<div style="text-align: left;">';
+            let html = '<div class="dle-popup">';
             html += buildCopyButton(plainText);
-            html += '<table style="width:100%;border-collapse:collapse;font-size:0.9em;">';
-            html += '<tr><th style="text-align:left;border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Entry</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Matched</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Injected</th><th style="border-bottom:1px solid var(--SmartThemeBorderColor, #666);padding:4px;">Last Used</th></tr>';
+            html += '<table class="dle-table">';
+            html += '<tr><th>Entry</th><th>Matched</th><th>Injected</th><th>Last Used</th></tr>';
 
             for (const title of titles) {
                 const d = analytics[title];
                 const lastUsed = d.lastTriggered ? new Date(d.lastTriggered).toLocaleString() : 'Never';
-                html += `<tr><td style="padding:4px;">${escapeHtml(title)}</td><td style="text-align:center;padding:4px;">${d.matched || 0}</td><td style="text-align:center;padding:4px;">${d.injected || 0}</td><td style="text-align:center;padding:4px;">${lastUsed}</td></tr>`;
+                html += `<tr><td>${escapeHtml(title)}</td><td style="text-align:center;">${d.matched || 0}</td><td style="text-align:center;">${d.injected || 0}</td><td style="text-align:center;">${lastUsed}</td></tr>`;
             }
             html += '</table>';
 
@@ -485,10 +485,10 @@ export function registerSlashCommands() {
             }
             const plainText = plainLines.join('\n');
 
-            let html = '<div style="text-align: left;">';
+            let html = '<div class="dle-popup">';
 
             if (issues.length === 0) {
-                html += '<p style="color: var(--SmartThemeQuoteColor, #4caf50);">No issues found! All entries and settings look healthy.</p>';
+                html += '<p class="dle-success">No issues found! All entries and settings look healthy.</p>';
             } else {
                 html += `<h3>Health Check: ${errors} errors, ${warnings} warnings, ${infos} info</h3>`;
                 html += buildCopyButton(plainText);
@@ -500,8 +500,8 @@ export function registerSlashCommands() {
                 }
 
                 const severityBadge = (sev) => {
-                    const colors = { error: '#f44336', warning: '#ff9800', info: '#2196f3' };
-                    return `<span style="color: ${colors[sev] || '#999'}; font-size: 0.8em; font-weight: bold;">[${sev}]</span>`;
+                    const cls = { error: 'dle-error', warning: 'dle-warning', info: 'dle-info' };
+                    return `<span class="dle-badge ${cls[sev] || ''}">[${sev}]</span>`;
                 };
 
                 for (const [type, items] of Object.entries(grouped2)) {
@@ -535,7 +535,7 @@ export function registerSlashCommands() {
 
             // Step 1: Vault connection
             const step1Html = `
-                <div style="text-align: left;">
+                <div class="dle-popup">
                     <h3>DeepLore Enhanced Setup (1/3): Vault Connection</h3>
                     <p>Connect to your Obsidian vault via the Local REST API plugin.</p>
                     <div style="margin: 10px 0;">
@@ -580,7 +580,7 @@ export function registerSlashCommands() {
 
             // Step 2: Tags and mode
             const step2Html = `
-                <div style="text-align: left;">
+                <div class="dle-popup">
                     <h3>DeepLore Enhanced Setup (2/3): Configuration</h3>
                     <div style="margin: 10px 0;">
                         <label>Lorebook Tag (entries must have this tag):</label>
@@ -623,16 +623,16 @@ export function registerSlashCommands() {
             await buildIndex();
 
             const step3Html = `
-                <div style="text-align: left;">
+                <div class="dle-popup">
                     <h3>DeepLore Enhanced Setup (3/3): Verification</h3>
-                    <p style="color: #4caf50; font-size: 1.1em;">Setup complete!</p>
+                    <p class="dle-success dle-text-lg">Setup complete!</p>
                     <ul>
                         <li>Vault: <b>${escapeHtml(vaultName)}</b> on port ${port}</li>
                         <li>Lorebook tag: <b>#${escapeHtml(lorebookTag)}</b></li>
                         <li>Entries indexed: <b>${vaultIndex.length}</b></li>
                         <li>Mode: <b>${searchMode === 'keywords' ? 'Keywords Only' : searchMode === 'two-stage' ? 'Two-Stage' : 'AI Only'}</b></li>
                     </ul>
-                    ${vaultIndex.length === 0 ? '<p style="color: #ff9800;">No entries found. Make sure your Obsidian notes have the <code>#' + escapeHtml(lorebookTag) + '</code> tag.</p>' : ''}
+                    ${vaultIndex.length === 0 ? '<p class="dle-warning">No entries found. Make sure your Obsidian notes have the <code>#' + escapeHtml(lorebookTag) + '</code> tag.</p>' : ''}
                     <p>You can adjust all settings in the Extensions panel.</p>
                 </div>`;
 
@@ -650,7 +650,7 @@ export function registerSlashCommands() {
         callback: async () => {
             await ensureIndexFresh();
             if (vaultIndex.length === 0) {
-                toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
             }
 
@@ -707,13 +707,13 @@ export function registerSlashCommands() {
 
                     // Present for review
                     const reviewHtml = `
-                        <div style="text-align: left;">
+                        <div class="dle-popup">
                             <h4>${escapeHtml(entry.title)} (${i + 1}/${missingSummary.length})</h4>
-                            <p style="font-size: 0.85em; opacity: 0.7;">Entry content preview: ${escapeHtml(entry.content.substring(0, 200))}...</p>
+                            <p class="dle-text-sm dle-muted">Entry content preview: ${escapeHtml(entry.content.substring(0, 200))}...</p>
                             <hr>
                             <p><b>Generated Summary:</b></p>
                             <textarea id="dle_summary_edit" class="text_pole" style="height: 100px; font-size: 0.9em;">${escapeHtml(summary)}</textarea>
-                            <p style="font-size: 0.8em; opacity: 0.6;">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
+                            <p class="dle-text-xs dle-faint">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
                         </div>`;
 
                     let capturedTextarea = null;
@@ -797,7 +797,7 @@ export function registerSlashCommands() {
 
             // Show popup with three input methods
             const jsonInput = await callGenericPopup(
-                `<div style="text-align: left;">
+                `<div class="dle-popup">
                     <h3>Import SillyTavern World Info</h3>
                     <p>Import entries from an existing SillyTavern lorebook, a local JSON file, or paste JSON directly.</p>
                     ${folder ? `<p>Target folder: <strong>${escapeHtml(folder)}</strong></p>` : '<p>Entries will be created in the vault root. Pass a folder name as argument, e.g. <code>/dle-import Imported</code></p>'}
@@ -842,7 +842,7 @@ export function registerSlashCommands() {
                                 if (textarea) textarea.value = JSON.stringify(data, null, 2);
                             } catch (err) {
                                 console.error('[DLE] loadWorldInfo error:', err);
-                                toastr.error(`Error loading lorebook: ${err.message}`, 'DeepLore Enhanced');
+                                toastr.error(classifyError(err), 'DeepLore Enhanced');
                             }
                         });
                     }
@@ -933,11 +933,11 @@ export function registerSlashCommands() {
                 await buildIndex();
             } catch (err) {
                 console.error('[DLE] Import error:', err);
-                toastr.error(`Import failed: ${err.message}`, 'DeepLore Enhanced');
+                toastr.error(classifyError(err), 'DeepLore Enhanced');
             }
             return '';
         },
-        helpString: 'Import SillyTavern World Info JSON into Obsidian vault. Optionally specify a target folder: /dle-import MyFolder',
+        helpString: 'Import SillyTavern World Info JSON into the Obsidian vault. Usage: /dle-import <folder>. Example: /dle-import Imported.',
         returns: 'Import status',
     }));
 
@@ -947,7 +947,7 @@ export function registerSlashCommands() {
         name: 'dle-pin',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.warning('Usage: /dle-pin <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Usage: /dle-pin <entry name>', 'DeepLore Enhanced'); return ''; }
             await ensureIndexFresh();
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
             if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
@@ -964,7 +964,7 @@ export function registerSlashCommands() {
             toastr.success(`Pinned "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
-        helpString: 'Pin an entry so it always injects in this chat. Usage: /dle-pin <entry name>',
+        helpString: 'Pin an entry so it always injects in this chat. Usage: /dle-pin <entry name>.',
         returns: 'Status message',
     }));
 
@@ -972,7 +972,7 @@ export function registerSlashCommands() {
         name: 'dle-unpin',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.warning('Usage: /dle-unpin <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Usage: /dle-unpin <entry name>', 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_pins || chat_metadata.deeplore_pins.length === 0) {
                 toastr.info('No pinned entries.', 'DeepLore Enhanced'); return '';
             }
@@ -983,7 +983,7 @@ export function registerSlashCommands() {
             toastr.success(`Unpinned "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
-        helpString: 'Remove a per-chat pin. Usage: /dle-unpin <entry name>',
+        helpString: 'Remove a per-chat pin. Usage: /dle-unpin <entry name>.',
         returns: 'Status message',
     }));
 
@@ -991,7 +991,7 @@ export function registerSlashCommands() {
         name: 'dle-block',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.warning('Usage: /dle-block <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Usage: /dle-block <entry name>', 'DeepLore Enhanced'); return ''; }
             await ensureIndexFresh();
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
             if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
@@ -1008,7 +1008,7 @@ export function registerSlashCommands() {
             toastr.success(`Blocked "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
-        helpString: 'Block an entry so it never injects in this chat. Usage: /dle-block <entry name>',
+        helpString: 'Block an entry so it never injects in this chat. Usage: /dle-block <entry name>.',
         returns: 'Status message',
     }));
 
@@ -1016,7 +1016,7 @@ export function registerSlashCommands() {
         name: 'dle-unblock',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.warning('Usage: /dle-unblock <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Usage: /dle-unblock <entry name>', 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_blocks || chat_metadata.deeplore_blocks.length === 0) {
                 toastr.info('No blocked entries.', 'DeepLore Enhanced'); return '';
             }
@@ -1027,7 +1027,7 @@ export function registerSlashCommands() {
             toastr.success(`Unblocked "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
-        helpString: 'Remove a per-chat block. Usage: /dle-unblock <entry name>',
+        helpString: 'Remove a per-chat block. Usage: /dle-unblock <entry name>.',
         returns: 'Status message',
     }));
 
@@ -1040,15 +1040,15 @@ export function registerSlashCommands() {
                 toastr.info('No per-chat pins or blocks.', 'DeepLore Enhanced');
                 return '';
             }
-            let html = '<div style="text-align: left;">';
+            let html = '<div class="dle-popup">';
             if (pins.length > 0) {
                 html += `<h4>Pinned (${pins.length})</h4><ul>`;
-                for (const p of pins) html += `<li style="color: #4caf50;">${escapeHtml(p)}</li>`;
+                for (const p of pins) html += `<li class="dle-success">${escapeHtml(p)}</li>`;
                 html += '</ul>';
             }
             if (blocks.length > 0) {
                 html += `<h4>Blocked (${blocks.length})</h4><ul>`;
-                for (const b of blocks) html += `<li style="color: #f44336;">${escapeHtml(b)}</li>`;
+                for (const b of blocks) html += `<li class="dle-error">${escapeHtml(b)}</li>`;
                 html += '</ul>';
             }
             html += '</div>';
@@ -1118,7 +1118,7 @@ export function registerSlashCommands() {
 
         if (valueMap.size === 0) {
             await callGenericPopup(
-                `<div style="text-align:left;"><p>No entries have a <strong>${label.toLowerCase()}</strong> field set.</p></div>`,
+                `<div class="dle-popup"><p>No entries have a <strong>${label.toLowerCase()}</strong> field set.</p></div>`,
                 POPUP_TYPE.TEXT, '', { wide: false },
             );
             return;
@@ -1128,16 +1128,16 @@ export function registerSlashCommands() {
         const sorted = [...valueMap.entries()].sort((a, b) => b[1].count - a[1].count || a[1].display.localeCompare(b[1].display));
 
         const currentValue = ctx[ctxField] || '';
-        let html = `<div style="text-align:left;"><h4>Select ${label}</h4>`;
+        let html = `<div class="dle-popup"><h4>Select ${label}</h4>`;
         if (currentValue) {
             html += `<p style="margin-bottom:8px;">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
         }
         html += '<div style="display:flex;flex-direction:column;gap:4px;">';
-        html += `<button class="menu_button dle-field-select" data-value="" style="text-align:left;">Clear filter</button>`;
+        html += `<button class="menu_button dle-field-select" data-value="" class="dle-popup">Clear filter</button>`;
         for (const [, { display, count }] of sorted) {
             const isActive = currentValue.toLowerCase() === display.toLowerCase();
-            const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid #4caf50;padding-left:8px;' : '';
-            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="text-align:left;${activeStyle}">${escapeHtml(display)} <span style="opacity:0.6;">(${count} ${count === 1 ? 'entry' : 'entries'})</span></button>`;
+            const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid var(--dle-success, #4caf50);padding-left:8px;' : '';
+            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="text-align:left;${activeStyle}">${escapeHtml(display)} <span class="dle-faint">(${count} ${count === 1 ? 'entry' : 'entries'})</span></button>`;
         }
         html += '</div></div>';
 
@@ -1187,7 +1187,7 @@ export function registerSlashCommands() {
                 const available = [...valueMap.values()].map(x => x.display);
                 const listStr = available.length > 0 ? available.join(', ') : 'none';
                 await callGenericPopup(
-                    `<div style="text-align:left;"><p>Era set to <strong>"${escapeHtml(v)}"</strong> — <span style="color:#ff9800;">no entries match</span>.</p><p>Available eras: ${escapeHtml(listStr)}</p></div>`,
+                    `<div class="dle-popup"><p>Era set to <strong>"${escapeHtml(v)}"</strong> — <span class="dle-warning">no entries match</span>.</p><p>Available eras: ${escapeHtml(listStr)}</p></div>`,
                     POPUP_TYPE.TEXT, '', { wide: false },
                 );
             } else {
@@ -1195,7 +1195,7 @@ export function registerSlashCommands() {
             }
             return '';
         },
-        helpString: 'Set the current era/time period for contextual gating. Use without args to browse and select from available values.',
+        helpString: 'Set the current era for contextual gating. Usage: /dle-set-era <era>. Run without args to browse available values.',
         returns: 'Status message',
     }));
 
@@ -1219,7 +1219,7 @@ export function registerSlashCommands() {
                 const available = [...valueMap.values()].map(x => x.display);
                 const listStr = available.length > 0 ? available.join(', ') : 'none';
                 await callGenericPopup(
-                    `<div style="text-align:left;"><p>Location set to <strong>"${escapeHtml(v)}"</strong> — <span style="color:#ff9800;">no entries match</span>.</p><p>Available locations: ${escapeHtml(listStr)}</p></div>`,
+                    `<div class="dle-popup"><p>Location set to <strong>"${escapeHtml(v)}"</strong> — <span class="dle-warning">no entries match</span>.</p><p>Available locations: ${escapeHtml(listStr)}</p></div>`,
                     POPUP_TYPE.TEXT, '', { wide: false },
                 );
             } else {
@@ -1227,7 +1227,7 @@ export function registerSlashCommands() {
             }
             return '';
         },
-        helpString: 'Set the current location for contextual gating. Use without args to browse and select from available values.',
+        helpString: 'Set the current location for contextual gating. Usage: /dle-set-location <location>. Run without args to browse available values.',
         returns: 'Status message',
     }));
 
@@ -1251,7 +1251,7 @@ export function registerSlashCommands() {
                 const available = [...valueMap.values()].map(x => x.display);
                 const listStr = available.length > 0 ? available.join(', ') : 'none';
                 await callGenericPopup(
-                    `<div style="text-align:left;"><p>Scene type set to <strong>"${escapeHtml(v)}"</strong> — <span style="color:#ff9800;">no entries match</span>.</p><p>Available scene types: ${escapeHtml(listStr)}</p></div>`,
+                    `<div class="dle-popup"><p>Scene type set to <strong>"${escapeHtml(v)}"</strong> — <span class="dle-warning">no entries match</span>.</p><p>Available scene types: ${escapeHtml(listStr)}</p></div>`,
                     POPUP_TYPE.TEXT, '', { wide: false },
                 );
             } else {
@@ -1259,7 +1259,7 @@ export function registerSlashCommands() {
             }
             return '';
         },
-        helpString: 'Set the current scene type for contextual gating. Use without args to browse and select from available values.',
+        helpString: 'Set the current scene type for contextual gating. Usage: /dle-set-scene <type>. Run without args to browse available values.',
         returns: 'Status message',
     }));
 
@@ -1279,7 +1279,7 @@ export function registerSlashCommands() {
             toastr.success(`Characters present: ${ctx.characters_present.join(', ')}`, 'DeepLore Enhanced');
             return '';
         },
-        helpString: 'Set which characters are present (comma-separated). Entries with matching "character_present" frontmatter will inject. Use without args to clear.',
+        helpString: 'Set which characters are present for contextual gating. Usage: /dle-set-characters <name1, name2>. Run without args to clear.',
         returns: 'Status message',
     }));
 
@@ -1309,7 +1309,11 @@ export function registerSlashCommands() {
                 return '';
             }
             const t = lastPipelineTrace;
+            const settings = getSettings();
             const statusIcon = (ok) => ok ? '✓' : '✗';
+
+            // Helper: build a set of keyword-matched titles for cross-referencing gated entries
+            const keywordMatchedTitles = new Set(t.keywordMatched.map(m => m.title.toLowerCase()));
 
             // Build plain-text version for clipboard
             const plainLines = [
@@ -1337,6 +1341,16 @@ export function registerSlashCommands() {
                 }
                 plainLines.push('');
             }
+            if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
+                plainLines.push(`Contextual Gating Removed (${t.contextualGatingRemoved.length}):`);
+                for (const title of t.contextualGatingRemoved) plainLines.push(`  ${title}`);
+                plainLines.push('');
+            }
+            if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
+                plainLines.push(`Re-injection Cooldown Removed (${t.cooldownRemoved.length}):`);
+                for (const title of t.cooldownRemoved) plainLines.push(`  ${title}`);
+                plainLines.push('');
+            }
             if (t.gatedOut && t.gatedOut.length > 0) {
                 plainLines.push(`Gated Out (${t.gatedOut.length}):`);
                 for (const e of t.gatedOut) {
@@ -1347,6 +1361,21 @@ export function registerSlashCommands() {
                 }
                 plainLines.push('');
             }
+            if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
+                plainLines.push(`Strip Dedup Removed (${t.stripDedupRemoved.length}):`);
+                for (const title of t.stripDedupRemoved) plainLines.push(`  ${title}`);
+                plainLines.push('');
+            }
+            if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
+                plainLines.push(`Probability Skipped (${t.probabilitySkipped.length}):`);
+                for (const e of t.probabilitySkipped) plainLines.push(`  ${e.title} (probability: ${e.probability}, rolled: ${e.roll.toFixed(3)})`);
+                plainLines.push('');
+            }
+            if (t.warmupFailed && t.warmupFailed.length > 0) {
+                plainLines.push(`Warmup Not Met (${t.warmupFailed.length}):`);
+                for (const e of t.warmupFailed) plainLines.push(`  ${e.title} (needed: ${e.needed}, found: ${e.found})`);
+                plainLines.push('');
+            }
             if (t.budgetCut && t.budgetCut.length > 0) {
                 plainLines.push(`Budget/Max Cut (${t.budgetCut.length}):`);
                 for (const e of t.budgetCut) plainLines.push(`  ${e.title} (pri ${e.priority}, ~${e.tokens} tokens)`);
@@ -1354,10 +1383,18 @@ export function registerSlashCommands() {
             }
             const plainText = plainLines.join('\n');
 
-            let html = `<div style="text-align: left; font-family: monospace; font-size: 0.85em;">`;
+            let html = `<div class="dle-popup dle-popup--mono">`;
             html += `<h3>Pipeline Inspector</h3>`;
             html += buildCopyButton(plainText);
             html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
+
+            // Check for completely empty pipeline
+            const nothingMatched = t.keywordMatched.length === 0 && t.aiSelected.length === 0
+                && (!t.injected || t.injected.length === 0);
+
+            if (nothingMatched) {
+                html += `<p style="color: var(--warning, #ff9800);">No entries matched. Check scan depth (currently ${settings.scanDepth}), keyword coverage, or run /dle-health.</p>`;
+            }
 
             if (t.keywordMatched.length > 0) {
                 html += `<h4>${statusIcon(true)} Keyword Matched (${t.keywordMatched.length})</h4><ul>`;
@@ -1373,6 +1410,7 @@ export function registerSlashCommands() {
                     html += `<li>${escapeHtml(m.title)} [${escapeHtml(m.confidence)}] — ${escapeHtml(m.reason)}</li>`;
                 }
                 html += '</ul>';
+                html += `<p class="dle-text-xs dle-dimmed" style="margin-top: 2px;"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = tangential or speculative</p>`;
             }
 
             if (t.aiFallback) {
@@ -1390,21 +1428,81 @@ export function registerSlashCommands() {
                 html += '</ul>';
             }
 
-            // Gated out entries
+            // Contextual gating removals
+            if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
+                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
+                for (const title of t.contextualGatingRemoved) {
+                    html += `<li>${escapeHtml(title)} — filtered by era/location/scene/character gate</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Re-injection cooldown removals
+            if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
+                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
+                for (const title of t.cooldownRemoved) {
+                    html += `<li>${escapeHtml(title)} — recently injected, on cooldown</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Gated out entries (requires/excludes) with cross-referencing
             if (t.gatedOut && t.gatedOut.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">Gated Out (${t.gatedOut.length})</h4><ul>`;
+                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
                 for (const e of t.gatedOut) {
                     const reasons = [];
-                    if (e.requires?.length > 0) reasons.push(`requires: ${e.requires.join(', ')}`);
-                    if (e.excludes?.length > 0) reasons.push(`excludes: ${e.excludes.join(', ')}`);
+                    if (e.requires?.length > 0) {
+                        const missing = e.requires.filter(r => !keywordMatchedTitles.has(r.toLowerCase()));
+                        if (missing.length > 0) {
+                            reasons.push(`requires: ${e.requires.join(', ')} (missing: ${missing.join(', ')})`);
+                        } else {
+                            reasons.push(`requires: ${e.requires.join(', ')} (all present but removed by later stage)`);
+                        }
+                    }
+                    if (e.excludes?.length > 0) {
+                        const blocking = e.excludes.filter(r => keywordMatchedTitles.has(r.toLowerCase()));
+                        if (blocking.length > 0) {
+                            reasons.push(`excludes: ${e.excludes.join(', ')} (blocking: ${blocking.join(', ')})`);
+                        } else {
+                            reasons.push(`excludes: ${e.excludes.join(', ')}`);
+                        }
+                    }
                     html += `<li>${escapeHtml(e.title)} — ${escapeHtml(reasons.join('; ') || 'gating rule')}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Strip dedup removals
+            if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
+                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
+                for (const title of t.stripDedupRemoved) {
+                    html += `<li>${escapeHtml(title)} — already injected in recent generation(s)</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Probability skips
+            if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
+                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
+                for (const e of t.probabilitySkipped) {
+                    const rollLabel = e.probability === 0 ? 'probability is 0 (never fires)' : `rolled ${e.roll.toFixed(3)} > ${e.probability}`;
+                    html += `<li>${escapeHtml(e.title)} — ${rollLabel}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Warmup failures
+            if (t.warmupFailed && t.warmupFailed.length > 0) {
+                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
+                for (const e of t.warmupFailed) {
+                    html += `<li>${escapeHtml(e.title)} — needs ${e.needed} keyword occurrences, found ${e.found}</li>`;
                 }
                 html += '</ul>';
             }
 
             // Budget/max cut entries
             if (t.budgetCut && t.budgetCut.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
+                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
                 for (const e of t.budgetCut) {
                     html += `<li>${escapeHtml(e.title)} (pri ${e.priority}, ~${e.tokens} tokens)</li>`;
                 }
@@ -1440,8 +1538,8 @@ export function registerSlashCommands() {
                 { cmd: '/dle-scribe-history', desc: 'View past Scribe notes' },
                 { cmd: '/dle-newlore', desc: 'AI suggests new lorebook entries from chat' },
                 { cmd: '/dle-optimize-keys &lt;name&gt;', desc: 'AI keyword suggestions for an entry' },
-                { cmd: '/dle-summarize &lt;name&gt;', desc: 'AI-generate a summary field for an entry' },
-                { cmd: '/dle-review', desc: 'AI reviews recent pipeline results' },
+                { cmd: '/dle-summarize', desc: 'AI-generate summary fields for all entries missing one' },
+                { cmd: '/dle-review', desc: 'Send entire vault to AI for review and feedback' },
                 { cmd: '/dle-import', desc: 'Import SillyTavern World Info into Obsidian vault' },
                 { cmd: '/dle-setup', desc: 'Run guided setup wizard' },
                 { sep: true, label: 'Per-Chat Overrides' },
@@ -1457,13 +1555,13 @@ export function registerSlashCommands() {
                 { cmd: '/dle-set-characters &lt;names&gt;', desc: 'Set present characters' },
                 { cmd: '/dle-context-state', desc: 'Show current gating state' },
             ];
-            let html = '<div style="text-align: left;"><h3>DeepLore Enhanced Commands</h3>';
+            let html = '<div class="dle-popup"><h3>DeepLore Enhanced Commands</h3>';
             for (const c of commands) {
                 if (c.sep) {
-                    html += `<h4 style="margin: 12px 0 6px; opacity: 0.7;">${escapeHtml(c.label)}</h4>`;
+                    html += `<h4 class="dle-muted" style="margin: var(--dle-space-3) 0 var(--dle-space-1);">${escapeHtml(c.label)}</h4>`;
                     continue;
                 }
-                html += `<div style="margin-bottom: 4px;"><code style="opacity: 0.8;">${c.cmd}</code> — ${escapeHtml(c.desc)}</div>`;
+                html += `<div style="margin-bottom: var(--dle-space-1);"><code class="dle-muted">${c.cmd}</code> — ${escapeHtml(c.desc)}</div>`;
             }
             html += '</div>';
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });

@@ -1,577 +1,99 @@
 # Features
 
-This page covers all of DeepLore Enhanced's features in detail. For the core matching pipeline, see [[Pipeline]]. For AI Search specifics, see [[AI Search]].
+DeepLore Enhanced has a lot of features. This page is a quick catalog with links to the detail pages where each feature is fully explained.
 
-## Context Cartographer
-
-Adds a book icon button to each AI message's action bar. Click it to see which vault entries were injected for that message, why they matched, and how much context they used.
-
-**The popup shows:**
-- Entry name (clickable link to Obsidian if vault connection names match Obsidian vault names)
-- Match type: keyword, AI (with confidence and reason), constant, pinned, or bootstrap
-- Priority value
-- Token cost with color-gradient bar (green/yellow/red relative to vault average token size)
-- Entries grouped by injection position (Before Main Prompt, In-chat @depth, After Main Prompt)
-- Generation-to-generation diff: shows +new and -removed entries with reasons (e.g., "Bootstrap fall-off", "No longer matched")
-- Expandable content preview (click to show first 300 chars with keyword highlighting)
-- Vault source label (when multiple vaults are connected)
-- Entry metadata: keys, requires, era, location, and wikilinks
-
-**Setup:**
-1. Enable "Show Lore Sources Button" in [[Settings Reference|Context Cartographer settings]]
-2. Set vault connection names to match your Obsidian vault names exactly to enable deep links
-
-**Notes:**
-- Source data is saved per-message in `message.extra.deeplore_sources`, so it persists across sessions
-- The book icon only appears on messages that have lore source data
+For the core matching pipeline, see [[Pipeline]]. For AI Search specifics, see [[AI Search]].
 
 ---
 
-## Author's Notebook
+## Inspection & Diagnostics
 
-A persistent per-chat scratchpad that is injected into every generation. Use it for author notes, scene direction, tone guidance, or anything you want the writing AI to always see for this specific chat.
+Tools for understanding what DLE is doing and why. See [[Inspection and Diagnostics]] for full details.
 
-**How it works:**
-1. Open the notebook via `/dle-notebook` or the "Open Notebook" button in settings
-2. Write any text — it's saved per-chat in `chat_metadata`
-3. The notebook content is injected into every generation as a separate prompt, independent of the entry pipeline
-
-**Setup:**
-1. Enable "Enable Author's Notebook" in [[Settings Reference|Author's Notebook settings]]
-2. Choose injection position (Before Main Prompt, After Main Prompt, or In-chat @ Depth)
-3. Open the editor and start writing
-
-**Notes:**
-- Notebook content is stored in `chat_metadata.deeplore_notebook` — it persists across sessions for that chat
-- Injection is independent of the lorebook pipeline — the notebook always injects when enabled, regardless of matching
-- Has its own position, depth, and role settings separate from the main lorebook injection
+| Feature | What it does |
+|---------|-------------|
+| **Context Cartographer** | Book icon on each AI message showing which entries were injected and why |
+| **Pipeline Inspector** | Detailed trace of the last generation (`/dle-inspect`) |
+| **Entry Browser** | Searchable popup of all indexed entries (`/dle-browse`) |
+| **Relationship Graph** | Interactive force-directed graph of entry connections (`/dle-graph`) |
+| **Activation Simulation** | Replay chat history showing entry activation timeline (`/dle-simulate`) |
+| **"Why Not?" Diagnostics** | Click any unmatched entry to see exactly why it was not injected |
+| **Entry Analytics** | Track match/injection counts per entry (`/dle-analytics`) |
+| **Entry Health Check** | 30+ automated checks for common entry issues (`/dle-health`) |
 
 ---
 
-## Auto Lorebook
+## AI-Powered Tools
 
-AI analyzes your chat for characters, locations, items, and concepts that are mentioned but don't have an existing lorebook entry, then suggests new entries you can review and accept.
+Features that use AI to help you build and maintain your vault. See [[AI-Powered Tools]] for full details.
 
-**How it works:**
-1. After every N messages (configurable), or on-demand via `/dle-newlore`, the AI scans recent chat
-2. It compares against existing entries and identifies gaps
-3. Suggestions appear in a popup with title, type, keywords, summary, and content
-4. Accept to write the entry to Obsidian, or reject to skip
-
-**Connection options:**
-- **SillyTavern** (default): Uses your active AI connection
-- **Connection Profile**: Use any saved Connection Manager profile
-- **Custom Proxy**: Use a separate proxy server
-
-**Setup:**
-1. Enable "Enable Auto Lorebook" in [[Settings Reference|Auto Lorebook settings]]
-2. Set the trigger interval (every N messages)
-3. Optionally set a target folder for new entries
-4. Choose a connection mode
-
-**Notes:**
-- Existing entries are filtered out (case-insensitive title match)
-- Accepted entries are written with proper frontmatter (type, priority, tags, keys, summary)
-- Use `/dle-newlore` to trigger on-demand without enabling automatic suggestions
+| Feature | What it does |
+|---------|-------------|
+| **Session Scribe** | Auto-summarize sessions and write notes to Obsidian |
+| **Auto Lorebook** | AI suggests new entries based on chat content |
+| **Optimize Keys** | AI analyzes an entry and suggests better keywords |
+| **Auto-Summary** | Generate AI summaries for entries missing a `summary` field |
+| **Scribe-Informed Retrieval** | Feed Scribe summaries into AI search for broader story awareness |
 
 ---
 
-## Multi-Vault Support
+## Entry Matching & Behavior
 
-Connect multiple Obsidian vaults simultaneously. Each vault has its own port and API key. Entries from all enabled vaults are merged into a single index.
+Per-entry frontmatter fields and global settings that control when entries trigger. See [[Entry Matching and Behavior]] for full details.
 
-**Setup:**
-1. In the "Vault Connections" section, click "Add Vault" to add multiple vault connections
-2. Each vault has a name, port, API key, and enable toggle
-3. Click "Test All" to verify all connections
-
-**Notes:**
-- Entries from all enabled vaults are merged and treated identically
-- Each entry tracks its `vaultSource` for diagnostics
-- The health check validates multi-vault configuration
-
----
-
-## Session Scribe
-
-Automatically summarizes your roleplay sessions and writes them as timestamped markdown notes to your Obsidian vault.
-
-**How it works:**
-1. Tracks actual chat position — after every N new messages (configurable), Scribe generates a summary
-2. The summary is written as a markdown file to the configured Session Folder in your vault
-3. Notes include frontmatter with timestamp, character name, and chat ID
-4. Each summary builds on the previous one — the prior note is fed as context so the AI doesn't repeat itself
-
-**On-demand:** Use `/dle-scribe` to write a summary at any time. Optionally pass a focus topic: `/dle-scribe What happened during the trial?`
-
-**Connection options:**
-- **SillyTavern** (default): Uses your active AI connection via generateQuietPrompt
-- **Connection Profile**: Use any saved Connection Manager profile — lets you route summaries through a different model/provider
-- **Custom Proxy**: Use a separate proxy server (claude-code-proxy or compatible Anthropic Messages API endpoint)
-
-**Setup:**
-1. Enable "Enable Session Scribe" in [[Settings Reference|Session Scribe settings]]
-2. Set the auto-scribe interval (every N messages)
-3. Set the Session Folder (default: `Sessions`)
-4. Choose a connection mode (SillyTavern, Connection Profile, or Custom Proxy)
-5. Optionally customize the summary prompt and message window depth
-
-**Notes:**
-- Writes directly to the Obsidian vault via the Local REST API
-- Default prompt covers events, character dynamics, revelations, and state changes in past tense
-- Configurable message window (default: 20 messages) and response token limit (default: 1024)
+| Feature | What it does |
+|---------|-------------|
+| **Cooldown** | Skip an entry for N generations after it triggers |
+| **Warmup** | Require N keyword occurrences before first trigger |
+| **Re-injection Cooldown** | Global setting to skip re-injecting recent entries |
+| **Injection Dedup** | Strip entries already injected in recent generations |
+| **Entry Decay & Freshness** | Boost stale entries, penalize over-injected ones |
+| **Conditional Gating** | `requires` and `excludes` dependency rules |
+| **Refine Keys** | Secondary AND filter on top of primary keywords |
+| **Cascade Links** | Unconditionally pull in related entries when one matches |
+| **Active Character Boost** | Auto-match the active character's entry |
+| **Fuzzy Search (BM25)** | TF-IDF scored fuzzy matching alongside exact keywords |
+| **New Chat Bootstrapping** | Seed entries and bootstrap injection for early conversations |
 
 ---
 
-## Vault Change Detection & Auto-Sync
+## Injection & Context Control
 
-When the index rebuilds, DeepLore compares the new index against the previous one and reports changes.
+How and where entries are injected, and per-chat overrides. See [[Injection and Context Control]] for full details.
 
-**Detects:**
-- New entries added
-- Entries removed
-- Modified content
-- Changed keywords
-
-**Auto-Sync Polling:** Set "Auto-Sync Interval" to automatically re-check the vault every N seconds. When changes are detected, toast notifications summarize what changed (if "Show Sync Change Toasts" is enabled).
-
-**Manual refresh:** Click "Refresh Index" in settings or use `/dle-refresh`.
-
----
-
-## Cooldown Tags
-
-Per-entry `cooldown: N` in frontmatter. After an entry triggers, it's skipped for the next N generations before becoming eligible again.
-
-**Use case:** Prevent the same lore from being re-injected every single generation. Useful for flavor text or background entries that don't need constant repetition.
-
-**Example:**
-```yaml
-cooldown: 3  # After triggering, skip for 3 generations
-```
-
-**Notes:**
-- Cooldown is tracked per-session (resets on chat change or page refresh)
-- Constants (`#lorebook-always`) are exempt from cooldown
+| Feature | What it does |
+|---------|-------------|
+| **Per-Entry Injection Position** | Override position, depth, and role per entry |
+| **Prompt Manager Integration** | Register DLE injections as draggable Prompt Manager entries |
+| **Author's Notebook** | Persistent per-chat scratchpad injected every generation |
+| **Per-Chat Pin/Block** | Pin entries to always inject or block them, per chat |
+| **Contextual Gating** | Filter entries by era, location, scene type, and characters |
+| **Confidence-Gated Budget** | AI over-requests, then prioritizes high-confidence picks |
 
 ---
 
-## Warmup Tags
+## Infrastructure
 
-Per-entry `warmup: N` in frontmatter. An entry's keywords must appear N or more times in the scan text before it triggers for the first time.
+Under-the-hood systems that make DLE fast and reliable. See [[Infrastructure]] for full details.
 
-**Use case:** Prevent entries from triggering on a single casual mention. Ensure a topic is being discussed in depth before injecting detailed lore.
-
-**Example:**
-```yaml
-warmup: 3  # Keyword must appear 3+ times in scan text before first trigger
-```
-
-**Notes:**
-- The warmup threshold is checked every generation — the keyword must meet the hit count each time, not just the first time
-- Count is based on occurrences in the scan text, not unique messages
-
----
-
-## Re-injection Cooldown
-
-Global setting (not per-entry). Skips re-injecting an entry for N generations after it was last injected. Helps save context by avoiding redundant lore repetition.
-
-**Setup:** Set "Re-injection Cooldown" in [[Settings Reference|Matching & Budget settings]] (0 = disabled)
-
-**Notes:**
-- Constants (`#lorebook-always`) are exempt
-- Tracked per-session (resets on chat change)
+| Feature | What it does |
+|---------|-------------|
+| **Multi-Vault Support** | Connect multiple Obsidian vaults simultaneously |
+| **IndexedDB Persistent Cache** | Instant startup from browser-side cache |
+| **Reuse Sync** | Skip re-parsing unchanged entries on refresh |
+| **Circuit Breaker** | Exponential backoff on Obsidian connection failures |
+| **Prompt Cache Optimization** | Anthropic prompt caching for proxy mode AI calls |
+| **Sliding Window AI Cache** | Reuse AI results when chat changes are lore-irrelevant |
+| **Hierarchical Manifest Clustering** | Two-call AI approach for large vaults (40+ entries) |
 
 ---
 
-## Injection Deduplication
-
-Global setting that prevents the same entries from being injected in consecutive generations. When enabled, entries that were injected within the last N generations (configurable lookback depth) are skipped.
-
-**Setup:**
-1. Check "Strip Duplicate Injections" in [[Settings Reference|Matching & Budget settings]]
-2. Set the "Lookback Depth" (default 2 — checks last 2 generations)
-
-**Notes:**
-- Constants (`#lorebook-always`) are exempt — they always inject
-- Injection history is tracked per-chat in `chat_metadata.deeplore_injection_log`
-- Different from Re-injection Cooldown: deduplication checks a sliding window of recent generations, while re-injection cooldown counts generations since last injection
-
----
-
-## Active Character Boost
-
-When enabled, automatically matches the active character's vault entry by name or keyword, even if the character isn't mentioned in recent chat messages.
-
-**Use case:** Ensure the character you're roleplaying with always has their lore available, without relying on their name appearing in the most recent messages.
-
-**Setup:** Check "Active Character Boost" in [[Settings Reference|Matching & Budget settings]]
-
----
-
-## Conditional Gating
-
-Entries can declare dependencies on other entries using `requires` and `excludes` frontmatter fields.
-
-### requires
-All listed entry titles must be in the matched set for this entry to activate.
-
-```yaml
-requires:
-  - Eris
-  - Dark Council
-```
-This entry only injects when both "Eris" and "Dark Council" are also matched.
-
-### excludes
-If any listed entry title is in the matched set, this entry is blocked.
-
-```yaml
-excludes:
-  - Draft Notes
-```
-This entry is blocked if "Draft Notes" is matched.
-
-### Cascading Resolution
-Gating resolves iteratively. If Entry A requires Entry B, and Entry B gets removed by its own gating rules, Entry A is also removed. This cascading continues until no more entries are affected.
-
-See [[Writing Vault Entries]] for a complete template.
-
----
-
-## Refine Keys
-
-Per-entry `refine_keys` in frontmatter. Adds a secondary AND filter on top of primary keyword matching. When set, at least one refine key must also appear in the scan text for the entry to trigger.
-
-**Use case:** Reduce false positives for entries with common primary keywords. For example, a character named "Rose" might have `refine_keys` requiring mention of their faction or role to avoid triggering on every use of the word "rose."
-
-**Example:**
-```yaml
-keys:
-  - Rose
-  - Rose Blackwood
-refine_keys:
-  - guild
-  - spymaster
-  - intelligence
-```
-
-See [[Writing Vault Entries]] for a complete template.
-
----
-
-## Cascade Links
-
-Per-entry `cascade_links` in frontmatter. When an entry matches, all entries listed in its `cascade_links` are automatically pulled in -- no keyword check needed for the linked entries.
-
-**Use case:** Ensure related entries always travel together. Unlike wikilink recursion (which requires keyword matches), cascade links are unconditional.
-
-**Example:**
-```yaml
-cascade_links: ["Soulbrand Removal", "Ironveil Guild"]
-```
-
-When this entry matches, "Soulbrand Removal" and "Ironveil Guild" are automatically included.
-
-See [[Writing Vault Entries]] for a complete template.
-
----
-
-## Per-Entry Injection Position
-
-Entries can override the global injection position via frontmatter:
-
-| Field | Values | Description |
-|-------|--------|-------------|
-| `position` | `before`, `after`, `in_chat` | Where to inject |
-| `depth` | number | Chat depth (for `in_chat`) |
-| `role` | `system`, `user`, `assistant` | Message role (for `in_chat`) |
-
-Entries are grouped by their effective position (global default or override) and each group is injected separately.
-
-**Example:** You might want most lore injected at depth 4 as system messages, but a character's dialogue hints injected at depth 1 as user messages.
-
-See [[Writing Vault Entries]] for templates.
-
----
-
-## Prompt Manager Integration
-
-Set **Injection Mode** to **Prompt List** to register DLE's injections as named entries in SillyTavern's Prompt Manager. This lets you drag them to any position in the prompt order — before character definition, after Author's Note, between example messages, wherever.
-
-**How it works:**
-1. Switch injection mode to "Prompt List" in DLE settings
-2. Generate at least once so the entries appear
-3. Open the Prompt Manager and find `deeplore_constants` and `deeplore_lore`
-4. Drag them to your desired position, or switch to Absolute mode with a custom depth
-
-**Notes:**
-- Requires a Chat Completion API (OpenAI-compatible)
-- Per-entry frontmatter overrides with custom position/depth still create separate injection groups
-- The `deeplore_notebook` entry also appears in the PM (it already uses a stable key)
-
----
-
-## New Chat Features
-
-On a brand new chat (below the New Chat Threshold, default 3 messages), two features help bootstrap the conversation:
-
-### Seed Entries (`#lorebook-seed`)
-- Entry content is sent to the AI as additional story context alongside the chat
-- Helps the AI understand your setting and make better entry selections from minimal context
-- NOT injected into the writing AI's context. Only informs AI search.
-- When seed mode is active, AI is instructed to fill to maxEntries selections (more aggressive)
-
-### Bootstrap Entries (`#lorebook-bootstrap`)
-- Force-injected like constants when chat is short
-- Once chat grows past the threshold, they become regular entries managed by normal selection
-- Good for writing instructions or foundational lore needed at the start
-
-An entry can have both tags: its content feeds the AI (seed) AND it force-injects (bootstrap).
-
----
-
-## Entry Analytics
-
-Track how often each entry is matched and injected across generations. View with `/dle-analytics`.
-
-**Shows:**
-- Table sorted by injection count
-- "Never Injected" section for dead entry detection
-
-**Use case:** Identify entries with bad keywords that never trigger, or entries that trigger too frequently.
-
----
-
-## Entry Health Check
-
-Audit all vault entries for common issues with `/dle-health`. Runs 30+ checks across multiple categories.
-
-**Check categories:**
-- **Multi-vault:** Enabled vaults, API key validation
-- **Settings:** Scan depth disabled, AI mode without profile, proxy URL missing, budget too low, cache TTL, index staleness
-- **Entry config:** Duplicate titles, empty keys, empty content, orphaned requires/excludes/cascade_links, requires + excludes same title, oversized entries (>1500 tokens), missing summary
-- **Gating:** Circular requires, unresolved links, conflicting overrides
-- **AI Search:** Entries without summary fields
-- **Keywords:** Short keywords (2 chars or less), duplicate keywords across entries
-- **Size:** Constants exceeding budget, seed entries >2000 tokens
-- **Injection:** Depth/role override without in_chat position
-- **Entry behavior:** Cooldown on constants, warmup unlikely to trigger, bootstrap with no keywords, probability zero, excluded from recursion with no keywords
-
----
-
-## Entry Browser
-
-Browse all indexed entries in a searchable, filterable popup with `/dle-browse` or the "Browse" button in settings. Useful for quickly reviewing your vault without switching to Obsidian.
-
----
-
-## Relationship Graph
-
-Visualize entry relationships as an interactive force-directed graph with `/dle-graph`. Shows wikilinks, requires/excludes connections, and cascade links between entries.
-
----
-
-## Simulation
-
-Replay your chat history step-by-step with `/dle-simulate`, showing which entries activate and deactivate at each message. Useful for understanding how your keywords and pipeline behave across a conversation.
-
----
-
-## Optimize Keys
-
-Use `/dle-optimize-keys <entry name>` to have AI analyze an entry and suggest better keywords. The AI considers the entry's content, summary, and current keywords to recommend improvements.
-
----
-
-## Pipeline Inspector
-
-View a detailed trace of the last generation with `/dle-inspect`.
-
-**Shows:**
-- Pipeline mode (two-stage, ai-only, keywords-only)
-- Keyword matches with trigger keywords
-- AI selections with confidence and reasons
-- Fallback status
-- Constants and bootstrap entries
-
-See [[Slash Commands]] for all available commands.
-
----
-
-## Per-Chat Pin/Block
-
-Pin entries to always inject or block entries from injecting, on a per-chat basis. Pins and blocks are stored in `chat_metadata` and survive page reloads.
-
-**Commands:**
-- `/dle-pin <entry name>` — Pin an entry (always inject in this chat)
-- `/dle-unpin <entry name>` — Remove a pin
-- `/dle-block <entry name>` — Block an entry (never inject in this chat)
-- `/dle-unblock <entry name>` — Remove a block
-- `/dle-pins` — Show all pins and blocks for the current chat
-
-**How it works:**
-- Pinned entries are force-injected like constants, regardless of keywords or AI selection
-- Blocked entries are removed from the pipeline before injection, regardless of matches
-- Pins/blocks apply after the main pipeline runs but before formatting
-
----
-
-## Contextual Gating
-
-Filter entries based on the current story context using frontmatter fields: `era`, `location`, `scene_type`, and `character_present`. Set the active context with slash commands, and entries that don't match the current context are filtered out.
-
-**Frontmatter fields:**
-| Field | Type | Description |
-|-------|------|-------------|
-| `era` | string | Entry only injects when the active era matches |
-| `location` | string | Entry only injects when the active location matches |
-| `scene_type` | string | Entry only injects when the active scene type matches |
-| `character_present` | string[] | Entry only injects when any listed character is present |
-
-**Commands:**
-- `/dle-set-era [era]` — Set the active era. With no argument, opens a browse-and-select popup showing all era values in your vault with entry counts
-- `/dle-set-location [location]` — Set the active location. With no argument, shows a browse-and-select popup
-- `/dle-set-scene [type]` — Set the active scene type. With no argument, shows a browse-and-select popup
-- `/dle-set-characters <names>` — Set present characters (comma-separated)
-- `/dle-context-state` — Show the current contextual gating state
-
-**Notes:**
-- Context state is stored per-chat in `chat_metadata.deeplore_context`
-- Entries without contextual fields are unaffected (always pass through)
-- Partial matches work: an entry with only `era` set is filtered only on era, regardless of location/scene/character
-
----
-
-## Entry Decay & Freshness
-
-Tracks how many generations have passed since each entry was last injected. Stale entries (not seen recently) get a boost in the AI manifest; frequently injected entries get a penalty. This naturally rotates lore without manual intervention.
-
-**Setup:**
-1. Enable "Entry Decay" in [[Settings Reference|Entry Decay settings]]
-2. Set the **Boost Threshold** (default 5) — generations without injection before freshness boost
-3. Set the **Penalty Threshold** (default 2) — consecutive injections before frequency penalty
-
-**Notes:**
-- Decay tracking is per-session (resets on chat change or page refresh)
-- Only affects AI search manifest (adds decay hints for the AI to consider)
-- Constants are exempt from decay penalties
-
----
-
-## ST Lorebook Import Bridge
-
-Convert SillyTavern World Info JSON exports into Obsidian vault notes with proper frontmatter. Handles three formats: WI export JSON, V2 character cards with embedded WI, and raw entry arrays.
-
-**Usage:** `/dle-import` opens a popup where you paste your WI JSON and choose a target folder.
-
-**What it converts:**
-- `key` → `keys` (primary keywords)
-- `keysecondary` → `refine_keys`
-- `order` → `priority`
-- `position` → `position` (mapped to before/after/in_chat)
-- `depth` → `depth`
-- `probability` → `probability` (scaled from 0-100 to 0.0-1.0)
-- `constant` → `#lorebook-always` tag
-- `comment` → entry title
-
----
-
-## Auto-Summary Generation
-
-Generate AI summaries for entries that don't have a `summary` field. Good summaries improve AI search quality significantly.
-
-**Usage:** `/dle-summarize` scans all indexed entries, identifies those without summaries, and generates AI summaries one at a time. Each summary is written directly to the entry's frontmatter in Obsidian.
-
----
-
-## Setup Wizard
-
-A guided first-time setup experience. Walks through Obsidian vault connection, tag configuration, and search mode selection. AI search connection (profile or proxy) must be configured separately in the settings panel.
-
-**Usage:** `/dle-setup` or the Setup button in the Quick Actions bar.
-
----
-
-## Quick Actions Bar
-
-A toolbar of one-click buttons at the top of the settings panel for common operations. Includes two rows: always-visible actions (Browse, Map, Health, Refresh) and an expandable "More" row (Graph, Simulate, Analytics, Optimize, Inspect, Setup).
-
-Uses SillyTavern's standard `menu_button menu_button_icon` pattern with Font Awesome icons. All buttons call their functions directly (no slash command roundtrip).
-
----
-
-## Prompt Cache Optimization
-
-In proxy mode, the AI search manifest is placed first in the message payload with `cache_control` breakpoints. This leverages Anthropic's prompt caching so that the manifest (which rarely changes between calls) is cached server-side, reducing token costs on subsequent calls.
-
-Only applies to Custom Proxy mode. Connection Profile mode does not support cache_control breakpoints.
-
----
-
-## Circuit Breaker
-
-The Obsidian REST API connection uses a circuit breaker pattern to avoid hammering a down server. States: **closed** (normal), **open** (failing — skip calls for backoff period), **half-open** (try one test call).
-
-Exponential backoff from 2s to 15s. Automatic — no settings to configure. Resets when a call succeeds.
-
----
-
-## IndexedDB Persistent Cache
-
-The parsed vault index is saved to IndexedDB (`DeepLoreEnhanced` database, `vaultCache` store) after every successful build. On page load, the extension hydrates from IndexedDB instantly (no Obsidian call needed), then validates against Obsidian in the background.
-
-**Benefits:**
-- Near-instant startup — lore is available before the first generation
-- Works even if Obsidian is briefly unreachable on page load
-- Automatic — no settings to configure
-
----
-
-## Reuse Sync
-
-When auto-sync triggers, the extension fetches all vault file contents but avoids redundant work:
-1. Fetches all file contents from Obsidian (local fetch is fast)
-2. Computes content hashes and compares against the existing index
-3. Reuses already-parsed entries for unchanged files (skips parse + tokenize)
-4. Re-parses only new or modified files
-5. Removes entries for deleted files
-6. Falls back to full rebuild if the reuse approach fails
-
-The savings come from skipping the expensive parse/tokenize step for unchanged entries, not from reducing network calls.
-
----
-
-## Hierarchical Manifest Clustering
-
-For large vaults (40+ selectable entries), the AI search uses a two-call approach:
-1. Group entries by category (extracted from tags/type fields)
-2. First AI call: select relevant categories from the full list
-3. Second AI call: select specific entries from within those categories
-
-Safety valve: if the category filter removes more than 80% of entries, it falls back to the full manifest. Requires at least 4 distinct categories to activate.
-
----
-
-## Sliding Window AI Cache
-
-AI search caches results with a sliding window strategy. The manifest and chat context are hashed separately. When only new chat messages are appended (vault unchanged):
-- If the new messages don't contain any entity names/keys from the vault, cached results are reused
-- If new messages reference vault entities, the cache is invalidated and a fresh AI call is made
-
-This means most regenerations, swipes, and non-lore-relevant messages reuse cached results automatically.
-
----
-
-## Scribe-Informed Retrieval
-
-When enabled, the Session Scribe's latest summary is fed into the AI search context as additional story background. This gives the AI search a broader understanding of the ongoing narrative, helping it select entries relevant to the overall story arc rather than just the most recent messages.
-
-**Setup:** Enable "Scribe-Informed Retrieval" in [[Settings Reference|AI Search settings]].
-
----
-
-## Confidence-Gated Budget
-
-AI search over-requests entries (2x the configured max), then sorts results by confidence tier (high → medium → low) before applying the budget cap. High-confidence picks are prioritized, ensuring that when budget is limited, the most relevant entries make the cut.
+## Setup & Import
+
+Getting started and migrating from other lorebook systems. See [[Setup and Import]] for full details.
+
+| Feature | What it does |
+|---------|-------------|
+| **Setup Wizard** | Guided first-time setup (`/dle-setup`) |
+| **Quick Actions Bar** | One-click toolbar in the settings panel |
+| **ST Lorebook Import** | Convert SillyTavern World Info JSON to Obsidian vault notes |

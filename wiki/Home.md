@@ -36,10 +36,21 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 | Page | Description |
 |------|-------------|
+| [[What is DeepLore?]] | What a lorebook is, why DLE, and how the pipeline works (start here) |
 | [[Installation]] | Step-by-step setup guide |
 | [[Quick Start]] | 5-minute getting started guide |
 | [[First Steps]] | Building your vault and tuning the extension |
-| [[Features]] | All features explained in detail |
+| [[Features]] | Linked catalog of all features |
+| | |
+| **Feature Detail Pages** | |
+| [[Inspection and Diagnostics]] | Context Cartographer, "Why Not?" diagnostics, health checks, simulation |
+| [[AI-Powered Tools]] | Session Scribe, Auto Lorebook, Optimize Keys, Auto-Summary |
+| [[Entry Matching and Behavior]] | Cooldown, warmup, gating, fuzzy search, decay, cascade links |
+| [[Injection and Context Control]] | Injection positions, Prompt Manager, pin/block, contextual gating |
+| [[Infrastructure]] | Multi-vault, IndexedDB cache, circuit breaker, AI caching |
+| [[Setup and Import]] | Setup wizard, quick actions, ST World Info import |
+| | |
+| **Technical Reference** | |
 | [[Writing Vault Entries]] | How to create lorebook entries with copy-paste templates |
 | [[AI Search]] | How AI-powered semantic search works |
 | [[Pipeline]] | How the matching pipeline processes entries |

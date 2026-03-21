@@ -340,3 +340,24 @@ export function checkHealthPure(vaultIndex, settings = {}) {
 
     return issues;
 }
+
+// ── Shared Stage Colors ──
+
+/**
+ * Diagnostic stage → CSS color mapping used by browse popup, test-match, and settings UI.
+ * Extracted here to avoid duplication across popups.js, commands.js, and settings-ui.js.
+ */
+export const STAGE_COLORS = {
+    keyword_miss: 'var(--dle-warning, #ff9800)',
+    no_keywords: 'var(--dle-error, #f44336)',
+    scan_depth_zero: 'var(--dle-error, #f44336)',
+    warmup: 'var(--dle-warning, #ff9800)',
+    cooldown: 'var(--dle-warning, #ff9800)',
+    reinjection_cooldown: 'var(--dle-warning, #ff9800)',
+    probability: 'var(--dle-accent, #9c27b0)',
+    refine_keys: 'var(--dle-warning, #ff9800)',
+    gating_requires: 'var(--dle-error, #f44336)',
+    gating_excludes: 'var(--dle-error, #f44336)',
+    ai_rejected: 'var(--dle-info, #2196f3)',
+    budget_cut: 'var(--dle-warning, #ff9800)',
+};

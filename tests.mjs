@@ -23,6 +23,14 @@ import { takeIndexSnapshot, detectChanges } from './core/sync.js';
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure } from './src/helpers.js';
 import { encodeVaultPath, validateVaultPath } from './src/obsidian-api.js';
 
+// State module imports for computeOverallStatus tests
+import {
+    computeOverallStatus,
+    setVaultIndex, setIndexEverLoaded, setLastHealthResult,
+    setLastVaultFailureCount, setLastVaultAttemptCount,
+    recordAiFailure, recordAiSuccess,
+} from './src/state.js';
+
 // normalizeResults is a test-only utility (inlined in aiSearch() in production)
 function normalizeResults(arr) {
     return arr.map(item => {
@@ -2615,6 +2623,112 @@ test('convertWiEntry: YAML delimiter injection prevented', () => {
     const result = convertWiEntry(wiEntry, 'lorebook');
     assert(!result.content.match(/^---$/m) || result.content.split('---').length <= 3,
         'YAML delimiters in content should be sanitized');
+});
+
+// ============================================================================
+// computeOverallStatus tests
+// ============================================================================
+
+// Helper to reset state between computeOverallStatus tests
+function resetStatusState() {
+    setVaultIndex([]);
+    setIndexEverLoaded(false);
+    setLastHealthResult(null);
+    setLastVaultFailureCount(0);
+    setLastVaultAttemptCount(0);
+    // Reset circuit breaker via recordAiSuccess
+    recordAiSuccess();
+}
+
+test('computeOverallStatus: returns offline when no entries and no vaults attempted', () => {
+    resetStatusState();
+    assertEqual(computeOverallStatus(), 'offline');
+});
+
+test('computeOverallStatus: returns offline when all vaults failed and no entries', () => {
+    resetStatusState();
+    setLastVaultAttemptCount(2);
+    setLastVaultFailureCount(2);
+    assertEqual(computeOverallStatus(), 'offline');
+});
+
+test('computeOverallStatus: returns ok when entries loaded, no failures, good health', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(true);
+    setLastVaultAttemptCount(1);
+    setLastVaultFailureCount(0);
+    assertEqual(computeOverallStatus(), 'ok');
+});
+
+test('computeOverallStatus: returns ok with health grade A (0 errors, <=3 warnings)', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(true);
+    setLastVaultAttemptCount(1);
+    setLastHealthResult({ errors: 0, warnings: 2 });
+    assertEqual(computeOverallStatus(), 'ok');
+});
+
+test('computeOverallStatus: returns degraded when some vaults failed', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(true);
+    setLastVaultAttemptCount(3);
+    setLastVaultFailureCount(1);
+    assertEqual(computeOverallStatus(), 'degraded');
+});
+
+test('computeOverallStatus: returns degraded with health grade B (0 errors, >3 warnings)', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(true);
+    setLastVaultAttemptCount(1);
+    setLastHealthResult({ errors: 0, warnings: 5 });
+    assertEqual(computeOverallStatus(), 'degraded');
+});
+
+test('computeOverallStatus: returns degraded with health errors', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(true);
+    setLastVaultAttemptCount(1);
+    setLastHealthResult({ errors: 1, warnings: 0 });
+    assertEqual(computeOverallStatus(), 'degraded');
+});
+
+test('computeOverallStatus: returns limited when AI circuit breaker is tripped', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(true);
+    setLastVaultAttemptCount(1);
+    // Trip the circuit breaker (requires 2 consecutive failures)
+    recordAiFailure();
+    recordAiFailure();
+    assertEqual(computeOverallStatus(), 'limited');
+    // Clean up
+    recordAiSuccess();
+});
+
+test('computeOverallStatus: returns limited when using stale cache (indexEverLoaded=false)', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(false); // cache hydrated but never confirmed from Obsidian
+    setLastVaultAttemptCount(1);
+    assertEqual(computeOverallStatus(), 'limited');
+});
+
+test('computeOverallStatus: limited takes priority over degraded', () => {
+    resetStatusState();
+    setVaultIndex([{ title: 'A', keys: [], content: '' }]);
+    setIndexEverLoaded(true);
+    setLastVaultAttemptCount(3);
+    setLastVaultFailureCount(1); // would be degraded
+    // Trip circuit breaker
+    recordAiFailure();
+    recordAiFailure();
+    assertEqual(computeOverallStatus(), 'limited');
+    recordAiSuccess();
 });
 
 // ============================================================================

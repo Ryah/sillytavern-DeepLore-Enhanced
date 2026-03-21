@@ -1,7 +1,7 @@
 /**
  * DeepLore Enhanced — Popup modules
  * showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup,
- * showGraphPopup, optimizeEntryKeys, showOptimizePopup
+ * showGraphPopup, optimizeEntryKeys, showOptimizePopup, buildCopyButton
  */
 import {
     saveChatDebounced,
@@ -11,7 +11,7 @@ import {
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { getTokenCountAsync } from '../../../../tokenizers.js';
-import { parseFrontmatter, simpleHash, buildScanText } from '../core/utils.js';
+import { parseFrontmatter, simpleHash, buildScanText, classifyError, NO_ENTRIES_MSG } from '../core/utils.js';
 import { testEntryMatch } from '../core/matching.js';
 import { getSettings, getVaultByName } from '../settings.js';
 import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
@@ -24,6 +24,7 @@ import { callAutoSuggest } from './auto-suggest.js';
 import { extractAiResponseClient } from './ai.js';
 import { buildObsidianURI } from './cartographer.js';
 import { diagnoseEntry } from './diagnostics.js';
+import { STAGE_COLORS } from './helpers.js';
 
 /**
  * Serialize a value for YAML frontmatter output.
@@ -43,18 +44,59 @@ function yamlSerializeValue(val) {
 }
 
 /**
+ * Build HTML for a "Copy to Clipboard" button used in diagnostic popups.
+ * Uses event delegation — attach a single click listener on the popup container
+ * that catches clicks on `.dle_copy_btn`.
+ * @param {string} plainText - The text to copy (pre-computed, stored in data attribute)
+ * @returns {string} HTML string for the button
+ */
+export function buildCopyButton(plainText) {
+    // Encode the text as a data attribute (base64 avoids HTML-escaping issues with quotes/newlines)
+    const encoded = btoa(unescape(encodeURIComponent(plainText)));
+    return `<button class="menu_button dle_copy_btn dle-text-sm" data-copy="${encoded}" style="padding: 4px 12px; margin-bottom: var(--dle-space-2);">Copy to Clipboard</button>`;
+}
+
+/**
+ * Attach a delegated click handler for `.dle_copy_btn` on a container element.
+ * Reads the base64-encoded data-copy attribute, copies to clipboard, and shows feedback.
+ * Safe to call multiple times — uses a class guard to avoid duplicate listeners.
+ * @param {HTMLElement|Document} container - The container to listen on
+ */
+export function attachCopyHandler(container) {
+    if (!container || container._dleCopyHandlerAttached) return;
+    container._dleCopyHandlerAttached = true;
+    container.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.dle_copy_btn');
+        if (!btn) return;
+        try {
+            const encoded = btn.dataset.copy;
+            const text = decodeURIComponent(escape(atob(encoded)));
+            await navigator.clipboard.writeText(text);
+            const original = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.disabled = true;
+            setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+        } catch (err) {
+            console.error('[DLE] Clipboard copy failed:', err);
+            btn.textContent = 'Copy failed';
+            setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+        }
+    });
+}
+
+/**
  * Show the Author's Notebook editor popup for the current chat.
  */
 export async function showNotebookPopup() {
     const currentContent = chat_metadata?.deeplore_notebook || '';
 
     const container = document.createElement('div');
-    container.style.textAlign = 'left';
+    container.classList.add('dle-popup');
     container.innerHTML = `
         <h3>Author's Notebook</h3>
-        <p style="opacity: 0.7; font-size: 0.85em;">Persistent scratchpad for this chat. Contents are injected into every generation when enabled. Use for character notes, plot threads, reminders, or anything the AI should always know.</p>
+        <p class="dle-muted dle-text-sm">Persistent scratchpad for this chat. Contents are injected into every generation when enabled. Use for character notes, plot threads, reminders, or anything the AI should always know.</p>
         <textarea id="dle_notebook_textarea" class="text_pole" rows="15" style="width: 100%; font-family: monospace; font-size: 0.9em;" placeholder="Write notes here...">${escapeHtml(currentContent)}</textarea>
-        <small id="dle_notebook_token_count" style="opacity: 0.6;"></small>
+        <small id="dle_notebook_token_count" class="dle-faint"></small>
     `;
 
     // Capture textarea value in closure so it's available after popup DOM is destroyed
@@ -94,7 +136,7 @@ export async function showNotebookPopup() {
 export async function showBrowsePopup() {
     await ensureIndexFresh();
     if (vaultIndex.length === 0) {
-        toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+        toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
         return;
     }
 
@@ -105,10 +147,10 @@ export async function showBrowsePopup() {
     const blocks = new Set((chat_metadata.deeplore_blocks || []).map(t => t.toLowerCase()));
 
     const container = document.createElement('div');
-    container.style.textAlign = 'left';
+    container.classList.add('dle-popup');
     container.innerHTML = `
         <h3>Entry Browser (${vaultIndex.length} entries)</h3>
-        <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+        <div style="display: flex; gap: var(--dle-space-2); margin-bottom: 10px; flex-wrap: wrap;">
             <input id="dle_browse_search" type="text" class="text_pole" placeholder="Search titles, keywords, content..." style="flex: 2; min-width: 200px;" />
             <select id="dle_browse_status" class="text_pole" style="flex: 1; min-width: 120px;">
                 <option value="all">All Status</option>
@@ -135,8 +177,8 @@ export async function showBrowsePopup() {
                 <option value="injected_asc">Least injected</option>
             </select>
         </div>
-        <div id="dle_browse_list" style="max-height: 60vh; overflow-y: auto;"></div>
-        <small id="dle_browse_count" style="opacity: 0.6;"></small>
+        <div id="dle_browse_list" class="dle-scroll-region"></div>
+        <small id="dle_browse_count" class="dle-faint"></small>
     `;
 
     // H8: Pre-compute search haystacks for browse popup filtering
@@ -194,11 +236,11 @@ export async function showBrowsePopup() {
         let html = '';
         for (const entry of filtered) {
             const statusBadges = [];
-            if (pins.has(entry.title.toLowerCase())) statusBadges.push('<span style="color: #4caf50; font-size: 0.8em; font-weight: bold;">[pinned]</span>');
-            if (blocks.has(entry.title.toLowerCase())) statusBadges.push('<span style="color: #f44336; font-size: 0.8em; font-weight: bold;">[blocked]</span>');
-            if (entry.constant) statusBadges.push('<span style="color: #4caf50; font-size: 0.8em;">[constant]</span>');
-            if (entry.seed) statusBadges.push('<span style="color: #2196f3; font-size: 0.8em;">[seed]</span>');
-            if (entry.bootstrap) statusBadges.push('<span style="color: #ff9800; font-size: 0.8em;">[bootstrap]</span>');
+            if (pins.has(entry.title.toLowerCase())) statusBadges.push('<span class="dle-badge dle-success">[pinned]</span>');
+            if (blocks.has(entry.title.toLowerCase())) statusBadges.push('<span class="dle-badge dle-error">[blocked]</span>');
+            if (entry.constant) statusBadges.push('<span class="dle-text-xs dle-success">[constant]</span>');
+            if (entry.seed) statusBadges.push('<span class="dle-text-xs dle-info">[seed]</span>');
+            if (entry.bootstrap) statusBadges.push('<span class="dle-text-xs dle-warning">[bootstrap]</span>');
 
             const keysDisplay = entry.keys.slice(0, 5).map(k => escapeHtml(k)).join(', ') + (entry.keys.length > 5 ? '...' : '');
             const a = analytics[trackerKey(entry)];
@@ -210,18 +252,18 @@ export async function showBrowsePopup() {
                 : (settings.vaults?.[0]?.name || '');
             const obsidianUri = buildObsidianURI(entryVaultName, entry.filename);
             const obsidianLink = obsidianUri
-                ? ` <a href="${escapeHtml(obsidianUri)}" target="_blank" style="font-size: 0.8em; opacity: 0.7;">Open in Obsidian</a>`
+                ? ` <a href="${escapeHtml(obsidianUri)}" target="_blank" class="dle-text-xs dle-muted">Open in Obsidian</a>`
                 : '';
 
-            html += `<div style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px; padding: 8px; margin-bottom: 4px;">`;
-            html += `<div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="document.getElementById('dle_entry_${entryId}').style.display = document.getElementById('dle_entry_${entryId}').style.display === 'none' ? 'block' : 'none'">`;
+            html += `<div class="dle-card">`;
+            html += `<div class="dle_entry_toggle dle-card-header" data-target="dle_entry_${entryId}">`;
             html += `<span><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</span>`;
-            html += `<span style="opacity: 0.6; font-size: 0.85em;">pri ${entry.priority} · ~${entry.tokenEstimate}tok · ${usageStr}</span>`;
+            html += `<span class="dle-faint dle-text-sm">pri ${entry.priority} · ~${entry.tokenEstimate}tok · ${usageStr}</span>`;
             html += `</div>`;
-            html += `<div style="font-size: 0.8em; opacity: 0.7;">${keysDisplay || '<em>no keywords</em>'}</div>`;
-            html += `<div id="dle_entry_${entryId}" style="display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--SmartThemeBorderColor, #333);">`;
-            html += `<div style="white-space: pre-wrap; font-size: 0.85em; max-height: 300px; overflow-y: auto; background: var(--SmartThemeBlurTintColor, #1a1a2e); padding: 8px; border-radius: 4px;">${escapeHtml(entry.content)}</div>`;
-            html += `<div style="margin-top: 6px; font-size: 0.8em; opacity: 0.7;">`;
+            html += `<div class="dle-text-xs dle-muted">${keysDisplay || '<em>no keywords</em>'}</div>`;
+            html += `<div id="dle_entry_${entryId}" style="display: none; margin-top: var(--dle-space-2); padding-top: var(--dle-space-2); border-top: 1px solid var(--dle-border);">`;
+            html += `<div class="dle-preview">${escapeHtml(entry.content)}</div>`;
+            html += `<div class="dle-text-xs dle-muted" style="margin-top: var(--dle-space-1);">`;
             html += `Links: ${entry.resolvedLinks.length > 0 ? entry.resolvedLinks.map(l => escapeHtml(l)).join(', ') : 'none'}`;
             html += ` · Tags: ${entry.tags.length > 0 ? entry.tags.map(t => escapeHtml(t)).join(', ') : 'none'}`;
             if (entry.requires.length > 0) html += ` · Requires: ${entry.requires.map(r => escapeHtml(r)).join(', ')}`;
@@ -232,12 +274,21 @@ export async function showBrowsePopup() {
             html += `</div>`;
             // "Why not?" diagnostic button
             if (chat && chat.length > 0 && !entry.constant) {
-                html += `<div id="dle_whynot_${entryId}" style="margin-top: 6px;"><button class="menu_button dle_whynot_btn" data-title="${escapeHtml(entry.title)}" style="font-size: 0.8em; padding: 2px 8px;">Why not injected?</button></div>`;
+                html += `<div id="dle_whynot_${entryId}" style="margin-top: var(--dle-space-1);"><button class="menu_button dle_whynot_btn dle-text-xs" data-title="${escapeHtml(entry.title)}" style="padding: 2px 8px;">Why not injected?</button></div>`;
             }
             html += `</div></div>`;
         }
-        listEl.innerHTML = html || '<p style="opacity: 0.5;">No entries match filters.</p>';
+        listEl.innerHTML = html || '<p class="dle-dimmed">No entries match filters.</p>';
     }
+
+    // Event delegation for entry detail expansion — registered once on container, not per render
+    container.addEventListener('click', (e) => {
+        const toggle = e.target.closest('.dle_entry_toggle');
+        if (!toggle) return;
+        const targetId = toggle.dataset.target;
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+    });
 
     // Event delegation for "Why not?" buttons — registered once on container, not per render
     container.addEventListener('click', (e) => {
@@ -248,18 +299,11 @@ export async function showBrowsePopup() {
         const entry = vaultIndex.find(en => en.title === title);
         if (!entry) return;
         const result = diagnoseEntry(entry, chat);
-        const stageColors = {
-            keyword_miss: '#ff9800', warmup: '#ff9800', probability: '#2196f3',
-            cooldown: '#ff9800', reinjection_cooldown: '#ff9800',
-            gating_requires: '#f44336', gating_excludes: '#f44336',
-            ai_rejected: '#9c27b0', budget_cut: '#ff9800',
-            no_keywords: '#f44336', scan_depth_zero: '#f44336',
-        };
-        const color = stageColors[result.stage] || '#999';
+        const color = STAGE_COLORS[result.stage] || '#999';
         const suggestions = result.suggestions.length > 0
-            ? `<br><small style="opacity:0.8;">Suggestion: ${escapeHtml(result.suggestions[0])}</small>`
+            ? `<br><small class="dle-muted">Suggestion: ${escapeHtml(result.suggestions[0])}</small>`
             : '';
-        btn.parentElement.innerHTML = `<div style="font-size: 0.85em; color: ${color}; padding: 4px 0;">${escapeHtml(result.detail)}${suggestions}</div>`;
+        btn.parentElement.innerHTML = `<div class="dle-text-sm" style="color: ${color}; padding: var(--dle-space-1) 0;">${escapeHtml(result.detail)}${suggestions}</div>`;
     });
 
     await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
@@ -342,29 +386,43 @@ export function runSimulation(chatMsgs) {
  * Show simulation results in a scrollable timeline popup.
  */
 export function showSimulationPopup(timeline) {
-    let html = '<div style="text-align: left;">';
+    // Build plain-text version for clipboard
+    const plainLines = [`Activation Simulation (${timeline.length} messages)`, ''];
+    for (const step of timeline) {
+        let line = `#${step.messageIndex + 1} ${step.speaker} (${step.active.length} active)`;
+        if (step.newlyActivated.length > 0) line += `  + ${step.newlyActivated.join(', ')}`;
+        if (step.deactivated.length > 0) line += `  - ${step.deactivated.join(', ')}`;
+        plainLines.push(line);
+    }
+    const plainText = plainLines.join('\n');
+
+    let html = '<div class="dle-popup">';
     html += `<h3>Activation Simulation (${timeline.length} messages)</h3>`;
-    html += '<div style="max-height: 60vh; overflow-y: auto;">';
+    html += buildCopyButton(plainText);
+    html += '<div class="dle-scroll-region">';
 
     for (const step of timeline) {
         const hasChanges = step.newlyActivated.length > 0 || step.deactivated.length > 0;
         const borderColor = hasChanges ? 'var(--SmartThemeQuoteColor, #4caf50)' : 'var(--SmartThemeBorderColor, #444)';
 
-        html += `<div style="border-left: 3px solid ${borderColor}; padding: 4px 8px; margin-bottom: 2px; font-size: 0.85em;">`;
+        html += `<div class="dle-text-sm" style="border-left: 3px solid ${borderColor}; padding: var(--dle-space-1) var(--dle-space-2); margin-bottom: 2px;">`;
         html += `<strong>#${step.messageIndex + 1} ${escapeHtml(step.speaker)}</strong>`;
-        html += ` <small style="opacity: 0.6;">(${step.active.length} active)</small>`;
+        html += ` <small class="dle-faint">(${step.active.length} active)</small>`;
 
         if (step.newlyActivated.length > 0) {
-            html += `<br><span style="color: #4caf50;">+ ${step.newlyActivated.map(t => escapeHtml(t)).join(', ')}</span>`;
+            html += `<br><span class="dle-success">+ ${step.newlyActivated.map(t => escapeHtml(t)).join(', ')}</span>`;
         }
         if (step.deactivated.length > 0) {
-            html += `<br><span style="color: #f44336;">- ${step.deactivated.map(t => escapeHtml(t)).join(', ')}</span>`;
+            html += `<br><span class="dle-error">- ${step.deactivated.map(t => escapeHtml(t)).join(', ')}</span>`;
         }
         html += '</div>';
     }
 
     html += '</div></div>';
-    callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+    callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+        wide: true, large: true, allowVerticalScrolling: true,
+        onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+    });
 }
 
 /**
@@ -373,7 +431,7 @@ export function showSimulationPopup(timeline) {
 export async function showGraphPopup() {
     await ensureIndexFresh();
     if (vaultIndex.length === 0) {
-        toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+        toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
         return;
     }
 
@@ -444,27 +502,61 @@ export async function showGraphPopup() {
         }
     }
 
+    // Build text summary for screen readers
+    const typeCounts = { regular: 0, constant: 0, seed: 0, bootstrap: 0 };
+    for (const n of nodes) typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
+
+    const edgeCountByNode = new Map();
+    for (const edge of edges) {
+        edgeCountByNode.set(edge.from, (edgeCountByNode.get(edge.from) || 0) + 1);
+        edgeCountByNode.set(edge.to, (edgeCountByNode.get(edge.to) || 0) + 1);
+    }
+    const topConnected = [...edgeCountByNode.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([idx, count]) => `${nodes[idx].title} (${count} connections)`);
+
+    const circularNames = circularPairs.map(key => {
+        const [a, b] = key.split(',').map(Number);
+        return `${nodes[a].title} <-> ${nodes[b].title}`;
+    });
+
+    let summaryHtml = `<p><strong>Totals:</strong> ${nodes.length} nodes, ${edges.length} edges</p>`;
+    summaryHtml += `<p><strong>By type:</strong> ${typeCounts.regular} regular, ${typeCounts.constant} constant, ${typeCounts.seed} seed, ${typeCounts.bootstrap} bootstrap</p>`;
+    if (topConnected.length > 0) {
+        summaryHtml += `<p><strong>Most connected:</strong></p><ul>${topConnected.map(t => `<li>${t}</li>`).join('')}</ul>`;
+    }
+    if (circularNames.length > 0) {
+        summaryHtml += `<p><strong>Circular requires:</strong></p><ul>${circularNames.map(t => `<li>${t}</li>`).join('')}</ul>`;
+    } else {
+        summaryHtml += `<p>No circular requires detected.</p>`;
+    }
+
     const container = document.createElement('div');
-    container.style.textAlign = 'left';
+    container.classList.add('dle-popup');
     const circularWarning = circularPairs.length > 0
-        ? `<p style="color: #f44336; font-size: 0.85em;">⚠ ${circularPairs.length} circular require pair(s) detected</p>`
+        ? `<p class="dle-error dle-text-sm">⚠ ${circularPairs.length} circular require pair(s) detected</p>`
         : '';
     container.innerHTML = `
         <h3>Entry Relationship Graph (${nodes.length} nodes, ${edges.length} edges)</h3>
         ${circularWarning}
-        <div style="display: flex; gap: 10px; margin-bottom: 8px; font-size: 0.8em; flex-wrap: wrap;">
-            <span><span style="color: #4caf50;">●</span> Regular</span>
-            <span><span style="color: #ff9800;">●</span> Constant</span>
-            <span><span style="color: #2196f3;">●</span> Seed</span>
-            <span><span style="color: #9c27b0;">●</span> Bootstrap</span>
-            <span style="opacity: 0.7;">—</span>
+        <div class="dle-text-xs" style="display: flex; gap: 10px; margin-bottom: var(--dle-space-2); flex-wrap: wrap;">
+            <span><span class="dle-success">●</span> Regular</span>
+            <span><span class="dle-warning">●</span> Constant</span>
+            <span><span class="dle-info">●</span> Seed</span>
+            <span><span class="dle-accent">●</span> Bootstrap</span>
+            <span class="dle-muted">—</span>
             <span><span style="color: #aac8ff;">—</span> Link</span>
-            <span><span style="color: #4caf50;">—</span> Requires</span>
-            <span><span style="color: #f44336;">—</span> Excludes</span>
-            <span><span style="color: #ff9800;">—</span> Cascade</span>
+            <span><span class="dle-success">—</span> Requires</span>
+            <span><span class="dle-error">—</span> Excludes</span>
+            <span><span class="dle-warning">—</span> Cascade</span>
         </div>
-        <canvas id="dle_graph_canvas" width="900" height="600" style="border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 4px; cursor: grab; width: 100%; background: var(--SmartThemeBlurTintColor, #0d0d1a);"></canvas>
-        <small style="opacity: 0.5;">Drag nodes to reposition. Right-click to pin/unpin. Scroll to zoom.</small>
+        <canvas id="dle_graph_canvas" width="900" height="600" style="border: 1px solid var(--dle-border); border-radius: 4px; cursor: grab; width: 100%; background: var(--dle-bg-surface);" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them, including links, requires, excludes, and cascade connections."></canvas>
+        <details class="dle-text-sm" style="margin-top: var(--dle-space-2);">
+            <summary>Text summary (for screen readers)</summary>
+            ${summaryHtml}
+        </details>
+        <small class="dle-dimmed">Drag nodes to reposition. Right-click to pin/unpin. Scroll to zoom.</small>
     `;
 
     callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: false });
@@ -722,7 +814,7 @@ export async function showOptimizePopup(entry, result) {
 
     const settings = getSettings();
     const html = `
-        <div style="text-align: left;">
+        <div class="dle-popup">
             <h3>Optimize Keywords: ${escapeHtml(entry.title)}</h3>
             <div style="display: flex; gap: 20px; margin-bottom: 10px;">
                 <div style="flex: 1;">
@@ -734,7 +826,7 @@ export async function showOptimizePopup(entry, result) {
                     <ul>${result.suggested.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul>
                 </div>
             </div>
-            ${result.reasoning ? `<p style="opacity: 0.7; font-size: 0.85em;"><strong>Reasoning:</strong> ${escapeHtml(result.reasoning)}</p>` : ''}
+            ${result.reasoning ? `<p class="dle-muted dle-text-sm"><strong>Reasoning:</strong> ${escapeHtml(result.reasoning)}</p>` : ''}
         </div>
     `;
 
@@ -782,7 +874,7 @@ export async function showOptimizePopup(entry, result) {
                 toastr.error(`Failed: ${data.error}`, 'DeepLore Enhanced');
             }
         } catch (err) {
-            toastr.error(`Error: ${err.message}`, 'DeepLore Enhanced');
+            toastr.error(classifyError(err), 'DeepLore Enhanced');
         }
     }
 }

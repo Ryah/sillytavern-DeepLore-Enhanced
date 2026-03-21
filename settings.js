@@ -11,7 +11,7 @@ export const MODULE_NAME = 'deeplore_enhanced';
 export const PROMPT_TAG = 'deeplore_enhanced';
 export const PROMPT_TAG_PREFIX = 'deeplore_';
 
-export const DEFAULT_AI_SYSTEM_PROMPT = `You are Claude Code. You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of lore entries, select which entries are most relevant to inject into the current conversation context.
+export const DEFAULT_AI_SYSTEM_PROMPT = `You are a lore librarian for a roleplay session. Given recent chat messages and a manifest of lore entries, select which entries are most relevant to inject into the current conversation context.
 
 You may select up to {{maxEntries}} entries. Select fewer if not all are relevant.
 
@@ -27,10 +27,17 @@ Selection criteria (in order of importance):
 5. Thematic relevance - Entries matching the tone or themes (betrayal, romance, combat, etc.)
 
 Guidelines:
-- Focus on what is relevant RIGHT NOW in the conversation
+- Focus on what is relevant RIGHT NOW in the conversation, especially the last 1-2 messages. Use older messages for context.
 - Prefer fewer, highly relevant entries over many loosely related ones
 - Consider the token cost (Ntok) shown for each entry when making selections
 - Use [Related: ...] and → links to find connected lore
+
+Do NOT select entries merely because they share a keyword with the chat — the entry must be contextually relevant to the current narrative beat. For example, if a character mentions "fire" in passing, do not select every entry that has "fire" as a keyword unless fire is actually important to the scene.
+
+Confidence levels:
+- "high": directly mentioned by name, or the scene is explicitly about this entry's subject
+- "medium": contextually relevant to the current situation but not directly mentioned
+- "low": tangentially related, might add useful background color
 
 Respond with a JSON array of objects. Each object has:
 - "title": exact entry name from the manifest
@@ -123,6 +130,8 @@ export const defaultSettings = {
     optimizeKeysMode: 'keyword-only',
     // Matching extras
     characterContextScan: false,
+    // Fuzzy (BM25) search — supplements keyword matching with TF-IDF scoring
+    fuzzySearchEnabled: false,
     // Multi-Vault
     vaults: [],
     // UI State
@@ -133,6 +142,8 @@ export const defaultSettings = {
     decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
     // Analytics
     analyticsData: {},
+    // First-run setup wizard dismissed flag
+    _setupDismissed: false,
     // Settings version — increment to trigger migrations
     settingsVersion: 1,
 };

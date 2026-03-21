@@ -634,7 +634,7 @@ When writing Valen's internal thoughts, follow these guidelines:
 
 ### 12. Cooldown and Warmup
 
-**Cooldown** prevents an entry from triggering again for N generations after it fires. **Warmup** requires a keyword to appear in N separate messages before the entry triggers for the first time.
+**Cooldown** prevents an entry from triggering again for N generations after it fires. **Warmup** requires a keyword to appear N or more times total in the scan text before the entry triggers.
 
 ```markdown
 ---
@@ -652,9 +652,9 @@ priority: 70
 # Prevents atmospheric descriptions from repeating too often.
 cooldown: 5
 
-# The keyword must appear in at least 2 separate messages before
-# this entry triggers for the first time. Prevents one-off mentions
-# from pulling in the entry.
+# The keyword must appear at least 2 times total in the scan text
+# before this entry triggers. Prevents one-off mentions from pulling
+# in the entry.
 warmup: 2
 
 summary: "Greymarch weather patterns and atmospheric descriptions. Select when weather, climate, travel conditions, or outdoor scenes come up. Low priority flavor entry."

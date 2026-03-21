@@ -59,6 +59,11 @@ export let consecutiveInjections = new Map();
 /** Last health check result for settings badge */
 export let lastHealthResult = null;
 
+/** Vault fetch failure tracking: how many enabled vaults failed during the last index build */
+export let lastVaultFailureCount = 0;
+/** How many vaults were attempted during the last index build */
+export let lastVaultAttemptCount = 0;
+
 /** Context Cartographer: previous sources for diff display */
 export let previousSources = null;
 
@@ -100,6 +105,8 @@ export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
 export function setConsecutiveInjections(v) { consecutiveInjections = v; }
 export function setLastHealthResult(v) { lastHealthResult = v; }
+export function setLastVaultFailureCount(v) { lastVaultFailureCount = v; }
+export function setLastVaultAttemptCount(v) { lastVaultAttemptCount = v; }
 export function setPreviousSources(v) { previousSources = v; }
 export function setVaultAvgTokens(v) { vaultAvgTokens = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
@@ -139,16 +146,22 @@ const AI_CIRCUIT_THRESHOLD = 2;      // consecutive failures to trip
 const AI_CIRCUIT_COOLDOWN = 30_000;  // ms before half-open probe
 
 export function recordAiFailure() {
+    const wasClosed = !aiCircuitOpen;
     aiCircuitFailures++;
     if (aiCircuitFailures >= AI_CIRCUIT_THRESHOLD) {
         aiCircuitOpen = true;
         aiCircuitOpenedAt = Date.now();
     }
+    // Notify observers if state changed (closed → open)
+    if (wasClosed && aiCircuitOpen) notifyCircuitStateChanged();
 }
 export function recordAiSuccess() {
+    const wasOpen = aiCircuitOpen;
     aiCircuitFailures = 0;
     aiCircuitOpen = false;
     aiCircuitOpenedAt = 0;
+    // Notify observers if state changed (open → closed)
+    if (wasOpen) notifyCircuitStateChanged();
 }
 export function isAiCircuitOpen() {
     if (!aiCircuitOpen) return false;
@@ -198,4 +211,65 @@ export function notifyAiStatsUpdated() {
     for (const cb of aiStatsCallbacks) {
         try { cb(); } catch (err) { console.warn('[DLE] AI stats callback error:', err.message); }
     }
+}
+
+// ── AI circuit breaker state callbacks ──
+// Same observer pattern: notifies UI when the circuit breaker opens or closes.
+
+/** @type {Array<() => void>} */
+const circuitStateCallbacks = [];
+
+/** Register a callback to run when the AI circuit breaker state changes. */
+export function onCircuitStateChanged(callback) {
+    circuitStateCallbacks.push(callback);
+}
+
+/** Clear all registered circuit state callbacks (call before re-registering to prevent accumulation). */
+export function clearCircuitStateCallbacks() { circuitStateCallbacks.length = 0; }
+
+/** Invoke all registered circuit state callbacks. Called by recordAiFailure/recordAiSuccess on state transitions. */
+export function notifyCircuitStateChanged() {
+    for (const cb of circuitStateCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] Circuit state callback error:', err.message); }
+    }
+}
+
+// ── Overall status computation ──
+
+/**
+ * Compute the overall system status for the header badge.
+ * Pure function that reads current state values.
+ * @returns {'ok'|'degraded'|'limited'|'offline'}
+ */
+export function computeOverallStatus() {
+    const hasEntries = vaultIndex.length > 0;
+    const allVaultsFailed = lastVaultAttemptCount > 0 && lastVaultFailureCount >= lastVaultAttemptCount;
+    const someVaultsFailed = lastVaultFailureCount > 0 && lastVaultFailureCount < lastVaultAttemptCount;
+    const circuitTripped = isAiCircuitOpen();
+    const usingStaleCache = hasEntries && !indexEverLoaded;
+
+    // Red: no vaults reachable AND no cached data
+    if (!hasEntries && (allVaultsFailed || lastVaultAttemptCount === 0)) {
+        return 'offline';
+    }
+
+    // Orange: AI circuit breaker tripped or running from stale cache only
+    if (circuitTripped || usingStaleCache) {
+        return 'limited';
+    }
+
+    // Yellow: some vaults unreachable, or health grade is B/C/D
+    if (someVaultsFailed) {
+        return 'degraded';
+    }
+    if (lastHealthResult) {
+        const { errors, warnings } = lastHealthResult;
+        // Grade B or worse: errors > 0, or warnings > 3
+        if (errors > 0 || warnings > 3) {
+            return 'degraded';
+        }
+    }
+
+    // Green: all good
+    return 'ok';
 }

@@ -10,7 +10,7 @@ import { ConnectionManagerRequestService } from '../../../shared.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { eventSource, event_types } from '../../../../events.js';
-import { buildAiChatContext, simpleHash } from '../core/utils.js';
+import { buildAiChatContext, simpleHash, NO_ENTRIES_MSG } from '../core/utils.js';
 import { formatAndGroup } from '../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating } from './stages.js';
 import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache } from '../settings.js';
@@ -20,9 +20,10 @@ import {
     vaultIndex, aiSearchStats, indexTimestamp,
     injectionHistory, generationCount, lastHealthResult,
     lastInjectionSources, lastPipelineTrace, trackerKey,
+    isAiCircuitOpen, computeOverallStatus,
     setVaultIndex, setIndexTimestamp, setLastHealthResult,
-    onIndexUpdated, onAiStatsUpdated,
-    clearIndexUpdatedCallbacks, clearAiStatsCallbacks,
+    onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
+    clearIndexUpdatedCallbacks, clearAiStatsCallbacks, clearCircuitStateCallbacks,
 } from './state.js';
 import { ensureIndexFresh, getMaxResponseTokens } from './vault.js';
 import {
@@ -35,6 +36,7 @@ import { buildIndexWithReuse } from './vault.js';
 import { showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup } from './popups.js';
 import { diagnoseEntry, runHealthCheck } from './diagnostics.js';
 import { showSourcesPopup } from './cartographer.js';
+import { STAGE_COLORS } from './helpers.js';
 
 // ============================================================================
 // Connection UI Helpers (moved from ai.js)
@@ -203,7 +205,7 @@ function renderVaultList(settings) {
                     <i class="fa-solid fa-trash" aria-hidden="true"></i>
                 </div>
             </div>
-            <span class="dle_vault_status deeplore_enhanced_status dle_text_sm"></span>
+            <span class="dle_vault_status dle_status dle_text_sm"></span>
         </div>`;
     }
 
@@ -371,7 +373,7 @@ export function updateIndexStats() {
                         const icon = item.severity === 'error' ? '\u274C' : item.severity === 'warning' ? '\u26A0\uFE0F' : '\u2705';
                         lines.push(`${icon} [${item.entry}] ${item.detail}`);
                     }
-                    const html = `<div style="text-align: left; max-height: 60vh; overflow-y: auto;"><h3>Health Check</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${escapeHtml(lines.join('\n'))}</pre></div>`;
+                    const html = `<div class="dle-popup dle-scroll-region"><h3>Health Check</h3><pre class="dle-text-sm" style="white-space: pre-wrap;">${escapeHtml(lines.join('\n'))}</pre></div>`;
                     callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
                 });
             }
@@ -380,13 +382,37 @@ export function updateIndexStats() {
         }
     }
 
-    // Update header badge with entry count
+    // Update header badge with entry count and system status
+    updateHeaderBadge();
+}
+
+/** Status dot characters and labels for each overall status level. */
+const STATUS_DISPLAY = {
+    ok:       { dot: '\u{1F7E2}', label: 'OK',       title: 'All systems operational' },
+    degraded: { dot: '\u{1F7E1}', label: 'Degraded',  title: 'Some vaults unreachable or health issues detected' },
+    limited:  { dot: '\u{1F7E0}', label: 'Limited',   title: 'AI search paused (circuit breaker) or using stale cache' },
+    offline:  { dot: '\u{1F534}', label: 'Offline',    title: 'No vaults reachable and no cached data' },
+};
+
+/** Update the header badge with entry count and overall status indicator. */
+function updateHeaderBadge() {
     const headerBadge = document.getElementById('dle_header_badge');
-    if (headerBadge) {
-        if (vaultIndex.length > 0) {
-            headerBadge.textContent = `(${vaultIndex.length} entries)`;
+    if (!headerBadge) return;
+
+    if (vaultIndex.length > 0) {
+        const status = computeOverallStatus();
+        const info = STATUS_DISPLAY[status];
+        headerBadge.textContent = `(${vaultIndex.length} entries | ${info.dot} ${info.label})`;
+        headerBadge.title = info.title;
+    } else {
+        const status = computeOverallStatus();
+        if (status === 'offline') {
+            const info = STATUS_DISPLAY.offline;
+            headerBadge.textContent = `(${info.dot} ${info.label})`;
+            headerBadge.title = info.title;
         } else {
             headerBadge.textContent = '';
+            headerBadge.title = '';
         }
     }
 }
@@ -394,7 +420,11 @@ export function updateIndexStats() {
 export function updateAiStats() {
     const statsEl = document.getElementById('dle_ai_stats');
     if (statsEl) {
-        statsEl.textContent = `AI calls: ${aiSearchStats.calls} | Cache hits: ${aiSearchStats.cachedHits} | Tokens: ~${aiSearchStats.totalInputTokens} in / ~${aiSearchStats.totalOutputTokens} out`;
+        let text = `AI calls: ${aiSearchStats.calls} | Cache hits: ${aiSearchStats.cachedHits} | Tokens: ~${aiSearchStats.totalInputTokens} in / ~${aiSearchStats.totalOutputTokens} out`;
+        if (isAiCircuitOpen()) {
+            text += ' | <span style="color: var(--dle-warning, #ff9800); font-weight: bold;" title="AI search temporarily paused due to repeated failures. Will auto-retry after cooldown.">[AI paused]</span>';
+        }
+        statsEl.innerHTML = text;
     }
 }
 
@@ -418,8 +448,7 @@ function updateModeVisibility(settings) {
     $('#dle_scan_depth_row').toggle(!isAiOnly);
 
     // Grey out Optimize Keys Mode in AI-only (keywords aren't used for matching)
-    $('#dle_optimize_keys_row').css('opacity', isAiOnly ? 0.4 : 1);
-    $('#dle_optimize_keys_mode').prop('disabled', isAiOnly);
+    $('#dle_optimize_keys_row').toggleClass('dle-disabled', isAiOnly);
 
     // Claude Code prefix toggle: only visible when proxy mode AND AI enabled
     $('#dle_ai_claude_prefix_row').toggle(aiEnabled && isProxy);
@@ -436,7 +465,7 @@ function updateInjectionModeVisibility(settings) {
     // Grey out notebook position controls in prompt_list mode
     const nbControls = $('#dle_notebook_position_controls');
     nbControls.find('input, select').prop('disabled', isPromptList);
-    nbControls.css('opacity', isPromptList ? 0.4 : 1);
+    nbControls.toggleClass('dle-disabled', isPromptList);
     $('#dle_notebook_pm_note').toggle(isPromptList);
 }
 
@@ -465,11 +494,12 @@ export function loadSettingsUI() {
     // Clear previous callbacks to prevent accumulation on repeated init
     clearIndexUpdatedCallbacks();
     clearAiStatsCallbacks();
+    clearCircuitStateCallbacks();
 
     const settings = getSettings();
 
     $('#dle_enabled').prop('checked', settings.enabled);
-    $('#dle_enabled').closest('.inline-drawer-content').find('> :not(:first-child)').css('opacity', settings.enabled ? 1 : 0.5);
+    $('#dle_enabled').closest('.inline-drawer-content').find('> :not(:first-child)').toggleClass('dle-dimmed', !settings.enabled);
     // Multi-vault list rendering
     renderVaultList(settings);
     $('#dle_tag').val(settings.lorebookTag);
@@ -493,7 +523,7 @@ export function loadSettingsUI() {
     $('#dle_role').val(settings.injectionRole);
     // Depth/role only apply for in-chat position (value 1)
     const isInChat = settings.injectionPosition === 1;
-    $('#dle_depth, #dle_role').prop('disabled', !isInChat).css('opacity', isInChat ? 1 : 0.4);
+    $('#dle_depth, #dle_role').prop('disabled', !isInChat).toggleClass('dle-disabled', !isInChat);
     $('#dle_allow_wi_scan').prop('checked', settings.allowWIScan);
     $('#dle_recursive_scan').prop('checked', settings.recursiveScan);
     $('#dle_max_recursion').val(settings.maxRecursionSteps);
@@ -532,7 +562,7 @@ export function loadSettingsUI() {
     $('#dle_decay_enabled').prop('checked', settings.decayEnabled);
     $('#dle_decay_boost_threshold').val(settings.decayBoostThreshold);
     $('#dle_decay_penalty_threshold').val(settings.decayPenaltyThreshold);
-    $('#dle_decay_controls').css('opacity', settings.decayEnabled ? 1 : 0.5);
+    $('#dle_decay_controls').toggleClass('dle-dimmed', !settings.decayEnabled);
     $('#dle_decay_controls input').prop('disabled', !settings.decayEnabled);
 
     // Context Cartographer settings
@@ -546,7 +576,7 @@ export function loadSettingsUI() {
     $(`input[name="dle_notebook_position"][value="${settings.notebookPosition}"]`).prop('checked', true);
     $('#dle_notebook_depth').val(settings.notebookDepth);
     $('#dle_notebook_role').val(settings.notebookRole);
-    $('#dle_notebook_controls').css('opacity', settings.notebookEnabled ? 1 : 0.5);
+    $('#dle_notebook_controls').toggleClass('dle-dimmed', !settings.notebookEnabled);
 
     // Session Scribe settings
     $('#dle_scribe_enabled').prop('checked', settings.scribeEnabled);
@@ -621,6 +651,13 @@ export function loadSettingsUI() {
     onAiStatsUpdated(() => {
         updateAiStats();
     });
+
+    // Register circuit breaker state change callback.
+    // When the AI circuit breaker opens or closes, update the AI stats line and header badge.
+    onCircuitStateChanged(() => {
+        updateAiStats();
+        updateHeaderBadge();
+    });
 }
 
 // ============================================================================
@@ -636,13 +673,13 @@ export function bindSettingsEvents(buildIndexFn) {
 
     // Invalidate settings cache on any input change in our settings panel.
     // This covers all ~80 handlers below with a single delegated event.
-    $('.deeplore_enhanced_settings').on('change input', () => invalidateSettingsCache());
+    $('.dle_settings').on('change input', () => invalidateSettingsCache());
 
     $('#dle_enabled').on('change', function () {
         settings.enabled = $(this).prop('checked');
         saveSettingsDebounced();
         setupSyncPolling(buildIndexFn, buildIndexWithReuse); // Stop/start polling based on enabled state
-        $(this).closest('.inline-drawer-content').find('> :not(:first-child)').css('opacity', settings.enabled ? 1 : 0.5);
+        $(this).closest('.inline-drawer-content').find('> :not(:first-child)').toggleClass('dle-dimmed', !settings.enabled);
     });
 
     // Multi-vault list events (delegated)
@@ -731,7 +768,7 @@ export function bindSettingsEvents(buildIndexFn) {
     $('input[name="dle_position"]').on('change', function () {
         settings.injectionPosition = Number($(this).val());
         const inChat = settings.injectionPosition === 1;
-        $('#dle_depth, #dle_role').prop('disabled', !inChat).css('opacity', inChat ? 1 : 0.4);
+        $('#dle_depth, #dle_role').prop('disabled', !inChat).toggleClass('dle-disabled', !inChat);
         saveSettingsDebounced();
     });
 
@@ -892,7 +929,7 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_notebook_enabled').on('change', function () {
         settings.notebookEnabled = $(this).prop('checked');
         saveSettingsDebounced();
-        $('#dle_notebook_controls').css('opacity', settings.notebookEnabled ? 1 : 0.5);
+        $('#dle_notebook_controls').toggleClass('dle-dimmed', !settings.notebookEnabled);
     });
 
     $('input[name="dle_notebook_position"]').on('change', function () {
@@ -1048,6 +1085,39 @@ export function bindSettingsEvents(buildIndexFn) {
         saveSettingsDebounced();
     });
 
+    // "Copy from AI Search" buttons on Scribe and Auto Lorebook connection cards
+    $('.dle-copy-ai-btn').on('click', function () {
+        const target = $(this).data('copy-target');
+        const mode = settings.aiSearchConnectionMode; // profile or proxy
+
+        if (target === 'scribe') {
+            settings.scribeConnectionMode = mode;
+            settings.scribeProfileId = settings.aiSearchProfileId;
+            settings.scribeProxyUrl = settings.aiSearchProxyUrl;
+            settings.scribeModel = settings.aiSearchModel;
+            // Update UI
+            $(`input[name="dle_scribe_connection_mode"][value="${mode}"]`).prop('checked', true);
+            $('#dle_scribe_proxy_url').val(settings.scribeProxyUrl);
+            $('#dle_scribe_model').val(settings.scribeModel);
+            populateScribeProfileDropdown();
+            updateScribeConnectionVisibility();
+        } else if (target === 'autosuggest') {
+            settings.autoSuggestConnectionMode = mode;
+            settings.autoSuggestProfileId = settings.aiSearchProfileId;
+            settings.autoSuggestProxyUrl = settings.aiSearchProxyUrl;
+            settings.autoSuggestModel = settings.aiSearchModel;
+            // Update UI
+            $(`input[name="dle_autosuggest_connection_mode"][value="${mode}"]`).prop('checked', true);
+            $('#dle_autosuggest_proxy_url').val(settings.autoSuggestProxyUrl);
+            $('#dle_autosuggest_model').val(settings.autoSuggestModel);
+            populateAutoSuggestProfileDropdown();
+            updateAutoSuggestConnectionVisibility();
+        }
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+        toastr.success('Connection settings copied from AI Search.', 'DeepLore Enhanced');
+    });
+
     // Claude Code prefix toggle
     $('#dle_ai_claude_prefix').on('change', function () {
         settings.aiSearchClaudeCodePrefix = $(this).prop('checked');
@@ -1070,7 +1140,7 @@ export function bindSettingsEvents(buildIndexFn) {
     $('#dle_decay_enabled').on('change', function () {
         settings.decayEnabled = $(this).prop('checked');
         saveSettingsDebounced();
-        $('#dle_decay_controls').css('opacity', settings.decayEnabled ? 1 : 0.5);
+        $('#dle_decay_controls').toggleClass('dle-dimmed', !settings.decayEnabled);
         $('#dle_decay_controls input').prop('disabled', !settings.decayEnabled);
     });
 
@@ -1086,7 +1156,13 @@ export function bindSettingsEvents(buildIndexFn) {
         saveSettingsDebounced();
     });
 
-    // Advanced section toggles
+    // Advanced section toggles — keyboard support (Enter/Space activate like a button)
+    $('.dle_advanced_toggle').on('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).trigger('click');
+        }
+    });
     $('.dle_advanced_toggle').on('click', function () {
         const section = $(this).data('section');
         const content = $(`.dle_advanced_section[data-section="${section}"]`);
@@ -1119,14 +1195,14 @@ export function bindSettingsEvents(buildIndexFn) {
 
     // Quick Actions Bar
     $('#dle_qa_browse').on('click', async () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         await showBrowsePopup();
     });
 
     $('#dle_qa_map').on('click', async () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         if (!chat || chat.length === 0) {
-            toastr.warning('No active chat.', 'DeepLore Enhanced');
+            toastr.info('No active chat.', 'DeepLore Enhanced');
             return;
         }
         if (lastInjectionSources && lastInjectionSources.length > 0) {
@@ -1137,10 +1213,10 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_health').on('click', () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         const health = runHealthCheck();
         if (!health) {
-            toastr.warning('No entries indexed.', 'DeepLore Enhanced');
+            toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
             return;
         }
         let grade;
@@ -1155,12 +1231,12 @@ export function bindSettingsEvents(buildIndexFn) {
             const icon = item.severity === 'error' ? '\u274C' : item.severity === 'warning' ? '\u26A0\uFE0F' : '\u2705';
             lines.push(`${icon} [${item.entry}] ${item.detail}`);
         }
-        const html = `<div style="text-align: left; max-height: 60vh; overflow-y: auto;"><h3>Health Check</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${escapeHtml(lines.join('\n'))}</pre></div>`;
+        const html = `<div class="dle-popup dle-scroll-region"><h3>Health Check</h3><pre class="dle-text-sm" style="white-space: pre-wrap;">${escapeHtml(lines.join('\n'))}</pre></div>`;
         callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     });
 
     $('#dle_qa_refresh').on('click', async function () {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         const btn = $(this);
         btn.find('i').removeClass('fa-sync').addClass('fa-spinner fa-spin');
         try {
@@ -1182,17 +1258,17 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_graph').on('click', async () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         await ensureIndexFresh();
-        if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
+        if (vaultIndex.length === 0) { toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced'); return; }
         showGraphPopup();
     });
 
     $('#dle_qa_simulate').on('click', async () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
-        if (!chat || chat.length === 0) { toastr.warning('No active chat.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!chat || chat.length === 0) { toastr.info('No active chat.', 'DeepLore Enhanced'); return; }
         await ensureIndexFresh();
-        if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
+        if (vaultIndex.length === 0) { toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced'); return; }
         toastr.info('Running simulation...', 'DeepLore Enhanced', { timeOut: 2000 });
         const timeline = runSimulation(chat);
         showSimulationPopup(timeline);
@@ -1200,7 +1276,7 @@ export function bindSettingsEvents(buildIndexFn) {
 
     $('#dle_qa_analytics').on('click', () => {
         const currentSettings = getSettings();
-        if (!currentSettings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!currentSettings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         const analytics = currentSettings.analyticsData || {};
         if (Object.keys(analytics).length === 0) {
             toastr.info('No analytics data yet. Generate some messages first.', 'DeepLore Enhanced');
@@ -1209,20 +1285,20 @@ export function bindSettingsEvents(buildIndexFn) {
         // Show analytics summary as popup
         const sorted = Object.entries(analytics).sort((a, b) => (b[1].injected || 0) - (a[1].injected || 0));
         const lines = sorted.slice(0, 15).map(([t, d]) => `${escapeHtml(t.replace(/^[^:]*:/, ''))}: ${d.injected || 0} injections, ${d.matched || 0} matches`);
-        const analyticsHtml = `<div style="text-align: left;"><h3>Entry Analytics</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${lines.join('\n')}</pre><small style="opacity: 0.6;">${sorted.length} entries tracked</small></div>`;
+        const analyticsHtml = `<div class="dle-popup"><h3>Entry Analytics</h3><pre class="dle-text-sm" style="white-space: pre-wrap;">${lines.join('\n')}</pre><small class="dle-faint">${sorted.length} entries tracked</small></div>`;
         callGenericPopup(analyticsHtml, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     });
 
     $('#dle_qa_optimize').on('click', async () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         await ensureIndexFresh();
-        if (vaultIndex.length === 0) { toastr.warning('No entries indexed.', 'DeepLore Enhanced'); return; }
+        if (vaultIndex.length === 0) { toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced'); return; }
 
         // Show entry selection popup
         const entryOptions = vaultIndex.map(e => `<option value="${escapeHtml(e.title)}">${escapeHtml(e.title)} (${e.keys.length} keys)</option>`).join('');
-        const selectHtml = `<div style="text-align: left;">
+        const selectHtml = `<div class="dle-popup">
             <h3>Optimize Keywords</h3>
-            <p style="opacity: 0.7; font-size: 0.85em;">Select an entry to optimize its keywords using AI.</p>
+            <p class="dle-muted dle-text-sm">Select an entry to optimize its keywords using AI.</p>
             <select id="dle_optimize_entry_select" class="text_pole" style="width: 100%;">${entryOptions}</select>
         </div>`;
         const confirmed = await callGenericPopup(selectHtml, POPUP_TYPE.CONFIRM, '', { wide: true, okButton: 'Optimize', cancelButton: 'Cancel' });
@@ -1237,7 +1313,7 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_qa_inspect').on('click', () => {
-        if (!settings.enabled) { toastr.warning('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
+        if (!settings.enabled) { toastr.info('Enable DeepLore Enhanced first.', 'DeepLore Enhanced'); return; }
         if (!lastPipelineTrace) {
             toastr.info('No pipeline trace yet. Generate a message first.', 'DeepLore Enhanced');
             return;
@@ -1254,7 +1330,7 @@ export function bindSettingsEvents(buildIndexFn) {
             lines.push('', `\u2713 Injected (${t.injected.length}, ~${t.injectedTokens} tokens / ${t.budgetLimit || '?'} budget)`);
             for (const e of t.injected) lines.push(`  \u2022 ${e.title} (~${e.tokens} tokens)`);
         }
-        const traceHtml = `<div style="text-align: left;"><h3>Pipeline Inspector</h3><pre style="white-space: pre-wrap; font-size: 0.85em;">${escapeHtml(lines.join('\n'))}</pre></div>`;
+        const traceHtml = `<div class="dle-popup"><h3>Pipeline Inspector</h3><pre class="dle-text-sm" style="white-space: pre-wrap;">${escapeHtml(lines.join('\n'))}</pre></div>`;
         callGenericPopup(traceHtml, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
     });
 
@@ -1332,12 +1408,12 @@ export function bindSettingsEvents(buildIndexFn) {
 
             // Show detailed popup if multiple vaults or any failures
             if (results.length > 1 || !allOk) {
-                let html = `<div style="text-align: left;"><h3>${allOk ? 'All Vaults Connected' : 'Connection Results'}</h3><ul style="list-style: none; padding: 0;">`;
+                let html = `<div class="dle-popup"><h3>${allOk ? 'All Vaults Connected' : 'Connection Results'}</h3><ul style="list-style: none; padding: 0;">`;
                 for (const r of results) {
                     const icon = r.ok ? '\u2713' : '\u2717';
-                    const color = r.ok ? 'var(--dle-success, #4caf50)' : 'var(--dle-error, #f44336)';
+                    const cls = r.ok ? 'dle-success' : 'dle-error';
                     const detail = r.ok ? (r.auth ? 'Connected' : 'Connected (no auth)') : (r.error || 'Failed');
-                    html += `<li style="margin-bottom: 6px;"><span style="color: ${color}; font-weight: bold;">${icon}</span> <strong>${escapeHtml(r.name)}</strong> — ${escapeHtml(detail)}</li>`;
+                    html += `<li style="margin-bottom: var(--dle-space-1);"><span class="${cls}" style="font-weight: bold;">${icon}</span> <strong>${escapeHtml(r.name)}</strong> — ${escapeHtml(detail)}</li>`;
                 }
                 html += '</ul></div>';
                 callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
@@ -1387,13 +1463,13 @@ export function bindSettingsEvents(buildIndexFn) {
         const settings = getSettings();
 
         if (!chat || chat.length === 0) {
-            toastr.warning('No active chat. Start a conversation first.', 'DeepLore Enhanced');
+            toastr.info('No active chat. Start a conversation first.', 'DeepLore Enhanced');
             return;
         }
 
         await ensureIndexFresh();
         if (vaultIndex.length === 0) {
-            toastr.warning('No vault index. Click "Refresh Index" first.', 'DeepLore Enhanced');
+            toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
             return;
         }
 
@@ -1443,12 +1519,12 @@ export function bindSettingsEvents(buildIndexFn) {
 
         // Build preview HTML
         const previewHtml = `
-            <div style="text-align: left; font-family: monospace; font-size: 0.85em;">
+            <div class="dle-popup dle-popup--mono">
                 <h3>Mode: ${escapeHtml(modeLabel)}</h3>
                 <h3>System Prompt</h3>
-                <div style="background: var(--SmartThemeBlurTintColor, #1a1a2e); padding: 10px; border-radius: 5px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-bottom: 15px;">${escapeHtml(systemPrompt)}</div>
+                <div class="dle-preview dle-preview--short" style="margin-bottom: 15px;">${escapeHtml(systemPrompt)}</div>
                 <h3>User Message</h3>
-                <div style="background: var(--SmartThemeBlurTintColor, #1a1a2e); padding: 10px; border-radius: 5px; white-space: pre-wrap; max-height: 400px; overflow-y: auto;">${escapeHtml(userMessage)}</div>
+                <div class="dle-preview dle-preview--tall">${escapeHtml(userMessage)}</div>
             </div>
         `;
 
@@ -1484,7 +1560,7 @@ export function bindSettingsEvents(buildIndexFn) {
         const settings = getSettings();
 
         if (!chat || chat.length === 0) {
-            toastr.warning('No active chat. Start a conversation first.', 'DeepLore Enhanced');
+            toastr.info('No active chat. Start a conversation first.', 'DeepLore Enhanced');
             return;
         }
 
@@ -1494,7 +1570,7 @@ export function bindSettingsEvents(buildIndexFn) {
             await ensureIndexFresh();
 
             if (vaultIndex.length === 0) {
-                toastr.warning('No entries indexed. Check your Obsidian connection and lorebook tag.', 'DeepLore Enhanced');
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return;
             }
 
@@ -1532,7 +1608,7 @@ export function bindSettingsEvents(buildIndexFn) {
             const positionLabels = { 0: 'After', 1: 'In-chat', 2: 'Before' };
             const roleLabels = { 0: 'System', 1: 'User', 2: 'Assistant' };
 
-            let html = '<div style="text-align: left; font-family: monospace; font-size: 0.85em;">';
+            let html = '<div class="dle-popup dle-popup--mono">';
 
             // Summary
             html += `<h3>Match Summary</h3>`;
@@ -1559,13 +1635,13 @@ export function bindSettingsEvents(buildIndexFn) {
             // Injected entries table
             if (injected.length > 0) {
                 html += `<h3>Would Inject (${injectedCount} entries, ~${totalTokens} tokens)</h3>`;
-                html += `<table style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">`;
-                html += `<tr style="border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));">`;
-                html += `<th style="text-align: left; padding: 4px;">Title</th>`;
-                html += `<th style="text-align: left; padding: 4px;">Matched By</th>`;
-                html += `<th style="text-align: right; padding: 4px;">Priority</th>`;
-                html += `<th style="text-align: right; padding: 4px;">Tokens</th>`;
-                html += `<th style="text-align: left; padding: 4px;">Position</th>`;
+                html += `<table class="dle-table" style="margin-bottom: 15px;">`;
+                html += `<tr>`;
+                html += `<th>Title</th>`;
+                html += `<th>Matched By</th>`;
+                html += `<th style="text-align: right;">Priority</th>`;
+                html += `<th style="text-align: right;">Tokens</th>`;
+                html += `<th>Position</th>`;
                 html += `</tr>`;
                 for (const entry of injected) {
                     const pos = entry.injectionPosition ?? settings.injectionPosition;
@@ -1574,15 +1650,15 @@ export function bindSettingsEvents(buildIndexFn) {
                     const posLabel = pos === 1
                         ? `In-chat @${depth} (${roleLabels[role] || '?'})`
                         : (positionLabels[pos] || '?');
-                    html += `<tr style="border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));">`;
-                    html += `<td style="padding: 4px;">${escapeHtml(entry.title)}</td>`;
-                    html += `<td style="padding: 4px; opacity: 0.8;">${escapeHtml(matchedKeys.get(entry.title) || '?')}</td>`;
-                    html += `<td style="text-align: right; padding: 4px;">${entry.priority}</td>`;
+                    html += `<tr style="border-bottom: 1px solid var(--dle-border);">`;
+                    html += `<td>${escapeHtml(entry.title)}</td>`;
+                    html += `<td class="dle-muted">${escapeHtml(matchedKeys.get(entry.title) || '?')}</td>`;
+                    html += `<td style="text-align: right;">${entry.priority}</td>`;
                     const tokenLabel = entry._truncated
                         ? `~${entry.tokenEstimate} <small style="opacity:0.6;">(truncated from ${entry._originalTokens})</small>`
                         : `${entry.tokenEstimate}`;
-                    html += `<td style="text-align: right; padding: 4px;">${tokenLabel}</td>`;
-                    html += `<td style="padding: 4px; opacity: 0.8;">${posLabel}</td>`;
+                    html += `<td style="text-align: right;">${tokenLabel}</td>`;
+                    html += `<td class="dle-muted">${posLabel}</td>`;
                     html += `</tr>`;
                 }
                 html += `</table>`;
@@ -1644,20 +1720,13 @@ export function bindSettingsEvents(buildIndexFn) {
                     const probInfo = entry.probability !== null ? ` (probability: ${entry.probability})` : '';
                     const diagId = simpleHash(entry.filename + '_diag');
                     const diagnosis = diagnoseEntry(entry, chat);
-                    const stageColors = {
-                        keyword_miss: '#ff9800', no_keywords: '#f44336', scan_depth_zero: '#f44336',
-                        warmup: '#ff9800', cooldown: '#ff9800', reinjection_cooldown: '#ff9800',
-                        probability: '#9c27b0', refine_keys: '#ff9800',
-                        gating_requires: '#f44336', gating_excludes: '#f44336',
-                        ai_rejected: '#2196f3', budget_cut: '#ff9800',
-                    };
-                    const stageColor = stageColors[diagnosis.stage] || '#999';
+                    const stageColor = STAGE_COLORS[diagnosis.stage] || '#999';
                     html += `<li class="dle_diag_toggle" data-target="dle_diag_${diagId}" style="cursor: pointer; margin-bottom: 4px;">`;
                     html += `${escapeHtml(entry.title)} — keys: ${escapeHtml(entry.keys.join(', '))}${escapeHtml(probInfo)}`;
-                    html += `<div id="dle_diag_${diagId}" style="display: none; margin-top: 4px; padding: 6px; background: var(--SmartThemeBlurTintColor, #1a1a2e); border-radius: 4px; border-left: 3px solid ${stageColor};">`;
+                    html += `<div id="dle_diag_${diagId}" style="display: none; margin-top: var(--dle-space-1); padding: var(--dle-space-1); background: var(--dle-bg-surface); border-radius: 4px; border-left: 3px solid ${stageColor};">`;
                     html += `<strong style="color: ${stageColor};">${escapeHtml(diagnosis.stage.replace(/_/g, ' '))}</strong>: ${escapeHtml(diagnosis.detail)}`;
                     if (diagnosis.suggestions.length > 0) {
-                        html += `<br><small style="opacity: 0.8;">Suggestion: ${escapeHtml(diagnosis.suggestions[0])}</small>`;
+                        html += `<br><small class="dle-muted">Suggestion: ${escapeHtml(diagnosis.suggestions[0])}</small>`;
                     }
                     html += `</div></li>`;
                 }

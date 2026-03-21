@@ -225,13 +225,20 @@ export function runHealthCheck() {
     }
 
     // Circular requires: A requires B, B requires A
+    // Pre-build a Map for O(n) lookups instead of O(n²) .find() per entry
+    const requiresMap = new Map();
     for (const entry of vaultIndex) {
-        for (const req of entry.requires) {
-            const target = vaultIndex.find(e => e.title.toLowerCase() === req.toLowerCase());
-            if (target && target.requires.some(r => r.toLowerCase() === entry.title.toLowerCase())) {
+        if (entry.requires.length > 0) {
+            requiresMap.set(entry.title.toLowerCase(), { title: entry.title, requires: entry.requires });
+        }
+    }
+    for (const [titleLower, { title, requires }] of requiresMap) {
+        for (const req of requires) {
+            const target = requiresMap.get(req.toLowerCase());
+            if (target && target.requires.some(r => r.toLowerCase() === titleLower)) {
                 // Only report once (alphabetically first)
-                if (entry.title < target.title) {
-                    issues.push({ type: 'Gating', severity: 'error', entry: `${entry.title} ↔ ${target.title}`, detail: 'Circular requires — these entries require each other and will both be gated out' });
+                if (title < target.title) {
+                    issues.push({ type: 'Gating', severity: 'error', entry: `${title} ↔ ${target.title}`, detail: 'Circular requires — these entries require each other and will both be gated out' });
                 }
             }
         }

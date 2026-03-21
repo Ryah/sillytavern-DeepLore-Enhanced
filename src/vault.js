@@ -14,6 +14,7 @@ import {
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
     setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
     setFuzzySearchIndex,
+    setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
@@ -243,6 +244,8 @@ export async function buildIndex() {
 
         let totalFiles = 0;
         let vaultFetchFailed = false;
+        let vaultFailCount = 0;
+        setLastVaultAttemptCount(enabledVaults.length);
         for (const vault of enabledVaults) {
             try {
                 const data = await fetchAllMdFiles(vault.port, vault.apiKey);
@@ -276,9 +279,11 @@ export async function buildIndex() {
             } catch (vaultErr) {
                 console.warn(`[DLE] Failed to index vault "${vault.name}":`, vaultErr.message);
                 vaultFetchFailed = true;
+                vaultFailCount++;
                 if (enabledVaults.length === 1) throw vaultErr;
             }
         }
+        setLastVaultFailureCount(vaultFailCount);
 
         // Compute accurate token counts using SillyTavern's tokenizer
         await Promise.all(entries.map(async (entry) => {
@@ -411,8 +416,10 @@ export async function buildIndexWithReuse() {
 
         let hasChanges = false;
         let anyVaultFailed = false;
+        let vaultFailCount = 0;
         let newCount = 0, modifiedCount = 0, removedCount = 0;
         const allEntries = [];
+        setLastVaultAttemptCount(enabledVaults.length);
 
         for (const vault of enabledVaults) {
             try {
@@ -422,6 +429,7 @@ export async function buildIndexWithReuse() {
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
+                    vaultFailCount++;
                     // Carry forward existing entries for this vault (same as catch block)
                     for (const entry of indexSnapshot) {
                         if (entry.vaultSource === vault.name) {
@@ -470,6 +478,7 @@ export async function buildIndexWithReuse() {
             } catch (vaultErr) {
                 console.warn(`[DLE] Reuse sync failed for vault "${vault.name}":`, vaultErr.message);
                 anyVaultFailed = true;
+                vaultFailCount++;
                 // Carry forward all existing entries for this vault to avoid silent data loss
                 for (const entry of indexSnapshot) {
                     if (entry.vaultSource === vault.name) {
@@ -479,6 +488,8 @@ export async function buildIndexWithReuse() {
                 continue;
             }
         }
+
+        setLastVaultFailureCount(vaultFailCount);
 
         if (!hasChanges) {
             // If a vault failed, use a short-lived timestamp so retries happen sooner

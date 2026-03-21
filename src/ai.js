@@ -345,9 +345,13 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
     }
 
-    // Sliding window cache: hash manifest + chat messages separately.
-    // If only the newest chat message changed and contains no entity names from the manifest,
-    // we can safely serve cached results (the new message doesn't reference any lore).
+    // Sliding window cache invariant:
+    // The cache stores {hash, manifestHash, chatLineCount, results} from the last AI call.
+    // It is valid when: (a) the manifest hasn't changed (same entries, same settings), AND
+    // (b) new chat messages since the cached call don't mention any entity names from the vault.
+    // This avoids redundant AI calls when the user sends messages unrelated to lore.
+    // Cache is invalidated on: settings change, vault re-index, entity name mention, or chat switch.
+    // Short entity names (<=3 chars) use pre-compiled word-boundary regexes to avoid false matches.
     const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${settings.aiSearchSystemPrompt?.length || 0}|${settings.aiSearchConnectionMode}|${settings.aiSearchProfileId}|${settings.aiSearchModel}`;
     const manifestHash = simpleHash(settingsKey + candidateManifest);
     const chatHash = simpleHash(chatContext);

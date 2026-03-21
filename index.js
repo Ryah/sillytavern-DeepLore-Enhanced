@@ -151,7 +151,12 @@ async function onGenerate(chat, contextSize, abort, type) {
         let finalEntries = applyPinBlock(pipelineEntries, vaultSnapshot, policy, matchedKeys);
 
         // Stage 2: Contextual gating (era, location, scene, character)
+        const preContextual = new Set(finalEntries.map(e => e.title));
         finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode);
+        if (trace) {
+            const postContextual = new Set(finalEntries.map(e => e.title));
+            trace.contextualGatingRemoved = [...preContextual].filter(t => !postContextual.has(t));
+        }
 
         if (trace?.aiFallback) {
             const aiErr = trace.aiError || '';
@@ -178,7 +183,12 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Stage 3: Re-injection cooldown
+        const preCooldown = new Set(finalEntries.map(e => e.title));
         finalEntries = applyReinjectionCooldown(finalEntries, policy, injectionHistory, generationCount, settings.reinjectionCooldown, settings.debugMode);
+        if (trace) {
+            const postCooldown = new Set(finalEntries.map(e => e.title));
+            trace.cooldownRemoved = [...preCooldown].filter(t => !postCooldown.has(t));
+        }
 
         if (finalEntries.length === 0) {
             if (settings.debugMode) console.debug('[DLE] All entries removed by re-injection cooldown');
@@ -197,6 +207,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         let postDedup = gated;
         if (settings.stripDuplicateInjections) {
             postDedup = applyStripDedup(gated, policy, chat_metadata.deeplore_injection_log, settings.stripLookbackDepth, settings, settings.debugMode);
+            if (trace) {
+                const postDedupTitles = new Set(postDedup.map(e => e.title));
+                trace.stripDedupRemoved = gated.filter(e => !postDedupTitles.has(e.title)).map(e => e.title);
+            }
         }
 
         // Stage 6: Format with budget, grouped by injection position
@@ -366,7 +380,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
-        dedupError('Lore injection failed — check console for details.', 'pipeline');
+        dedupError('Lore injection failed. Try /dle-health to diagnose, or /dle-refresh to rebuild.', 'pipeline');
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.

@@ -17,7 +17,7 @@ import { name2 } from '../../../../../script.js';
 /**
  * Match vault entries against chat messages, with recursive scanning support.
  * @param {object[]} chat - Chat messages array
- * @returns {{ matched: VaultEntry[], matchedKeys: Map<string, string>, probabilitySkipped: Array<{title: string, probability: number, roll: number}> }}
+ * @returns {{ matched: VaultEntry[], matchedKeys: Map<string, string>, probabilitySkipped: Array<{title: string, probability: number, roll: number}>, warmupFailed: Array<{title: string, needed: number, found: number}> }}
  */
 export function matchEntries(chat, snapshot = null) {
     const settings = getSettings();
@@ -28,6 +28,8 @@ export function matchEntries(chat, snapshot = null) {
     const matchedKeys = new Map();
     /** @type {Array<{title: string, probability: number, roll: number}>} */
     const probabilitySkipped = [];
+    /** @type {Array<{title: string, needed: number, found: number}>} */
+    const warmupFailed = [];
 
     // Always collect constants regardless of scan depth
     for (const entry of entries) {
@@ -75,6 +77,7 @@ export function matchEntries(chat, snapshot = null) {
                         if (settings.debugMode) {
                             console.debug(`[DLE] Warmup: "${entry.title}" needs ${entry.warmup} occurrences, found ${occurrences} — skipping`);
                         }
+                        warmupFailed.push({ title: entry.title, needed: entry.warmup, found: occurrences });
                         continue;
                     }
                 }
@@ -231,7 +234,7 @@ export function matchEntries(chat, snapshot = null) {
     // Sort by priority (ascending - lower number = higher priority)
     const matched = [...matchedSet].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
-    return { matched, matchedKeys, probabilitySkipped };
+    return { matched, matchedKeys, probabilitySkipped, warmupFailed };
 }
 
 /**
@@ -260,6 +263,10 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         budgetCut: [],
         injected: [],
         probabilitySkipped: [],
+        warmupFailed: [],
+        cooldownRemoved: [],
+        contextualGatingRemoved: [],
+        stripDedupRemoved: [],
         bootstrapActive,
         aiFallback: false,
     };
@@ -306,6 +313,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 matchedKeys = kwResult.matchedKeys;
                 trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
                 trace.probabilitySkipped = kwResult.probabilitySkipped;
+                trace.warmupFailed = kwResult.warmupFailed;
                 // Warn if ai-only fallback collapsed to constants-only
                 const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                 if (nonConstant.length === 0 && finalEntries.length > 0) {
@@ -331,6 +339,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
+        trace.warmupFailed = keywordResult.warmupFailed;
 
         // Hierarchical pre-filter for large keyword match sets
         let twoStageCandidates = keywordResult.matched;
@@ -379,6 +388,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
+        trace.warmupFailed = keywordResult.warmupFailed;
     }
 
     // Re-sort by user priority (with tiebreaker) after all modes.

@@ -1,4 +1,4 @@
-<div class="deeplore_enhanced_settings">
+<div class="dle_settings">
     <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
             <b>DeepLore Enhanced</b>
@@ -16,55 +16,55 @@
 
             <!-- Quick Actions Bar -->
             <div id="dle_quick_actions" class="flex-container" style="flex-wrap: wrap; gap: 4px; margin: 6px 0;">
-                <div id="dle_qa_browse" class="menu_button menu_button_icon" title="Browse vault entries (/dle-browse)" tabindex="0">
+                <div id="dle_qa_browse" class="menu_button menu_button_icon" role="button" title="Browse vault entries (/dle-browse)" tabindex="0">
                     <i class="fa-solid fa-book" aria-hidden="true"></i>
                     <span>Browse</span>
                 </div>
-                <div id="dle_qa_map" class="menu_button menu_button_icon" title="Show context map for last generation (/dle-context)" tabindex="0">
+                <div id="dle_qa_map" class="menu_button menu_button_icon" role="button" title="Show context map for last generation (/dle-context)" tabindex="0">
                     <i class="fa-solid fa-map" aria-hidden="true"></i>
                     <span>Map</span>
                 </div>
-                <div id="dle_qa_health" class="menu_button menu_button_icon" title="Run vault health check (/dle-health)" tabindex="0">
+                <div id="dle_qa_health" class="menu_button menu_button_icon" role="button" title="Run vault health check (/dle-health)" tabindex="0">
                     <i class="fa-solid fa-heartbeat" aria-hidden="true"></i>
                     <span>Health</span>
                 </div>
-                <div id="dle_qa_refresh" class="menu_button menu_button_icon" title="Rebuild vault index (/dle-refresh)" tabindex="0">
+                <div id="dle_qa_refresh" class="menu_button menu_button_icon" role="button" title="Rebuild vault index (/dle-refresh)" tabindex="0">
                     <i class="fa-solid fa-sync" aria-hidden="true"></i>
                     <span>Refresh</span>
                 </div>
-                <div id="dle_qa_more_toggle" class="menu_button menu_button_icon" title="Show more actions" tabindex="0" aria-expanded="false" aria-controls="dle_quick_actions_more">
+                <div id="dle_qa_more_toggle" class="menu_button menu_button_icon" role="button" title="Show more actions" tabindex="0" aria-expanded="false" aria-controls="dle_quick_actions_more">
                     <i class="fa-solid fa-ellipsis" aria-hidden="true"></i>
                 </div>
             </div>
             <div id="dle_quick_actions_more" class="flex-container" style="flex-wrap: wrap; gap: 4px; margin: 0 0 6px; display: none;">
-                <div id="dle_qa_graph" class="menu_button menu_button_icon" title="Show entry relationship graph (/dle-graph)" tabindex="0">
+                <div id="dle_qa_graph" class="menu_button menu_button_icon" role="button" title="Show entry relationship graph (/dle-graph)" tabindex="0">
                     <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
                     <span>Graph</span>
                 </div>
-                <div id="dle_qa_simulate" class="menu_button menu_button_icon" title="Simulate pipeline on current chat (/dle-simulate)" tabindex="0">
+                <div id="dle_qa_simulate" class="menu_button menu_button_icon" role="button" title="Simulate pipeline on current chat (/dle-simulate)" tabindex="0">
                     <i class="fa-solid fa-flask" aria-hidden="true"></i>
                     <span>Simulate</span>
                 </div>
-                <div id="dle_qa_analytics" class="menu_button menu_button_icon" title="View entry analytics (/dle-analytics)" tabindex="0">
+                <div id="dle_qa_analytics" class="menu_button menu_button_icon" role="button" title="View entry analytics (/dle-analytics)" tabindex="0">
                     <i class="fa-solid fa-chart-bar" aria-hidden="true"></i>
                     <span>Analytics</span>
                 </div>
-                <div id="dle_qa_optimize" class="menu_button menu_button_icon" title="Optimize entry keywords (/dle-optimize-keys)" tabindex="0">
+                <div id="dle_qa_optimize" class="menu_button menu_button_icon" role="button" title="Optimize entry keywords (/dle-optimize-keys)" tabindex="0">
                     <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
                     <span>Optimize</span>
                 </div>
-                <div id="dle_qa_inspect" class="menu_button menu_button_icon" title="Inspect last pipeline trace (/dle-inspect)" tabindex="0">
+                <div id="dle_qa_inspect" class="menu_button menu_button_icon" role="button" title="Inspect last pipeline trace (/dle-inspect)" tabindex="0">
                     <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
                     <span>Inspect</span>
                 </div>
-                <div id="dle_qa_setup" class="menu_button menu_button_icon" title="Run setup wizard (/dle-setup)" tabindex="0">
+                <div id="dle_qa_setup" class="menu_button menu_button_icon" role="button" title="Run setup wizard (/dle-setup)" tabindex="0">
                     <i class="fa-solid fa-hat-wizard" aria-hidden="true"></i>
                     <span>Setup</span>
                 </div>
             </div>
 
             <hr>
-            <h4>Vault Connections</h4>
+            <h4 data-zone="a">Vault Connections</h4>
             <p class="dle_section_desc">Connect to your Obsidian vaults. Each vault needs the Local REST API plugin running.</p>
 
             <div class="flex-container flexFlowColumn">
@@ -72,20 +72,20 @@
                     <!-- Vault rows rendered dynamically by renderVaultList() -->
                 </div>
                 <div class="flex-container" style="gap: 6px;">
-                    <div id="dle_add_vault" class="menu_button menu_button_icon" title="Add another Obsidian vault connection." tabindex="0">
+                    <div id="dle_add_vault" class="menu_button menu_button_icon" role="button" title="Add another Obsidian vault connection." tabindex="0">
                         <i class="fa-solid fa-plus" aria-hidden="true"></i>
                         <span>Add Vault</span>
                     </div>
-                    <div id="dle_test_connection" class="menu_button menu_button_icon" title="Test all enabled vault connections." tabindex="0">
+                    <div id="dle_test_connection" class="menu_button menu_button_icon" role="button" title="Test all enabled vault connections." tabindex="0">
                         <i class="fa-solid fa-plug" aria-hidden="true"></i>
                         <span>Test All</span>
                     </div>
-                    <span id="dle_connection_status" class="deeplore_enhanced_status"></span>
+                    <span id="dle_connection_status" class="dle_status"></span>
                 </div>
             </div>
 
             <hr>
-            <h4>Vault Tags</h4>
+            <h4 data-zone="a">Vault Tags</h4>
             <p class="dle_section_desc">Tags control which Obsidian notes are indexed and how they behave.</p>
 
             <div class="flex-container flexFlowColumn">
@@ -111,10 +111,10 @@
                         <input id="dle_never_insert_tag" type="text" class="text_pole" placeholder="lorebook-never" />
                     </div>
                 </div>
-                <div class="dle_advanced_toggle" data-section="vaultTags" title="Show seed, bootstrap, and new chat threshold settings.">
-                    <i class="fa-solid fa-chevron-right dle_advanced_icon"></i> Show Advanced
+                <div class="dle_advanced_toggle" data-section="vaultTags" title="Show seed, bootstrap, and new chat threshold settings." tabindex="0" role="button" aria-expanded="false" aria-controls="dle_adv_vaultTags">
+                    <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
                 </div>
-                <div class="dle_advanced_section" data-section="vaultTags" style="display: none;">
+                <div class="dle_advanced_section" data-section="vaultTags" id="dle_adv_vaultTags" style="display: none;">
                     <div class="flex-container">
                         <div class="flex1" title="Tag (without #) for entries whose content is sent to the AI as background context on new chats, helping it make better entry selections. These entries are NOT included in the prompt — they only inform the AI's decision-making. Leave empty to disable.">
                             <label for="dle_seed_tag">
@@ -140,8 +140,8 @@
                 </div>
             </div>
 
-            <hr>
-            <h4>Search Mode</h4>
+            <hr class="dle-zone-separator">
+            <h4 data-zone="b">Search Mode</h4>
             <p class="dle_section_desc">Choose how entries are selected: keywords (free), two-stage (keywords + AI), or AI-only (best results, uses API calls).</p>
 
             <div class="flex-container flexFlowColumn">
@@ -160,7 +160,7 @@
             </div>
 
             <hr>
-            <h4>Matching &amp; Budget</h4>
+            <h4 data-zone="b">Matching &amp; Budget</h4>
             <p class="dle_section_desc">Control how entries are matched and how much context they can use.</p>
 
             <div class="flex-container flexFlowColumn">
@@ -176,6 +176,10 @@
             <label class="checkbox_label" for="dle_char_context_scan" title="Auto-match the active character's vault entry by name or keyword, even if not mentioned in chat. Ensures the character you're roleplaying with always has their lore available.">
                 <input id="dle_char_context_scan" type="checkbox" class="checkbox">
                 <span>Active Character Boost</span>
+            </label>
+            <label class="checkbox_label" for="dle_fuzzy_search" title="Enable BM25 fuzzy text search alongside keyword matching. Finds entries that are relevant but lack exact keyword hits, using TF-IDF scoring on entry titles, keys, and content. Merged results appear with a (fuzzy) match tag.">
+                <input id="dle_fuzzy_search" type="checkbox" class="checkbox">
+                <span>Fuzzy Search (BM25)</span>
             </label>
             <div class="flex-container">
                 <div class="flex1">
@@ -205,10 +209,10 @@
                     <input id="dle_token_budget" type="number" class="text_pole" min="100" max="100000" />
                 </div>
             </div>
-            <div class="dle_advanced_toggle" data-section="matching" title="Show case sensitivity, whole word matching, recursive scanning, cooldowns, and deduplication settings.">
-                <i class="fa-solid fa-chevron-right dle_advanced_icon"></i> Show Advanced
+            <div class="dle_advanced_toggle" data-section="matching" title="Show case sensitivity, whole word matching, recursive scanning, cooldowns, and deduplication settings." tabindex="0" role="button" aria-expanded="false" aria-controls="dle_adv_matching">
+                <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
             </div>
-            <div class="dle_advanced_section" data-section="matching" style="display: none;">
+            <div class="dle_advanced_section" data-section="matching" id="dle_adv_matching" style="display: none;">
                 <div class="flex-container" id="dle_optimize_keys_row">
                     <div class="flex1" title="Controls how /dle-optimize-keys suggests keywords. Keyword-only suggests precise keywords for direct matching. Two-stage suggests broader keywords since AI search filters later. Not applicable in AI-only mode.">
                         <label for="dle_optimize_keys_mode">
@@ -265,7 +269,7 @@
             </div>
 
             <hr>
-            <h4>Injection</h4>
+            <h4 data-zone="b">Injection</h4>
             <p class="dle_section_desc">Control where and how matched entries are placed in the prompt.</p>
 
             <div class="flex-container flexFlowColumn">
@@ -311,10 +315,10 @@
                     <small style="opacity: 0.6;">Placement controlled by the prompt list. After generating once, find <b>deeplore_constants</b>, <b>deeplore_lore</b>, and <b>deeplore_notebook</b> in the prompt list and drag them to your desired position.</small>
                 </div>
 
-                <div class="dle_advanced_toggle" data-section="injection" title="Show formatting template and World Info scan settings.">
-                    <i class="fa-solid fa-chevron-right dle_advanced_icon"></i> Show Advanced
+                <div class="dle_advanced_toggle" data-section="injection" title="Show formatting template and World Info scan settings." tabindex="0" role="button" aria-expanded="false" aria-controls="dle_adv_injection">
+                    <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
                 </div>
-                <div class="dle_advanced_section" data-section="injection" style="display: none;">
+                <div class="dle_advanced_section" data-section="injection" id="dle_adv_injection" style="display: none;">
                     <div title="Template for formatting each injected entry. Use {{title}} for the entry name and {{content}} for the note body.">
                         <label for="dle_template">
                             <small>Injection Template</small>
@@ -329,7 +333,7 @@
             </div>
 
             <hr>
-            <h4>Context Cartographer</h4>
+            <h4 data-zone="b">Context Cartographer</h4>
 
             <div class="flex-container flexFlowColumn">
                 <label class="checkbox_label" for="dle_show_sources" title="Add a book icon button to AI messages showing which vault entries were injected and why. Click the icon to see entry details, match reasons, token costs, and Obsidian deep links.">
@@ -339,7 +343,7 @@
                 <small style="opacity: 0.6;">Deep links require vault connection names to match your Obsidian vault names exactly.</small>
             </div>
 
-            <hr>
+            <hr class="dle-zone-separator">
             <div class="inline-drawer">
                 <div class="inline-drawer-toggle inline-drawer-header">
                     <b>Entry Decay &amp; Freshness</b>
@@ -375,61 +379,63 @@
                 </div>
                 <div class="inline-drawer-content">
                     <div class="flex-container flexFlowColumn" id="dle_ai_controls">
-                        <div style="margin: 8px 0;">
-                            <small>Connection</small>
-                            <div class="radio_group">
-                                <label class="checkbox_label" title="Use a saved SillyTavern Connection Manager profile. No separate proxy needed. Any provider works (Anthropic, OpenAI, OpenRouter, local models).">
-                                    <input type="radio" name="dle_ai_connection_mode" value="profile" />
-                                    <span>Connection Profile</span>
-                                </label>
-                                <label class="checkbox_label" title="Use a separate proxy server (claude-code-proxy or compatible endpoint). Routes through SillyTavern's built-in proxy.">
-                                    <input type="radio" name="dle_ai_connection_mode" value="proxy" />
-                                    <span>Custom Proxy</span>
-                                </label>
+                        <div class="dle-connection-card" id="dle_ai_connection_card">
+                            <div style="margin: 0 0 4px;">
+                                <small>Connection</small>
+                                <div class="radio_group">
+                                    <label class="checkbox_label" title="Use a saved SillyTavern Connection Manager profile. No separate proxy needed. Any provider works (Anthropic, OpenAI, OpenRouter, local models).">
+                                        <input type="radio" name="dle_ai_connection_mode" value="profile" />
+                                        <span>Connection Profile</span>
+                                    </label>
+                                    <label class="checkbox_label" title="Use a separate proxy server (claude-code-proxy or compatible endpoint). Routes through SillyTavern's built-in proxy.">
+                                        <input type="radio" name="dle_ai_connection_mode" value="proxy" />
+                                        <span>Custom Proxy</span>
+                                    </label>
+                                </div>
                             </div>
-                        </div>
-                        <div class="flex-container" id="dle_ai_profile_row">
-                            <div class="flex1" title="Select a saved Connection Manager profile to use for AI search requests. Any provider supported by Connection Manager works.">
-                                <label for="dle_ai_profile_select">
-                                    <small>Connection Profile</small>
-                                </label>
-                                <select id="dle_ai_profile_select" class="text_pole">
-                                    <option value="">— Select a profile —</option>
-                                </select>
+                            <div class="flex-container" id="dle_ai_profile_row">
+                                <div class="flex1" title="Select a saved Connection Manager profile to use for AI search requests. Any provider supported by Connection Manager works.">
+                                    <label for="dle_ai_profile_select">
+                                        <small>Connection Profile</small>
+                                    </label>
+                                    <select id="dle_ai_profile_select" class="text_pole">
+                                        <option value="">— Select a profile —</option>
+                                    </select>
+                                </div>
                             </div>
-                        </div>
-                        <div class="flex-container" id="dle_ai_proxy_row">
-                            <div class="flex1" title="URL of the proxy server (claude-code-proxy or compatible). Must accept requests at /v1/messages.">
-                                <label for="dle_ai_proxy_url">
-                                    <small>Proxy URL</small>
-                                </label>
-                                <input id="dle_ai_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
+                            <div class="flex-container" id="dle_ai_proxy_row">
+                                <div class="flex1" title="URL of the proxy server (claude-code-proxy or compatible). Must accept requests at /v1/messages.">
+                                    <label for="dle_ai_proxy_url">
+                                        <small>Proxy URL</small>
+                                    </label>
+                                    <input id="dle_ai_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
+                                </div>
+                            </div>
+                            <div class="flex-container">
+                                <div class="flex1" title="Model override for AI search. Leave empty to use the profile's model (profile mode) or specify the model name (proxy mode). A fast/cheap model like Haiku is recommended.">
+                                    <label for="dle_ai_model">
+                                        <small>Model Override</small>
+                                    </label>
+                                    <input id="dle_ai_model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
+                                </div>
                             </div>
                         </div>
                         <div class="flex-container">
-                            <div class="flex1" title="Model override for AI search. Leave empty to use the profile's model (profile mode) or specify the model name (proxy mode). A fast/cheap model like Haiku is recommended.">
-                                <label for="dle_ai_model">
-                                    <small>Model Override</small>
-                                </label>
-                                <input id="dle_ai_model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
-                            </div>
-                        </div>
-                        <div class="flex-container">
-                            <div id="dle_test_ai" class="menu_button menu_button_icon" title="Send a test request to verify the AI search connection is working.">
+                            <div id="dle_test_ai" class="menu_button menu_button_icon" role="button" tabindex="0" title="Send a test request to verify the AI search connection is working.">
                                 <i class="fa-solid fa-brain"></i>
                                 <span>Test AI Search</span>
                             </div>
-                            <div id="dle_preview_ai" class="menu_button menu_button_icon" title="Preview the full prompt (system prompt, entry list, and chat context) that will be sent to the AI for entry selection.">
+                            <div id="dle_preview_ai" class="menu_button menu_button_icon" role="button" tabindex="0" title="Preview the full prompt (system prompt, entry list, and chat context) that will be sent to the AI for entry selection.">
                                 <i class="fa-solid fa-eye"></i>
                                 <span>Preview AI Prompt</span>
                             </div>
-                            <span id="dle_ai_status" class="deeplore_enhanced_status"></span>
+                            <span id="dle_ai_status" class="dle_status"></span>
                         </div>
-                        <small id="dle_ai_stats" class="deeplore_enhanced_ai_stats">AI calls: 0 | Cache hits: 0 | Tokens: ~0 in / ~0 out</small>
-                        <div class="dle_advanced_toggle" data-section="aiSearch" title="Show AI context depth, summary length, system prompt override, response tokens, timeout, and more.">
-                            <i class="fa-solid fa-chevron-right dle_advanced_icon"></i> Show Advanced
+                        <small id="dle_ai_stats" class="dle_ai_stats">AI calls: 0 | Cache hits: 0 | Tokens: ~0 in / ~0 out</small>
+                        <div class="dle_advanced_toggle" data-section="aiSearch" title="Show AI context depth, summary length, system prompt override, response tokens, timeout, and more." tabindex="0" role="button" aria-expanded="false" aria-controls="dle_adv_aiSearch">
+                            <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
                         </div>
-                        <div class="dle_advanced_section" data-section="aiSearch" style="display: none;">
+                        <div class="dle_advanced_section" data-section="aiSearch" id="dle_adv_aiSearch" style="display: none;">
                             <div class="flex-container">
                                 <div class="flex1" title="Maximum tokens for the AI search response. Keep low since the response is just a list of entry names. Default: 1024">
                                     <label for="dle_ai_max_tokens">
@@ -478,7 +484,7 @@
             </div>
 
             <hr>
-            <h4>Author's Notebook</h4>
+            <h4 data-zone="c">Author's Notebook</h4>
             <p class="dle_section_desc">A per-chat scratchpad for notes, scene direction, or writing instructions. Whatever you write here is included in every message to the AI for this chat.</p>
             <div class="flex-container flexFlowColumn">
                 <label class="checkbox_label" for="dle_notebook_enabled" title="A per-chat scratchpad for notes, scene direction, or writing instructions. Whatever you write here is included in every message to the AI for this chat.">
@@ -486,7 +492,7 @@
                     <span>Enable Author's Notebook</span>
                 </label>
                 <div class="flex-container" id="dle_notebook_controls">
-                    <div id="dle_open_notebook" class="menu_button menu_button_icon" title="Open the Author's Notebook editor for the current chat.">
+                    <div id="dle_open_notebook" class="menu_button menu_button_icon" role="button" tabindex="0" title="Open the Author's Notebook editor for the current chat.">
                         <i class="fa-solid fa-book" aria-hidden="true"></i>
                         <span>Open Notebook</span>
                     </div>
@@ -547,8 +553,14 @@
                                 <input id="dle_scribe_folder" type="text" class="text_pole" placeholder="Sessions" />
                             </div>
                         </div>
-                        <div style="margin: 8px 0;">
-                            <small>Connection</small>
+                        <div class="dle-connection-card" id="dle_scribe_connection_card">
+                            <div class="dle-connection-card-header">
+                                <small>Connection</small>
+                                <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="scribe" role="button" tabindex="0" title="Copy connection settings from AI Search">
+                                    <i class="fa-solid fa-copy" aria-hidden="true"></i>
+                                    <span>Copy from AI Search</span>
+                                </div>
+                            </div>
                             <div class="radio_group">
                                 <label class="checkbox_label" title="Use SillyTavern's active AI connection. Simplest option — uses whatever provider you currently have selected.">
                                     <input type="radio" name="dle_scribe_connection_mode" value="st" />
@@ -563,31 +575,31 @@
                                     <span>Custom Proxy</span>
                                 </label>
                             </div>
-                        </div>
-                        <div class="flex-container" id="dle_scribe_profile_row">
-                            <div class="flex1" title="Select a saved Connection Manager profile to use for session summaries. Independent from the AI Search profile.">
-                                <label for="dle_scribe_profile_select">
-                                    <small>Connection Profile</small>
-                                </label>
-                                <select id="dle_scribe_profile_select" class="text_pole">
-                                    <option value="">— Select a profile —</option>
-                                </select>
+                            <div class="flex-container" id="dle_scribe_profile_row">
+                                <div class="flex1" title="Select a saved Connection Manager profile to use for session summaries. Independent from the AI Search profile.">
+                                    <label for="dle_scribe_profile_select">
+                                        <small>Connection Profile</small>
+                                    </label>
+                                    <select id="dle_scribe_profile_select" class="text_pole">
+                                        <option value="">— Select a profile —</option>
+                                    </select>
+                                </div>
                             </div>
-                        </div>
-                        <div class="flex-container" id="dle_scribe_proxy_row">
-                            <div class="flex1" title="URL of the proxy server for summaries. Must accept requests at /v1/messages.">
-                                <label for="dle_scribe_proxy_url">
-                                    <small>Proxy URL</small>
-                                </label>
-                                <input id="dle_scribe_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
+                            <div class="flex-container" id="dle_scribe_proxy_row">
+                                <div class="flex1" title="URL of the proxy server for summaries. Must accept requests at /v1/messages.">
+                                    <label for="dle_scribe_proxy_url">
+                                        <small>Proxy URL</small>
+                                    </label>
+                                    <input id="dle_scribe_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
+                                </div>
                             </div>
-                        </div>
-                        <div class="flex-container" id="dle_scribe_model_row">
-                            <div class="flex1" title="Model override for summaries. Leave empty to use the profile's model (profile mode) or specify the model name (proxy mode).">
-                                <label for="dle_scribe_model">
-                                    <small>Model Override</small>
-                                </label>
-                                <input id="dle_scribe_model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
+                            <div class="flex-container" id="dle_scribe_model_row">
+                                <div class="flex1" title="Model override for summaries. Leave empty to use the profile's model (profile mode) or specify the model name (proxy mode).">
+                                    <label for="dle_scribe_model">
+                                        <small>Model Override</small>
+                                    </label>
+                                    <input id="dle_scribe_model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
+                                </div>
                             </div>
                         </div>
                         <div class="flex-container" id="dle_scribe_advanced_row">
@@ -637,28 +649,36 @@
                                 <input id="dle_autosuggest_folder" type="text" class="text_pole" placeholder="Lorebook" />
                             </div>
                         </div>
-                        <label><small>Connection Mode</small></label>
-                        <div class="radio_group">
-                            <label title="Use SillyTavern's active AI connection. Simplest option."><input type="radio" name="dle_autosuggest_connection_mode" value="st" /> SillyTavern</label>
-                            <label title="Use a saved Connection Manager profile for suggestions."><input type="radio" name="dle_autosuggest_connection_mode" value="profile" /> Profile</label>
-                            <label title="Use a separate proxy server for suggestions."><input type="radio" name="dle_autosuggest_connection_mode" value="proxy" /> Proxy</label>
-                        </div>
-                        <div id="dle_autosuggest_profile_container">
-                            <label for="dle_autosuggest_profile" title="Select a saved Connection Manager profile for auto-suggest requests."><small>Connection Profile</small></label>
-                            <select id="dle_autosuggest_profile" class="text_pole"></select>
-                        </div>
-                        <div id="dle_autosuggest_proxy_container">
-                            <label for="dle_autosuggest_proxy_url" title="URL of the proxy server for auto-suggest. Must accept requests at /v1/messages."><small>Proxy URL</small></label>
-                            <input id="dle_autosuggest_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
-                        </div>
-                        <div class="flex-container">
-                            <div class="flex1" title="Model override for auto-suggest. Leave empty to use the profile's model or specify a model name. A capable model is recommended for quality suggestions.">
-                                <label for="dle_autosuggest_model"><small>Model</small></label>
-                                <input id="dle_autosuggest_model" type="text" class="text_pole" placeholder="claude-haiku-4-5-20251001" />
+                        <div class="dle-connection-card" id="dle_autosuggest_connection_card">
+                            <div class="dle-connection-card-header">
+                                <small>Connection</small>
+                                <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="autosuggest" role="button" tabindex="0" title="Copy connection settings from AI Search">
+                                    <i class="fa-solid fa-copy" aria-hidden="true"></i>
+                                    <span>Copy from AI Search</span>
+                                </div>
                             </div>
-                            <div class="flex1" title="Maximum tokens for the auto-suggest response. Higher values allow more detailed suggestions. Default: 2048">
-                                <label for="dle_autosuggest_max_tokens"><small>Max Tokens</small></label>
-                                <input id="dle_autosuggest_max_tokens" type="number" class="text_pole" min="256" max="4096" />
+                            <div class="radio_group">
+                                <label title="Use SillyTavern's active AI connection. Simplest option."><input type="radio" name="dle_autosuggest_connection_mode" value="st" /> SillyTavern</label>
+                                <label title="Use a saved Connection Manager profile for suggestions."><input type="radio" name="dle_autosuggest_connection_mode" value="profile" /> Profile</label>
+                                <label title="Use a separate proxy server for suggestions."><input type="radio" name="dle_autosuggest_connection_mode" value="proxy" /> Proxy</label>
+                            </div>
+                            <div id="dle_autosuggest_profile_container">
+                                <label for="dle_autosuggest_profile" title="Select a saved Connection Manager profile for auto-suggest requests."><small>Connection Profile</small></label>
+                                <select id="dle_autosuggest_profile" class="text_pole"></select>
+                            </div>
+                            <div id="dle_autosuggest_proxy_container">
+                                <label for="dle_autosuggest_proxy_url" title="URL of the proxy server for auto-suggest. Must accept requests at /v1/messages."><small>Proxy URL</small></label>
+                                <input id="dle_autosuggest_proxy_url" type="text" class="text_pole" placeholder="http://localhost:42069" />
+                            </div>
+                            <div class="flex-container">
+                                <div class="flex1" title="Model override for auto-suggest. Leave empty to use the profile's model or specify a model name. A capable model is recommended for quality suggestions.">
+                                    <label for="dle_autosuggest_model"><small>Model</small></label>
+                                    <input id="dle_autosuggest_model" type="text" class="text_pole" placeholder="claude-haiku-4-5-20251001" />
+                                </div>
+                                <div class="flex1" title="Maximum tokens for the auto-suggest response. Higher values allow more detailed suggestions. Default: 2048">
+                                    <label for="dle_autosuggest_max_tokens"><small>Max Tokens</small></label>
+                                    <input id="dle_autosuggest_max_tokens" type="number" class="text_pole" min="256" max="4096" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -666,29 +686,29 @@
                 </div>
             </div>
 
-            <hr>
-            <h4>Index &amp; Cache</h4>
+            <hr class="dle-zone-separator">
+            <h4 data-zone="d">Index &amp; Cache</h4>
 
             <div class="flex-container flexFlowColumn">
                 <div class="flex-container">
-                    <div id="dle_refresh" class="menu_button menu_button_icon" title="Clear the local cache and re-fetch all entries from Obsidian. The index also auto-refreshes when the cache timer expires.">
+                    <div id="dle_refresh" class="menu_button menu_button_icon" role="button" tabindex="0" title="Clear the local cache and re-fetch all entries from Obsidian. The index also auto-refreshes when the cache timer expires.">
                         <i class="fa-solid fa-rotate"></i>
                         <span>Refresh Index</span>
                     </div>
-                    <div id="dle_test_match" class="menu_button menu_button_icon" title="Simulate a generation to see which entries would be matched and injected based on the current chat. Shows keyword matches, AI selections, gating results, and budget cuts.">
+                    <div id="dle_test_match" class="menu_button menu_button_icon" role="button" tabindex="0" title="Simulate a generation to see which entries would be matched and injected based on the current chat. Shows keyword matches, AI selections, gating results, and budget cuts.">
                         <i class="fa-solid fa-flask"></i>
                         <span>Test Match</span>
                     </div>
-                    <div id="dle_browse_entries" class="menu_button menu_button_icon" title="Browse all indexed entries with search, filters, content preview, analytics, and Obsidian deep links.">
+                    <div id="dle_browse_entries" class="menu_button menu_button_icon" role="button" tabindex="0" title="Browse all indexed entries with search, filters, content preview, analytics, and Obsidian deep links.">
                         <i class="fa-solid fa-list"></i>
                         <span>Browse</span>
                     </div>
                 </div>
                 <small id="dle_index_stats">No index loaded — click Refresh or send a message to auto-load.</small>
-                <div class="dle_advanced_toggle" data-section="index" title="Show cache duration, auto-sync interval, and change notification settings.">
-                    <i class="fa-solid fa-chevron-right dle_advanced_icon"></i> Show Advanced
+                <div class="dle_advanced_toggle" data-section="index" title="Show cache duration, auto-sync interval, and change notification settings." tabindex="0" role="button" aria-expanded="false" aria-controls="dle_adv_index">
+                    <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
                 </div>
-                <div class="dle_advanced_section" data-section="index" style="display: none;">
+                <div class="dle_advanced_section" data-section="index" id="dle_adv_index" style="display: none;">
                     <div class="flex-container">
                         <div class="flex1" title="How long (in seconds) to cache the vault index before automatically re-fetching from Obsidian. Set to 0 to always fetch fresh data (slower but always current). Default: 300 (5 minutes)">
                             <label for="dle_cache_ttl">
@@ -711,7 +731,7 @@
             </div>
 
             <hr>
-            <h4>Advanced</h4>
+            <h4 data-zone="d">Advanced</h4>
 
             <div class="flex-container flexFlowColumn">
                 <div class="flex-container">
@@ -729,7 +749,7 @@
             </div>
 
             <hr>
-            <h4>Slash Commands</h4>
+            <h4 data-zone="d">Slash Commands</h4>
             <small class="dle_muted">
                 <code>/dle-help</code> — Show all commands<br>
                 <code>/dle-refresh</code> — Force re-index vault<br>

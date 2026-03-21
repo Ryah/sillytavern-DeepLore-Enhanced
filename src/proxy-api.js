@@ -49,8 +49,12 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
         if (/^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname)) {
             throw new Error(`Proxy URL "${hostname}" uses a numeric IP shorthand — use dotted notation`);
         }
+        // Block octal IP notation (e.g. 0177.0.0.1 = 127.0.0.1)
+        if (/(?:^|\.)0\d+(?:\.|$)/.test(hostname)) {
+            throw new Error(`Proxy URL "${hostname}" uses octal IP notation — use standard dotted decimal`);
+        }
     } catch (e) {
-        if (e.message.includes('blocked') || e.message.includes('private') || e.message.includes('numeric') || e.message.includes('shorthand')) throw e;
+        if (e.message.includes('blocked') || e.message.includes('private') || e.message.includes('numeric') || e.message.includes('shorthand') || e.message.includes('octal')) throw e;
         // Invalid URL format — let it fail naturally downstream
     }
 

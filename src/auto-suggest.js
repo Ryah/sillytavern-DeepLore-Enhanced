@@ -167,11 +167,19 @@ export async function showSuggestionPopup(suggestions) {
 
                     // Build frontmatter
                     const folder = settings.autoSuggestFolder || '';
+                    // Sanitize title for filesystem safety (same pattern as Scribe)
+                    let safeTitle = s.title.replace(/[<>:"/\\|?*]/g, '_');
+                    safeTitle = safeTitle.replace(/^\.+|\.+$/g, ''); // strip leading/trailing dots
+                    safeTitle = safeTitle.trimEnd(); // strip trailing spaces
+                    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(safeTitle)) safeTitle = '_' + safeTitle;
+                    if (!safeTitle) safeTitle = 'Untitled';
                     const filename = folder
-                        ? `${folder}/${s.title.replace(/[/\\:*?"<>|]/g, '')}.md`
-                        : `${s.title.replace(/[/\\:*?"<>|]/g, '')}.md`;
+                        ? `${folder}/${safeTitle}.md`
+                        : `${safeTitle}.md`;
 
                     const keysYaml = (s.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
+                    // Sanitize AI-generated content: strip bare YAML frontmatter delimiters (same as Scribe)
+                    const safeContent = (s.content || '').replace(/^---$/gm, '- - -');
                     const fileContent = `---
 type: ${yamlEscape(s.type || 'lore')}
 priority: 50
@@ -183,7 +191,7 @@ summary: "${(s.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
 ---
 # ${s.title}
 
-${s.content || ''}`;
+${safeContent}`;
 
                     try {
                         const suggestVault = getPrimaryVault(settings);

@@ -70,11 +70,14 @@ function recordSuccess(port) {
 
 function recordFailure(port) {
     const cb = getCircuitBreaker(port);
+    const wasOpen = cb.state === 'open';
     cb.failures++;
     cb.halfOpenProbe = false;
     if (cb.failures >= cb.maxFailures) {
+        // Only reset openedAt on fresh closed→open transition (not half-open→open re-entry)
+        // to preserve exponential backoff progression
+        if (!wasOpen) cb.openedAt = Date.now();
         cb.state = 'open';
-        cb.openedAt = Date.now();
     }
 }
 

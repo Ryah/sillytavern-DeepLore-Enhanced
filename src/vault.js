@@ -226,7 +226,8 @@ export async function hydrateFromCache() {
             if (vaultIndex.length > 0) {
                 // Cached data exists — set a short-lived timestamp so ensureIndexFresh() retries after a cooldown
                 // (not Date.now() which would prevent retries until TTL expires)
-                setIndexTimestamp(Date.now() - (settings.cacheTTL * 1000) + 30_000); // retry in ~30s
+                const s = getSettings();
+                setIndexTimestamp(Date.now() - (s.cacheTTL * 1000) + 30_000); // retry in ~30s
                 toastr.warning('Using cached vault data — Obsidian is unreachable. Reconnect and refresh when ready.', 'DeepLore Enhanced', { timeOut: 10000, preventDuplicates: true });
             }
         });

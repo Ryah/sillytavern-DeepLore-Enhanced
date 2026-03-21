@@ -755,7 +755,7 @@ export async function showOptimizePopup(entry, result) {
             } catch { /* fall back to entry.content */ }
             const { frontmatter, body } = parseFrontmatter(rawContent);
             const newKeys = result.suggested;
-            const keysYaml = newKeys.map(k => `  - ${k}`).join('\n');
+            const keysYaml = newKeys.map(k => `  - ${yamlSerializeValue(k)}`).join('\n');
 
             let newContent = '---\n';
             for (const [key, val] of Object.entries(frontmatter)) {

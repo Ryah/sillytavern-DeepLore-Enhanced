@@ -211,12 +211,13 @@ export function matchEntries(chat, snapshot = null) {
  * Records a trace for the Pipeline Inspector (/dle-inspect).
  * BUG 6 FIX: Reset lastWarningRatio when ratio drops below threshold.
  * @param {object[]} chat - Chat messages array
+ * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
-export async function runPipeline(chat) {
+export async function runPipeline(chat, externalSnapshot) {
     // Snapshot settings and vault index so async stages (AI search) see a consistent view
     const settings = { ...getSettings() };
-    const vaultSnapshot = [...vaultIndex];
+    const vaultSnapshot = externalSnapshot || [...vaultIndex];
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
     const trace = {

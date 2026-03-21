@@ -165,8 +165,8 @@ export function registerSlashCommands() {
             }
 
             const gated = applyGating(filtered);
-            const { count: injectedCount, totalTokens } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
-            const injected = gated.slice(0, injectedCount);
+            const { count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
+            const injected = acceptedEntries || gated.slice(0, injectedCount);
 
             if (injected.length === 0) {
                 toastr.info('No entries would be injected right now.', 'DeepLore Enhanced');

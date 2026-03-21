@@ -24,7 +24,8 @@ export function extractAiResponseClient(text) {
 
     /** Validate that a parsed value is a usable results array (strings or objects with title/name). */
     function isValidResultArray(val) {
-        if (!Array.isArray(val) || val.length === 0) return false;
+        if (!Array.isArray(val)) return false;
+        if (val.length === 0) return true; // valid empty response (AI says nothing relevant)
         const first = val[0];
         return typeof first === 'string'
             || (typeof first === 'object' && first !== null && (first.title || first.name));

@@ -133,7 +133,7 @@ export function countKeywordOccurrences(entry, scanText, settings) {
     }
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            const matches = scanText.match(item.regexG);
+            const matches = text.match(item.regexG); // use normalized text (consistent with testEntryMatch)
             if (matches) count += matches.length;
         } else {
             let idx = 0;

@@ -21,7 +21,7 @@ import {
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory,
     lastWarningRatio, decayTracker, chatEpoch, trackerKey,
-    generationLock, generationLockTimestamp, setGenerationLock,
+    generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
@@ -55,9 +55,9 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
     if (generationLock) {
-        // Auto-recover stale locks after 120 seconds
+        // Auto-recover stale locks after 60 seconds
         const lockAge = Date.now() - generationLockTimestamp;
-        if (lockAge > 120_000) {
+        if (lockAge > 60_000) {
             console.warn(`[DLE] Generation lock stale (${Math.round(lockAge / 1000)}s) — force-releasing`);
             setGenerationLock(false);
         } else {
@@ -70,6 +70,8 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Capture chat epoch to detect stale writes if CHAT_CHANGED fires mid-generation
     const epoch = chatEpoch;
+    // Capture lock epoch to detect if this pipeline has been superseded by a force-released lock
+    const lockEpoch = generationLockEpoch;
 
     // Track whether the pipeline ran far enough to need generation tracking
     let pipelineRan = false;
@@ -123,7 +125,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         // From here on, generation tracking must run even if no entries match
         pipelineRan = true;
 
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat);
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot);
         let finalEntries = pipelineEntries;
 
         // Per-chat pin/block overrides (stored in chat_metadata)
@@ -308,6 +310,11 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         if (groups.length > 0) {
+            // Bail if this pipeline was superseded by a force-released stale lock
+            if (lockEpoch !== generationLockEpoch) {
+                console.warn('[DLE] Pipeline superseded by newer generation (lock epoch mismatch) — discarding results');
+                return;
+            }
             const usePromptList = settings.injectionMode === 'prompt_list';
             for (const group of groups) {
                 if (usePromptList && promptManager) {
@@ -364,7 +371,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (epoch === chatEpoch) {
             for (const entry of injectedEntries) {
                 if (entry.cooldown !== null && entry.cooldown > 0) {
-                    cooldownTracker.set(trackerKey(entry), entry.cooldown);
+                    cooldownTracker.set(trackerKey(entry), entry.cooldown + 1); // +1 compensates for decrement in finally block of same generation
                 }
             }
 

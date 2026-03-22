@@ -92,54 +92,11 @@
 - Decomposed monolithic `index.js` (4619 lines) into 19 focused modules. `index.js` is now ~620 lines (entry point + `onGenerate`).
 - New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`, `src/stages.js`, `src/helpers.js`, `src/cache.js`, `src/import.js`, `src/obsidian-api.js`, `src/proxy-api.js`, `src/toast-dedup.js`.
 
-### Bug Fixes (Pre-Release Audit)
-
-**Critical/High (from 7-expert code audit):**
-- **`const result` redeclared in same scope** — `hierarchicalPreFilter()` had two `const result` declarations in the same block, causing SyntaxError in strict mode. (`src/ai.js`)
-- **Re-exported functions used locally without import** — ES module `export { X } from '...'` does NOT create a local binding. Three modules called re-exported functions without a local `import`, causing ReferenceErrors. (`src/ai.js`, `src/import.js`, `src/cartographer.js`)
-- **Circuit breaker backoff broken** — Half-open → open transition didn't reset `openedAt`, causing the first backoff to be reused for all subsequent failures. (`src/obsidian-api.js`)
-- **Author's Notebook bypasses XML escaping** — Notebook content injected raw into prompts without escaping `<`, `>`, `&`. (`index.js`)
-- **AI response matches against full vault** — AI-returned titles were looked up against the full vault index instead of the candidate manifest, allowing phantom matches. (`src/ai.js`)
-- **Pinned entries excluded from AI pre-filter** — `buildExemptionPolicy` in the pre-filter used empty pins/blocks arrays, silently gating out pinned entries before AI search. (`src/pipeline.js`)
-- **Diagnostic tools use old `applyGating`** — Test Match and `/dle-context` used the core `applyGating()` instead of `applyRequiresExcludesGating()` with proper exemption policy. (`src/commands.js`, `src/settings-ui.js`)
-- **`parseFrontmatter` BOM handling returns wrong body** — BOM was stripped from `cleaned` but the no-frontmatter path returned the original `content` with BOM still present. (`core/utils.js`)
-- **`buildPromise` race window** — `setBuildPromise(null)` in `finally` could clear the promise before the outer `setBuildPromise(promise)` ran. (`src/vault.js`)
-- **Generation lock hangs indefinitely** — `ensureIndexFresh` could block for minutes with a flaky Obsidian. Added 60s timeout. (`index.js`)
-- **`_pinned` flag leaks permanently** — Setting `entry._pinned = true` on shared VaultEntry objects caused permanent bypass of gating. Replaced with local `pinnedTitles` Set. (`index.js`)
-- **SSRF via proxy URL** — Blocklist only covered 3 IPs. Added IPv6, localhost, RFC 1918/6598/link-local, CGNAT, ULA ranges. (`src/proxy-api.js`)
-- **`escapeXml` missing `"` in AI manifest** — Titles with quotes produced malformed XML. Added `&quot;` escaping. (`src/ai.js`)
-- **Template `{{content}}` breaks XML envelope** — Content containing closing tags could break the XML wrapper. (`core/matching.js`)
-
-**Medium:**
-- **Analytics records wrong entry set** — `recordAnalytics` received pre-gating entries instead of post-dedup entries. (`index.js`)
-- **`saveSettingsDebounced()` write amplification** — Analytics save fired on every generation. Now saves every 5 generations. (`index.js`)
-- **O(n) DOM manipulation on CHAT_CHANGED** — Source button injection now uses `requestAnimationFrame` and limits to last 50 messages. (`index.js`)
-- **`convertWiEntry` title injection** — Newlines in WI comment field could break the H1 heading. (`src/helpers.js`)
-- **API key scrubbing incomplete** — Added generic `Bearer` token scrubbing pattern. (`src/proxy-api.js`)
-- **Shallow settings copy** — `runPipeline` spread didn't deep-copy `analyticsData`. (`src/pipeline.js`)
-- **Blur-clamping IDs don't match HTML** — 5 settings inputs never clamped due to ID mismatches. (`src/settings-ui.js`)
-- **Various YAML parsing issues** — Block scalar blank lines, dotted keys, `.5` numeric format. (`core/utils.js`)
-
-**Low:**
-- **Promise.race timeout timers never cleared** — 3 locations leaked timers on success path. (`index.js`, `src/scribe.js`, `src/auto-suggest.js`)
-- **`deeplore_injection_log` never cleared when dedup toggled off** — Stale log persisted in chat metadata. (`index.js`)
-- **Internal `_` properties persisted to IndexedDB** — Cache saved transient internal fields. (`src/cache.js`)
-
-### Bug Fixes (Development)
-
-**Critical:**
-- **Health badge click handler accesses wrong properties** — Click handler referenced `result.grade` and `result.items`, but `runHealthCheck()` returns `{ issues, errors, warnings }`. Badge showed "Grade: undefined" on click. Now computes grade locally and iterates `result.issues` with correct `severity`/`detail` fields.
-- **`/dle-summarize` loses user edits** — Textarea value was read via `getElementById` after popup resolved, but DOM was already destroyed. User edits to generated summaries were silently discarded. Now captures textarea reference in `onOpen` callback.
-- **`writeNote()` silent data loss** — Obsidian 400/405 errors returned only "HTTP 405" with no response body. Combined with circuit breaker treating 4xx as successes, misconfigured scribe folders silently failed every write. Now includes response body in error message.
-- **`gated.slice` returns wrong entries after budget skip** — When the highest-priority entry exceeded the token budget, `injectedEntries` was computed via positional slice rather than tracking actual accepted entries. Cooldown, decay, analytics, and Context Cartographer all recorded wrong entries. `formatAndGroup()` now returns the accepted entry list directly.
-- **Test Match popup repeats same `gated.slice` bug** — The settings UI Test Match button used `gated.slice(0, injectedCount)` to display injected entries, identical to the `index.js` bug above. When `formatAndGroup` skipped an early entry via `continue`, the popup showed wrong entries as "injected" and wrong entries as "budget cut". Now uses `acceptedEntries` directly.
-- **IndexedDB cache hydration bypasses validation** — Cached entries loaded from IndexedDB were injected into the vault index without structural validation. Corrupt cache data (from browser crashes or quota pressure) could propagate as canonical entries, surviving restarts. Added `validateCachedEntry()` checkpoint during hydration.
-
-**High:** 56 fixes — generation lock feedback, `_rawContent` memory doubling, scanText per-entry allocation, cascade/recursive bypass of cooldown/warmup/probability, multi-vault migration loop, first-entry budget overflow, cumulative decay penalty, manifest 4x filter passes, incomplete cache key, undiagnosable profile errors, circuit breaker mid-batch/5xx/auth/singleton/half-open-stampede issues, unauthenticated testConnection, AI-only fallback collapse, delta sync vault loss, pinned entries filtered by post-pin gates, zero-lore window in commands, bootstrap invisible after threshold, empty key matching everything, optimize-keys crash, graph animation leak, YAML corruption via JSON.stringify, setup wizard DOM read-after-close, import overwrites, Promise.all failures, CHAT_CHANGED cache invalidation, profile token tracking, word boundary regex, tracker key collisions, JSON parse errors, title/name mismatch, XML injection in templates, unsanitized scribe output, disabled button guards, settings-keyed cache, multi-vault cache key, pre-filter matching, unlimited defaults, AI parser validation/regex, health badge input, loading states, concurrent generation lock, decay threshold implementation, sliding window O(V*N), browse popup allocation, refresh index clear, premature indexEverLoaded, Cartographer memory leak, PM prompt re-registration, analytics key format, per-gen decay iteration.
-
-**Medium:** 66 fixes — pipeline crash feedback, orphaned quiet prompts, analytics/cache/settings lifecycle, SSRF validation, gating/matching correctness, Unicode normalization, import error handling, case-sensitivity (5 instances), CHAT_CHANGED state resets (5 instances), YAML injection/escaping (4 instances), cache schema/TTL/quota, sync polling, UI event listeners, DOM read-after-close, epoch guards, plus 9 from pre-release audit (decay penalty, AI normalization, numeric YAML gating, apostrophe parsing, vaultIndex snapshot, block scalars, token tracking, import escaping, lock guard).
-
-**Low:** 50 fixes — falsy-zero coalescing, recursion bounds, API signatures, click delegation, tracker key mismatches, cooldown timer freeze, tag cache invalidation, prompt injection guards, shared mutable defaults, regex recompilation, dead code removal, analytics pruning, prototype pollution, filename collisions, hash upgrades, import bounds, graph performance, plus 3 from pre-release audit (2-char key cache, scribe chat length, null chat guard).
+### Bug Fixes
+- **Critical:** 9 fixes
+- **High:** 67 fixes
+- **Medium:** 74 fixes
+- **Low:** 53 fixes
 
 *(Deferred)* Magic number imports, YAML parser docs, inline styles → CSS, ARIA labels — documented in plan for future work.
 
@@ -159,7 +116,7 @@
 - 518 passing tests
 - Bumped version to 0.2.0-BETA
 
-## 0.14-ALPHA
+## 0.14.0-ALPHA
 
 ### Session Scribe Overhaul
 - **Connection Manager Support** -- Session Scribe can now use saved Connection Manager profiles or a custom proxy, independent from your main AI connection. Three modes: SillyTavern (default, uses active connection), Connection Profile, or Custom Proxy.
@@ -185,7 +142,7 @@
 - Scribe profile dropdown auto-refreshes on Connection Manager profile events
 - Bumped version to 0.14-ALPHA
 
-## 0.13-ALPHA
+## 0.13.0-ALPHA
 
 ### New Features
 - **Connection Profile Support** -- AI search can now use saved SillyTavern Connection Manager profiles instead of requiring a separate proxy server. Select any saved profile from a dropdown in AI Search settings. All API providers supported by Connection Manager work (Anthropic, OpenAI, OpenRouter, etc.). Custom proxy mode preserved as a toggle for claude-code-proxy users.
@@ -203,7 +160,7 @@
 - Profile dropdown auto-refreshes on Connection Manager profile events
 - Bumped version to 0.13-ALPHA
 
-## 0.12-ALPHA
+## 0.12.0-ALPHA
 
 ### New Features
 - **Active Character Boost** -- New `characterContextScan` setting. When enabled, automatically matches the active character's vault entry by name or keyword, ensuring their lore is available whenever they're in the conversation.
@@ -213,7 +170,7 @@
 - 158 passing tests
 - Bumped version to 0.12-ALPHA
 
-## 0.11-ALPHA
+## 0.11.0-ALPHA
 
 ### Refactor: Shared Core Extraction
 - **Shared `core/` directory** -- Extracted ~800 lines of duplicated functions into 4 shared ES module files (`core/utils.js`, `core/matching.js`, `core/pipeline.js`, `core/sync.js`). Both DeepLore and DeepLore Enhanced now import from these shared modules instead of maintaining inline copies.
@@ -230,7 +187,7 @@
 - 158 passing tests
 - Bumped version to 0.11-ALPHA
 
-## 0.10-ALPHA
+## 0.10.0-ALPHA
 
 ### New Features
 - **Cooldown Tags** -- Per-entry `cooldown: N` frontmatter field. After an entry triggers, it's skipped for the next N generations before becoming eligible again.

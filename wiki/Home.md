@@ -36,7 +36,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 | Page | Description |
 |------|-------------|
-| [[What is DeepLore?]] | What a lorebook is, why DLE, and how the pipeline works (start here) |
+| [[What is DeepLore]] | What a lorebook is, why DLE, and how the pipeline works (start here) |
 | [[Installation]] | Step-by-step setup guide |
 | [[Quick Start]] | 5-minute getting started guide |
 | [[First Steps]] | Building your vault and tuning the extension |

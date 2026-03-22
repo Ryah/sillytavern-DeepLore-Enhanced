@@ -31,6 +31,7 @@ import {
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress,
+    notifyPipelineComplete, notifyGatingChanged,
 } from './src/state.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault.js';
 import { runPipeline } from './src/pipeline.js';
@@ -40,6 +41,7 @@ import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/
 import { loadSettingsUI, bindSettingsEvents } from './src/settings-ui.js';
 import { registerSlashCommands } from './src/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
+import { createDrawerPanel } from './src/drawer.js';
 
 // ============================================================================
 // Generation Interceptor
@@ -393,6 +395,9 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (trackingErr) {
             console.error('[DLE] Error in generation tracking:', trackingErr);
         }
+        // Notify drawer that pipeline is done (regardless of success/failure)
+        notifyPipelineComplete();
+
         // Only release lock if this pipeline still owns it (epoch matches).
         // A force-released stale pipeline must NOT release the newer pipeline's lock.
         if (lockEpoch === generationLockEpoch) {
@@ -420,6 +425,9 @@ jQuery(async function () {
             'settings',
         );
         $('#extensions_settings2').append(settingsHtml);
+
+        // Create the drawer panel in the top bar
+        await createDrawerPanel();
 
         loadSettingsUI();
         bindSettingsEvents(buildIndex);
@@ -587,6 +595,10 @@ jQuery(async function () {
             setLastPipelineTrace(null);
             setLastInjectionSources(null);
             resetCartographer();
+
+            // Notify drawer to refresh for the new chat
+            notifyPipelineComplete();
+            notifyGatingChanged();
 
             // Re-register PM entries for the new active character (prompt_list mode)
             if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {

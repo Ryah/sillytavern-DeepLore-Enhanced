@@ -576,12 +576,44 @@
     display: none !important;
 }
 
-/* Injection tab header */
-.dle-injection-header {
+/* Panel toolbar (shared across tabs: label + diff + expand) */
+.dle-panel-toolbar {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: var(--dle-space-2);
     margin-bottom: var(--dle-space-2);
+}
+
+.dle-panel-toolbar .dle-text-sm {
+    flex-shrink: 0;
+}
+
+.dle-panel-toolbar .dle-section-diff {
+    flex: 1;
+}
+
+.dle-panel-toolbar .dle-browse-input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Tab expand button (open full popup) */
+.dle-tab-expand {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--dle-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 0.75rem;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+    line-height: 1;
+}
+
+.dle-tab-expand:hover {
+    opacity: 1;
+    color: var(--dle-text);
 }
 
 /* --- Token bar (drawer version) --- */

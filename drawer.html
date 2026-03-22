@@ -1,4 +1,4 @@
-<!-- DeepLore Enhanced — Drawer Panel (Phase 0 mockup) -->
+<!-- DeepLore Enhanced — Drawer Panel -->
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      ZONE 1: Fixed Status (always visible)
@@ -7,40 +7,35 @@
 
     <!-- Pipeline stage + stats merged into one compact row -->
     <div class="dle-status-row">
-        <span class="dle-status-dot dle-status-ok" title="All systems operational" aria-hidden="true"></span>
-        <span class="dle-pipeline-label">Idle</span>
+        <span class="dle-status-dot" title="System status" role="img" aria-label="System status: unknown"></span>
+        <span class="dle-pipeline-label" aria-label="Pipeline stage">Idle</span>
         <span class="dle-stat-divider" aria-hidden="true">|</span>
-        <span class="dle-stat" title="Vault entries indexed">247</span>
-        <span class="dle-stat" title="Last injection count"><i class="fa-solid fa-syringe dle-stat-icon" aria-hidden="true"></i> 8</span>
-        <span class="dle-stat" title="AI search mode">Two-Stage</span>
+        <span class="dle-stat" data-stat="entries" title="Vault entries indexed" aria-label="0 vault entries indexed">0</span>
+        <span class="dle-stat" title="Last injection count" aria-label="0 entries injected"><i class="fa-solid fa-syringe dle-stat-icon" aria-hidden="true"></i> <span data-stat="injected">0</span></span>
+        <span class="dle-stat" data-stat="mode" title="AI search mode" aria-label="Search mode: unknown">—</span>
     </div>
 
     <!-- Token budget bar -->
-    <div class="dle-token-bar-container" role="progressbar" aria-valuenow="1247" aria-valuemax="4096" aria-valuemin="0" aria-label="Token budget">
-        <div class="dle-token-bar" style="width: 30%;"></div>
-        <span class="dle-token-bar-label">1,247 / 4,096 tokens</span>
+    <div class="dle-token-bar-container" role="progressbar" aria-valuenow="0" aria-valuemax="0" aria-valuemin="0" aria-label="Token budget">
+        <div class="dle-token-bar" style="width: 0%;"></div>
+        <span class="dle-token-bar-label">— / — tokens</span>
     </div>
 
     <!-- Active gating filters (only shown when set) -->
-    <div class="dle-active-filters" aria-label="Active gating filters">
-        <span class="dle-chip dle-chip-sm">Victorian</span>
-        <span class="dle-chip dle-chip-sm">Gaslight District</span>
-        <span class="dle-chip dle-chip-sm">Eris</span>
-        <span class="dle-chip dle-chip-sm">Raven</span>
-    </div>
+    <div class="dle-active-filters" aria-label="Active gating filters"></div>
 
-    <!-- Quick actions (reduced — settings/health moved to Tools tab) -->
+    <!-- Quick actions -->
     <div class="dle-action-row" role="toolbar" aria-label="Quick actions">
-        <button class="menu_button menu_button_icon dle-action-btn" title="Refresh vault index" aria-label="Refresh vault index">
+        <button class="menu_button menu_button_icon dle-action-btn" data-action="refresh" title="Refresh vault index" aria-label="Refresh vault index">
             <i class="fa-solid fa-sync" aria-hidden="true"></i>
         </button>
-        <button class="menu_button menu_button_icon dle-action-btn" title="Open settings" aria-label="Open settings">
+        <button class="menu_button menu_button_icon dle-action-btn" data-action="settings" title="Open settings" aria-label="Open settings">
             <i class="fa-solid fa-gear" aria-hidden="true"></i>
         </button>
-        <button class="menu_button menu_button_icon dle-action-btn" title="Run Scribe now" aria-label="Run Scribe">
+        <button class="menu_button menu_button_icon dle-action-btn" data-action="scribe" title="Run Scribe now" aria-label="Run Scribe">
             <i class="fa-solid fa-feather-pointed" aria-hidden="true"></i>
         </button>
-        <button class="menu_button menu_button_icon dle-action-btn" title="Create new lore entry" aria-label="Create new lore entry">
+        <button class="menu_button menu_button_icon dle-action-btn" data-action="newlore" title="Create new lore entry" aria-label="Create new lore entry">
             <i class="fa-solid fa-plus" aria-hidden="true"></i>
         </button>
     </div>
@@ -82,73 +77,16 @@
     <!-- ─── Tab: Injection (Context Cartographer) ─── -->
     <div class="dle-tab-panel active" id="dle-panel-injection" data-tab="injection"
          role="tabpanel" aria-labelledby="dle-tab-injection">
-        <div class="dle-injection-header">
+        <div class="dle-panel-toolbar">
             <span class="dle-text-sm">Last Generation</span>
-            <span class="dle-section-diff">
-                <span class="dle-diff-add">+2 new</span>
-                <span class="dle-diff-remove">-1 removed</span>
-            </span>
+            <span class="dle-section-diff"></span>
+            <button class="dle-tab-expand" data-expand="injection" title="Open full Cartographer popup" aria-label="Open full Cartographer popup">
+                <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
+            </button>
         </div>
-        <div class="dle-carto-list">
-            <div class="dle-carto-entry dle-carto-new">
-                <span class="dle-carto-title">
-                    <button class="dle-obsidian-link" aria-label="Open Triumvirate Betrayal in Obsidian">Triumvirate Betrayal</button>
-                </span>
-                <span class="dle-carto-meta">
-                    <span class="dle-carto-tokens">178 tok</span>
-                    <span class="dle-carto-match" title="Matched via AI selection">AI</span>
-                    <span class="dle-carto-new-badge">NEW</span>
-                </span>
-            </div>
-            <div class="dle-carto-entry dle-carto-new">
-                <span class="dle-carto-title">
-                    <button class="dle-obsidian-link" aria-label="Open Raven's Network in Obsidian">Raven's Network</button>
-                </span>
-                <span class="dle-carto-meta">
-                    <span class="dle-carto-tokens">142 tok</span>
-                    <span class="dle-carto-match" title="Matched via keyword">KEY</span>
-                    <span class="dle-carto-new-badge">NEW</span>
-                </span>
-            </div>
-            <div class="dle-carto-entry">
-                <span class="dle-carto-title">
-                    <button class="dle-obsidian-link" aria-label="Open Eris Nighthollow in Obsidian">Eris Nighthollow</button>
-                </span>
-                <span class="dle-carto-meta">
-                    <span class="dle-carto-tokens">312 tok</span>
-                    <span class="dle-carto-match" title="Matched via AI selection">AI</span>
-                </span>
-            </div>
-            <div class="dle-carto-entry">
-                <span class="dle-carto-title">
-                    <button class="dle-obsidian-link" aria-label="Open Gaslight District in Obsidian">Gaslight District</button>
-                </span>
-                <span class="dle-carto-meta">
-                    <span class="dle-carto-tokens">189 tok</span>
-                    <span class="dle-carto-match" title="Matched via keyword">KEY</span>
-                </span>
-            </div>
-            <div class="dle-carto-entry">
-                <span class="dle-carto-title">
-                    <button class="dle-obsidian-link" aria-label="Open Bloodchain Mechanics in Obsidian">Bloodchain Mechanics</button>
-                </span>
-                <span class="dle-carto-meta">
-                    <span class="dle-carto-tokens">245 tok</span>
-                    <span class="dle-carto-match" title="Matched via AI selection">AI</span>
-                </span>
-            </div>
-            <div class="dle-carto-entry dle-carto-constant">
-                <span class="dle-carto-title">
-                    <button class="dle-obsidian-link" aria-label="Open World Rules in Obsidian">World Rules</button>
-                </span>
-                <span class="dle-carto-meta">
-                    <span class="dle-carto-tokens">501 tok</span>
-                    <span class="dle-carto-match" title="Always injected (constant)">CONST</span>
-                </span>
-            </div>
-        </div>
-        <!-- Empty state (hidden when entries exist) -->
-        <div class="dle-empty-state" style="display:none;">
+        <div class="dle-carto-list" role="list" aria-label="Injected entries"></div>
+        <!-- Empty state (shown when no sources) -->
+        <div class="dle-empty-state">
             <i class="fa-solid fa-inbox" aria-hidden="true"></i>
             <p>No entries injected yet. Send a message to trigger the pipeline.</p>
         </div>
@@ -157,114 +95,37 @@
     <!-- ─── Tab: Browse ─── -->
     <div class="dle-tab-panel" id="dle-panel-browse" data-tab="browse"
          role="tabpanel" aria-labelledby="dle-tab-browse" hidden>
-        <div class="dle-browse-controls-bar">
+        <div class="dle-panel-toolbar">
             <input type="text" class="text_pole dle-browse-input" placeholder="Search entries..." aria-label="Search vault entries" />
-            <div class="dle-browse-filters">
-                <select class="text_pole dle-browse-filter-select" aria-label="Filter by status">
-                    <option value="all">Status</option>
-                    <option value="pinned">Pinned</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="constant">Constants</option>
-                    <option value="seed">Seeds</option>
-                    <option value="bootstrap">Bootstrap</option>
-                    <option value="regular">Regular</option>
-                    <option value="never_injected">Never Injected</option>
-                </select>
-                <select class="text_pole dle-browse-filter-select" aria-label="Filter by tag">
-                    <option value="">Tags</option>
-                    <option value="character">character</option>
-                    <option value="location">location</option>
-                    <option value="lore">lore</option>
-                    <option value="organization">organization</option>
-                </select>
-                <select class="text_pole dle-browse-sort-select" aria-label="Sort entries">
-                    <option value="priority_asc">Sort</option>
-                    <option value="priority_desc">Priority &#x2193;</option>
-                    <option value="alpha_asc">A &#x2192; Z</option>
-                    <option value="alpha_desc">Z &#x2192; A</option>
-                    <option value="tokens_desc">Tokens &#x2193;</option>
-                    <option value="tokens_asc">Tokens &#x2191;</option>
-                    <option value="injected_desc">Most Injected</option>
-                    <option value="injected_asc">Least Injected</option>
-                </select>
-            </div>
+            <button class="dle-tab-expand" data-expand="browse" title="Open full Browse popup" aria-label="Open full Browse popup">
+                <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
+            </button>
         </div>
-        <div class="dle-browse-list">
-            <div class="dle-browse-entry dle-browse-injected">
-                <div class="dle-browse-info">
-                    <span class="dle-browse-title">Eris Nighthollow</span>
-                    <span class="dle-browse-keys">eris, nighthollow, spymaster</span>
-                </div>
-                <div class="dle-browse-controls">
-                    <span class="dle-browse-priority" title="Priority 20">P20</span>
-                    <button class="dle-browse-pin dle-pin-active" aria-label="Unpin Eris Nighthollow" title="Pinned — always inject"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>
-                    <button class="dle-browse-block" aria-label="Block Eris Nighthollow" title="Click to block"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>
-                    <button class="dle-browse-why" aria-label="Why was Eris Nighthollow selected?" title="Why selected?"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
-                </div>
-            </div>
-            <div class="dle-browse-entry dle-browse-injected">
-                <div class="dle-browse-info">
-                    <span class="dle-browse-title">Gaslight District</span>
-                    <span class="dle-browse-keys">gaslight, district, market</span>
-                </div>
-                <div class="dle-browse-controls">
-                    <span class="dle-browse-priority" title="Priority 35">P35</span>
-                    <button class="dle-browse-pin" aria-label="Pin Gaslight District" title="Click to pin"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>
-                    <button class="dle-browse-block" aria-label="Block Gaslight District" title="Click to block"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>
-                    <button class="dle-browse-why" aria-label="Why was Gaslight District selected?" title="Why selected?"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
-                </div>
-            </div>
-            <div class="dle-browse-entry">
-                <div class="dle-browse-info">
-                    <span class="dle-browse-title">Bloodchain Mechanics</span>
-                    <span class="dle-browse-keys">bloodchain, feeding, venom, addiction</span>
-                </div>
-                <div class="dle-browse-controls">
-                    <span class="dle-browse-priority" title="Priority 35">P35</span>
-                    <button class="dle-browse-pin" aria-label="Pin Bloodchain Mechanics" title="Click to pin"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>
-                    <button class="dle-browse-block dle-block-active" aria-label="Unblock Bloodchain Mechanics" title="Blocked — never inject"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>
-                    <button class="dle-browse-why" aria-label="Why wasn't Bloodchain Mechanics selected?" title="Why not selected?"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
-                </div>
-            </div>
-            <div class="dle-browse-entry dle-browse-injected">
-                <div class="dle-browse-info">
-                    <span class="dle-browse-title">World Rules</span>
-                    <span class="dle-browse-keys">(constant)</span>
-                </div>
-                <div class="dle-browse-controls">
-                    <span class="dle-browse-priority dle-browse-constant" title="Constant — always injected">CONST</span>
-                    <button class="dle-browse-pin" aria-label="Pin World Rules" title="Click to pin"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>
-                    <button class="dle-browse-block" aria-label="Block World Rules" title="Click to block"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>
-                    <button class="dle-browse-why" aria-label="Why was World Rules selected?" title="Why selected?"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
-                </div>
-            </div>
-            <div class="dle-browse-entry">
-                <div class="dle-browse-info">
-                    <span class="dle-browse-title">Triumvirate Betrayal</span>
-                    <span class="dle-browse-keys">triumvirate, betrayal, faction</span>
-                </div>
-                <div class="dle-browse-controls">
-                    <span class="dle-browse-priority" title="Priority 40">P40</span>
-                    <button class="dle-browse-pin" aria-label="Pin Triumvirate Betrayal" title="Click to pin"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>
-                    <button class="dle-browse-block" aria-label="Block Triumvirate Betrayal" title="Click to block"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>
-                    <button class="dle-browse-why" aria-label="Why wasn't Triumvirate Betrayal selected?" title="Why not selected?"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
-                </div>
-            </div>
-            <div class="dle-browse-entry">
-                <div class="dle-browse-info">
-                    <span class="dle-browse-title">Raven's Network</span>
-                    <span class="dle-browse-keys">raven, network, intelligence</span>
-                </div>
-                <div class="dle-browse-controls">
-                    <span class="dle-browse-priority" title="Priority 45">P45</span>
-                    <button class="dle-browse-pin" aria-label="Pin Raven's Network" title="Click to pin"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>
-                    <button class="dle-browse-block" aria-label="Block Raven's Network" title="Click to block"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>
-                    <button class="dle-browse-why" aria-label="Why wasn't Raven's Network selected?" title="Why not selected?"><i class="fa-solid fa-circle-question" aria-hidden="true"></i></button>
-                </div>
-            </div>
+        <div class="dle-browse-filters">
+            <select class="text_pole dle-browse-filter-select" data-filter="status" aria-label="Filter by status">
+                <option value="all">Status</option>
+                <option value="injected">Injected</option>
+                <option value="pinned">Pinned</option>
+                <option value="blocked">Blocked</option>
+                <option value="constant">Constants</option>
+                <option value="seed">Seeds</option>
+                <option value="bootstrap">Bootstrap</option>
+            </select>
+            <select class="text_pole dle-browse-filter-select" data-filter="tag" aria-label="Filter by tag">
+                <option value="">Tags</option>
+            </select>
+            <select class="text_pole dle-browse-sort-select" data-sort aria-label="Sort entries">
+                <option value="priority_asc">Sort</option>
+                <option value="priority_desc">Priority &#x2193;</option>
+                <option value="alpha_asc">A &#x2192; Z</option>
+                <option value="alpha_desc">Z &#x2192; A</option>
+                <option value="tokens_desc">Tokens &#x2193;</option>
+                <option value="tokens_asc">Tokens &#x2191;</option>
+            </select>
         </div>
+        <div class="dle-browse-list" role="list" aria-label="Vault entries"></div>
         <!-- Empty state -->
-        <div class="dle-empty-state" style="display:none;">
+        <div class="dle-empty-state">
             <i class="fa-solid fa-database" aria-hidden="true"></i>
             <p>No entries loaded. Connect to Obsidian in Settings.</p>
         </div>
@@ -273,25 +134,31 @@
     <!-- ─── Tab: Gating ─── -->
     <div class="dle-tab-panel" id="dle-panel-gating" data-tab="gating"
          role="tabpanel" aria-labelledby="dle-tab-gating" hidden>
-        <div class="dle-gating-group">
+        <div class="dle-panel-toolbar">
+            <span class="dle-text-sm">Contextual Gating</span>
+            <button class="dle-tab-expand" data-expand="gating" title="Open full Context State popup" aria-label="Open full Context State popup">
+                <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="dle-gating-group" data-field="era">
             <span class="dle-gating-label" id="dle-gating-era">Era</span>
             <div class="dle-gating-value" aria-labelledby="dle-gating-era">
-                <span class="dle-chip">Victorian <button class="dle-chip-x" aria-label="Remove Victorian era filter"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>
+                <span class="dle-gating-empty">Not set</span>
                 <button class="menu_button menu_button_icon dle-gating-set" title="Set era" aria-label="Set era">
                     <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
                 </button>
             </div>
         </div>
-        <div class="dle-gating-group">
+        <div class="dle-gating-group" data-field="location">
             <span class="dle-gating-label" id="dle-gating-location">Location</span>
             <div class="dle-gating-value" aria-labelledby="dle-gating-location">
-                <span class="dle-chip">Gaslight District <button class="dle-chip-x" aria-label="Remove Gaslight District location filter"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>
+                <span class="dle-gating-empty">Not set</span>
                 <button class="menu_button menu_button_icon dle-gating-set" title="Set location" aria-label="Set location">
                     <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
                 </button>
             </div>
         </div>
-        <div class="dle-gating-group">
+        <div class="dle-gating-group" data-field="sceneType">
             <span class="dle-gating-label" id="dle-gating-scene">Scene</span>
             <div class="dle-gating-value" aria-labelledby="dle-gating-scene">
                 <span class="dle-gating-empty">Not set</span>
@@ -300,11 +167,10 @@
                 </button>
             </div>
         </div>
-        <div class="dle-gating-group">
+        <div class="dle-gating-group" data-field="characterPresent">
             <span class="dle-gating-label" id="dle-gating-chars">Characters</span>
             <div class="dle-gating-value" aria-labelledby="dle-gating-chars">
-                <span class="dle-chip">Eris <button class="dle-chip-x" aria-label="Remove Eris from characters"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>
-                <span class="dle-chip">Raven <button class="dle-chip-x" aria-label="Remove Raven from characters"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>
+                <span class="dle-gating-empty">None set</span>
                 <button class="menu_button menu_button_icon dle-gating-set" title="Add character" aria-label="Add character">
                     <i class="fa-solid fa-plus" aria-hidden="true"></i>
                 </button>
@@ -319,16 +185,16 @@
         <div class="dle-tools-group">
             <h3 class="dle-tools-group-label">Diagnostics</h3>
             <div class="dle-tools-grid">
-                <button class="menu_button dle-tool-btn" title="Run health check on all entries">
+                <button class="menu_button dle-tool-btn" data-action="health" title="Run health check on all entries">
                     <i class="fa-solid fa-heartbeat" aria-hidden="true"></i> Health Check
                 </button>
-                <button class="menu_button dle-tool-btn" title="Inspect last pipeline trace">
+                <button class="menu_button dle-tool-btn" data-action="inspect" title="Inspect last pipeline trace">
                     <i class="fa-solid fa-microscope" aria-hidden="true"></i> Inspect
                 </button>
-                <button class="menu_button dle-tool-btn" title="Full system status">
+                <button class="menu_button dle-tool-btn" data-action="status" title="Full system status">
                     <i class="fa-solid fa-gauge-high" aria-hidden="true"></i> Status
                 </button>
-                <button class="menu_button dle-tool-btn" title="Simulate what entries would match">
+                <button class="menu_button dle-tool-btn" data-action="simulate" title="Simulate what entries would match">
                     <i class="fa-solid fa-flask" aria-hidden="true"></i> Simulate
                 </button>
             </div>
@@ -337,16 +203,16 @@
         <div class="dle-tools-group">
             <h3 class="dle-tools-group-label">AI Tools</h3>
             <div class="dle-tools-grid">
-                <button class="menu_button dle-tool-btn" title="Review AI search decisions">
+                <button class="menu_button dle-tool-btn" data-action="ai-review" title="Review AI search decisions">
                     <i class="fa-solid fa-magnifying-glass-chart" aria-hidden="true"></i> AI Review
                 </button>
-                <button class="menu_button dle-tool-btn" title="Session analytics">
+                <button class="menu_button dle-tool-btn" data-action="analytics" title="Session analytics">
                     <i class="fa-solid fa-chart-bar" aria-hidden="true"></i> Analytics
                 </button>
-                <button class="menu_button dle-tool-btn" title="AI Notebook (per-chat context)">
+                <button class="menu_button dle-tool-btn" data-action="notebook" title="AI Notebook (per-chat context)">
                     <i class="fa-solid fa-book" aria-hidden="true"></i> Notebook
                 </button>
-                <button class="menu_button dle-tool-btn" title="Generate entry summaries via AI">
+                <button class="menu_button dle-tool-btn" data-action="summarize" title="Generate entry summaries via AI">
                     <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Summarize
                 </button>
             </div>
@@ -355,16 +221,16 @@
         <div class="dle-tools-group">
             <h3 class="dle-tools-group-label">Data</h3>
             <div class="dle-tools-grid">
-                <button class="menu_button dle-tool-btn" title="Import World Info entries to Obsidian">
+                <button class="menu_button dle-tool-btn" data-action="import-wi" title="Import World Info entries to Obsidian">
                     <i class="fa-solid fa-file-import" aria-hidden="true"></i> Import WI
                 </button>
-                <button class="menu_button dle-tool-btn" title="Optimize entry keywords">
+                <button class="menu_button dle-tool-btn" data-action="optimize-keys" title="Optimize entry keywords">
                     <i class="fa-solid fa-key" aria-hidden="true"></i> Optimize Keys
                 </button>
-                <button class="menu_button dle-tool-btn" title="Visualize entry relationships">
+                <button class="menu_button dle-tool-btn" data-action="graph" title="Visualize entry relationships">
                     <i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Graph
                 </button>
-                <button class="menu_button dle-tool-btn" title="View Scribe history">
+                <button class="menu_button dle-tool-btn" data-action="scribe-history" title="View Scribe history">
                     <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> Scribe History
                 </button>
             </div>
@@ -373,13 +239,13 @@
         <div class="dle-tools-group">
             <h3 class="dle-tools-group-label">Setup</h3>
             <div class="dle-tools-grid">
-                <button class="menu_button dle-tool-btn" title="Guided setup wizard">
+                <button class="menu_button dle-tool-btn" data-action="setup" title="Guided setup wizard">
                     <i class="fa-solid fa-hat-wizard" aria-hidden="true"></i> Setup Wizard
                 </button>
-                <button class="menu_button dle-tool-btn" title="View pins and blocks for this chat">
+                <button class="menu_button dle-tool-btn" data-action="pins-blocks" title="View pins and blocks for this chat">
                     <i class="fa-solid fa-thumbtack" aria-hidden="true"></i> Pins/Blocks
                 </button>
-                <button class="menu_button dle-tool-btn" title="Help and documentation">
+                <button class="menu_button dle-tool-btn" data-action="help" title="Help and documentation">
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i> Help
                 </button>
             </div>

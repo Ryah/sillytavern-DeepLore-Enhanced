@@ -234,6 +234,60 @@ export function notifyCircuitStateChanged() {
     }
 }
 
+// ── Pipeline complete callbacks ──
+// Fired after onGenerate completes (success or failure). Drawer uses this to update injection tab, status zone.
+
+/** @type {Array<() => void>} */
+const pipelineCompleteCallbacks = [];
+
+export function onPipelineComplete(callback) {
+    pipelineCompleteCallbacks.push(callback);
+}
+
+export function clearPipelineCompleteCallbacks() { pipelineCompleteCallbacks.length = 0; }
+
+export function notifyPipelineComplete() {
+    for (const cb of pipelineCompleteCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] Pipeline complete callback error:', err.message); }
+    }
+}
+
+// ── Gating changed callbacks ──
+// Fired after gating commands modify chat_metadata.deeplore_context.
+
+/** @type {Array<() => void>} */
+const gatingChangedCallbacks = [];
+
+export function onGatingChanged(callback) {
+    gatingChangedCallbacks.push(callback);
+}
+
+export function clearGatingCallbacks() { gatingChangedCallbacks.length = 0; }
+
+export function notifyGatingChanged() {
+    for (const cb of gatingChangedCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] Gating changed callback error:', err.message); }
+    }
+}
+
+// ── Pin/block changed callbacks ──
+// Fired after pin/block commands modify chat_metadata.deeplore_pins/blocks.
+
+/** @type {Array<() => void>} */
+const pinBlockChangedCallbacks = [];
+
+export function onPinBlockChanged(callback) {
+    pinBlockChangedCallbacks.push(callback);
+}
+
+export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.length = 0; }
+
+export function notifyPinBlockChanged() {
+    for (const cb of pinBlockChangedCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] Pin/block changed callback error:', err.message); }
+    }
+}
+
 // ── Overall status computation ──
 
 /**

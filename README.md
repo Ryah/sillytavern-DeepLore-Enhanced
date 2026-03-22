@@ -1,6 +1,6 @@
 # DeepLore Enhanced - AI-Powered Obsidian Vault Lorebook for SillyTavern
 
-> **Personal project -- not for general use.** This fork exists for my own setup and workflow. I develop and test it against my specific stack. If something breaks for you but works for me, I won't be able to help -- I can't fix bugs I can't replicate. No support is offered.
+> **Personal project.** 528 tests, used daily against a 130+ entry vault, in beta. Bug reports welcome but fixes might take time -- I work.
 
 > **Do NOT run this alongside DeepLore.** Running both DeepLore and DeepLore Enhanced at the same time is not supported and will cause conflicts. Disable or uninstall DeepLore before using this extension. If you run into issues with both installed, the fix is to pick one and remove the other.
 

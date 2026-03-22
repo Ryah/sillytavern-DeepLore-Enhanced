@@ -15,7 +15,7 @@ import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParse
 import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
 import { parseFrontmatter, simpleHash, buildAiChatContext, classifyError, NO_ENTRIES_MSG } from '../core/utils.js';
 import { formatAndGroup } from '../core/matching.js';
-import { buildExemptionPolicy, applyRequiresExcludesGating } from './stages.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from './stages.js';
 import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, invalidateSettingsCache } from '../settings.js';
 import { fetchScribeNotes } from './obsidian-api.js';
 import {
@@ -153,9 +153,10 @@ export function registerSlashCommands() {
             }
 
             const settings = getSettings();
-            // Warn if AI search is enabled — this command makes real API calls
+            // Confirm if AI search is enabled — this command makes real API calls
             if (settings.aiSearchEnabled) {
-                toastr.warning('Running pipeline with live AI search — this uses API tokens.', 'DeepLore Enhanced', { timeOut: 4000, preventDuplicates: true });
+                const proceed = await callGenericPopup('This will make a live AI search call and use API tokens. Continue?', POPUP_TYPE.CONFIRM);
+                if (!proceed) return '';
             }
             const { finalEntries, matchedKeys } = await runPipeline(chat);
 
@@ -167,6 +168,12 @@ export function registerSlashCommands() {
                     const lastGen = injectionHistory.get(trackerKey(e));
                     return lastGen === undefined || (generationCount - lastGen) >= settings.reinjectionCooldown;
                 });
+            }
+
+            // Apply contextual gating (era/location/scene/character) — matches onGenerate order
+            const gatingContext = chat_metadata?.deeplore_context;
+            if (gatingContext) {
+                filtered = applyContextualGating(filtered, gatingContext, settings.debugMode);
             }
 
             const cmdPins = chat_metadata.deeplore_pins || [];
@@ -1151,7 +1158,7 @@ export function registerSlashCommands() {
             html += `<p style="margin-bottom:8px;">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
         }
         html += '<div style="display:flex;flex-direction:column;gap:4px;">';
-        html += `<button class="menu_button dle-field-select" data-value="" class="dle-popup">Clear filter</button>`;
+        html += `<button class="menu_button dle-field-select dle-popup" data-value="">Clear filter</button>`;
         for (const [, { display, count }] of sorted) {
             const isActive = currentValue.toLowerCase() === display.toLowerCase();
             const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid var(--dle-success, #4caf50);padding-left:8px;' : '';

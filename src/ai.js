@@ -236,6 +236,9 @@ export async function hierarchicalPreFilter(candidates, chat) {
     const categoryPrompt = 'You are a lore retrieval assistant. Given categories of lore entries and recent chat, select which categories are relevant. Return a JSON array of category names (strings). Be inclusive — select all categories that might be relevant.';
     const categoryUserMessage = `## Categories\n${categoryManifest}\n\n## Recent Chat\n${chatContext}`;
 
+    // Skip if AI circuit breaker is tripped — avoid burning timeouts during outages
+    if (isAiCircuitOpen()) return null;
+
     try {
         const result = await callAI(categoryPrompt, categoryUserMessage, {
             mode: settings.aiSearchConnectionMode,
@@ -288,6 +291,7 @@ export async function hierarchicalPreFilter(candidates, chat) {
 
         return filteredResult;
     } catch (err) {
+        recordAiFailure();
         if (settings.debugMode) console.warn('[DLE] Hierarchical pre-filter failed:', err.message);
         return null; // Fall back to single-call
     }
@@ -389,15 +393,10 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         // Uses pre-computed entityNameSet from buildIndex (titles min 1 char, keys min 2 chars)
         let hasNewEntityMention = false;
         for (const name of entityNameSet) {
-            // Use pre-compiled word boundary regex for short names to avoid false positives
-            // (e.g. "an" matching inside "want", "Kai" matching inside "okay")
-            if (name.length <= 3) {
-                const regex = entityShortNameRegexes.get(name);
-                if (regex && regex.test(newText)) {
-                    hasNewEntityMention = true;
-                    break;
-                }
-            } else if (newText.includes(name)) {
+            // Use pre-compiled word boundary regex for ALL names to avoid false positives
+            // (e.g. "an" in "want", "Arch" in "monarch", "Eris" in "characteristics")
+            const regex = entityShortNameRegexes.get(name);
+            if (regex && regex.test(newText)) {
                 hasNewEntityMention = true;
                 break;
             }

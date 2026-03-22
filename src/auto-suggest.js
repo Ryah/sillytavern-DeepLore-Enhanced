@@ -206,6 +206,9 @@ ${safeContent}`;
                     if (card) {
                         card.style.opacity = '0.3';
                         card.style.borderColor = 'var(--dle-error, #f44336)';
+                        // Disable both buttons and update label
+                        card.querySelectorAll('button').forEach(b => b.disabled = true);
+                        this.textContent = 'Rejected';
                     }
                 });
             });

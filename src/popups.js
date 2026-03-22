@@ -262,7 +262,8 @@ export async function showBrowsePopup() {
             html += `</div>`;
             html += `<div class="dle-text-xs dle-muted">${keysDisplay || '<em>no keywords</em>'}</div>`;
             html += `<div id="dle_entry_${entryId}" style="display: none; margin-top: var(--dle-space-2); padding-top: var(--dle-space-2); border-top: 1px solid var(--dle-border);">`;
-            html += `<div class="dle-preview">${escapeHtml(entry.content)}</div>`;
+            const truncated = entry.content.length > 500 ? entry.content.substring(0, 500) + '…' : entry.content;
+            html += `<div class="dle-preview">${escapeHtml(truncated)}</div>`;
             html += `<div class="dle-text-xs dle-muted" style="margin-top: var(--dle-space-1);">`;
             html += `Links: ${entry.resolvedLinks.length > 0 ? entry.resolvedLinks.map(l => escapeHtml(l)).join(', ') : 'none'}`;
             html += ` · Tags: ${entry.tags.length > 0 ? entry.tags.map(t => escapeHtml(t)).join(', ') : 'none'}`;

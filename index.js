@@ -287,7 +287,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Author's Notebook injection (independent of entry pipeline)
         if (settings.notebookEnabled && chat_metadata?.deeplore_notebook?.trim()) {
             const rawNotebook = chat_metadata.deeplore_notebook.trim();
-            const notebookContent = rawNotebook.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const notebookContent = rawNotebook;
             const usePromptList = settings.injectionMode === 'prompt_list';
             if (usePromptList && promptManager) {
                 const pmEntry = promptManager.getPromptById('deeplore_notebook');

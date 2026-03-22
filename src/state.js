@@ -151,6 +151,7 @@ export function recordAiFailure() {
     aiCircuitFailures++;
     if (aiCircuitFailures >= AI_CIRCUIT_THRESHOLD) {
         aiCircuitOpen = true;
+        // Always refresh the opened-at timestamp so the cooldown resets on each failure
         aiCircuitOpenedAt = Date.now();
     }
     // Notify observers if state changed (closed → open)
@@ -306,22 +307,24 @@ function notifyGenerationLockChanged() {
 /**
  * Compute the overall system status for the header badge.
  * Pure function that reads current state values.
+ * @param {{ state: string, failures: number }} [obsidianCircuitState] - Aggregate Obsidian circuit breaker state (from getCircuitState())
  * @returns {'ok'|'degraded'|'limited'|'offline'}
  */
-export function computeOverallStatus() {
+export function computeOverallStatus(obsidianCircuitState) {
     const hasEntries = vaultIndex.length > 0;
     const allVaultsFailed = lastVaultAttemptCount > 0 && lastVaultFailureCount >= lastVaultAttemptCount;
     const someVaultsFailed = lastVaultFailureCount > 0 && lastVaultFailureCount < lastVaultAttemptCount;
     const circuitTripped = isAiCircuitOpen();
     const usingStaleCache = hasEntries && !indexEverLoaded;
+    const obsidianDown = obsidianCircuitState?.state === 'open';
 
     // Red: no vaults reachable AND no cached data
-    if (!hasEntries && (allVaultsFailed || lastVaultAttemptCount === 0)) {
+    if (!hasEntries && (allVaultsFailed || obsidianDown || lastVaultAttemptCount === 0)) {
         return 'offline';
     }
 
-    // Orange: AI circuit breaker tripped or running from stale cache only
-    if (circuitTripped || usingStaleCache) {
+    // Orange: AI circuit breaker tripped, Obsidian circuit open, or running from stale cache only
+    if (circuitTripped || obsidianDown || usingStaleCache) {
         return 'limited';
     }
 

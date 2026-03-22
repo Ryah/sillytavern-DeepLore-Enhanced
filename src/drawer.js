@@ -110,6 +110,12 @@ function announceToScreenReader(message) {
     }
 }
 
+// ─── Drawer reference (set once in createDrawerPanel, used by all render functions) ───
+let $drawerRef = null;
+
+// ─── Generation lifecycle state ───
+let stGenerating = false; // True between GENERATION_STARTED and GENERATION_ENDED
+
 // ─── Browse tab state ───
 let browseSearchTimeout = null;
 let browseQuery = '';
@@ -128,6 +134,7 @@ export function resetDrawerState() {
     browseTagFilter = '';
     browseSort = 'priority_asc';
     contextTokens = 0;
+    stGenerating = false;
     if (browseSearchTimeout) { clearTimeout(browseSearchTimeout); browseSearchTimeout = null; }
     // Clear the search input and filter selects if drawer exists
     const $input = $(`#${DRAWER_ID} .dle-browse-input`);
@@ -144,7 +151,7 @@ export function resetDrawerState() {
 let renderPending = false;
 let pendingRenders = new Set();
 
-function scheduleRender(renderFn, $drawer) {
+function scheduleRender(renderFn) {
     pendingRenders.add(renderFn);
     if (!renderPending) {
         renderPending = true;
@@ -153,7 +160,7 @@ function scheduleRender(renderFn, $drawer) {
             const fns = [...pendingRenders];
             pendingRenders.clear();
             for (const fn of fns) {
-                try { fn($drawer); } catch (err) { console.warn('[DLE] Drawer render error:', err.message); }
+                try { fn(); } catch (err) { console.warn('[DLE] Drawer render error:', err.message); }
             }
         });
     }
@@ -166,25 +173,26 @@ function scheduleRender(renderFn, $drawer) {
 /**
  * Update the fixed status zone with live data.
  */
-function renderStatusZone($drawer) {
+function renderStatusZone() {
+    const $drawer = $drawerRef;
     const settings = getSettings();
 
-    // Status dot
-    const status = computeOverallStatus();
+    // Status dot (pass Obsidian circuit state for real-time accuracy between index builds)
+    const status = computeOverallStatus(getCircuitState());
     const $dot = $drawer.find('.dle-status-dot');
     $dot.removeClass('dle-status-ok dle-status-degraded dle-status-limited dle-status-offline');
     $dot.addClass(STATUS_CLASSES[status] || 'dle-status-offline');
     $dot.attr('title', `Status: ${status}`);
     $dot.attr('aria-label', `System status: ${status}`);
 
-    // Pipeline label + activity animation
-    const pipelineText = generationLock ? 'Choosing Lore...' : 'Idle';
+    // Pipeline label + activity animation (3-state: Choosing Lore → Writing → Idle)
+    const pipelineText = generationLock ? 'Choosing Lore...' : stGenerating ? 'Writing...' : 'Idle';
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Pipeline stage: ${pipelineText}`);
-    $dot.toggleClass('dle-status-active', !!generationLock);
+    $dot.toggleClass('dle-status-active', !!generationLock || stGenerating);
 
     // Stats
     const entryCount = vaultIndex.length;
-    const injectedCount = lastInjectionSources ? lastInjectionSources.length : 0;
+    const injectedCount = generationLock ? '…' : (lastInjectionSources ? lastInjectionSources.length : 0);
     const $entries = $drawer.find('[data-stat="entries"]');
     $entries.text(entryCount);
     $entries.closest('.dle-stat').attr('aria-label', `${entryCount} vault entries indexed`);
@@ -214,16 +222,16 @@ function renderStatusZone($drawer) {
     $drawer.find('.dle-token-bar-label').text(budgetLabel);
 
     // Entries bar
-    const injectedCount2 = lastInjectionSources ? lastInjectionSources.length : 0;
+    const injectedNum = lastInjectionSources ? lastInjectionSources.length : 0;
     const maxEntries = settings.unlimitedEntries ? 0 : (settings.maxEntries || 0);
-    const entriesPct = maxEntries ? Math.min(100, Math.round((injectedCount2 / maxEntries) * 100)) : 0;
+    const entriesPct = maxEntries ? Math.min(100, Math.round((injectedNum / maxEntries) * 100)) : 0;
     const $entriesBarContainer = $drawer.find('.dle-entries-bar-container');
-    $entriesBarContainer.attr('aria-valuenow', injectedCount2).attr('aria-valuemax', maxEntries);
+    $entriesBarContainer.attr('aria-valuenow', injectedNum).attr('aria-valuemax', maxEntries);
     $drawer.find('.dle-entries-bar').css('width', `${entriesPct}%`);
     const entriesLabel = maxEntries
-        ? `Entries ${injectedCount2} / ${maxEntries}`
+        ? `Entries ${injectedNum} / ${maxEntries}`
         : settings.unlimitedEntries
-            ? `Entries ${injectedCount2} / \u221E`
+            ? `Entries ${injectedNum} / \u221E`
             : 'Entries — / —';
     $drawer.find('.dle-entries-bar-label').text(entriesLabel);
 
@@ -248,7 +256,8 @@ function renderStatusZone($drawer) {
 /**
  * Render the "Why?" tab — shows why entries were injected AND why others were filtered out.
  */
-function renderInjectionTab($drawer) {
+function renderInjectionTab() {
+    const $drawer = $drawerRef;
     const sources = lastInjectionSources;
     const prev = previousSources;
     const trace = lastPipelineTrace;
@@ -374,7 +383,8 @@ function renderInjectionTab($drawer) {
 /**
  * Render the browse tab with live vault entries.
  */
-function renderBrowseTab($drawer) {
+function renderBrowseTab() {
+    const $drawer = $drawerRef;
     const $list = $drawer.find('.dle-browse-list');
     const $emptyNoData = $drawer.find('#dle-browse-empty-no-data');
     const $emptyNoResults = $drawer.find('#dle-browse-empty-no-results');
@@ -400,6 +410,11 @@ function renderBrowseTab($drawer) {
         tagOpts.push(`<option value="${escapeHtml(t)}"${t === currentTagVal ? ' selected' : ''}>${escapeHtml(t)}</option>`);
     }
     $tagSelect.html(tagOpts.join(''));
+
+    // Reset stale tag filter if the tag no longer exists in the vault
+    if (browseTagFilter && !tagSet.has(browseTagFilter)) {
+        browseTagFilter = '';
+    }
 
     // Get filters
     const query = browseQuery.toLowerCase();
@@ -490,14 +505,17 @@ function renderBrowseTab($drawer) {
         html += `</div>`;
     }
 
+    const scrollPos = $list[0]?.scrollTop || 0;
     $list.html(html);
+    if (scrollPos) $list[0].scrollTop = scrollPos;
     $emptyNoResults.toggle(entries.length === 0);
 }
 
 /**
  * Render the gating tab with live context state.
  */
-function renderGatingTab($drawer) {
+function renderGatingTab() {
+    const $drawer = $drawerRef;
     const ctx = chat_metadata?.deeplore_context;
 
     const fields = [
@@ -536,7 +554,8 @@ function renderGatingTab($drawer) {
 }
 
 /** Render active entry timers (cooldown, decay, warmup) below gating */
-function renderTimers($drawer) {
+function renderTimers() {
+    const $drawer = $drawerRef;
     const $list = $drawer.find('.dle-timer-list');
     const $empty = $drawer.find('.dle-timer-empty');
     const rows = [];
@@ -565,16 +584,8 @@ function renderTimers($drawer) {
         }
     }
 
-    // Warmup entries (from vault index — entries that require multiple keyword hits)
-    const entries = vaultIndex;
-    for (const entry of entries) {
-        if (entry.warmup !== null && entry.warmup > 1) {
-            rows.push(`<div class="dle-timer-row" role="listitem">
-                <span class="dle-timer-name" title="${escapeHtml(entry.title)}">${escapeHtml(entry.title)}</span>
-                <span class="dle-timer-badge dle-timer-warmup">warmup ${entry.warmup}x</span>
-            </div>`);
-        }
-    }
+    // Note: Warmup is static configuration (entry.warmup threshold), not an active timer.
+    // Removed from timers section — would show ALL entries with warmup > 1 regardless of state.
 
     $list.html(rows.join(''));
     $empty.toggle(rows.length === 0);
@@ -588,7 +599,7 @@ function renderTimers($drawer) {
 function executeCommand(cmd) {
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
     if (ctx?.executeSlashCommands) {
-        ctx.executeSlashCommands(cmd);
+        ctx.executeSlashCommands(cmd).catch(err => console.error('[DLE] Command error:', cmd, err));
     } else {
         console.warn('[DLE] Cannot execute command — SillyTavern.getContext() unavailable');
     }
@@ -633,24 +644,24 @@ function wireBrowseTab($drawer) {
         clearTimeout(browseSearchTimeout);
         browseSearchTimeout = setTimeout(() => {
             browseQuery = val;
-            scheduleRender(renderBrowseTab, $drawer);
+            scheduleRender(renderBrowseTab);
         }, 300);
     });
 
     // Filter selects
     $drawer.find('[data-filter="status"]').on('change', function () {
         browseStatusFilter = $(this).val();
-        scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderBrowseTab);
     });
 
     $drawer.find('[data-filter="tag"]').on('change', function () {
         browseTagFilter = $(this).val();
-        scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderBrowseTab);
     });
 
     $drawer.find('[data-sort]').on('change', function () {
         browseSort = $(this).val();
-        scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderBrowseTab);
     });
 
     // Pin/block buttons via event delegation
@@ -762,7 +773,8 @@ function formatTokensCompact(n) {
 /**
  * Render the footer zone: context bar, health icons, AI stats.
  */
-function renderFooter($drawer) {
+function renderFooter() {
+    const $drawer = $drawerRef;
     const $footer = $drawer.find('#dle_drawer_footer');
     if (!$footer.length) return;
 
@@ -994,7 +1006,7 @@ export async function createDrawerPanel() {
     );
 
     // Build the full drawer structure — mirrors ST's native pattern exactly
-    const $drawer = $(`
+    const $drawer = $drawerRef = $(`
         <div id="${DRAWER_ID}" class="drawer">
             <div class="drawer-toggle drawer-header">
                 <div id="deeploreDrawerIcon"
@@ -1129,7 +1141,7 @@ export async function createDrawerPanel() {
             }
             stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, () => {
                 contextTokens = promptManagerRef?.tokenUsage || 0;
-                scheduleRender(renderFooter, $drawer);
+                scheduleRender(renderFooter);
             });
         }
     } catch (err) {
@@ -1137,56 +1149,76 @@ export async function createDrawerPanel() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // Generation lifecycle — track "Writing..." state between GENERATION_STARTED and GENERATION_ENDED
+    // ═══════════════════════════════════════════════════════════════════════
+    try {
+        const stCtx2 = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
+        if (stCtx2?.eventSource && stCtx2?.eventTypes?.GENERATION_STARTED) {
+            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STARTED, () => {
+                stGenerating = true;
+                scheduleRender(renderStatusZone);
+            });
+            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_ENDED, () => {
+                stGenerating = false;
+                scheduleRender(renderStatusZone);
+            });
+        }
+    } catch (err) {
+        console.warn('[DLE] Could not wire generation lifecycle tracking:', err.message);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // Initial render
     // ═══════════════════════════════════════════════════════════════════════
-    renderStatusZone($drawer);
-    renderInjectionTab($drawer);
-    renderBrowseTab($drawer);
-    renderGatingTab($drawer);
-    renderTimers($drawer);
-    renderFooter($drawer);
+    renderStatusZone();
+    renderInjectionTab();
+    renderBrowseTab();
+    renderGatingTab();
+    renderTimers();
+    renderFooter();
 
     // ═══════════════════════════════════════════════════════════════════════
     // Observer subscriptions — live data updates
     // ═══════════════════════════════════════════════════════════════════════
     onIndexUpdated(() => {
-        scheduleRender(renderStatusZone, $drawer);
-        scheduleRender(renderBrowseTab, $drawer);
-        scheduleRender(renderTimers, $drawer);
-        scheduleRender(renderFooter, $drawer);
+        scheduleRender(renderStatusZone);
+        scheduleRender(renderBrowseTab);
+        scheduleRender(renderTimers);
+        scheduleRender(renderFooter);
         announceToScreenReader(`Vault index refreshed: ${vaultIndex.length} entries loaded.`);
     });
 
     onAiStatsUpdated(() => {
-        scheduleRender(renderStatusZone, $drawer);
-        scheduleRender(renderFooter, $drawer);
+        scheduleRender(renderStatusZone);
+        scheduleRender(renderFooter);
     });
 
     onCircuitStateChanged(() => {
-        scheduleRender(renderStatusZone, $drawer);
-        scheduleRender(renderFooter, $drawer);
+        scheduleRender(renderStatusZone);
+        scheduleRender(renderFooter);
     });
 
     onPipelineComplete(() => {
-        scheduleRender(renderStatusZone, $drawer);
-        scheduleRender(renderInjectionTab, $drawer);
-        scheduleRender(renderBrowseTab, $drawer);
-        scheduleRender(renderTimers, $drawer);
-        scheduleRender(renderFooter, $drawer);
-        const count = lastInjectionSources ? lastInjectionSources.length : 0;
-        announceToScreenReader(`Pipeline complete: ${count} entries injected.`);
+        scheduleRender(renderStatusZone);
+        scheduleRender(renderInjectionTab);
+        scheduleRender(renderBrowseTab);
+        scheduleRender(renderTimers);
+        scheduleRender(renderFooter);
+        if (lastInjectionSources !== null) {
+            announceToScreenReader(`Pipeline complete: ${lastInjectionSources.length} entries injected.`);
+        }
     });
 
     onGatingChanged(() => {
-        scheduleRender(renderStatusZone, $drawer);
-        scheduleRender(renderGatingTab, $drawer);
+        scheduleRender(renderStatusZone);
+        scheduleRender(renderGatingTab);
     });
 
     onPinBlockChanged(() => {
-        scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderBrowseTab);
     });
 
     onGenerationLockChanged(() => {
-        scheduleRender(renderStatusZone, $drawer);
+        scheduleRender(renderStatusZone);
     });
 }

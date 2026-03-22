@@ -2,7 +2,7 @@
 <div class="dle-settings-popup">
 
     <!-- Sidebar tabs -->
-    <nav class="dle-settings-sidebar" role="tablist" aria-label="Settings sections">
+    <nav class="dle-settings-sidebar" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
         <button class="dle-settings-tab active" id="dle-sp-tab-connection" data-settings-tab="connection" role="tab"
                 aria-selected="true" aria-controls="dle-sp-connection">
             <i class="fa-solid fa-plug" aria-hidden="true"></i>
@@ -122,7 +122,7 @@
              TAB: Matching
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="dle-settings-panel" id="dle-sp-matching" data-settings-panel="matching"
-             role="tabpanel" aria-labelledby="dle-sp-tab-matching">
+             role="tabpanel" aria-labelledby="dle-sp-tab-matching" hidden
 
             <h4>Search Mode</h4>
             <p class="dle_section_desc">Choose how entries are selected: keywords (free), two-stage (keywords + AI), or AI-only.</p>
@@ -302,7 +302,7 @@
              TAB: AI Search
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="dle-settings-panel" id="dle-sp-ai" data-settings-panel="ai"
-             role="tabpanel" aria-labelledby="dle-sp-tab-ai">
+             role="tabpanel" aria-labelledby="dle-sp-tab-ai" hidden
 
             <h4>AI Search Settings</h4>
             <p class="dle_section_desc">Configure the AI model that selects which entries to inject.</p>
@@ -425,7 +425,7 @@
              TAB: Features
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="dle-settings-panel" id="dle-sp-features" data-settings-panel="features"
-             role="tabpanel" aria-labelledby="dle-sp-tab-features">
+             role="tabpanel" aria-labelledby="dle-sp-tab-features" hidden
 
             <h4>Notebook</h4>
             <p class="dle_section_desc">A per-chat scratchpad for notes, scene direction, or writing instructions.</p>
@@ -608,7 +608,7 @@
              TAB: System
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="dle-settings-panel" id="dle-sp-system" data-settings-panel="system"
-             role="tabpanel" aria-labelledby="dle-sp-tab-system">
+             role="tabpanel" aria-labelledby="dle-sp-tab-system" hidden
 
             <h4>Index &amp; Cache</h4>
 

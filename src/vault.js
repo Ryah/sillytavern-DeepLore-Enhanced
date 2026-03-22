@@ -135,16 +135,15 @@ function computeEntityDerivedState(entries) {
     }
     setEntityNameSet(names);
 
-    // Pre-compile word-boundary regexes for short entity names (≤3 chars)
-    // Avoids constructing new RegExp objects per-generation in the AI cache sliding window check
-    const shortRegexes = new Map();
+    // Pre-compile word-boundary regexes for ALL entity names
+    // Short names (≤3 chars): always use regex to avoid false positives ("an" in "want")
+    // Longer names: regex prevents substring false positives ("Arch" in "monarch")
+    const nameRegexes = new Map();
     for (const name of names) {
-        if (name.length <= 3) {
-            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            shortRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
-        }
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        nameRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
     }
-    setEntityShortNameRegexes(shortRegexes);
+    setEntityShortNameRegexes(nameRegexes);
 }
 
 /**
@@ -542,7 +541,7 @@ export async function ensureIndexFresh() {
     // TTL=0 means "always fetch fresh" (rebuild every generation)
     if (vaultIndex.length === 0 || ttlMs === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
         // Use reuse path when index already exists (faster: skips re-parse/tokenize for unchanged entries)
-        if (vaultIndex.length > 0 && ttlMs > 0) {
+        if (vaultIndex.length > 0) {
             const usedReuse = await buildIndexWithReuse();
             if (usedReuse) return;
         }

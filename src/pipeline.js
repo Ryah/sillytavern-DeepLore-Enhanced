@@ -420,7 +420,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
     // so budget trimming respects the user's explicit priority field.
     finalEntries.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
-    setLastPipelineTrace(trace);
+    // Note: trace is set by onGenerate after enrichment — don't set here to avoid double-write
     return { finalEntries, matchedKeys, trace };
 }
 

@@ -543,6 +543,10 @@ export async function openSettingsPopup() {
     // Set initial hidden attribute on inactive panels
     $container.find('.dle-settings-panel').not('.active').attr('hidden', '');
 
+    // Disable all form inputs — this is a read-only preview
+    $container.find('input, select, textarea').prop('disabled', true);
+    $container.find('.menu_button').not('.dle-settings-tab').addClass('disabled');
+
     // Advanced section toggles (reuse existing pattern)
     $container.on('click', '.dle_advanced_toggle', function () {
         const section = $(this).data('section');

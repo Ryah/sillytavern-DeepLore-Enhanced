@@ -6,7 +6,7 @@
 :root {
     /* Semantic colors — theme-aware where possible */
     --dle-success: var(--SmartThemeQuoteColor, #4caf50);
-    --dle-error: var(--SmartThemeFontColor, #f44336);
+    --dle-error: #f44336;
     --dle-warning: color-mix(in srgb, var(--SmartThemeQuoteColor, #ff9800) 70%, orange);
     --dle-info: var(--SmartThemeUnderlineColor, #2196f3);
     --dle-accent: color-mix(in srgb, var(--SmartThemeUnderlineColor, #9c27b0) 60%, purple);
@@ -573,6 +573,7 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     flex: 1;
+    min-height: 0; /* Allow flex item to shrink below content height for proper scrolling */
 }
 
 .dle-tab-panel.active {
@@ -816,6 +817,8 @@ button.dle-chip-x:hover {
 .dle-why-title {
     min-width: 0;
     overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 /* Obsidian link as button */
@@ -1276,6 +1279,10 @@ button.dle-browse-why:hover {
     border-radius: 3px;
     transition: filter 150ms ease, color 300ms ease;
     color: var(--dle-text-muted);
+    /* Button reset (changed from <a> to <button> for keyboard accessibility) */
+    background: none;
+    border: none;
+    padding: 0;
 }
 
 .dle-health-icon:hover {
@@ -1320,6 +1327,19 @@ button.dle-browse-why:hover {
     height: 70vh;
     min-height: 400px;
     max-height: 80vh;
+}
+
+.dle-settings-popup input:disabled,
+.dle-settings-popup select:disabled,
+.dle-settings-popup textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.dle-settings-preview-banner {
+    position: sticky;
+    top: 0;
+    z-index: 1;
 }
 
 .dle-settings-sidebar {

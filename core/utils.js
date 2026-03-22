@@ -311,7 +311,7 @@ function clampWithLog(obj, key, min, max, label) {
  */
 export function yamlEscape(str) {
     if (/[:#\[\]{}&*!|>'"%@`\n\r\t]/.test(str) || str.trim() !== str) {
-        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
     }
     return str;
 }

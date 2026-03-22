@@ -795,6 +795,9 @@ export function registerSlashCommands() {
                 ? world_names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')
                 : '';
 
+            // Capture JSON in closure — popup DOM is removed before callGenericPopup resolves
+            let capturedJson = '';
+
             // Show popup with three input methods
             const jsonInput = await callGenericPopup(
                 `<div class="dle-popup">
@@ -828,6 +831,11 @@ export function registerSlashCommands() {
                     const lbSelect = document.getElementById('dle_import_lorebook');
                     const textarea = document.getElementById('dle_import_json');
 
+                    // Capture manual paste/typing
+                    if (textarea) {
+                        textarea.addEventListener('input', () => { capturedJson = textarea.value; });
+                    }
+
                     // Wire lorebook dropdown → load and fill textarea
                     if (lbSelect) {
                         lbSelect.addEventListener('change', async () => {
@@ -839,7 +847,9 @@ export function registerSlashCommands() {
                                     toastr.error(`Failed to load lorebook "${name}".`, 'DeepLore Enhanced');
                                     return;
                                 }
-                                if (textarea) textarea.value = JSON.stringify(data, null, 2);
+                                const json = JSON.stringify(data, null, 2);
+                                if (textarea) textarea.value = json;
+                                capturedJson = json;
                             } catch (err) {
                                 console.error('[DLE] loadWorldInfo error:', err);
                                 toastr.error(classifyError(err), 'DeepLore Enhanced');
@@ -857,7 +867,9 @@ export function registerSlashCommands() {
                             if (!file) return;
                             const reader = new FileReader();
                             reader.onload = () => {
-                                if (textarea) textarea.value = /** @type {string} */ (reader.result);
+                                const text = /** @type {string} */ (reader.result);
+                                if (textarea) textarea.value = text;
+                                capturedJson = text;
                             };
                             reader.onerror = () => {
                                 toastr.error('Failed to read file.', 'DeepLore Enhanced');
@@ -871,7 +883,7 @@ export function registerSlashCommands() {
             if (!jsonInput) return '';
 
             // ── Validation ──
-            const jsonText = document.getElementById('dle_import_json')?.value?.trim();
+            const jsonText = capturedJson.trim();
             if (!jsonText) {
                 toastr.warning('No JSON provided.', 'DeepLore Enhanced');
                 return '';

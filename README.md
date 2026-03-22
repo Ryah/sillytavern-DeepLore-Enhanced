@@ -2,15 +2,28 @@
 
 > **Personal project.** 528 tests, used daily against a 130+ entry vault, in beta. Bug reports welcome but fixes might take time -- I work.
 
-> **Do NOT run this alongside DeepLore.** Running both DeepLore and DeepLore Enhanced at the same time is not supported and will cause conflicts. Disable or uninstall DeepLore before using this extension. If you run into issues with both installed, the fix is to pick one and remove the other.
+## What is This?
 
-DeepLore Enhanced is a fork of [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) that adds **AI-powered semantic search** on top of the existing keyword matching system. It uses any AI provider configured in SillyTavern's Connection Manager (or a custom proxy like [claude-code-proxy](https://github.com/horselock/claude-code-proxy)) to find vault entries that are *contextually relevant* to the conversation, even when no exact keywords match.
+When you roleplay with an AI in SillyTavern, the AI only sees what's in the current prompt: the character card, the system prompt, and the most recent messages. It has no memory of your world. If your story has a hundred characters, three factions, a magic system, and a political history, the AI doesn't know any of that unless you tell it -- every time.
+
+A **lorebook** solves this. It's a collection of reference entries about your world -- characters, locations, factions, lore -- with trigger keywords that automatically inject the right entries into the AI's context when they're relevant. SillyTavern has a built-in lorebook system (World Info) that does keyword matching. DeepLore Enhanced goes further.
+
+**DeepLore Enhanced** stores your lore in an [Obsidian](https://obsidian.md/) vault and uses a two-stage retrieval pipeline:
+
+1. **Keywords cast a wide net** -- every entry's trigger words are checked against recent messages
+2. **An AI narrows it down** -- a fast model reads the conversation and selects which candidates actually matter right now
+
+A conversation about "the consequences of breaking an oath" can pull in your entry about Bloodchains without the word "Bloodchain" ever being mentioned. The AI finds what's contextually relevant, not just what's lexically matched.
+
+Your lore lives as plain markdown files in Obsidian -- not locked inside a JSON blob. You get backlinks, graph views, templates, and the full Obsidian plugin ecosystem for organizing your world.
+
+> **Do NOT run this alongside [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore).** They are the same extension family. DeepLore is the stable keyword-only version. Enhanced is a superset that adds AI search and advanced features. Pick one.
 
 **Full documentation: [Wiki](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki)**
 
 ## Features
 
-- **AI-powered entry selection** -- Two-stage pipeline (keywords → AI) or AI-only mode with sliding window cache and hierarchical clustering for large vaults
+- **AI-powered entry selection** -- Two-stage pipeline (keywords -> AI) or AI-only mode with sliding window cache and hierarchical clustering for large vaults
 - **Any AI provider** -- Works with Anthropic, OpenAI, OpenRouter, or any provider via SillyTavern's Connection Manager
 - **Multi-vault support** -- Connect multiple Obsidian vaults with independent settings, merged into a single index
 - **Per-chat pin/block** -- Pin entries to always inject or block entries from injecting, per chat
@@ -32,7 +45,7 @@ See the [Wiki: Features](https://github.com/pixelnull/sillytavern-DeepLore-Enhan
 - [SillyTavern](https://github.com/SillyTavern/SillyTavern) (1.12.0+)
 - [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) community plugin installed and enabled
 - **For AI search (one of):**
-  - A saved **Connection Manager profile** in SillyTavern (any provider) — **recommended, no extra setup**
+  - A saved **Connection Manager profile** in SillyTavern (any provider) -- **recommended, no extra setup**
   - OR [claude-code-proxy](https://github.com/horselock/claude-code-proxy) running locally (requires `enableCorsProxy: true` in `config.yaml`)
 
 ## Installation
@@ -49,7 +62,9 @@ See the [Installation Guide](https://github.com/pixelnull/sillytavern-DeepLore-E
 
 | Topic | Link |
 |-------|------|
+| What is DeepLore? | [Wiki: What is DeepLore](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/What-is-DeepLore) |
 | Installation | [Wiki: Installation](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Installation) |
+| Quick Start | [Wiki: Quick Start](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Quick-Start) |
 | Writing Vault Entries | [Wiki: Writing Vault Entries](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Writing-Vault-Entries) |
 | AI Search | [Wiki: AI Search](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/AI-Search) |
 | Pipeline | [Wiki: Pipeline](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Pipeline) |

@@ -16,9 +16,10 @@
     </div>
 
     <!-- Token budget bar -->
-    <div class="dle-token-bar-container" role="progressbar" aria-valuenow="0" aria-valuemax="0" aria-valuemin="0" aria-label="Token budget">
+    <div class="dle-token-bar-container" role="progressbar" aria-valuenow="0" aria-valuemax="0" aria-valuemin="0"
+         aria-label="DLE Budget — how many tokens DeepLore used for lore injection vs your configured budget limit">
         <div class="dle-token-bar" style="width: 0%;"></div>
-        <span class="dle-token-bar-label">— / — tokens</span>
+        <span class="dle-token-bar-label">DLE — / —</span>
     </div>
 
     <!-- Active gating filters (only shown when set) -->
@@ -249,6 +250,48 @@
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i> Help
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     ZONE 3: Health Footer (always visible)
+     ═══════════════════════════════════════════════════════════════════════════ -->
+<div id="dle_drawer_footer" class="dle-drawer-zone dle-zone-footer" role="contentinfo" aria-label="DeepLore health and context">
+
+    <!-- Context window bar -->
+    <div class="dle-context-bar-container" role="progressbar" aria-valuenow="0" aria-valuemax="0" aria-valuemin="0"
+         aria-label="Context Window — total tokens sent to the AI this generation (system prompt, chat history, all extensions) plus response token reservation, out of your max context size">
+        <div class="dle-context-bar-track">
+            <div class="dle-context-bar-context" title="Context tokens used"></div>
+            <div class="dle-context-bar-response" title="Response token reservation"></div>
+            <span class="dle-context-bar-label">CTX — / —</span>
+        </div>
+    </div>
+
+    <!-- Health icons + AI stats row -->
+    <div class="dle-footer-row">
+        <div class="dle-health-icons" role="toolbar" aria-label="System health indicators">
+            <a class="dle-health-icon" data-health="vault" title="Vault health — click to run health check" aria-label="Vault health: unknown" role="button" tabindex="0">
+                <i class="fa-solid fa-database" aria-hidden="true"></i>
+            </a>
+            <a class="dle-health-icon" data-health="connection" title="Obsidian connection status — click for full status" aria-label="Connection status: unknown" role="button" tabindex="0">
+                <i class="fa-solid fa-plug" aria-hidden="true"></i>
+            </a>
+            <a class="dle-health-icon" data-health="pipeline" title="Pipeline status — click to inspect last trace" aria-label="Pipeline status: unknown" role="button" tabindex="0">
+                <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
+            </a>
+            <a class="dle-health-icon" data-health="cache" title="Index cache status — click for details" aria-label="Cache status: unknown" role="button" tabindex="0">
+                <i class="fa-solid fa-box-archive" aria-hidden="true"></i>
+            </a>
+            <a class="dle-health-icon" data-health="ai" title="AI search service status — click for details" aria-label="AI service status: unknown" role="button" tabindex="0">
+                <i class="fa-solid fa-robot" aria-hidden="true"></i>
+            </a>
+        </div>
+        <div class="dle-ai-stats" aria-label="AI search session statistics — cumulative for this browser session, not per-chat">
+            <span class="dle-ai-stat" data-ai-stat="calls" title="Total AI search API calls this session">0 calls</span>
+            <span class="dle-ai-stat" data-ai-stat="cached" title="AI search cache hits this session (no API call needed)">0 cached</span>
+            <span class="dle-ai-stat" data-ai-stat="tokens" title="Total AI search tokens consumed this session (input + output)">0 tok</span>
         </div>
     </div>
 </div>

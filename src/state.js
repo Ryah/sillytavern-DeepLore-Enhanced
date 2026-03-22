@@ -121,6 +121,7 @@ export function setGenerationLock(v) {
     generationLock = v;
     generationLockTimestamp = v ? Date.now() : 0;
     if (v) generationLockEpoch++;
+    notifyGenerationLockChanged();
 }
 export function setGenerationLockEpoch(v) { generationLockEpoch = v; }
 
@@ -285,6 +286,24 @@ export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.length = 0; 
 export function notifyPinBlockChanged() {
     for (const cb of pinBlockChangedCallbacks) {
         try { cb(); } catch (err) { console.warn('[DLE] Pin/block changed callback error:', err.message); }
+    }
+}
+
+// ── Generation lock changed callbacks ──
+// Fired when generationLock toggles (pipeline start/end). Drawer uses this for the "Choosing Lore..." label.
+
+/** @type {Array<() => void>} */
+const generationLockCallbacks = [];
+
+export function onGenerationLockChanged(callback) {
+    generationLockCallbacks.push(callback);
+}
+
+export function clearGenerationLockCallbacks() { generationLockCallbacks.length = 0; }
+
+function notifyGenerationLockChanged() {
+    for (const cb of generationLockCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] Generation lock callback error:', err.message); }
     }
 }
 

@@ -642,8 +642,9 @@
     text-align: center;
     font-size: 11px;
     line-height: 18px;
-    color: var(--SmartThemeBodyColor, #fff);
-    text-shadow: 0 0 3px rgba(0,0,0,0.8);
+    color: var(--SmartThemeBodyColor, #ccc);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    font-weight: 600;
 }
 
 /* --- Chips (gating filters, tags) --- */
@@ -1097,4 +1098,137 @@ button.dle-browse-why:hover {
 
 .dle-status-active .dle-status-label {
     animation: dle-pulse 1.5s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ZONE 3: Health Footer
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dle-zone-footer {
+    border-top: 1px solid var(--dle-border);
+    padding: var(--dle-space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-2);
+    flex-shrink: 0;
+}
+
+/* --- Context window bar --- */
+.dle-context-bar-container {
+    position: relative;
+}
+
+.dle-context-bar-track {
+    position: relative;
+    background: var(--dle-border);
+    border-radius: 3px;
+    height: 16px;
+    overflow: hidden;
+}
+
+.dle-context-bar-context {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    background: var(--SmartThemeQuoteColor, #4caf50);
+    border-radius: 3px 0 0 3px;
+    transition: width 300ms ease;
+}
+
+.dle-context-bar-response {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor, #e0e0e0) 40%, transparent);
+    transition: width 300ms ease, left 300ms ease;
+}
+
+.dle-context-bar-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    line-height: 16px;
+    color: var(--SmartThemeBodyColor, #ccc);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+}
+
+/* --- Footer row (health icons left, AI stats right) --- */
+.dle-footer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 22px;
+}
+
+/* --- Health icons --- */
+.dle-health-icons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.dle-health-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: none;
+    border-radius: 3px;
+    transition: filter 150ms ease, color 300ms ease;
+    color: var(--dle-text-muted);
+}
+
+.dle-health-icon:hover {
+    filter: brightness(1.3);
+}
+
+.dle-health-icon.dle-health-ok {
+    color: var(--dle-success, #4caf50);
+}
+
+.dle-health-icon.dle-health-warn {
+    color: var(--dle-warning, #ff9800);
+}
+
+.dle-health-icon.dle-health-error {
+    color: var(--dle-error, #f44336);
+}
+
+/* --- AI stats --- */
+.dle-ai-stats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.dle-ai-stat {
+    font-size: 10px;
+    color: var(--dle-text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* --- Container query: hide footer in collapsed drawers --- */
+@container (max-height: 250px) {
+    .dle-zone-footer {
+        display: none;
+    }
 }

@@ -2,19 +2,21 @@
  * DeepLore Enhanced — Drawer Panel
  * Native ST drawer in the top bar for live pipeline status and operations.
  */
-import { doNavbarIconClick, saveSettingsDebounced, chat_metadata, saveChatDebounced } from '../../../../../script.js';
+import { doNavbarIconClick, saveSettingsDebounced, chat_metadata, saveChatDebounced, amount_gen } from '../../../../../script.js';
 import { renderExtensionTemplateAsync, extension_settings } from '../../../../extensions.js';
 import { escapeHtml } from '../../../../utils.js';
 import { getSettings } from '../settings.js';
 import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
     generationLock, computeOverallStatus,
+    aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
-    onPipelineComplete, onGatingChanged, onPinBlockChanged,
+    onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
     notifyGatingChanged, notifyPinBlockChanged,
 } from './state.js';
 import { buildIndex } from './vault.js';
 import { buildObsidianURI } from './helpers.js';
+import { getCircuitState } from './obsidian-api.js';
 
 // Lazy-loaded ST internals (imported dynamically to avoid breaking the module graph)
 let dragElement, isMobile, power_user;
@@ -103,6 +105,10 @@ let lastBrowseStatusFilter = 'all';
 let lastBrowseTagFilter = '';
 let lastBrowseSort = 'priority_asc';
 
+// Context window token tracking (updated via CHAT_COMPLETION_PROMPT_READY event)
+let lastContextTokens = 0;
+let promptManagerRef = null;
+
 // ─── Render scheduling ───
 let renderPending = false;
 let pendingRenders = new Set();
@@ -169,7 +175,7 @@ function renderStatusZone($drawer) {
     $barContainer.attr('aria-valuenow', used).attr('aria-valuemax', budget);
     $drawer.find('.dle-token-bar').css('width', `${pct}%`);
     $drawer.find('.dle-token-bar-label').text(
-        budget ? `${used.toLocaleString()} / ${budget.toLocaleString()} tokens` : (used ? `${used.toLocaleString()} tokens` : '— / — tokens'),
+        budget ? `DLE ${used.toLocaleString()} / ${budget.toLocaleString()}` : (used ? `DLE ${used.toLocaleString()}` : 'DLE — / —'),
     );
 
     // Active gating filters
@@ -599,6 +605,199 @@ function wireGatingTab($drawer) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Footer Zone — Health Icons + AI Stats + Context Bar
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Format a token count compactly: 1234 → "1.2k", 12345 → "12.3k", 123 → "123"
+ */
+function formatTokensCompact(n) {
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return String(n);
+}
+
+/**
+ * Render the footer zone: context bar, health icons, AI stats.
+ */
+function renderFooter($drawer) {
+    const $footer = $drawer.find('#dle_drawer_footer');
+    if (!$footer.length) return;
+
+    // ── Context window bar ──
+    const ctx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
+    // Prefer chatCompletionSettings (respects unlocked context) over maxContext (base slider)
+    const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
+    const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
+    const contextUsed = lastContextTokens || 0;
+
+    const $barContainer = $footer.find('.dle-context-bar-container');
+    if (maxContext > 0) {
+        const contextPct = Math.min(100, (contextUsed / maxContext) * 100);
+        const responsePct = Math.min(100 - contextPct, (responseTokens / maxContext) * 100);
+
+        $footer.find('.dle-context-bar-context').css('width', `${contextPct}%`);
+        $footer.find('.dle-context-bar-response').css({
+            left: `${contextPct}%`,
+            width: `${responsePct}%`,
+        });
+
+        const label = contextUsed
+            ? `CTX ${contextUsed.toLocaleString()} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
+            : `CTX ${responseTokens.toLocaleString()} res / ${maxContext.toLocaleString()}`;
+        $footer.find('.dle-context-bar-label').text(label);
+
+        $barContainer.attr('aria-valuenow', contextUsed + responseTokens).attr('aria-valuemax', maxContext);
+    } else {
+        $footer.find('.dle-context-bar-context').css('width', '0%');
+        $footer.find('.dle-context-bar-response').css({ left: '0%', width: '0%' });
+        $footer.find('.dle-context-bar-label').text('CTX — / —');
+        $barContainer.attr('aria-valuenow', 0).attr('aria-valuemax', 0);
+    }
+
+    // ── Health icons ──
+    const settings = getSettings();
+
+    // Vault health
+    const $vault = $footer.find('[data-health="vault"]');
+    if (lastHealthResult) {
+        const { errors, warnings } = lastHealthResult;
+        if (errors > 0) {
+            $vault.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
+            $vault.attr('aria-label', `Vault health: ${errors} errors, ${warnings} warnings`);
+        } else if (warnings > 3) {
+            $vault.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+            $vault.attr('aria-label', `Vault health: ${warnings} warnings`);
+        } else {
+            $vault.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+            $vault.attr('aria-label', `Vault health: OK${warnings ? ` (${warnings} minor warnings)` : ''}`);
+        }
+    } else {
+        $vault.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $vault.attr('aria-label', 'Vault health: not checked yet');
+    }
+
+    // Connection (Obsidian circuit breaker — aggregate)
+    const $conn = $footer.find('[data-health="connection"]');
+    const circuit = getCircuitState();
+    if (circuit.state === 'closed') {
+        $conn.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+        $conn.attr('aria-label', 'Connection: all vaults connected');
+    } else if (circuit.state === 'half-open') {
+        $conn.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+        $conn.attr('aria-label', 'Connection: recovering — probing vault');
+    } else {
+        $conn.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
+        $conn.attr('aria-label', `Connection: vault unreachable (${circuit.failures} failures)`);
+    }
+
+    // Pipeline
+    const $pipe = $footer.find('[data-health="pipeline"]');
+    if (lastPipelineTrace) {
+        const hasResults = lastPipelineTrace.finalEntries?.length > 0 || lastPipelineTrace.totalTokens > 0;
+        if (hasResults) {
+            $pipe.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+            $pipe.attr('aria-label', 'Pipeline: last run produced results');
+        } else {
+            $pipe.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+            $pipe.attr('aria-label', 'Pipeline: last run produced no results');
+        }
+    } else {
+        $pipe.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $pipe.attr('aria-label', 'Pipeline: no runs yet');
+    }
+
+    // Cache
+    const $cache = $footer.find('[data-health="cache"]');
+    if (indexEverLoaded && indexTimestamp) {
+        const ageMs = Date.now() - indexTimestamp;
+        const cacheTTL = (settings.cacheTTL || 300) * 1000;
+        if (ageMs < cacheTTL) {
+            $cache.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+            $cache.attr('aria-label', `Cache: fresh (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries)`);
+        } else {
+            $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+            $cache.attr('aria-label', `Cache: stale (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries)`);
+        }
+    } else if (vaultIndex.length > 0) {
+        // Have entries from hydration but never loaded from Obsidian
+        $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+        $cache.attr('aria-label', `Cache: hydrated from IndexedDB (${vaultIndex.length} entries, not yet refreshed)`);
+    } else {
+        $cache.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $cache.attr('aria-label', 'Cache: empty — no index loaded');
+    }
+
+    // AI service
+    const $ai = $footer.find('[data-health="ai"]');
+    if (isAiCircuitOpen()) {
+        $ai.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
+        $ai.attr('aria-label', 'AI service: circuit breaker tripped — temporarily disabled');
+    } else if (aiSearchStats.calls > 0) {
+        $ai.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+        $ai.attr('aria-label', `AI service: OK (${aiSearchStats.calls} calls this session)`);
+    } else if (settings.aiSearchEnabled !== false) {
+        $ai.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+        $ai.attr('aria-label', 'AI service: enabled but no calls yet');
+    } else {
+        $ai.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $ai.attr('aria-label', 'AI service: disabled');
+    }
+
+    // ── AI stats ──
+    $footer.find('[data-ai-stat="calls"]').text(`${aiSearchStats.calls} calls`);
+    $footer.find('[data-ai-stat="cached"]').text(`${aiSearchStats.cachedHits} cached`);
+    const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
+    $footer.find('[data-ai-stat="tokens"]').text(`${formatTokensCompact(totalTok)} tok`);
+}
+
+/**
+ * Wire health icon click handlers (one-time binding).
+ */
+function wireHealthIcons($drawer) {
+    const $footer = $drawer.find('#dle_drawer_footer');
+    if (!$footer.length) return;
+
+    // Lazy-load executeSlashCommands for icon clicks
+    const executeCommand = (cmd) => {
+        const ctx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
+        if (ctx?.executeSlashCommands) ctx.executeSlashCommands(cmd);
+    };
+
+    $footer.find('.dle-health-icons').on('click', '[data-health]', function (e) {
+        e.preventDefault();
+        const area = $(this).data('health');
+        switch (area) {
+            case 'vault': executeCommand('/dle-health'); break;
+            case 'connection': executeCommand('/dle-status'); break;
+            case 'pipeline': executeCommand('/dle-inspect'); break;
+            case 'cache': {
+                const ageMs = indexTimestamp ? Date.now() - indexTimestamp : 0;
+                const ageSec = Math.round(ageMs / 1000);
+                const msg = indexTimestamp
+                    ? `Index: ${vaultIndex.length} entries, ${ageSec}s old${indexEverLoaded ? '' : ' (from IndexedDB cache)'}`
+                    : 'No index loaded yet.';
+                toastr.info(msg, 'Cache Status');
+                break;
+            }
+            case 'ai': {
+                const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
+                const msg = `Calls: ${aiSearchStats.calls} | Cached: ${aiSearchStats.cachedHits} | Tokens: ${totalTok.toLocaleString()} (${aiSearchStats.totalInputTokens.toLocaleString()} in, ${aiSearchStats.totalOutputTokens.toLocaleString()} out)`;
+                toastr.info(msg, 'AI Search Stats');
+                break;
+            }
+        }
+    });
+
+    // Also handle Enter/Space for keyboard a11y
+    $footer.find('.dle-health-icons').on('keydown', '[data-health]', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).trigger('click');
+        }
+    });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Tab Switching
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -682,8 +881,10 @@ export async function createDrawerPanel() {
         </div>
     `);
 
-    // Inject content into the scrollable area
+    // Inject content into the scrollable area, then move footer outside so it stays pinned
     $drawer.find('.dle-drawer-inner').append(drawerContent);
+    const $footerZone = $drawer.find('#dle_drawer_footer');
+    if ($footerZone.length) $footerZone.insertAfter($drawer.find('.dle-drawer-inner'));
 
     // Add to top-settings-holder (after native drawers)
     $('#top-settings-holder').append($drawer);
@@ -765,6 +966,29 @@ export async function createDrawerPanel() {
     wireStatusActions($drawer);
     wireBrowseTab($drawer);
     wireGatingTab($drawer);
+    wireHealthIcons($drawer);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Context window event — track total prompt tokens after assembly
+    // ═══════════════════════════════════════════════════════════════════════
+    try {
+        const stCtx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
+        if (stCtx?.eventSource && stCtx?.eventTypes?.CHAT_COMPLETION_PROMPT_READY) {
+            // Lazy-load promptManager to avoid breaking module graph for non-OAI backends
+            if (!promptManagerRef) {
+                try {
+                    const oai = await import('../../../../openai.js');
+                    promptManagerRef = oai.promptManager;
+                } catch { /* non-OAI backend, context bar stays at 0 */ }
+            }
+            stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, () => {
+                lastContextTokens = promptManagerRef?.tokenUsage || 0;
+                scheduleRender(renderFooter, $drawer);
+            });
+        }
+    } catch (err) {
+        console.warn('[DLE] Could not wire context token tracking:', err.message);
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // Initial render
@@ -773,6 +997,7 @@ export async function createDrawerPanel() {
     renderInjectionTab($drawer);
     renderBrowseTab($drawer);
     renderGatingTab($drawer);
+    renderFooter($drawer);
 
     // ═══════════════════════════════════════════════════════════════════════
     // Observer subscriptions — live data updates
@@ -780,20 +1005,24 @@ export async function createDrawerPanel() {
     onIndexUpdated(() => {
         scheduleRender(renderStatusZone, $drawer);
         scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderFooter, $drawer);
     });
 
     onAiStatsUpdated(() => {
         scheduleRender(renderStatusZone, $drawer);
+        scheduleRender(renderFooter, $drawer);
     });
 
     onCircuitStateChanged(() => {
         scheduleRender(renderStatusZone, $drawer);
+        scheduleRender(renderFooter, $drawer);
     });
 
     onPipelineComplete(() => {
         scheduleRender(renderStatusZone, $drawer);
         scheduleRender(renderInjectionTab, $drawer);
         scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderFooter, $drawer);
     });
 
     onGatingChanged(() => {
@@ -803,5 +1032,9 @@ export async function createDrawerPanel() {
 
     onPinBlockChanged(() => {
         scheduleRender(renderBrowseTab, $drawer);
+    });
+
+    onGenerationLockChanged(() => {
+        scheduleRender(renderStatusZone, $drawer);
     });
 }

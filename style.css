@@ -388,3 +388,681 @@
 .dle_settings [tabindex="0"] {
     transition: outline-color 100ms ease;
 }
+
+/* ============================================================================
+ * Drawer Panel (Phase 0 mockup)
+ * ============================================================================ */
+
+/* --- Drawer z-index: lower than native drawers so they layer on top when DLE is pinned --- */
+#deeplore-panel.pinnedOpen {
+    z-index: 2999;
+}
+
+/* Fix for dynamically-injected drawers: @starting-style transition from height:0 → height:100%
+   doesn't complete reliably for elements added after page load. Use explicit calc instead. */
+#deeplore-panel.openDrawer {
+    height: calc(100vh - var(--topBarBlockSize, 35px));
+    height: calc(100dvh - var(--topBarBlockSize, 35px));
+}
+
+/* --- Drawer pin (matches ST native: top-left, inline after drag grabber) --- */
+.dle-drawer-pin {
+    align-self: flex-start;
+}
+
+.dle-drawer-pin input[type="checkbox"] {
+    display: none;
+}
+
+/* Show unlock when unchecked, lock when checked */
+.dle-drawer-pin .checked {
+    display: none;
+}
+.dle-drawer-pin .unchecked {
+    display: block;
+}
+.dle-drawer-pin input:checked ~ label .checked {
+    display: block;
+}
+.dle-drawer-pin input:checked ~ label .unchecked {
+    display: none;
+}
+
+/* --- Two-zone architecture --- */
+.dle-drawer-zone {
+    padding: var(--dle-space-2);
+}
+
+.dle-zone-divider {
+    border: none;
+    border-top: 1px solid var(--dle-border);
+    margin: var(--dle-space-1) 0;
+}
+
+/* --- Zone 1: Fixed Status --- */
+.dle-zone-status {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-2);
+}
+
+/* Merged status + stats row */
+.dle-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    flex-wrap: wrap;
+}
+
+.dle-pipeline-label {
+    font-size: var(--dle-text-sm);
+    font-weight: 600;
+}
+
+.dle-stat-divider {
+    color: var(--dle-text-muted);
+    opacity: 0.4;
+    font-size: var(--dle-text-xs);
+}
+
+.dle-stat {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.dle-stat-icon {
+    font-size: 10px;
+    opacity: 0.7;
+}
+
+/* Active filters (compact chips in status zone) */
+.dle-active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dle-space-1);
+}
+
+.dle-chip-sm {
+    font-size: 11px;
+    padding: 2px 8px;
+    /* Neutral tint — differentiate from interactive gating tab chips */
+    background: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 10%, transparent);
+    border-color: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 20%, transparent);
+}
+
+/* --- Status dot (shared) --- */
+.dle-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.dle-status-ok { background: var(--dle-success); }
+.dle-status-degraded { background: var(--dle-warning); }
+.dle-status-limited { background: var(--dle-warning); }
+.dle-status-offline { background: var(--dle-error); }
+
+/* --- Zone 2: Tabs --- */
+.dle-zone-tabs {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding-top: 0;
+}
+
+/* Tab bar */
+.dle-tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--dle-border);
+    gap: 0;
+    padding: 0 var(--dle-space-2);
+}
+
+.dle-tab {
+    flex: 1;
+    padding: var(--dle-space-2);
+    font-size: 14px;
+    color: var(--dle-text-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color 120ms, border-color 120ms;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dle-tab:hover {
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+.dle-tab.active {
+    color: var(--SmartThemeBodyColor, #eee);
+    border-bottom-color: var(--dle-accent);
+}
+
+/* (tab icons inherit font-size from .dle-tab) */
+
+/* Active tab label (below tab bar) — hidden by default, shown on narrow screens */
+.dle-tab-label {
+    display: none;
+}
+
+/* Tab panels */
+.dle-tab-panel {
+    display: none;
+    padding: var(--dle-space-2);
+    overflow-y: auto;
+    flex: 1;
+}
+
+.dle-tab-panel.active {
+    display: flex;
+    flex-direction: column;
+}
+
+.dle-tab-panel {
+    overscroll-behavior: contain;
+}
+
+.dle-tab-panel[hidden] {
+    display: none !important;
+}
+
+/* Injection tab header */
+.dle-injection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--dle-space-2);
+}
+
+/* --- Token bar (drawer version) --- */
+.dle-token-bar-container {
+    position: relative;
+    background: var(--dle-border);
+    border-radius: 3px;
+    height: 18px;
+    margin: 0;
+    overflow: hidden;
+}
+
+.dle-token-bar-container .dle-token-bar {
+    height: 100%;
+    background: var(--dle-success);
+    border-radius: 3px;
+    transition: width 300ms ease;
+    margin: 0;
+}
+
+.dle-token-bar-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--SmartThemeBodyColor, #fff);
+    text-shadow: 0 0 3px rgba(0,0,0,0.8);
+}
+
+/* --- Chips (gating filters, tags) --- */
+.dle-gating-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dle-space-1);
+    margin-top: var(--dle-space-1);
+}
+
+.dle-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--dle-text-xs);
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--dle-accent) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dle-accent) 40%, transparent);
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+/* Chip remove button */
+button.dle-chip-x {
+    font-size: 10px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 120ms;
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 4px;
+    min-width: 24px;
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+button.dle-chip-x:hover {
+    opacity: 1;
+}
+
+/* --- Quick Actions --- */
+.dle-quick-actions {
+    padding-bottom: var(--dle-space-2);
+    border-bottom: 1px solid var(--dle-border);
+}
+
+.dle-action-row {
+    display: flex;
+    gap: var(--dle-space-1);
+    flex-wrap: wrap;
+}
+
+.dle-action-btn {
+    flex: 0 0 auto;
+    min-width: 36px;
+    min-height: 36px;
+    justify-content: center;
+}
+
+/* --- Collapsible section headers --- */
+.dle-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    cursor: pointer;
+    padding: var(--dle-space-1) 0;
+    user-select: none;
+}
+
+.dle-section-header:hover {
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+.dle-section-chevron {
+    font-size: 10px;
+    transition: transform 200ms ease;
+    width: 12px;
+    text-align: center;
+}
+
+.dle-section-header.collapsed .dle-section-chevron {
+    transform: rotate(-90deg);
+}
+
+.dle-section-badge {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    margin-left: auto;
+}
+
+.dle-section-diff {
+    font-size: var(--dle-text-xs);
+    display: flex;
+    gap: var(--dle-space-2);
+}
+
+.dle-diff-add { color: var(--dle-success); }
+.dle-diff-remove { color: var(--dle-error); }
+
+.dle-section-body {
+    padding: var(--dle-space-1) 0 var(--dle-space-2);
+}
+
+/* --- Context Cartographer entries --- */
+.dle-carto-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dle-carto-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px var(--dle-space-2);
+    border-radius: 3px;
+    transition: background 120ms;
+}
+
+.dle-carto-entry:hover {
+    background: var(--dle-bg-hover);
+}
+
+.dle-carto-entry.dle-carto-new {
+    border-left: 2px solid var(--dle-success);
+}
+
+.dle-carto-entry.dle-carto-constant .dle-obsidian-link {
+    color: var(--dle-text-muted);
+}
+
+.dle-carto-title {
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Obsidian link as button */
+button.dle-obsidian-link {
+    cursor: pointer;
+    color: var(--dle-info);
+    text-decoration: none;
+    font-size: var(--dle-text-sm);
+    background: none;
+    border: none;
+    padding: 4px 0;
+    text-align: left;
+}
+
+button.dle-obsidian-link:hover {
+    text-decoration: underline;
+}
+
+.dle-carto-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    font-size: var(--dle-text-xs);
+}
+
+.dle-carto-tokens {
+    color: var(--dle-text-muted);
+}
+
+.dle-carto-match {
+    font-weight: 600;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--dle-info) 20%, transparent);
+    color: var(--dle-info);
+}
+
+.dle-carto-new-badge {
+    font-weight: 600;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--dle-success) 20%, transparent);
+    color: var(--dle-success);
+}
+
+/* --- Browse panel --- */
+/* Browse controls bar */
+.dle-browse-controls-bar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-1);
+    margin-bottom: var(--dle-space-2);
+}
+
+.dle-browse-controls-bar .dle-browse-input {
+    margin-bottom: 0;
+}
+
+.dle-browse-filters {
+    display: flex;
+    gap: var(--dle-space-1);
+}
+
+.dle-browse-filter-select,
+.dle-browse-sort-select {
+    flex: 1;
+    font-size: var(--dle-text-xs);
+    padding: 2px 4px;
+    min-width: 0;
+}
+
+.dle-browse-input {
+    margin-bottom: var(--dle-space-2);
+}
+
+.dle-browse-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+}
+
+.dle-browse-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px var(--dle-space-2);
+    border-radius: 3px;
+}
+
+.dle-browse-entry {
+    overflow: hidden;
+}
+
+.dle-browse-entry:hover {
+    background: var(--dle-bg-hover);
+}
+
+/* Injected-last-gen indicator */
+.dle-browse-entry.dle-browse-injected {
+    border-left: 2px solid var(--dle-success);
+}
+
+.dle-browse-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.dle-browse-title {
+    font-size: var(--dle-text-sm);
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dle-browse-keys {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dle-browse-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    flex-shrink: 0;
+}
+
+.dle-browse-priority {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--dle-text-muted);
+}
+
+.dle-browse-constant {
+    color: var(--dle-accent);
+}
+
+button.dle-browse-pin,
+button.dle-browse-block,
+button.dle-browse-why {
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0.65;
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 6px;
+    min-width: 28px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+button.dle-browse-pin:hover,
+button.dle-browse-block:hover,
+button.dle-browse-why:hover {
+    opacity: 0.9;
+}
+
+.dle-pin-active {
+    opacity: 1 !important;
+    color: var(--dle-info);
+}
+
+.dle-block-active {
+    opacity: 1 !important;
+    color: var(--dle-error);
+}
+
+/* --- Contextual Gating --- */
+.dle-gating-group {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    padding: 3px 0;
+}
+
+.dle-gating-label {
+    font-size: var(--dle-text-sm);
+    font-weight: 500;
+    min-width: 70px;
+    flex-shrink: 0;
+}
+
+.dle-gating-value {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
+    flex-wrap: wrap;
+}
+
+.dle-gating-empty {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    font-style: italic;
+}
+
+.dle-gating-set {
+    font-size: 10px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 4px;
+}
+
+/* --- Tools tab --- */
+.dle-tools-group {
+    margin-bottom: var(--dle-space-3);
+}
+
+.dle-tools-group:last-child {
+    margin-bottom: 0;
+}
+
+.dle-tools-group-label {
+    display: block;
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--dle-space-1);
+    padding-bottom: 2px;
+    border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 50%, transparent);
+}
+
+.dle-tools-grid {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-1);
+}
+
+.dle-tool-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--dle-text-sm);
+    padding: 8px 10px;
+    justify-content: flex-start;
+    white-space: nowrap;
+    min-height: 36px;
+}
+
+.dle-tool-btn i {
+    font-size: 12px;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+/* --- Small drawer / top-panel mode --- */
+/* On narrow screens ST constrains the drawer to ~100px tall.
+   Hide everything except pipeline label and tabs so content is reachable. */
+.dle-drawer-inner {
+    container-type: size;
+}
+
+@container (max-height: 250px) {
+    .dle-zone-status .dle-token-bar-container,
+    .dle-zone-status .dle-active-filters,
+    .dle-zone-status .dle-action-row {
+        display: none;
+    }
+    .dle-zone-status {
+        gap: 0;
+        padding: var(--dle-space-1);
+    }
+    .dle-zone-divider {
+        margin: 0;
+    }
+    .dle-tab-label {
+        display: none;
+    }
+}
+
+/* --- Empty states --- */
+.dle-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dle-space-2);
+    padding: var(--dle-space-5);
+    color: var(--dle-text-muted);
+    text-align: center;
+}
+
+.dle-empty-state i {
+    font-size: 24px;
+    opacity: 0.3;
+}
+
+.dle-empty-state p {
+    font-size: var(--dle-text-sm);
+    margin: 0;
+}
+
+/* --- Pipeline activity animation --- */
+@keyframes dle-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.dle-status-active .dle-status-dot {
+    animation: dle-pulse 1.5s ease-in-out infinite;
+}
+
+.dle-status-active .dle-status-label {
+    animation: dle-pulse 1.5s ease-in-out infinite;
+}

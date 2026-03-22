@@ -7,12 +7,12 @@
     --dle-success: var(--SmartThemeQuoteColor, #4caf50);
     --dle-error: #f44336;
     --dle-warning: #ff9800;
-    --dle-info: var(--SmartThemeAuxColor, #2196f3);
+    --dle-info: var(--SmartThemeUnderlineColor, #2196f3);
     --dle-accent: #9c27b0;
     --dle-border: var(--SmartThemeBorderColor, #444);
     --dle-bg-surface: var(--SmartThemeBlurTintColor, #1a1a2e);
-    --dle-bg-hover: var(--SmartThemeHoverColor, rgba(255, 255, 255, 0.05));
-    --dle-text-muted: var(--SmartThemeSecondaryColor, #888);
+    --dle-bg-hover: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 8%, transparent);
+    --dle-text-muted: var(--SmartThemeEmColor, #888);
 }
 
 /* --- Utility classes --- */

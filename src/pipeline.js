@@ -341,8 +341,32 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
         trace.warmupFailed = keywordResult.warmupFailed;
 
+        // Wiki-link candidate expansion: add entries referenced by matched entries as AI candidates
+        const matchedTitles = new Set(keywordResult.matched.map(e => e.title));
+        const titleLookup = new Map(vaultSnapshot.map(e => [e.title, e]));
+        const linkedCandidates = [];
+        for (const entry of keywordResult.matched) {
+            for (const linkTitle of (entry.resolvedLinks || [])) {
+                if (!matchedTitles.has(linkTitle)) {
+                    const linked = titleLookup.get(linkTitle);
+                    if (linked && !linked.constant) {
+                        matchedTitles.add(linkTitle);
+                        linkedCandidates.push(linked);
+                        matchedKeys.set(linkTitle, `(wiki-linked from: ${entry.title})`);
+                    }
+                }
+            }
+        }
+        const expandedMatched = [...keywordResult.matched, ...linkedCandidates];
+        if (linkedCandidates.length > 0) {
+            trace.keywordMatched.push(...linkedCandidates.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' })));
+            if (settings.debugMode) {
+                console.log(`[DLE] Wiki-link expansion: +${linkedCandidates.length} candidates (${linkedCandidates.map(e => e.title).join(', ')})`);
+            }
+        }
+
         // Hierarchical pre-filter for large keyword match sets
-        let twoStageCandidates = keywordResult.matched;
+        let twoStageCandidates = expandedMatched;
         const preFiltered = await hierarchicalPreFilter(keywordResult.matched, chat);
         if (preFiltered) {
             twoStageCandidates = preFiltered;

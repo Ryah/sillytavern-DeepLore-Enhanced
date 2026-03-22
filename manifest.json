@@ -8,5 +8,6 @@
     "css": "style.css",
     "author": "pixelnull",
     "version": "0.2.0-beta",
-    "homePage": "https://github.com/pixelnull/sillytavern-DeepLore-Enhanced"
+    "homePage": "https://github.com/pixelnull/sillytavern-DeepLore-Enhanced",
+    "minimum_client_version": "1.12.6"
 }

@@ -154,7 +154,7 @@ If "Strip Duplicate Injections" is enabled, entries that were injected in recent
 ### Budget & Formatting
 1. Sort remaining entries by priority (lower number first)
 2. Apply Max Entries cap (if Unlimited Entries is off)
-3. Apply Token Budget cap (if Unlimited Token Budget is off). Entries are added in priority order until budget is reached. **Note:** The first entry always bypasses the budget check so that results are never empty — if the highest-priority entry exceeds the budget, it is still injected (a debug warning is logged when Debug Mode is on).
+3. Apply Token Budget cap (if Unlimited Token Budget is off). Entries are added in priority order until budget is reached. If an entry partially fits, it is truncated to the nearest sentence boundary. If the highest-priority entry exceeds the entire budget and cannot be meaningfully truncated, it is skipped with a debug warning.
 4. Format each entry using the Injection Template (`{{title}}` and `{{content}}` macros)
 5. Group entries by their effective injection position (global default or per-entry override)
 
@@ -174,7 +174,10 @@ After lorebook entries are injected, the Author's Notebook is injected separatel
 Use the `/dle-inspect` slash command to see a detailed trace of the last generation:
 - Which entries matched by keywords (and which keywords triggered them)
 - Which entries were selected by AI (with confidence and reasons)
-- Whether fallback was used
-- The pipeline mode that was active
+- Which entries were injected (with token counts and truncation markers)
+- Which entries were gated out by requires/excludes rules (with reasons)
+- Which entries were removed by contextual gating, cooldown, strip-dedup, probability, or warmup
+- Which entries were cut by budget/max-entries limits
+- Whether AI fallback was used, and the pipeline mode that was active
 
-See [[Slash Commands]] for more details.
+The trace is also available as a copyable plain-text block. See [[Slash Commands]] for more details.

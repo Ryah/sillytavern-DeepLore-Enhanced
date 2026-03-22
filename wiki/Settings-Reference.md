@@ -105,10 +105,10 @@ Visible when Search Mode is Two-Stage or AI Only.
 | **Max Response Tokens** | `1024` | 64-4096 | Token limit for the AI response. Keep low; only a JSON array is needed. |
 | **Timeout (ms)** | `10000` | 1000-30000 | How long to wait for the AI before falling back to keyword-only results. |
 | **AI Scan Depth** | `4` | 1-100 | Number of recent messages to send as context to the AI. Can differ from keyword scan depth. |
-| **Manifest Summary Length** | `600` | 100-1000 | Max characters for entry summaries in the manifest. Only for entries without a `summary` field. |
+| **Entry Description Length** | `600` | 100-1000 | Max characters for entry descriptions in the AI manifest. Only for entries without a `summary` field. |
 | **System Prompt Override** | (none) | Text | Custom system prompt for AI selection. Leave empty for default. Supports `{{maxEntries}}` placeholder. |
 | **Prepend "You are Claude Code"** | On | Toggle | (Proxy mode only, under Show Advanced) Prepend `You are Claude Code.` to the AI system prompt. Disable if using a non-Claude model via proxy. |
-| **Scribe-Informed Retrieval** | Off | Toggle | Feed the Session Scribe's latest summary into the AI search context for better entry selection. See [[Features#Scribe-Informed Retrieval]]. |
+| **Use Session Notes as AI Context** | Off | Toggle | Feed the Session Scribe's latest summary into the AI search context for better entry selection. See [[Features#Use Session Notes as AI Context]]. |
 
 **Test AI Search** button tests the AI connection. **Preview AI Prompt** button shows the full prompt that would be sent.
 
@@ -154,14 +154,14 @@ Use `/dle-newlore` to trigger on-demand at any time.
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
 | **Enable Entry Decay** | Off | Toggle | Track entry freshness and adjust AI manifest priorities. Stale entries get a boost; frequently injected entries get a penalty. See [[Features#Entry Decay & Freshness]]. |
-| **Staleness Boost Threshold** | `5` | 2-20 | Generations without injection before an entry gets a freshness boost in the AI manifest. |
-| **Frequency Penalty Threshold** | `2` | 2-10 | Total injection count (from analytics) before an entry gets a frequency penalty in the AI manifest. |
+| **Mark Stale After N Skips** | `5` | 2-20 | Consecutive generations an entry is skipped before it gets a freshness boost in the AI manifest. |
+| **Mark Frequent After N Injections** | `2` | 2-10 | Consecutive generations an entry is injected before it gets a frequency penalty in the AI manifest. |
 
 ## Index & Cache
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
-| **Cache TTL (seconds)** | `300` | 0-86400 | How long to cache the vault index before re-fetching. 0 = always fetch fresh (slower). |
+| **Cache Duration (seconds)** | `300` | 0-86400 | How long to cache the vault index before re-fetching. 0 = always fetch fresh (slower). |
 | **Auto-Sync Interval** | `0` | 0-3600 | Seconds between automatic vault re-checks. 0 = disabled. See [[Features#Vault Change Detection & Auto-Sync]]. |
 | **Show Sync Change Toasts** | On | Toggle | Show toast notifications when vault changes are detected during index refresh. |
 

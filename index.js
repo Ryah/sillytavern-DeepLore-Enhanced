@@ -68,7 +68,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
-            toastr.warning('Previous lore retrieval still in progress — this generation may lack lore context. If stuck, run /dle-refresh.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+            toastr.warning('Lore retrieval still running — this response may miss lore.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
             return;
         }
     }
@@ -125,7 +125,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (vaultSnapshot.length === 0) {
             if (!indexEverLoaded) {
                 dedupWarning(
-                    'No vault entries loaded. Possible causes: (1) No notes tagged with your lorebook tag, (2) Obsidian connection failed, (3) Wrong tag name in settings. Run /dle-health for diagnostics.',
+                    'No vault entries loaded. Run /dle-health for diagnostics.',
                     'obsidian_connect', { timeOut: 10000 },
                 );
             }
@@ -513,7 +513,7 @@ jQuery(async function () {
         }
         if (initSettings.enabled) {
             // Try instant hydration from IndexedDB, then validate against Obsidian in background
-            setTimeout(async () => {
+            eventSource.on(event_types.APP_READY, async () => {
                 // Skip if a build was already triggered (e.g. by early user generation)
                 if (indexEverLoaded || indexing) return;
                 try {
@@ -526,7 +526,7 @@ jQuery(async function () {
                 } catch (err) {
                     console.warn('[DLE] Auto-connect:', err.message);
                 }
-            }, 3000);
+            });
         }
 
         // Context Cartographer: click handler (event delegation — registered once)

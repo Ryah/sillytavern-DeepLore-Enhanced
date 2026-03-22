@@ -280,7 +280,7 @@ export async function fetchAllMdFiles(port, apiKey) {
     const allFiles = await listAllFiles(port, apiKey);
     const mdFiles = allFiles.filter(f => f.endsWith('.md'));
 
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 50;
     const results = [];
     let failed = 0;
 
@@ -357,7 +357,7 @@ export async function fetchScribeNotes(port, apiKey, folder) {
     try {
         const allFiles = await listAllFiles(port, apiKey, folder);
         const mdFiles = allFiles.filter(f => f.endsWith('.md'));
-        const BATCH_SIZE = 10;
+        const BATCH_SIZE = 50;
         const notes = [];
 
         for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {

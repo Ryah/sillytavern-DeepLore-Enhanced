@@ -3,9 +3,12 @@
  */
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
+import { chat } from '../../../../../script.js';
 import { simpleHash } from '../core/utils.js';
 import { getSettings } from '../settings.js';
-import { vaultIndex, lastInjectionSources, vaultAvgTokens, previousSources, setPreviousSources } from './state.js';
+import { vaultIndex, lastInjectionSources, vaultAvgTokens, previousSources, setPreviousSources, lastPipelineTrace } from './state.js';
+import { diagnoseEntry } from './diagnostics.js';
+import { STAGE_COLORS } from './helpers.js';
 // Re-export from helpers.js (moved there for testability in Node.js)
 export { buildObsidianURI } from './helpers.js';
 import { buildObsidianURI } from './helpers.js';
@@ -27,7 +30,7 @@ export function injectSourcesButton(messageId) {
     if (mesEl.length === 0) return;
     if (mesEl.find('.mes_deeplore_sources').length > 0) return;
 
-    const btn = $('<div title="Lore Sources" class="mes_button mes_deeplore_sources fa-solid fa-book-open"></div>');
+    const btn = $('<div title="Context Cartographer" class="mes_button mes_deeplore_sources fa-solid fa-book-open"></div>');
     mesEl.find('.extraMesButtons').prepend(btn);
 }
 
@@ -104,7 +107,7 @@ export function showSourcesPopup(sources) {
     setPreviousSources(sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy })));
 
     let html = `<div class="dle-popup">`;
-    html += `<h3>Context Map (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
+    html += `<h3>Context Cartographer (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
 
     // Diff display with reasons
     if (added.length > 0 || removed.length > 0) {
@@ -193,6 +196,107 @@ export function showSourcesPopup(sources) {
         }
     }
 
+    // --- Rejected Entries Section (staged breakdown) ---
+    if (lastPipelineTrace && chat && chat.length > 0) {
+        const injectedTitles = new Set(sources.map(s => s.title));
+        const trace = lastPipelineTrace;
+
+        // Group rejected entries by stage
+        const rejectedGroups = [];
+
+        // Gated Out (requires/excludes)
+        if (trace.gatedOut?.length > 0) {
+            const entries = trace.gatedOut.filter(e => !injectedTitles.has(e.title));
+            if (entries.length > 0) rejectedGroups.push({ label: 'Gated Out (requires/excludes)', entries: entries.map(e => e.title), icon: 'fa-lock' });
+        }
+
+        // Contextual Gating Removed
+        if (trace.contextualGatingRemoved?.length > 0) {
+            const entries = trace.contextualGatingRemoved.filter(t => !injectedTitles.has(t));
+            if (entries.length > 0) rejectedGroups.push({ label: 'Contextual Gating', entries, icon: 'fa-filter' });
+        }
+
+        // AI Rejected — candidates that made it to manifest but AI didn't select
+        if (trace.keywordMatched?.length > 0 && trace.aiSelected) {
+            const aiSelectedTitles = new Set(trace.aiSelected.map(m => m.title));
+            const aiRejected = trace.keywordMatched
+                .filter(m => !aiSelectedTitles.has(m.title) && !injectedTitles.has(m.title))
+                .map(m => m.title);
+            // Remove entries already accounted for by gating or other stages
+            const accountedTitles = new Set([
+                ...(trace.gatedOut || []).map(e => e.title),
+                ...(trace.contextualGatingRemoved || []),
+                ...(trace.cooldownRemoved || []),
+                ...(trace.stripDedupRemoved || []),
+                ...(trace.probabilitySkipped || []).map(e => e.title),
+                ...(trace.warmupFailed || []).map(e => e.title),
+                ...(trace.budgetCut || []).map(e => e.title),
+            ]);
+            const pureAiRejected = aiRejected.filter(t => !accountedTitles.has(t));
+            if (pureAiRejected.length > 0) rejectedGroups.push({ label: 'AI Rejected', entries: pureAiRejected, icon: 'fa-robot' });
+        }
+
+        // Cooldown Removed
+        if (trace.cooldownRemoved?.length > 0) {
+            const entries = trace.cooldownRemoved.filter(t => !injectedTitles.has(t));
+            if (entries.length > 0) rejectedGroups.push({ label: 'Cooldown Active', entries, icon: 'fa-clock' });
+        }
+
+        // Budget/Max Cut
+        if (trace.budgetCut?.length > 0) {
+            const entries = trace.budgetCut.filter(e => !injectedTitles.has(e.title)).map(e => e.title);
+            if (entries.length > 0) rejectedGroups.push({ label: 'Budget/Max Cut', entries, icon: 'fa-scissors' });
+        }
+
+        // Strip Dedup Removed
+        if (trace.stripDedupRemoved?.length > 0) {
+            const entries = trace.stripDedupRemoved.filter(t => !injectedTitles.has(t));
+            if (entries.length > 0) rejectedGroups.push({ label: 'Dedup Removed', entries, icon: 'fa-copy' });
+        }
+
+        // Probability Skipped
+        if (trace.probabilitySkipped?.length > 0) {
+            const entries = trace.probabilitySkipped.filter(e => !injectedTitles.has(e.title)).map(e => e.title);
+            if (entries.length > 0) rejectedGroups.push({ label: 'Probability Skipped', entries, icon: 'fa-dice' });
+        }
+
+        // Warmup Not Met
+        if (trace.warmupFailed?.length > 0) {
+            const entries = trace.warmupFailed.filter(e => !injectedTitles.has(e.title)).map(e => e.title);
+            if (entries.length > 0) rejectedGroups.push({ label: 'Warmup Not Met', entries, icon: 'fa-temperature-low' });
+        }
+
+        if (rejectedGroups.length > 0) {
+            const totalRejected = rejectedGroups.reduce((sum, g) => sum + g.entries.length, 0);
+            html += `<hr style="margin: var(--dle-space-3) 0; border-color: var(--dle-border);">`;
+            html += `<h4 style="margin: var(--dle-space-2) 0 var(--dle-space-1); color: var(--dle-text-muted);">Not Injected (${totalRejected} entries)</h4>`;
+
+            for (const group of rejectedGroups) {
+                const groupId = simpleHash(`rejected_${group.label}`);
+                html += `<div class="dle-card" style="opacity: 0.8;">`;
+                html += `<div class="dle_ctx_toggle dle-card-header" data-target="dle_rej_${groupId}">`;
+                html += `<span><i class="fa-solid ${group.icon}" style="margin-right: 6px; color: var(--dle-text-muted);"></i><strong>${escapeHtml(group.label)}</strong> <small class="dle-faint">(${group.entries.length})</small></span>`;
+                html += `<small class="dle-faint">click to expand</small>`;
+                html += `</div>`;
+                html += `<div id="dle_rej_${groupId}" style="display: none; margin-top: var(--dle-space-1);">`;
+
+                for (const title of group.entries) {
+                    const entry = entryByTitle.get(title);
+                    const whynotId = simpleHash(`whynot_${title}`);
+                    html += `<div style="padding: 4px 0; border-bottom: 1px solid var(--dle-border);">`;
+                    html += `<span class="dle-text-sm">${escapeHtml(title)}</span>`;
+                    if (entry && !entry.constant) {
+                        html += ` <button class="menu_button dle_carto_whynot_btn dle-text-xs" data-title="${escapeHtml(title)}" data-container="dle_whynot_carto_${whynotId}" style="padding: 1px 6px; margin-left: 6px;">Why?</button>`;
+                        html += `<div id="dle_whynot_carto_${whynotId}"></div>`;
+                    }
+                    html += `</div>`;
+                }
+
+                html += `</div></div>`;
+            }
+        }
+    }
+
     const anyVaultNamed = settings.vaults && settings.vaults.some(v => v.name);
     html += anyVaultNamed
         ? '<p class="dle-faint dle-text-xs" style="margin-top: var(--dle-space-2);">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
@@ -209,6 +313,27 @@ export function showSourcesPopup(sources) {
         const targetId = toggle.dataset.target;
         const targetEl = document.getElementById(targetId);
         if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+    });
+
+    // Event delegation for "Why?" diagnostic buttons in rejected entries
+    container.addEventListener('click', (e) => {
+        const btn = e.target.closest('.dle_carto_whynot_btn');
+        if (!btn) return;
+        e.stopPropagation();
+        const title = btn.dataset.title;
+        const containerId = btn.dataset.container;
+        const entry = vaultIndex.find(en => en.title === title);
+        if (!entry || !chat || chat.length === 0) return;
+        const result = diagnoseEntry(entry, chat);
+        const color = STAGE_COLORS[result.stage] || 'var(--dle-text-muted)';
+        const suggestions = result.suggestions.length > 0
+            ? `<br><small class="dle-muted">Suggestion: ${escapeHtml(result.suggestions[0])}</small>`
+            : '';
+        const targetEl = document.getElementById(containerId);
+        if (targetEl) {
+            targetEl.innerHTML = `<div class="dle-text-sm" style="color: ${color}; padding: var(--dle-space-1) 0;">${escapeHtml(result.detail)}${suggestions}</div>`;
+        }
+        btn.remove();
     });
 
     callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });

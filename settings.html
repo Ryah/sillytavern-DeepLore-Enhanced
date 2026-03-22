@@ -355,15 +355,15 @@
                         <span>Enable Entry Decay</span>
                     </label>
                     <div class="flex-container" id="dle_decay_controls">
-                        <div class="flex1" title="Number of generations without being included before an entry is marked as stale, hinting the AI to consider refreshing it. Default: 5">
+                        <div class="flex1" title="Number of consecutive generations an entry is skipped before it's marked as stale, hinting the AI to consider refreshing it. Default: 5">
                             <label for="dle_decay_boost_threshold">
-                                <small>Staleness Boost Threshold</small>
+                                <small>Mark Stale After N Skips</small>
                             </label>
                             <input id="dle_decay_boost_threshold" type="number" class="text_pole" min="2" max="20" />
                         </div>
-                        <div class="flex1" title="Minimum total times an entry has been included (from analytics) before it is marked as frequent, hinting the AI to diversify selections. Default: 2">
+                        <div class="flex1" title="Number of consecutive generations an entry is injected before it's marked as frequent, hinting the AI to diversify selections. Default: 2">
                             <label for="dle_decay_penalty_threshold">
-                                <small>Frequency Penalty Threshold</small>
+                                <small>Mark Frequent After N Injections</small>
                             </label>
                             <input id="dle_decay_penalty_threshold" type="number" class="text_pole" min="2" max="10" />
                         </div>
@@ -457,9 +457,9 @@
                                     </label>
                                     <input id="dle_ai_scan_depth" type="number" class="text_pole" min="1" max="100" />
                                 </div>
-                                <div class="flex1" title="Maximum characters for entry summaries in the AI search list. Higher values give the AI more context per entry but cost more tokens. Only affects entries without a custom summary in their note settings. Default: 600">
+                                <div class="flex1" title="Maximum characters for entry descriptions in the AI search list. Higher values give the AI more context per entry but cost more tokens. Only affects entries without a custom summary in their note. Default: 600">
                                     <label for="dle_ai_summary_length">
-                                        <small>Manifest Summary Length</small>
+                                        <small>Entry Description Length</small>
                                     </label>
                                     <input id="dle_ai_summary_length" type="number" class="text_pole" min="100" max="1000" />
                                 </div>
@@ -476,7 +476,7 @@
                             </label>
                             <label class="checkbox_label" for="dle_scribe_informed_retrieval" title="Feed the Session Scribe's latest summary into AI search context, giving the AI broader session awareness beyond the recent chat window. Requires Session Scribe to be enabled and have generated at least one summary.">
                                 <input id="dle_scribe_informed_retrieval" type="checkbox" class="checkbox">
-                                <span>Scribe-Informed Retrieval</span>
+                                <span>Use Session Notes as AI Context</span>
                             </label>
                         </div>
                     </div>
@@ -712,7 +712,7 @@
                     <div class="flex-container">
                         <div class="flex1" title="How long (in seconds) to cache the vault index before automatically re-fetching from Obsidian. Set to 0 to always fetch fresh data (slower but always current). Default: 300 (5 minutes)">
                             <label for="dle_cache_ttl">
-                                <small>Cache TTL (seconds)</small>
+                                <small>Cache Duration (seconds)</small>
                             </label>
                             <input id="dle_cache_ttl" type="number" class="text_pole" min="0" max="86400" />
                         </div>

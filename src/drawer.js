@@ -39,7 +39,7 @@ const MODULE_NAME = 'deeplore-enhanced';
 
 /** Tab name → display label map */
 const TAB_LABELS = {
-    injection: 'Injection',
+    injection: 'Why?',
     browse: 'Browse',
     gating: 'Gating',
     tools: 'Tools',
@@ -51,7 +51,7 @@ const TOOL_ACTIONS = {
     'inspect': '/dle-inspect',
     'status': '/dle-status',
     'simulate': '/dle-simulate',
-    'ai-review': '/dle-ai-review',
+    'ai-review': '/dle-review',
     'analytics': '/dle-analytics',
     'notebook': '/dle-notebook',
     'summarize': '/dle-summarize',
@@ -66,7 +66,7 @@ const TOOL_ACTIONS = {
 
 /** Expand buttons: data-expand → slash command mapping */
 const EXPAND_ACTIONS = {
-    'injection': '/dle-context',
+    'injection': '/dle-why',
     'browse': '/dle-browse',
     'gating': '/dle-context-state',
 };
@@ -97,19 +97,48 @@ function getMatchLabel(matchedBy) {
     if (lower.includes('pinned')) return 'PIN';
     if (lower.includes('bootstrap')) return 'BOOT';
     if (lower.includes('seed')) return 'SEED';
-    return matchedBy.length > 8 ? 'AI' : matchedBy;
+    return matchedBy.length > 8 ? 'AI' : escapeHtml(matchedBy);
+}
+
+/** Announce a message to screen readers via the aria-live region */
+function announceToScreenReader(message) {
+    const $live = $('#dle-drawer-live');
+    if ($live.length) {
+        $live.text('');
+        // Brief delay ensures the screen reader registers the change
+        requestAnimationFrame(() => $live.text(message));
+    }
 }
 
 // ─── Browse tab state ───
 let browseSearchTimeout = null;
-let lastBrowseQuery = '';
-let lastBrowseStatusFilter = 'all';
-let lastBrowseTagFilter = '';
-let lastBrowseSort = 'priority_asc';
+let browseQuery = '';
+let browseStatusFilter = 'all';
+let browseTagFilter = '';
+let browseSort = 'priority_asc';
 
 // Context window token tracking (updated via CHAT_COMPLETION_PROMPT_READY event)
-let lastContextTokens = 0;
+let contextTokens = 0;
 let promptManagerRef = null;
+
+/** Reset ephemeral drawer state on chat change */
+export function resetDrawerState() {
+    browseQuery = '';
+    browseStatusFilter = 'all';
+    browseTagFilter = '';
+    browseSort = 'priority_asc';
+    contextTokens = 0;
+    if (browseSearchTimeout) { clearTimeout(browseSearchTimeout); browseSearchTimeout = null; }
+    // Clear the search input and filter selects if drawer exists
+    const $input = $(`#${DRAWER_ID} .dle-browse-input`);
+    if ($input.length) $input.val('');
+    const $status = $(`#${DRAWER_ID} [data-filter="status"]`);
+    if ($status.length) $status.val('all');
+    const $tag = $(`#${DRAWER_ID} [data-filter="tag"]`);
+    if ($tag.length) $tag.val('');
+    const $sort = $(`#${DRAWER_ID} [data-sort]`);
+    if ($sort.length) $sort.val('priority_asc');
+}
 
 // ─── Render scheduling ───
 let renderPending = false;
@@ -148,9 +177,10 @@ function renderStatusZone($drawer) {
     $dot.attr('title', `Status: ${status}`);
     $dot.attr('aria-label', `System status: ${status}`);
 
-    // Pipeline label
+    // Pipeline label + activity animation
     const pipelineText = generationLock ? 'Choosing Lore...' : 'Idle';
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Pipeline stage: ${pipelineText}`);
+    $dot.toggleClass('dle-status-active', !!generationLock);
 
     // Stats
     const entryCount = vaultIndex.length;
@@ -183,6 +213,20 @@ function renderStatusZone($drawer) {
             : 'DLE — / —';
     $drawer.find('.dle-token-bar-label').text(budgetLabel);
 
+    // Entries bar
+    const injectedCount2 = lastInjectionSources ? lastInjectionSources.length : 0;
+    const maxEntries = settings.unlimitedEntries ? 0 : (settings.maxEntries || 0);
+    const entriesPct = maxEntries ? Math.min(100, Math.round((injectedCount2 / maxEntries) * 100)) : 0;
+    const $entriesBarContainer = $drawer.find('.dle-entries-bar-container');
+    $entriesBarContainer.attr('aria-valuenow', injectedCount2).attr('aria-valuemax', maxEntries);
+    $drawer.find('.dle-entries-bar').css('width', `${entriesPct}%`);
+    const entriesLabel = maxEntries
+        ? `Entries ${injectedCount2} / ${maxEntries}`
+        : settings.unlimitedEntries
+            ? `Entries ${injectedCount2} / \u221E`
+            : 'Entries — / —';
+    $drawer.find('.dle-entries-bar-label').text(entriesLabel);
+
     // Active gating filters
     const ctx = chat_metadata?.deeplore_context;
     const $filters = $drawer.find('.dle-active-filters');
@@ -202,17 +246,21 @@ function renderStatusZone($drawer) {
 }
 
 /**
- * Render the injection (Cartographer) tab with live source data.
+ * Render the "Why?" tab — shows why entries were injected AND why others were filtered out.
  */
 function renderInjectionTab($drawer) {
     const sources = lastInjectionSources;
     const prev = previousSources;
-    const $list = $drawer.find('.dle-carto-list');
+    const trace = lastPipelineTrace;
+    const $list = $drawer.find('.dle-why-list');
     const $empty = $drawer.find('#dle-panel-injection .dle-empty-state');
     const $diff = $drawer.find('.dle-section-diff');
+    const $whyNotSection = $drawer.find('.dle-why-not-section');
+    const $whyNotList = $drawer.find('.dle-why-not-list');
 
     if (!sources || sources.length === 0) {
         $list.empty();
+        $whyNotSection.hide();
         $empty.show();
         $diff.empty();
         return;
@@ -240,9 +288,9 @@ function renderInjectionTab($drawer) {
     for (const src of sources) {
         const isNew = addedTitles.has(src.title);
         const isConstant = src.constant || (src.matchedBy && src.matchedBy.includes('Constant'));
-        const classes = ['dle-carto-entry'];
-        if (isNew) classes.push('dle-carto-new');
-        if (isConstant) classes.push('dle-carto-constant');
+        const classes = ['dle-why-entry'];
+        if (isNew) classes.push('dle-why-new');
+        if (isConstant) classes.push('dle-why-constant');
 
         // Obsidian link
         const srcVault = src.vaultSource && settings.vaults
@@ -255,22 +303,72 @@ function renderInjectionTab($drawer) {
 
         const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens || '?'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
         html += `<div class="${classes.join(' ')}" role="listitem" aria-label="${entryAriaLabel}">`;
-        html += `<span class="dle-carto-title">`;
+        html += `<span class="dle-why-title">`;
         if (uri) {
             html += `<a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
         } else {
             html += escapeHtml(src.title);
         }
         html += `</span>`;
-        html += `<span class="dle-carto-meta">`;
-        html += `<span class="dle-carto-tokens" aria-label="${src.tokens || '?'} tokens">${src.tokens || '?'} tok</span>`;
-        html += `<span class="dle-carto-match" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
-        if (isNew) html += `<span class="dle-carto-new-badge" aria-label="Newly added entry">NEW</span>`;
+        html += `<span class="dle-why-meta">`;
+        html += `<span class="dle-why-tokens" aria-label="${src.tokens || '?'} tokens">${src.tokens || '?'} tok</span>`;
+        html += `<span class="dle-why-match" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
+        if (isNew) html += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
         html += `</span>`;
         html += `</div>`;
     }
 
     $list.html(html);
+
+    // ── "Why Not" section — entries that were candidates but got filtered out ──
+    if (trace) {
+        const rejections = [];
+
+        if (trace.contextualGatingRemoved) {
+            for (const title of trace.contextualGatingRemoved) {
+                rejections.push({ title, reason: 'Gating mismatch' });
+            }
+        }
+        if (trace.cooldownRemoved) {
+            for (const title of trace.cooldownRemoved) {
+                rejections.push({ title, reason: 'Cooldown active' });
+            }
+        }
+        if (trace.gatedOut) {
+            for (const entry of trace.gatedOut) {
+                const parts = [];
+                if (entry.requires?.length) parts.push(`needs: ${entry.requires.join(', ')}`);
+                if (entry.excludes?.length) parts.push(`blocked by: ${entry.excludes.join(', ')}`);
+                rejections.push({ title: entry.title, reason: parts.join('; ') || 'requires/excludes' });
+            }
+        }
+        if (trace.stripDedupRemoved) {
+            for (const title of trace.stripDedupRemoved) {
+                rejections.push({ title, reason: 'Already in context' });
+            }
+        }
+        if (trace.budgetCut) {
+            for (const entry of trace.budgetCut) {
+                rejections.push({ title: entry.title, reason: `Over budget (${entry.tokens} tok)` });
+            }
+        }
+
+        if (rejections.length > 0) {
+            let whyNotHtml = '';
+            for (const r of rejections) {
+                whyNotHtml += `<div class="dle-why-entry dle-why-not-entry" role="listitem" aria-label="${escapeHtml(r.title)}, filtered: ${escapeHtml(r.reason)}">`;
+                whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(r.title)}</span>`;
+                whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(r.reason)}">${escapeHtml(r.reason)}</span></span>`;
+                whyNotHtml += `</div>`;
+            }
+            $whyNotList.html(whyNotHtml);
+            $whyNotSection.show();
+        } else {
+            $whyNotSection.hide();
+        }
+    } else {
+        $whyNotSection.hide();
+    }
 }
 
 /**
@@ -278,15 +376,17 @@ function renderInjectionTab($drawer) {
  */
 function renderBrowseTab($drawer) {
     const $list = $drawer.find('.dle-browse-list');
-    const $empty = $drawer.find('#dle-panel-browse .dle-empty-state');
+    const $emptyNoData = $drawer.find('#dle-browse-empty-no-data');
+    const $emptyNoResults = $drawer.find('#dle-browse-empty-no-results');
 
     if (!vaultIndex || vaultIndex.length === 0) {
         $list.empty();
-        $empty.show();
+        $emptyNoData.show();
+        $emptyNoResults.hide();
         return;
     }
 
-    $empty.hide();
+    $emptyNoData.hide();
 
     // Build tag filter options dynamically
     const $tagSelect = $drawer.find('[data-filter="tag"]');
@@ -302,10 +402,10 @@ function renderBrowseTab($drawer) {
     $tagSelect.html(tagOpts.join(''));
 
     // Get filters
-    const query = lastBrowseQuery.toLowerCase();
-    const statusFilter = lastBrowseStatusFilter;
-    const tagFilter = lastBrowseTagFilter;
-    const sortKey = lastBrowseSort;
+    const query = browseQuery.toLowerCase();
+    const statusFilter = browseStatusFilter;
+    const tagFilter = browseTagFilter;
+    const sortKey = browseSort;
 
     // Pin/block state
     const pins = chat_metadata?.deeplore_pins || [];
@@ -391,6 +491,7 @@ function renderBrowseTab($drawer) {
     }
 
     $list.html(html);
+    $emptyNoResults.toggle(entries.length === 0);
 }
 
 /**
@@ -465,7 +566,7 @@ function renderTimers($drawer) {
     }
 
     // Warmup entries (from vault index — entries that require multiple keyword hits)
-    const entries = Object.values(vaultIndex);
+    const entries = vaultIndex;
     for (const entry of entries) {
         if (entry.warmup !== null && entry.warmup > 1) {
             rows.push(`<div class="dle-timer-row" role="listitem">
@@ -531,31 +632,31 @@ function wireBrowseTab($drawer) {
         const val = $(this).val();
         clearTimeout(browseSearchTimeout);
         browseSearchTimeout = setTimeout(() => {
-            lastBrowseQuery = val;
+            browseQuery = val;
             scheduleRender(renderBrowseTab, $drawer);
         }, 300);
     });
 
     // Filter selects
     $drawer.find('[data-filter="status"]').on('change', function () {
-        lastBrowseStatusFilter = $(this).val();
+        browseStatusFilter = $(this).val();
         scheduleRender(renderBrowseTab, $drawer);
     });
 
     $drawer.find('[data-filter="tag"]').on('change', function () {
-        lastBrowseTagFilter = $(this).val();
+        browseTagFilter = $(this).val();
         scheduleRender(renderBrowseTab, $drawer);
     });
 
     $drawer.find('[data-sort]').on('change', function () {
-        lastBrowseSort = $(this).val();
+        browseSort = $(this).val();
         scheduleRender(renderBrowseTab, $drawer);
     });
 
     // Pin/block buttons via event delegation
     $drawer.find('.dle-browse-list').on('click', '.dle-browse-pin', function () {
         const title = $(this).data('entry');
-        if (!title) return;
+        if (!title || !chat_metadata) return;
 
         if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
         const tl = title.toLowerCase();
@@ -577,7 +678,7 @@ function wireBrowseTab($drawer) {
 
     $drawer.find('.dle-browse-list').on('click', '.dle-browse-block', function () {
         const title = $(this).data('entry');
-        if (!title) return;
+        if (!title || !chat_metadata) return;
 
         if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
         const tl = title.toLowerCase();
@@ -670,7 +771,7 @@ function renderFooter($drawer) {
     // Prefer chatCompletionSettings (respects unlocked context) over maxContext (base slider)
     const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
     const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
-    const contextUsed = lastContextTokens || 0;
+    const contextUsed = contextTokens || 0;
 
     const $barContainer = $footer.find('.dle-context-bar-container');
     if (maxContext > 0) {
@@ -799,12 +900,6 @@ function wireHealthIcons($drawer) {
     const $footer = $drawer.find('#dle_drawer_footer');
     if (!$footer.length) return;
 
-    // Lazy-load executeSlashCommands for icon clicks
-    const executeCommand = (cmd) => {
-        const ctx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
-        if (ctx?.executeSlashCommands) ctx.executeSlashCommands(cmd);
-    };
-
     $footer.find('.dle-health-icons').on('click', '[data-health]', function (e) {
         e.preventDefault();
         const area = $(this).data('health');
@@ -818,13 +913,13 @@ function wireHealthIcons($drawer) {
                 const msg = indexTimestamp
                     ? `Index: ${vaultIndex.length} entries, ${ageSec}s old${indexEverLoaded ? '' : ' (from IndexedDB cache)'}`
                     : 'No index loaded yet.';
-                toastr.info(msg, 'Cache Status');
+                if (typeof toastr !== 'undefined') toastr.info(msg, 'Cache Status');
                 break;
             }
             case 'ai': {
                 const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
                 const msg = `Calls: ${aiSearchStats.calls} | Cached: ${aiSearchStats.cachedHits} | Tokens: ${totalTok.toLocaleString()} (${aiSearchStats.totalInputTokens.toLocaleString()} in, ${aiSearchStats.totalOutputTokens.toLocaleString()} out)`;
-                toastr.info(msg, 'AI Search Stats');
+                if (typeof toastr !== 'undefined') toastr.info(msg, 'AI Search Stats');
                 break;
             }
         }
@@ -906,9 +1001,11 @@ export async function createDrawerPanel() {
                      class="drawer-icon fa-solid fa-scroll fa-fw interactable closedIcon"
                      title="DeepLore Enhanced"
                      tabindex="0"
-                     role="button"></div>
+                     role="button"
+                     aria-expanded="false"
+                     aria-label="DeepLore Enhanced drawer"></div>
             </div>
-            <nav id="deeplore-panel" class="drawer-content closedDrawer fillRight">
+            <div id="deeplore-panel" class="drawer-content closedDrawer fillRight" role="region" aria-label="DeepLore Enhanced panel">
                 <div id="deeplore-panelheader" class="fa-solid fa-grip drag-grabber" aria-hidden="true"></div>
                 <div class="dle-drawer-pin" title="Pin drawer open">
                     <input type="checkbox" id="dle_drawer_pin" aria-label="Pin drawer open">
@@ -919,7 +1016,7 @@ export async function createDrawerPanel() {
                 </div>
                 <div class="scrollableInner dle-drawer-inner">
                 </div>
-            </nav>
+            </div>
         </div>
     `);
 
@@ -933,7 +1030,14 @@ export async function createDrawerPanel() {
 
     // CRITICAL: Bind the drawer toggle — ST's initial binding already ran at page load,
     // so dynamically-added drawers need explicit binding to doNavbarIconClick
-    $drawer.find('.drawer-toggle').on('click', doNavbarIconClick);
+    $drawer.find('.drawer-toggle').on('click', function (e) {
+        doNavbarIconClick.call(this, e);
+        // Update aria-expanded after ST processes the toggle
+        requestAnimationFrame(() => {
+            const isOpen = $drawer.find('#deeplore-panel').hasClass('openDrawer');
+            $drawer.find('#deeploreDrawerIcon').attr('aria-expanded', String(isOpen));
+        });
+    });
 
     // Hide pin on mobile (ST convention — native drawers gate behind !isMobile())
     if (isMobile && isMobile()) {
@@ -1024,7 +1128,7 @@ export async function createDrawerPanel() {
                 } catch { /* non-OAI backend, context bar stays at 0 */ }
             }
             stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, () => {
-                lastContextTokens = promptManagerRef?.tokenUsage || 0;
+                contextTokens = promptManagerRef?.tokenUsage || 0;
                 scheduleRender(renderFooter, $drawer);
             });
         }
@@ -1050,6 +1154,7 @@ export async function createDrawerPanel() {
         scheduleRender(renderBrowseTab, $drawer);
         scheduleRender(renderTimers, $drawer);
         scheduleRender(renderFooter, $drawer);
+        announceToScreenReader(`Vault index refreshed: ${vaultIndex.length} entries loaded.`);
     });
 
     onAiStatsUpdated(() => {
@@ -1068,6 +1173,8 @@ export async function createDrawerPanel() {
         scheduleRender(renderBrowseTab, $drawer);
         scheduleRender(renderTimers, $drawer);
         scheduleRender(renderFooter, $drawer);
+        const count = lastInjectionSources ? lastInjectionSources.length : 0;
+        announceToScreenReader(`Pipeline complete: ${count} entries injected.`);
     });
 
     onGatingChanged(() => {

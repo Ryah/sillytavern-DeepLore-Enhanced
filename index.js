@@ -41,7 +41,7 @@ import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/
 import { loadSettingsUI, bindSettingsEvents } from './src/settings-ui.js';
 import { registerSlashCommands } from './src/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
-import { createDrawerPanel } from './src/drawer.js';
+import { createDrawerPanel, resetDrawerState } from './src/drawer.js';
 
 // ============================================================================
 // Generation Interceptor
@@ -596,7 +596,8 @@ jQuery(async function () {
             setLastInjectionSources(null);
             resetCartographer();
 
-            // Notify drawer to refresh for the new chat
+            // Reset drawer ephemeral state (browse filters, context tokens) and refresh
+            resetDrawerState();
             notifyPipelineComplete();
             notifyGatingChanged();
 

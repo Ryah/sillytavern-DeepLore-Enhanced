@@ -183,8 +183,6 @@ export function onIndexUpdated(callback) {
     indexUpdatedCallbacks.push(callback);
 }
 
-/** Clear all registered index-updated callbacks (call before re-registering to prevent accumulation). */
-export function clearIndexUpdatedCallbacks() { indexUpdatedCallbacks.length = 0; }
 
 /** Invoke all registered index-updated callbacks. Called by vault.js after index changes. */
 export function notifyIndexUpdated() {
@@ -204,8 +202,6 @@ export function onAiStatsUpdated(callback) {
     aiStatsCallbacks.push(callback);
 }
 
-/** Clear all registered AI stats callbacks (call before re-registering to prevent accumulation). */
-export function clearAiStatsCallbacks() { aiStatsCallbacks.length = 0; }
 
 /** Invoke all registered AI stats callbacks. Called by ai.js after stats change. */
 export function notifyAiStatsUpdated() {
@@ -225,8 +221,6 @@ export function onCircuitStateChanged(callback) {
     circuitStateCallbacks.push(callback);
 }
 
-/** Clear all registered circuit state callbacks (call before re-registering to prevent accumulation). */
-export function clearCircuitStateCallbacks() { circuitStateCallbacks.length = 0; }
 
 /** Invoke all registered circuit state callbacks. Called by recordAiFailure/recordAiSuccess on state transitions. */
 export function notifyCircuitStateChanged() {

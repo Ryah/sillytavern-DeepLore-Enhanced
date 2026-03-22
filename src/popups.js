@@ -85,7 +85,7 @@ export function attachCopyHandler(container) {
 }
 
 /**
- * Show the Author's Notebook editor popup for the current chat.
+ * Show the Notebook editor popup for the current chat.
  */
 export async function showNotebookPopup() {
     const currentContent = chat_metadata?.deeplore_notebook || '';
@@ -93,7 +93,7 @@ export async function showNotebookPopup() {
     const container = document.createElement('div');
     container.classList.add('dle-popup');
     container.innerHTML = `
-        <h3>Author's Notebook</h3>
+        <h3>Notebook</h3>
         <p class="dle-muted dle-text-sm">Persistent scratchpad for this chat. Contents are injected into every generation when enabled. Use for character notes, plot threads, reminders, or anything the AI should always know.</p>
         <textarea id="dle_notebook_textarea" class="text_pole" rows="15" style="width: 100%; font-family: monospace; font-size: 0.9em;" placeholder="Write notes here...">${escapeHtml(currentContent)}</textarea>
         <small id="dle_notebook_token_count" class="dle-faint"></small>

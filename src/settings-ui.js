@@ -24,7 +24,6 @@ import {
     isAiCircuitOpen, computeOverallStatus,
     setVaultIndex, setIndexTimestamp, setLastHealthResult,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
-    clearIndexUpdatedCallbacks, clearAiStatsCallbacks, clearCircuitStateCallbacks,
 } from './state.js';
 import { ensureIndexFresh, getMaxResponseTokens } from './vault.js';
 import {
@@ -503,14 +502,46 @@ export async function openSettingsPopup() {
     );
     const $container = $(html);
 
-    // Tab switching
+    // Tab switching helper
+    function switchSettingsTab($tab) {
+        const tab = $tab.data('settings-tab');
+        $container.find('.dle-settings-tab').removeClass('active')
+            .attr('aria-selected', 'false').attr('tabindex', '-1');
+        $tab.addClass('active').attr('aria-selected', 'true').attr('tabindex', '0');
+        $container.find('.dle-settings-panel').removeClass('active').attr('hidden', '');
+        $container.find(`[data-settings-panel="${tab}"]`).addClass('active').removeAttr('hidden');
+    }
+
+    // Tab switching — click
     $container.on('click', '.dle-settings-tab', function () {
-        const tab = $(this).data('settings-tab');
-        $container.find('.dle-settings-tab').removeClass('active').attr('aria-selected', 'false');
-        $(this).addClass('active').attr('aria-selected', 'true');
-        $container.find('.dle-settings-panel').removeClass('active');
-        $container.find(`[data-settings-panel="${tab}"]`).addClass('active');
+        switchSettingsTab($(this));
     });
+
+    // Tab switching — keyboard (arrow keys, Home/End per ARIA tabs pattern)
+    $container.on('keydown', '.dle-settings-tab', function (e) {
+        const $tabs = $container.find('.dle-settings-tab');
+        const idx = $tabs.index(this);
+        let newIdx = idx;
+
+        switch (e.key) {
+            case 'ArrowDown': newIdx = (idx + 1) % $tabs.length; break;
+            case 'ArrowUp': newIdx = (idx - 1 + $tabs.length) % $tabs.length; break;
+            case 'Home': newIdx = 0; break;
+            case 'End': newIdx = $tabs.length - 1; break;
+            default: return;
+        }
+
+        e.preventDefault();
+        const $newTab = $tabs.eq(newIdx);
+        switchSettingsTab($newTab);
+        $newTab.trigger('focus');
+    });
+
+    // Set initial roving tabindex
+    $container.find('.dle-settings-tab').attr('tabindex', '-1');
+    $container.find('.dle-settings-tab.active').attr('tabindex', '0');
+    // Set initial hidden attribute on inactive panels
+    $container.find('.dle-settings-panel').not('.active').attr('hidden', '');
 
     // Advanced section toggles (reuse existing pattern)
     $container.on('click', '.dle_advanced_toggle', function () {
@@ -536,10 +567,9 @@ export async function openSettingsPopup() {
 // ============================================================================
 
 export function loadSettingsUI() {
-    // Clear previous callbacks to prevent accumulation on repeated init
-    clearIndexUpdatedCallbacks();
-    clearAiStatsCallbacks();
-    clearCircuitStateCallbacks();
+    // NOTE: clear*Callbacks() calls were removed here — they wiped drawer's
+    // observer subscriptions registered by createDrawerPanel() which runs first.
+    // Accumulation is not a risk since loadSettingsUI() is only called once.
 
     const settings = getSettings();
 
@@ -994,7 +1024,7 @@ export function bindSettingsEvents(buildIndexFn) {
 
     $('#dle_open_notebook').on('click', function () {
         if (!settings.notebookEnabled) {
-            toastr.warning('Enable Author\'s Notebook first.', 'DeepLore Enhanced');
+            toastr.warning('Enable the Notebook first.', 'DeepLore Enhanced');
             return;
         }
         showNotebookPopup();

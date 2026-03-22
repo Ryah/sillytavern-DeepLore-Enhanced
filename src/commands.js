@@ -133,7 +133,8 @@ export function registerSlashCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'dle-context',
+        name: 'dle-why',
+        aliases: ['dle-context'],
         callback: async () => {
             if (!chat || chat.length === 0) {
                 toastr.info('No active chat.', 'DeepLore Enhanced');
@@ -190,7 +191,7 @@ export function registerSlashCommands() {
             showSourcesPopup(sources);
             return '';
         },
-        helpString: 'Show what would be injected right now — runs the pipeline without generating.',
+        helpString: 'Show why entries would/wouldn\'t be injected — runs the pipeline without generating. Alias: /dle-context',
         returns: 'Context map popup',
     }));
 
@@ -210,7 +211,7 @@ export function registerSlashCommands() {
             await showNotebookPopup();
             return '';
         },
-        helpString: 'Open the Author\'s Notebook editor for the current chat.',
+        helpString: 'Open the Notebook editor for the current chat.',
         returns: 'Opens notebook popup',
     }));
 
@@ -1548,7 +1549,7 @@ export function registerSlashCommands() {
         callback: async () => {
             const commands = [
                 { cmd: '/dle-browse', desc: 'Search and preview vault entries' },
-                { cmd: '/dle-context', desc: 'Show what would inject right now (no generation needed)' },
+                { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (no generation needed)' },
                 { cmd: '/dle-inspect', desc: 'Inspect last pipeline trace in detail' },
                 { cmd: '/dle-health', desc: 'Run vault health check' },
                 { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian' },
@@ -1556,7 +1557,7 @@ export function registerSlashCommands() {
                 { cmd: '/dle-simulate', desc: 'Replay chat showing entry activation timeline' },
                 { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph' },
                 { cmd: '/dle-analytics', desc: 'View entry match/injection analytics' },
-                { cmd: '/dle-notebook', desc: 'Edit the Author\'s Notebook for this chat' },
+                { cmd: '/dle-notebook', desc: 'Edit the Notebook for this chat' },
                 { cmd: '/dle-scribe', desc: 'Run Session Scribe now' },
                 { cmd: '/dle-scribe-history', desc: 'View past Scribe notes' },
                 { cmd: '/dle-newlore', desc: 'AI suggests new lorebook entries from chat' },

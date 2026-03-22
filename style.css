@@ -4,15 +4,30 @@
 
 /* --- Theme-aware color variables (on :root so popups can inherit) --- */
 :root {
+    /* Semantic colors — theme-aware where possible */
     --dle-success: var(--SmartThemeQuoteColor, #4caf50);
-    --dle-error: #f44336;
-    --dle-warning: #ff9800;
+    --dle-error: var(--SmartThemeFontColor, #f44336);
+    --dle-warning: color-mix(in srgb, var(--SmartThemeQuoteColor, #ff9800) 70%, orange);
     --dle-info: var(--SmartThemeUnderlineColor, #2196f3);
-    --dle-accent: #9c27b0;
+    --dle-accent: color-mix(in srgb, var(--SmartThemeUnderlineColor, #9c27b0) 60%, purple);
     --dle-border: var(--SmartThemeBorderColor, #444);
     --dle-bg-surface: var(--SmartThemeBlurTintColor, #1a1a2e);
     --dle-bg-hover: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 8%, transparent);
     --dle-text-muted: var(--SmartThemeEmColor, #888);
+
+    /* Type scale (minor third 1.2 ratio) */
+    --dle-text-xs: 0.72em;
+    --dle-text-sm: 0.85em;
+    --dle-text-base: 1em;
+    --dle-text-lg: 1.1em;
+    --dle-text-xl: 1.25em;
+
+    /* Spacing scale */
+    --dle-space-1: 4px;
+    --dle-space-2: 8px;
+    --dle-space-3: 12px;
+    --dle-space-4: 16px;
+    --dle-space-5: 24px;
 }
 
 /* --- Utility classes --- */
@@ -122,25 +137,33 @@
     outline-offset: 2px;
 }
 
-/* --- Screen reader only --- */
-.dle_settings .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
+/* --- Focus-visible styles (drawer + popup) --- */
+#deeplore-drawer button:focus-visible,
+#deeplore-drawer input:focus-visible,
+#deeplore-drawer select:focus-visible,
+#deeplore-drawer a:focus-visible,
+#deeplore-drawer [tabindex="0"]:focus-visible,
+.dle-settings-popup button:focus-visible,
+.dle-settings-popup input:focus-visible,
+.dle-settings-popup select:focus-visible,
+.dle-settings-popup [tabindex="0"]:focus-visible {
+    outline: 2px solid var(--dle-success);
+    outline-offset: 2px;
 }
 
 /* --- Reduced motion support --- */
 @media (prefers-reduced-motion: reduce) {
     .dle_settings,
-    .dle_settings * {
+    .dle_settings *,
+    #deeplore-drawer,
+    #deeplore-drawer *,
+    .dle-sources-popup,
+    .dle-sources-popup *,
+    .dle-settings-popup,
+    .dle-settings-popup * {
         transition-duration: 0.01ms !important;
         animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
     }
 }
 
@@ -166,19 +189,7 @@
  * Reusable classes for popup content — available globally since vars are on :root
  * ============================================================================ */
 
-/* --- Type scale (minor third 1.2 ratio) --- */
-:root {
-    --dle-text-xs: 0.72em;
-    --dle-text-sm: 0.85em;
-    --dle-text-base: 1em;
-    --dle-text-lg: 1.1em;
-    --dle-text-xl: 1.25em;
-    --dle-space-1: 4px;
-    --dle-space-2: 8px;
-    --dle-space-3: 12px;
-    --dle-space-4: 16px;
-    --dle-space-5: 24px;
-}
+/* (type scale and spacing tokens consolidated into :root above) */
 
 /* --- Semantic color classes --- */
 .dle-success { color: var(--dle-success); }
@@ -560,16 +571,13 @@
     display: none;
     padding: var(--dle-space-2);
     overflow-y: auto;
+    overscroll-behavior: contain;
     flex: 1;
 }
 
 .dle-tab-panel.active {
     display: flex;
     flex-direction: column;
-}
-
-.dle-tab-panel {
-    overscroll-behavior: contain;
 }
 
 .dle-tab-panel[hidden] {
@@ -602,7 +610,7 @@
     flex-shrink: 0;
     background: none;
     border: none;
-    color: var(--dle-muted);
+    color: var(--dle-text-muted);
     cursor: pointer;
     padding: 4px;
     font-size: 0.75rem;
@@ -613,7 +621,7 @@
 
 .dle-tab-expand:hover {
     opacity: 1;
-    color: var(--dle-text);
+    color: var(--SmartThemeBodyColor, #eee);
 }
 
 /* --- Token bar (drawer version) --- */
@@ -647,13 +655,38 @@
     font-weight: 600;
 }
 
-/* --- Chips (gating filters, tags) --- */
-.dle-gating-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--dle-space-1);
-    margin-top: var(--dle-space-1);
+/* --- Entries bar (max entries budget) --- */
+.dle-entries-bar-container {
+    position: relative;
+    background: var(--dle-border);
+    border-radius: 3px;
+    height: 14px;
+    margin: 2px 0 0;
+    overflow: hidden;
 }
+
+.dle-entries-bar-container .dle-entries-bar {
+    height: 100%;
+    background: var(--dle-info);
+    border-radius: 3px;
+    transition: width 300ms ease;
+    margin: 0;
+}
+
+.dle-entries-bar-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    line-height: 14px;
+    color: var(--SmartThemeBodyColor, #ccc);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    font-weight: 600;
+}
+
+/* --- Chips (gating filters, tags) --- */
 
 .dle-chip {
     display: inline-flex;
@@ -752,14 +785,14 @@ button.dle-chip-x:hover {
     padding: var(--dle-space-1) 0 var(--dle-space-2);
 }
 
-/* --- Context Cartographer entries --- */
-.dle-carto-list {
+/* --- Why? tab entries --- */
+.dle-why-list {
     display: flex;
     flex-direction: column;
     gap: 2px;
 }
 
-.dle-carto-entry {
+.dle-why-entry {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -768,25 +801,25 @@ button.dle-chip-x:hover {
     transition: background 120ms;
 }
 
-.dle-carto-entry:hover {
+.dle-why-entry:hover {
     background: var(--dle-bg-hover);
 }
 
-.dle-carto-entry.dle-carto-new {
+.dle-why-entry.dle-why-new {
     border-left: 2px solid var(--dle-success);
 }
 
-.dle-carto-entry.dle-carto-constant .dle-obsidian-link {
+.dle-why-entry.dle-why-constant .dle-obsidian-link {
     color: var(--dle-text-muted);
 }
 
-.dle-carto-title {
+.dle-why-title {
     min-width: 0;
     overflow: hidden;
 }
 
 /* Obsidian link as button */
-button.dle-obsidian-link {
+.dle-obsidian-link {
     cursor: pointer;
     color: var(--dle-info);
     text-decoration: none;
@@ -797,22 +830,22 @@ button.dle-obsidian-link {
     text-align: left;
 }
 
-button.dle-obsidian-link:hover {
+.dle-obsidian-link:hover {
     text-decoration: underline;
 }
 
-.dle-carto-meta {
+.dle-why-meta {
     display: flex;
     align-items: center;
     gap: var(--dle-space-2);
     font-size: var(--dle-text-xs);
 }
 
-.dle-carto-tokens {
+.dle-why-tokens {
     color: var(--dle-text-muted);
 }
 
-.dle-carto-match {
+.dle-why-match {
     font-weight: 600;
     font-size: 10px;
     padding: 0 4px;
@@ -821,7 +854,7 @@ button.dle-obsidian-link:hover {
     color: var(--dle-info);
 }
 
-.dle-carto-new-badge {
+.dle-why-new-badge {
     font-weight: 600;
     font-size: 10px;
     padding: 0 4px;
@@ -830,19 +863,18 @@ button.dle-obsidian-link:hover {
     color: var(--dle-success);
 }
 
+/* --- Why Not entries (filtered out) --- */
+.dle-why-not-entry {
+    opacity: 0.6;
+}
+
+.dle-why-not-reason {
+    font-size: 10px;
+    color: var(--dle-warning);
+    background: color-mix(in srgb, var(--dle-warning) 12%, transparent);
+}
+
 /* --- Browse panel --- */
-/* Browse controls bar */
-.dle-browse-controls-bar {
-    display: flex;
-    flex-direction: column;
-    gap: var(--dle-space-1);
-    margin-bottom: var(--dle-space-2);
-}
-
-.dle-browse-controls-bar .dle-browse-input {
-    margin-bottom: 0;
-}
-
 .dle-browse-filters {
     display: flex;
     gap: var(--dle-space-1);
@@ -873,9 +905,6 @@ button.dle-obsidian-link:hover {
     align-items: center;
     padding: 4px var(--dle-space-2);
     border-radius: 3px;
-}
-
-.dle-browse-entry {
     overflow: hidden;
 }
 
@@ -1099,7 +1128,9 @@ button.dle-browse-why:hover {
 /* --- Small drawer / top-panel mode --- */
 /* On narrow screens ST constrains the drawer to ~100px tall.
    Hide everything except pipeline label and tabs so content is reachable. */
-.dle-drawer-inner {
+/* Container queries — on #deeplore-panel (not .dle-drawer-inner) because
+   footer is moved outside .dle-drawer-inner by JS for sticky positioning */
+#deeplore-panel {
     container-type: size;
 }
 
@@ -1149,11 +1180,7 @@ button.dle-browse-why:hover {
     50% { opacity: 0.4; }
 }
 
-.dle-status-active .dle-status-dot {
-    animation: dle-pulse 1.5s ease-in-out infinite;
-}
-
-.dle-status-active .dle-status-label {
+.dle-status-dot.dle-status-active {
     animation: dle-pulse 1.5s ease-in-out infinite;
 }
 

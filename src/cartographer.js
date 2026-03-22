@@ -30,7 +30,7 @@ export function injectSourcesButton(messageId) {
     if (mesEl.length === 0) return;
     if (mesEl.find('.mes_deeplore_sources').length > 0) return;
 
-    const btn = $('<div title="Context Cartographer" class="mes_button mes_deeplore_sources fa-solid fa-book-open"></div>');
+    const btn = $('<div title="Why? — See which lore was injected" class="mes_button mes_deeplore_sources fa-solid fa-book-open"></div>');
     mesEl.find('.extraMesButtons').prepend(btn);
 }
 
@@ -48,12 +48,12 @@ function shortenMatchReason(matchedBy) {
     // "keyword → AI" or just "keyword"
     if (m.includes('→')) {
         const keyword = matchedBy.split('→')[0].trim();
-        return `(Keyword: ${keyword})`;
+        return `(Keyword: ${escapeHtml(keyword)})`;
     }
     // AI-only mode: matchedBy is just "(AI)" or similar
     if (m.includes('ai')) return '(AI)';
     // Bare keyword match
-    if (matchedBy.trim()) return `(Keyword: ${matchedBy.trim()})`;
+    if (matchedBy.trim()) return `(Keyword: ${escapeHtml(matchedBy.trim())})`;
     return '';
 }
 
@@ -107,7 +107,7 @@ export function showSourcesPopup(sources) {
     setPreviousSources(sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy })));
 
     let html = `<div class="dle-popup">`;
-    html += `<h3>Context Cartographer (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
+    html += `<h3>Why? — Injected Sources (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
 
     // Diff display with reasons
     if (added.length > 0 || removed.length > 0) {

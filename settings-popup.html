@@ -3,27 +3,27 @@
 
     <!-- Sidebar tabs -->
     <nav class="dle-settings-sidebar" role="tablist" aria-label="Settings sections">
-        <button class="dle-settings-tab active" data-settings-tab="connection" role="tab"
+        <button class="dle-settings-tab active" id="dle-sp-tab-connection" data-settings-tab="connection" role="tab"
                 aria-selected="true" aria-controls="dle-sp-connection">
             <i class="fa-solid fa-plug" aria-hidden="true"></i>
             <span>Connection</span>
         </button>
-        <button class="dle-settings-tab" data-settings-tab="matching" role="tab"
+        <button class="dle-settings-tab" id="dle-sp-tab-matching" data-settings-tab="matching" role="tab"
                 aria-selected="false" aria-controls="dle-sp-matching">
             <i class="fa-solid fa-crosshairs" aria-hidden="true"></i>
             <span>Matching</span>
         </button>
-        <button class="dle-settings-tab" data-settings-tab="ai" role="tab"
+        <button class="dle-settings-tab" id="dle-sp-tab-ai" data-settings-tab="ai" role="tab"
                 aria-selected="false" aria-controls="dle-sp-ai">
             <i class="fa-solid fa-brain" aria-hidden="true"></i>
             <span>AI Search</span>
         </button>
-        <button class="dle-settings-tab" data-settings-tab="features" role="tab"
+        <button class="dle-settings-tab" id="dle-sp-tab-features" data-settings-tab="features" role="tab"
                 aria-selected="false" aria-controls="dle-sp-features">
             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
             <span>Features</span>
         </button>
-        <button class="dle-settings-tab" data-settings-tab="system" role="tab"
+        <button class="dle-settings-tab" id="dle-sp-tab-system" data-settings-tab="system" role="tab"
                 aria-selected="false" aria-controls="dle-sp-system">
             <i class="fa-solid fa-sliders" aria-hidden="true"></i>
             <span>System</span>
@@ -32,6 +32,11 @@
 
     <!-- Content area -->
     <div class="dle-settings-content">
+        <!-- Preview banner — remove when settings popup is fully wired -->
+        <div class="dle-settings-preview-banner" style="background: color-mix(in srgb, var(--dle-warning) 15%, transparent); border: 1px solid var(--dle-warning); border-radius: 4px; padding: 6px 10px; margin-bottom: 8px; font-size: 0.82em; display: flex; align-items: center; gap: 6px;">
+            <i class="fa-solid fa-flask" aria-hidden="true" style="color: var(--dle-warning);"></i>
+            <span><strong>Preview</strong> — Settings are read-only in this view. Use the extension settings panel below to change configuration.</span>
+        </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
              TAB: Connection
@@ -389,11 +394,11 @@
             </div>
 
             <hr>
-            <h4>Context Cartographer</h4>
+            <h4>Source Tracking</h4>
             <div class="flex-container flexFlowColumn">
-                <label class="checkbox_label" for="dle_sp_show_sources" title="Add a book icon to AI messages showing which vault entries were injected.">
+                <label class="checkbox_label" for="dle_sp_show_sources" title="Add a book icon to AI messages showing which vault entries were injected and why.">
                     <input id="dle_sp_show_sources" type="checkbox" class="checkbox">
-                    <span>Show Lore Sources Button</span>
+                    <span>Show Sources Button</span>
                 </label>
                 <small style="opacity: 0.6;">Deep links require vault connection names to match your Obsidian vault names.</small>
             </div>
@@ -422,15 +427,15 @@
         <div class="dle-settings-panel" id="dle-sp-features" data-settings-panel="features"
              role="tabpanel" aria-labelledby="dle-sp-tab-features">
 
-            <h4>Author's Notebook</h4>
+            <h4>Notebook</h4>
             <p class="dle_section_desc">A per-chat scratchpad for notes, scene direction, or writing instructions.</p>
             <div class="flex-container flexFlowColumn">
                 <label class="checkbox_label" for="dle_sp_notebook_enabled" title="Include notebook content in every message to the AI for this chat.">
                     <input id="dle_sp_notebook_enabled" type="checkbox" class="checkbox">
-                    <span>Enable Author's Notebook</span>
+                    <span>Enable Notebook</span>
                 </label>
                 <div class="flex-container">
-                    <div id="dle_sp_open_notebook" class="menu_button menu_button_icon" role="button" tabindex="0" title="Open the Author's Notebook editor.">
+                    <div id="dle_sp_open_notebook" class="menu_button menu_button_icon" role="button" tabindex="0" title="Open the Notebook editor.">
                         <i class="fa-solid fa-book" aria-hidden="true"></i>
                         <span>Open Notebook</span>
                     </div>
@@ -678,7 +683,7 @@
                 <code>/dle-optimize-keys</code> — Optimize keywords<br>
                 <code>/dle-summarize</code> — Generate summaries<br>
                 <code>/dle-import</code> — Import ST World Info<br>
-                <code>/dle-notebook</code> — Author's Notebook<br>
+                <code>/dle-notebook</code> — Notebook<br>
                 <code>/dle-scribe [focus]</code> — Session notes<br>
             </small>
         </div>

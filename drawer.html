@@ -22,6 +22,13 @@
         <span class="dle-token-bar-label">DLE — / —</span>
     </div>
 
+    <!-- Max entries bar -->
+    <div class="dle-entries-bar-container" role="progressbar" aria-valuenow="0" aria-valuemax="0" aria-valuemin="0"
+         aria-label="Entry count — how many entries were injected vs your configured max entries limit">
+        <div class="dle-entries-bar" style="width: 0%;"></div>
+        <span class="dle-entries-bar-label">Entries — / —</span>
+    </div>
+
     <!-- Active gating filters (only shown when set) -->
     <div class="dle-active-filters" aria-label="Active gating filters"></div>
 
@@ -55,8 +62,8 @@
     <!-- Tab bar -->
     <div class="dle-tab-bar" role="tablist" aria-label="DeepLore panels">
         <button class="dle-tab active" id="dle-tab-injection" data-tab="injection" role="tab"
-                aria-selected="true" aria-controls="dle-panel-injection" aria-label="Injection" tabindex="0">
-            <i class="fa-solid fa-syringe" aria-hidden="true"></i>
+                aria-selected="true" aria-controls="dle-panel-injection" aria-label="Why? — shows why entries were or weren't injected" tabindex="0">
+            <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
         </button>
         <button class="dle-tab" id="dle-tab-browse" data-tab="browse" role="tab"
                 aria-selected="false" aria-controls="dle-panel-browse" aria-label="Browse" tabindex="-1">
@@ -73,23 +80,31 @@
     </div>
 
     <!-- Active tab label -->
-    <div class="dle-tab-label" aria-hidden="true">Injection</div>
+    <div class="dle-tab-label" aria-hidden="true">Why?</div>
 
-    <!-- ─── Tab: Injection (Context Cartographer) ─── -->
+    <!-- ─── Tab: Why? (explains injection decisions) ─── -->
     <div class="dle-tab-panel active" id="dle-panel-injection" data-tab="injection"
          role="tabpanel" aria-labelledby="dle-tab-injection">
         <div class="dle-panel-toolbar">
             <span class="dle-text-sm">Last Generation</span>
             <span class="dle-section-diff"></span>
-            <button class="dle-tab-expand" data-expand="injection" title="Open full Cartographer popup" aria-label="Open full Cartographer popup">
+            <button class="dle-tab-expand" data-expand="injection" title="Open full details popup (/dle-why)" aria-label="Open full details popup">
                 <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
             </button>
         </div>
-        <div class="dle-carto-list" role="list" aria-label="Injected entries"></div>
-        <!-- Empty state (shown when no sources) -->
+        <!-- Injected entries -->
+        <div class="dle-why-list" role="list" aria-label="Injected entries — why these were included"></div>
+        <!-- Rejected entries (why not) -->
+        <div class="dle-why-not-section" style="display: none;">
+            <div class="dle-why-not-header dle-text-sm dle-muted" style="margin-top: 6px; padding: 4px 0; border-top: 1px solid var(--dle-border);">
+                <i class="fa-solid fa-filter-circle-xmark" aria-hidden="true" style="margin-right: 4px;"></i>Filtered Out
+            </div>
+            <div class="dle-why-not-list" role="list" aria-label="Filtered entries — why these were excluded"></div>
+        </div>
+        <!-- Empty state (shown when no pipeline has run) -->
         <div class="dle-empty-state">
-            <i class="fa-solid fa-inbox" aria-hidden="true"></i>
-            <p>No entries injected yet. Send a message to trigger the pipeline.</p>
+            <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
+            <p>No pipeline run yet. Send a message to see why entries were or weren't injected.</p>
         </div>
     </div>
 
@@ -125,10 +140,15 @@
             </select>
         </div>
         <div class="dle-browse-list" role="list" aria-label="Vault entries"></div>
-        <!-- Empty state -->
-        <div class="dle-empty-state">
+        <!-- Empty state: no entries loaded -->
+        <div class="dle-empty-state" id="dle-browse-empty-no-data">
             <i class="fa-solid fa-database" aria-hidden="true"></i>
             <p>No entries loaded. Connect to Obsidian in Settings.</p>
+        </div>
+        <!-- Empty state: filters returned no results -->
+        <div class="dle-empty-state" id="dle-browse-empty-no-results" style="display: none;">
+            <i class="fa-solid fa-filter-circle-xmark" aria-hidden="true"></i>
+            <p>No entries match your filters. Try adjusting your search or filters.</p>
         </div>
     </div>
 
@@ -212,7 +232,7 @@
         <div class="dle-tools-group">
             <h3 class="dle-tools-group-label">AI Tools</h3>
             <div class="dle-tools-grid">
-                <button class="menu_button dle-tool-btn" data-action="ai-review" title="Review AI search decisions">
+                <button class="menu_button dle-tool-btn" data-action="ai-review" title="Review AI search decisions (/dle-review)">
                     <i class="fa-solid fa-magnifying-glass-chart" aria-hidden="true"></i> AI Review
                 </button>
                 <button class="menu_button dle-tool-btn" data-action="analytics" title="Session analytics">
@@ -303,3 +323,6 @@
         </div>
     </div>
 </div>
+
+<!-- Screen reader announcements (visually hidden, announced via aria-live) -->
+<div id="dle-drawer-live" class="sr-only" aria-live="polite" aria-atomic="true"></div>

@@ -10,6 +10,7 @@ import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
     generationLock, computeOverallStatus,
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
+    cooldownTracker, decayTracker,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
     notifyGatingChanged, notifyPinBlockChanged,
@@ -17,6 +18,7 @@ import {
 import { buildIndex } from './vault.js';
 import { buildObsidianURI } from './helpers.js';
 import { getCircuitState } from './obsidian-api.js';
+import { openSettingsPopup } from './settings-ui.js';
 
 // Lazy-loaded ST internals (imported dynamically to avoid breaking the module graph)
 let dragElement, isMobile, power_user;
@@ -174,9 +176,12 @@ function renderStatusZone($drawer) {
     const $barContainer = $drawer.find('.dle-token-bar-container');
     $barContainer.attr('aria-valuenow', used).attr('aria-valuemax', budget);
     $drawer.find('.dle-token-bar').css('width', `${pct}%`);
-    $drawer.find('.dle-token-bar-label').text(
-        budget ? `DLE ${used.toLocaleString()} / ${budget.toLocaleString()}` : (used ? `DLE ${used.toLocaleString()}` : 'DLE — / —'),
-    );
+    const budgetLabel = budget
+        ? `DLE ${used.toLocaleString()} / ${budget.toLocaleString()}`
+        : settings.unlimitedBudget
+            ? `DLE ${used.toLocaleString()} / \u221E`
+            : 'DLE — / —';
+    $drawer.find('.dle-token-bar-label').text(budgetLabel);
 
     // Active gating filters
     const ctx = chat_metadata?.deeplore_context;
@@ -429,6 +434,51 @@ function renderGatingTab($drawer) {
     }
 }
 
+/** Render active entry timers (cooldown, decay, warmup) below gating */
+function renderTimers($drawer) {
+    const $list = $drawer.find('.dle-timer-list');
+    const $empty = $drawer.find('.dle-timer-empty');
+    const rows = [];
+    const settings = getSettings();
+
+    // Cooldown entries
+    for (const [key, remaining] of cooldownTracker) {
+        const name = key.includes(':') ? key.split(':').slice(1).join(':') : key;
+        rows.push(`<div class="dle-timer-row" role="listitem">
+            <span class="dle-timer-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+            <span class="dle-timer-badge dle-timer-cooldown">${remaining} gen cooldown</span>
+        </div>`);
+    }
+
+    // Decay entries (stale = above boost threshold, frequent = consecutive via consecutiveInjections)
+    if (settings.decayEnabled) {
+        const boostThreshold = settings.decayBoostThreshold || 5;
+        for (const [key, staleness] of decayTracker) {
+            if (staleness >= boostThreshold) {
+                const name = key.includes(':') ? key.split(':').slice(1).join(':') : key;
+                rows.push(`<div class="dle-timer-row" role="listitem">
+                    <span class="dle-timer-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+                    <span class="dle-timer-badge dle-timer-stale">stale ${staleness} gen</span>
+                </div>`);
+            }
+        }
+    }
+
+    // Warmup entries (from vault index — entries that require multiple keyword hits)
+    const entries = Object.values(vaultIndex);
+    for (const entry of entries) {
+        if (entry.warmup !== null && entry.warmup > 1) {
+            rows.push(`<div class="dle-timer-row" role="listitem">
+                <span class="dle-timer-name" title="${escapeHtml(entry.title)}">${escapeHtml(entry.title)}</span>
+                <span class="dle-timer-badge dle-timer-warmup">warmup ${entry.warmup}x</span>
+            </div>`);
+        }
+    }
+
+    $list.html(rows.join(''));
+    $empty.toggle(rows.length === 0);
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Event Wiring
 // ════════════════════════════════════════════════════════════════════════════
@@ -467,15 +517,7 @@ function wireStatusActions($drawer) {
         const action = $(this).data('action');
         switch (action) {
             case 'refresh': buildIndex(); break;
-            case 'settings': {
-                // Scroll to DLE extension settings in the sidebar
-                const $settings = $('#extensions_settings2');
-                const $dle = $settings.find('[id*="deeplore"], [id*="dle_"]').first();
-                if ($dle.length) {
-                    $dle[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                break;
-            }
+            case 'settings': openSettingsPopup(); break;
             case 'scribe': executeCommand('/dle-scribe'); break;
             case 'newlore': executeCommand('/dle-newlore'); break;
         }
@@ -997,6 +1039,7 @@ export async function createDrawerPanel() {
     renderInjectionTab($drawer);
     renderBrowseTab($drawer);
     renderGatingTab($drawer);
+    renderTimers($drawer);
     renderFooter($drawer);
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -1005,6 +1048,7 @@ export async function createDrawerPanel() {
     onIndexUpdated(() => {
         scheduleRender(renderStatusZone, $drawer);
         scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderTimers, $drawer);
         scheduleRender(renderFooter, $drawer);
     });
 
@@ -1022,6 +1066,7 @@ export async function createDrawerPanel() {
         scheduleRender(renderStatusZone, $drawer);
         scheduleRender(renderInjectionTab, $drawer);
         scheduleRender(renderBrowseTab, $drawer);
+        scheduleRender(renderTimers, $drawer);
         scheduleRender(renderFooter, $drawer);
     });
 

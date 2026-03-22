@@ -9,6 +9,7 @@ import {
 import { ConnectionManagerRequestService } from '../../../shared.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
+import { renderExtensionTemplateAsync } from '../../../../extensions.js';
 import { eventSource, event_types } from '../../../../events.js';
 import { buildAiChatContext, simpleHash, NO_ENTRIES_MSG } from '../core/utils.js';
 import { formatAndGroup } from '../core/matching.js';
@@ -483,6 +484,50 @@ function restoreAdvancedSections(settings) {
             toggle.find('.dle_advanced_icon').removeClass('fa-chevron-right').addClass('fa-chevron-down');
             toggle.contents().filter(function () { return this.nodeType === 3; }).last()[0].textContent = ' Hide Advanced';
         }
+    });
+}
+
+// ============================================================================
+// ============================================================================
+// Settings Popup
+// ============================================================================
+
+/**
+ * Open the settings popup with tabbed layout.
+ * Step 1: static mockup — no live data binding yet.
+ */
+export async function openSettingsPopup() {
+    const html = await renderExtensionTemplateAsync(
+        'third-party/sillytavern-DeepLore-Enhanced',
+        'settings-popup',
+    );
+    const $container = $(html);
+
+    // Tab switching
+    $container.on('click', '.dle-settings-tab', function () {
+        const tab = $(this).data('settings-tab');
+        $container.find('.dle-settings-tab').removeClass('active').attr('aria-selected', 'false');
+        $(this).addClass('active').attr('aria-selected', 'true');
+        $container.find('.dle-settings-panel').removeClass('active');
+        $container.find(`[data-settings-panel="${tab}"]`).addClass('active');
+    });
+
+    // Advanced section toggles (reuse existing pattern)
+    $container.on('click', '.dle_advanced_toggle', function () {
+        const section = $(this).data('section');
+        const $section = $container.find(`.dle_advanced_section[data-section="${section}"]`);
+        const isOpen = $section.is(':visible');
+        $section.slideToggle(200);
+        $(this).attr('aria-expanded', String(!isOpen));
+        $(this).find('.dle_advanced_icon')
+            .toggleClass('fa-chevron-right', isOpen)
+            .toggleClass('fa-chevron-down', !isOpen);
+    });
+
+    await callGenericPopup($container, POPUP_TYPE.DISPLAY, '', {
+        large: true,
+        wide: true,
+        allowVerticalScrolling: true,
     });
 }
 

@@ -995,6 +995,63 @@ button.dle-browse-why:hover {
     padding: 4px;
 }
 
+/* --- Entry Timers (cooldown / decay / warmup) --- */
+.dle-gating-divider {
+    border-top: 1px solid var(--dle-border);
+    margin: 8px 0 4px;
+}
+
+.dle-timer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dle-timer-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    padding: 2px 0;
+    font-size: var(--dle-text-xs);
+}
+
+.dle-timer-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.dle-timer-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.dle-timer-badge.dle-timer-cooldown {
+    background: color-mix(in srgb, var(--SmartThemeUnderlineColor, #2196f3) 25%, transparent);
+    color: var(--SmartThemeUnderlineColor, #2196f3);
+}
+
+.dle-timer-badge.dle-timer-stale {
+    background: color-mix(in srgb, var(--dle-warning) 25%, transparent);
+    color: var(--dle-warning);
+}
+
+.dle-timer-badge.dle-timer-frequent {
+    background: color-mix(in srgb, var(--dle-accent) 25%, transparent);
+    color: var(--dle-accent);
+}
+
+.dle-timer-badge.dle-timer-warmup {
+    background: color-mix(in srgb, var(--dle-success) 25%, transparent);
+    color: var(--dle-success);
+}
+
 /* --- Tools tab --- */
 .dle-tools-group {
     margin-bottom: var(--dle-space-3);
@@ -1224,6 +1281,112 @@ button.dle-browse-why:hover {
     color: var(--dle-text-muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+}
+
+/* ============================================================================
+ * Settings Popup (tabbed layout)
+ * ============================================================================ */
+
+.dle-settings-popup {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    height: 70vh;
+    min-height: 400px;
+    max-height: 80vh;
+}
+
+.dle-settings-sidebar {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--dle-border);
+    background: var(--dle-bg-surface);
+    padding: 8px 0;
+    gap: 2px;
+    overflow-y: auto;
+}
+
+.dle-settings-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: none;
+    background: none;
+    color: var(--SmartThemeBodyColor, #ccc);
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+    font-family: inherit;
+    transition: background 150ms ease, border-color 150ms ease;
+    border-left: 3px solid transparent;
+    white-space: nowrap;
+}
+
+.dle-settings-tab:hover {
+    background: var(--dle-bg-hover);
+}
+
+.dle-settings-tab.active {
+    background: var(--dle-bg-hover);
+    border-left-color: var(--SmartThemeQuoteColor, #4caf50);
+    font-weight: 600;
+}
+
+.dle-settings-tab i {
+    width: 16px;
+    text-align: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.dle-settings-content {
+    overflow-y: auto;
+    padding: 16px 20px;
+}
+
+.dle-settings-panel {
+    display: none;
+}
+
+.dle-settings-panel.active {
+    display: block;
+}
+
+/* Section spacing inside panels */
+.dle-settings-panel h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+}
+
+.dle-settings-panel h4:not(:first-child) {
+    margin-top: 4px;
+}
+
+.dle-settings-panel hr {
+    margin: 12px 0;
+    border: none;
+    border-top: 1px solid var(--dle-border);
+}
+
+.dle-settings-panel .dle_section_desc {
+    font-size: 11px;
+    opacity: 0.6;
+    margin: 0 0 8px;
+}
+
+/* Connection cards inside popup */
+.dle-settings-panel .dle-connection-card {
+    border: 1px solid var(--dle-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 4px 0;
+}
+
+.dle-settings-panel .dle-connection-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
 }
 
 /* --- Container query: hide footer in collapsed drawers --- */

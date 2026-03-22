@@ -1,7 +1,7 @@
 **DeepLore Enhanced Wiki**
 
 **Getting Started**
-- [[What is DeepLore?]]
+- [[What is DeepLore]]
 - [[Installation]]
 - [[Quick Start]]
 - [[First Steps]]

@@ -2,6 +2,25 @@
 
 ## 0.2.0-BETA
 
+### Drawer: Phase 2 — Performance & UX Polish
+- **Overlay mode** — When `chat_width >= 60`, drawer switches to a fixed 380px overlay instead of inline fillRight, preventing it from being crushed in narrow remaining space. Reads `power_user.chat_width` directly.
+- **Close button** — Chevron-up icon next to lock icon for easy drawer dismissal. Wrapper div `.dle-drawer-controls` groups lock + close.
+- **Tab count badges** — Why? tab shows injected count, Browse shows vault total, Gating shows active filter count. Badge spans with `data-badge` attribute, CSS `:not(:empty)` toggle.
+- **Pre-computed tag cache** — Tag dropdown options rebuilt only on index update (`onIndexUpdated` callback), not every Browse render. Module-level `cachedTagSet`/`cachedTagOptions`.
+- **Gating impact counts** — Each active gating field shows "filtering N" count indicating how many entries have the field set but don't match.
+- **Virtual scroll** — Browse tab renders only visible window (~20 DOM nodes) instead of all 131+. `BROWSE_ROW_HEIGHT=32px`, `BROWSE_OVERSCAN=8`. Uses RAF-throttled scroll handler with `getBoundingClientRect` for offset calculation.
+- **Click-to-expand entry previews** — Click entry name area to see summary + token count + Obsidian link inline. Overlays subsequent entries with z-index. Expanded state persists across virtual scroll re-renders.
+- **Narrow drawer container query** — `@container (max-width: 200px)` hides secondary content when squeezed.
+
+### Drawer: Phase 2 — Bug Fixes
+- `offsetTop` replaced with `getBoundingClientRect` for robust virtual scroll offset calculation
+- Scroll reset on filter change (prevents empty results when scrolled)
+- Browse tab re-render on tab switch (prevents truncated list after hidden render)
+- Close button open-guard (prevents toggle-reopen)
+- Button CSS reset: margin + font-family
+- Entries bar added to `@container (max-height: 250px)` rule
+- Expanded entry state preserved across virtual scroll re-renders
+
 ### New Features
 - **AI Notebook** — Persistent per-chat scratchpad injected every turn. Edit via `/dle-notebook`. Stored in chat metadata, survives reloads. Configurable injection position/depth/role.
 - **Probability Frontmatter** — New `probability` field (0.0-1.0) for entries. When matched, random roll determines if entry fires. Constants always fire.

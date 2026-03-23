@@ -195,42 +195,61 @@ export function renderInjectionTab() {
     // Build entries
     const settings = getSettings();
     const addedTitles = new Set(diff.added.map(s => s.title));
-    let html = '';
+    const removedTitles = new Set(diff.removed.map(s => s.title));
 
-    for (let idx = 0; idx < sources.length; idx++) {
-        const src = sources[idx];
-        const isNew = addedTitles.has(src.title);
-        const isConstant = src.constant || (src.matchedBy && src.matchedBy.includes('Constant'));
-        const classes = ['dle-why-entry'];
-        if (isNew) classes.push('dle-why-new');
-        if (isConstant) classes.push('dle-why-constant');
+    function buildWhyHtml(srcs) {
+        let h = '';
+        for (let idx = 0; idx < srcs.length; idx++) {
+            const src = srcs[idx];
+            const isNew = addedTitles.has(src.title);
+            const isConstant = src.constant || (src.matchedBy && src.matchedBy.includes('Constant'));
+            const classes = ['dle-why-entry'];
+            if (isNew) classes.push('dle-why-new');
+            if (isConstant) classes.push('dle-why-constant');
 
-        // Obsidian link
-        const { uri } = resolveEntryVault(src, settings.vaults);
+            const { uri } = resolveEntryVault(src, settings.vaults);
+            const matchLabel = getMatchLabel(src.matchedBy);
 
-        const matchLabel = getMatchLabel(src.matchedBy);
-
-        const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens || '?'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
-        html += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}">`;
-        html += `<span class="dle-why-title">`;
-        if (uri) {
-            html += `<a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
-        } else {
-            html += escapeHtml(src.title);
+            const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens || '?'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
+            h += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}" data-title="${escapeHtml(src.title)}">`;
+            h += `<span class="dle-why-title">`;
+            if (uri) {
+                h += `<a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
+            } else {
+                h += escapeHtml(src.title);
+            }
+            h += `</span>`;
+            h += `<span class="dle-why-meta">`;
+            h += `<span class="dle-why-tokens" aria-label="${src.tokens || '?'} tokens">${src.tokens || '?'} tok</span>`;
+            const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
+            if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
+            h += `<span class="dle-why-match" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
+            if (isNew) h += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
+            h += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(src.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button>`;
+            h += `</span>`;
+            h += `</div>`;
         }
-        html += `</span>`;
-        html += `<span class="dle-why-meta">`;
-        html += `<span class="dle-why-tokens" aria-label="${src.tokens || '?'} tokens">${src.tokens || '?'} tok</span>`;
-        const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
-        if (whyChatCount > 0) html += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
-        html += `<span class="dle-why-match" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
-        if (isNew) html += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
-        html += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(src.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button>`;
-        html += `</span>`;
-        html += `</div>`;
+        return h;
     }
 
-    $list.html(html);
+    // Animate exit for removed entries, then swap in new content
+    if (removedTitles.size > 0 && $list.children().length > 0) {
+        const exitEls = $list.find('.dle-why-entry').filter(function () {
+            return removedTitles.has($(this).data('title'));
+        });
+        if (exitEls.length > 0) {
+            exitEls.addClass('dle-why-exit');
+            let swapped = false;
+            const swap = () => { if (!swapped) { swapped = true; $list.html(buildWhyHtml(sources)); } };
+            // Swap after exit animation completes (or safety timeout if animationend doesn't fire)
+            exitEls[0].addEventListener('animationend', swap, { once: true });
+            setTimeout(swap, 250);
+        } else {
+            $list.html(buildWhyHtml(sources));
+        }
+    } else {
+        $list.html(buildWhyHtml(sources));
+    }
 
     // ── "Why Not" section — entries that were candidates but got filtered out ──
     if (trace) {

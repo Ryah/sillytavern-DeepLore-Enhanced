@@ -1590,6 +1590,18 @@ button.dle-browse-why:hover {
     to { opacity: 1; transform: translateY(0); }
 }
 
+/* Entry slide-out (used by Why? entries exiting between generations) */
+@keyframes dle-entry-out {
+    from { opacity: 1; transform: translateX(0); max-height: 30px; }
+    to { opacity: 0; transform: translateX(12px); max-height: 0; padding: 0; }
+}
+
+.dle-why-entry.dle-why-exit {
+    animation: dle-entry-out 180ms ease-in forwards !important;
+    pointer-events: none;
+    overflow: hidden;
+}
+
 /* NEW entry highlight flash */
 @keyframes dle-new-flash {
     0% { background-color: color-mix(in srgb, var(--dle-success) 25%, transparent); }

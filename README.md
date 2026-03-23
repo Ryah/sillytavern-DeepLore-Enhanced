@@ -5,7 +5,9 @@
 
 ### Testimonials (used with permission):
 
-*"[I've] been using it all day and still amazed by it."* — /u/chaeriixo (via [reddit.com](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxd24v/))
+- *"[I've] been using it all day and still amazed by it."* — /u/chaeriixo (via [reddit.com](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxd24v/))
+- *"I just installed this and this has all the features that I've been doing manually! I've installed and have been messing around with it. This is freaking amazing and also dangerous, because I love world building as well."* - /u/realedazed (via [reddit.com](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxwj40/))
+
 
 ## What is This?
 

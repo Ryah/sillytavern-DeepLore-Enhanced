@@ -4,175 +4,31 @@
 import {
     saveSettingsDebounced,
     chat,
-    chat_metadata,
 } from '../../../../../script.js';
 import { ConnectionManagerRequestService } from '../../../shared.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { renderExtensionTemplateAsync } from '../../../../extensions.js';
-import { eventSource, event_types } from '../../../../events.js';
-import { buildAiChatContext, simpleHash, NO_ENTRIES_MSG } from '../core/utils.js';
-import { formatAndGroup } from '../core/matching.js';
-import { buildExemptionPolicy, applyRequiresExcludesGating } from './stages.js';
-import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache } from '../settings.js';
+import { buildAiChatContext } from '../core/utils.js';
+import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache } from '../settings.js';
 import { testConnection } from './obsidian-api.js';
 import { testProxyConnection } from './proxy-api.js';
 import {
-    vaultIndex, aiSearchStats, indexTimestamp,
-    injectionHistory, generationCount, lastHealthResult,
-    lastInjectionSources, lastPipelineTrace, trackerKey,
-    isAiCircuitOpen, computeOverallStatus,
+    vaultIndex,
+    computeOverallStatus,
     setVaultIndex, setIndexTimestamp, setLastHealthResult,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
-    clearIndexUpdatedCallbacks, clearAiStatsCallbacks, clearCircuitStateCallbacks,
 } from './state.js';
-import { ensureIndexFresh, getMaxResponseTokens } from './vault.js';
+import { ensureIndexFresh } from './vault.js';
 import {
     callViaProfile, getProfileModelHint,
     buildCandidateManifest,
 } from './ai.js';
-import { matchEntries, runPipeline } from './pipeline.js';
+import { matchEntries } from './pipeline.js';
 import { setupSyncPolling } from './sync.js';
 import { buildIndexWithReuse } from './vault.js';
-import { showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup, showGraphPopup, optimizeEntryKeys, showOptimizePopup } from './popups.js';
-import { diagnoseEntry, runHealthCheck } from './diagnostics.js';
-import { showSourcesPopup } from './cartographer.js';
-import { STAGE_COLORS } from './helpers.js';
-
-// ============================================================================
-// Connection UI Helpers (moved from ai.js)
-// ============================================================================
-
-/**
- * Populate a profile dropdown with saved Connection Manager profiles.
- * @param {string} selectElementId - DOM id of the <select> element
- * @param {string} settingsKey - Settings property holding the current profile ID
- */
-export function populateProfileDropdown(selectElementId, settingsKey) {
-    const select = document.getElementById(selectElementId);
-    if (!select) return;
-
-    const settings = getSettings();
-    const currentId = settings[settingsKey];
-
-    select.innerHTML = '<option value="">— Select a profile —</option>';
-    try {
-        const profiles = ConnectionManagerRequestService.getSupportedProfiles();
-        for (const p of profiles) {
-            const opt = document.createElement('option');
-            opt.value = p.id;
-            opt.textContent = `${p.name} (${p.api}${p.model ? ' / ' + p.model : ''})`;
-            if (p.id === currentId) opt.selected = true;
-            select.appendChild(opt);
-        }
-    } catch {
-        const opt = document.createElement('option');
-        opt.value = '';
-        opt.textContent = 'Connection Manager not available';
-        opt.disabled = true;
-        select.appendChild(opt);
-    }
-}
-
-/**
- * Update visibility of connection fields based on connection mode.
- *
- * @param {object} config
- * @param {string} config.modeSettingsKey - Settings key for the connection mode value
- * @param {string} config.profileRowSelector - jQuery selector for the profile row
- * @param {string} config.proxyRowSelector - jQuery selector for the proxy row
- * @param {string} [config.modelInputSelector] - jQuery selector for the model input (for placeholder updates)
- * @param {string} [config.profileIdSettingsKey] - Settings key for the profile ID (for model hint lookup)
- * @param {string[]} [config.externalOnlySelectors] - jQuery selectors to show only when mode is profile or proxy (not 'st')
- * @param {boolean} [config.hasStMode=false] - Whether this feature supports an 'st' mode (3-way: st/profile/proxy)
- */
-export function updateConnectionVisibility(config) {
-    const settings = getSettings();
-    const mode = settings[config.modeSettingsKey] || (config.hasStMode ? 'st' : 'profile');
-    const isProfile = mode === 'profile';
-    const isProxy = mode === 'proxy';
-
-    $(config.profileRowSelector).toggle(isProfile);
-    $(config.proxyRowSelector).toggle(isProxy);
-
-    // Show/hide rows that only apply to external (non-ST) modes
-    if (config.externalOnlySelectors) {
-        const isExternal = isProfile || isProxy;
-        for (const sel of config.externalOnlySelectors) {
-            $(sel).toggle(isExternal);
-        }
-    }
-
-    // Update model placeholder based on mode
-    if (config.modelInputSelector) {
-        const modelInput = $(config.modelInputSelector);
-        if (isProfile) {
-            let hint = '';
-            if (config.profileIdSettingsKey) {
-                try {
-                    const profileId = settings[config.profileIdSettingsKey];
-                    if (profileId) {
-                        const profile = ConnectionManagerRequestService.getProfile(profileId);
-                        hint = profile.model || '';
-                    }
-                } catch { /* noop */ }
-            }
-            modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
-        } else if (isProxy) {
-            modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
-        }
-    }
-}
-
-// ── Convenience wrappers (preserve call-site readability) ──
-
-/** Populate the AI Search profile dropdown. */
-export function populateAiProfileDropdown() {
-    populateProfileDropdown('dle_ai_profile_select', 'aiSearchProfileId');
-}
-
-/** Populate the Session Scribe profile dropdown. */
-export function populateScribeProfileDropdown() {
-    populateProfileDropdown('dle_scribe_profile_select', 'scribeProfileId');
-}
-
-/** Populate the Auto Lorebook profile dropdown. */
-export function populateAutoSuggestProfileDropdown() {
-    populateProfileDropdown('dle_autosuggest_profile', 'autoSuggestProfileId');
-}
-
-/** Update AI Search connection field visibility. */
-export function updateAiConnectionVisibility() {
-    updateConnectionVisibility({
-        modeSettingsKey: 'aiSearchConnectionMode',
-        profileRowSelector: '#dle_ai_profile_row',
-        proxyRowSelector: '#dle_ai_proxy_row',
-        modelInputSelector: '#dle_ai_model',
-        profileIdSettingsKey: 'aiSearchProfileId',
-    });
-}
-
-/** Update Session Scribe connection field visibility. */
-export function updateScribeConnectionVisibility() {
-    updateConnectionVisibility({
-        modeSettingsKey: 'scribeConnectionMode',
-        profileRowSelector: '#dle_scribe_profile_row',
-        proxyRowSelector: '#dle_scribe_proxy_row',
-        modelInputSelector: '#dle_scribe_model',
-        profileIdSettingsKey: 'scribeProfileId',
-        externalOnlySelectors: ['#dle_scribe_model_row', '#dle_scribe_advanced_row'],
-        hasStMode: true,
-    });
-}
-
-/** Update Auto Lorebook connection field visibility. */
-export function updateAutoSuggestConnectionVisibility() {
-    updateConnectionVisibility({
-        modeSettingsKey: 'autoSuggestConnectionMode',
-        profileRowSelector: '#dle_autosuggest_profile_container',
-        proxyRowSelector: '#dle_autosuggest_proxy_container',
-    });
-}
+import { showNotebookPopup, showBrowsePopup } from './popups.js';
+import { runHealthCheck } from './diagnostics.js';
 
 // ============================================================================
 // Vault List UI
@@ -335,59 +191,6 @@ function announceToSR(message) {
     if (el) el.textContent = message;
 }
 
-export function updateIndexStats() {
-    const statsEl = document.getElementById('dle_index_stats');
-    if (statsEl) {
-        if (vaultIndex.length > 0) {
-            const totalKeys = vaultIndex.reduce((sum, e) => sum + e.keys.length, 0);
-            const constants = vaultIndex.filter(e => e.constant).length;
-            const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
-            let statsText = `${vaultIndex.length} entries (${totalKeys} keywords, ${constants} always-send, ~${totalTokens} total tokens)`;
-            // Health score badge
-            if (lastHealthResult) {
-                const { errors, warnings } = lastHealthResult;
-                let grade, color, guidance;
-                if (errors === 0 && warnings === 0) { grade = 'A+'; color = 'var(--dle-success, #4caf50)'; guidance = 'Perfect — no issues found.'; }
-                else if (errors === 0 && warnings <= 3) { grade = 'A'; color = '#8bc34a'; guidance = 'Excellent — minor warnings only.'; }
-                else if (errors === 0 && warnings <= 6) { grade = 'B'; color = 'var(--dle-warning, #ff9800)'; guidance = 'Good — some warnings. Click to review.'; }
-                else if (errors <= 2) { grade = 'C'; color = '#ff5722'; guidance = 'Fair — errors found. Click to fix.'; }
-                else { grade = 'D'; color = 'var(--dle-error, #f44336)'; guidance = 'Poor — multiple errors. Review now.'; }
-                statsText += ` · Health: <span id="dle_health_badge" style="color: ${color}; font-weight: bold; cursor: pointer;" title="${guidance} (${errors} errors, ${warnings} warnings)">${grade}</span>`;
-            }
-            statsEl.innerHTML = statsText;
-            // Bind health badge click
-            const badge = document.getElementById('dle_health_badge');
-            if (badge) {
-                badge.addEventListener('click', async () => {
-                    // Run health check directly and show results in a popup
-                    const result = runHealthCheck();
-                    if (!result) return;
-                    // Compute grade from result (runHealthCheck returns {issues, errors, warnings})
-                    let clickGrade;
-                    if (result.errors === 0 && result.warnings === 0) clickGrade = 'A+';
-                    else if (result.errors === 0 && result.warnings <= 3) clickGrade = 'A';
-                    else if (result.errors === 0 && result.warnings <= 6) clickGrade = 'B';
-                    else if (result.errors <= 2) clickGrade = 'C';
-                    else clickGrade = 'D';
-                    const lines = [];
-                    lines.push(`Grade: ${clickGrade} (${result.errors} errors, ${result.warnings} warnings)`);
-                    for (const item of result.issues) {
-                        const icon = item.severity === 'error' ? '\u274C' : item.severity === 'warning' ? '\u26A0\uFE0F' : '\u2705';
-                        lines.push(`${icon} [${item.entry}] ${item.detail}`);
-                    }
-                    const html = `<div class="dle-popup dle-scroll-region"><h3>Health Check</h3><pre class="dle-text-sm" style="white-space: pre-wrap;">${escapeHtml(lines.join('\n'))}</pre></div>`;
-                    callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
-                });
-            }
-        } else {
-            statsEl.textContent = 'No index loaded.';
-        }
-    }
-
-    // Update header badge with entry count and system status
-    updateHeaderBadge();
-}
-
 /** Status dot characters and labels for each overall status level. */
 const STATUS_DISPLAY = {
     ok:       { dot: '\u{1F7E2}', label: 'OK',       title: 'All systems operational' },
@@ -417,75 +220,6 @@ function updateHeaderBadge() {
             headerBadge.title = '';
         }
     }
-}
-
-export function updateAiStats() {
-    const statsEl = document.getElementById('dle_ai_stats');
-    if (statsEl) {
-        let text = `AI calls: ${aiSearchStats.calls} | Cache hits: ${aiSearchStats.cachedHits} | Tokens: ~${aiSearchStats.totalInputTokens} in / ~${aiSearchStats.totalOutputTokens} out`;
-        if (isAiCircuitOpen()) {
-            text += ' | <span style="color: var(--dle-warning, #ff9800); font-weight: bold;" title="AI search temporarily paused due to repeated failures. Will auto-retry after cooldown.">[AI paused]</span>';
-        }
-        statsEl.innerHTML = text;
-    }
-}
-
-// ============================================================================
-// Mode Visibility
-// ============================================================================
-
-/**
- * Update UI visibility based on the current search mode.
- * @param {object} settings
- */
-function updateModeVisibility(settings) {
-    const aiEnabled = settings.aiSearchEnabled;
-    const isProxy = settings.aiSearchConnectionMode === 'proxy';
-
-    // Show/hide AI Search drawer
-    $('#dle_ai_search_drawer').toggle(aiEnabled);
-
-    // Show/hide keyword scan depth (hidden in ai-only since keywords aren't used)
-    const isAiOnly = aiEnabled && settings.aiSearchMode === 'ai-only';
-    $('#dle_scan_depth_row').toggle(!isAiOnly);
-
-    // Grey out Optimize Keys Mode in AI-only (keywords aren't used for matching)
-    $('#dle_optimize_keys_row').toggleClass('dle-disabled', isAiOnly);
-
-    // Claude Code prefix toggle: only visible when proxy mode AND AI enabled
-    $('#dle_ai_claude_prefix_row').toggle(aiEnabled && isProxy);
-}
-
-/**
- * Show/hide injection position controls based on injection mode.
- * @param {object} settings
- */
-function updateInjectionModeVisibility(settings) {
-    const isPromptList = settings.injectionMode === 'prompt_list';
-    $('#dle_extension_position_controls').toggle(!isPromptList);
-    $('#dle_prompt_list_info').toggle(isPromptList);
-    // Grey out notebook position controls in prompt_list mode
-    const nbControls = $('#dle_notebook_position_controls');
-    nbControls.find('input, select').prop('disabled', isPromptList);
-    nbControls.toggleClass('dle-disabled', isPromptList);
-    $('#dle_notebook_pm_note').toggle(isPromptList);
-}
-
-/**
- * Restore advanced section visibility from persisted settings.
- * @param {object} settings
- */
-function restoreAdvancedSections(settings) {
-    const advVisible = settings.advancedVisible || {};
-    $('.dle_advanced_section').each(function () {
-        const section = $(this).data('section');
-        if (advVisible[section]) {
-            $(this).show();
-            const toggle = $(this).prev('.dle_advanced_toggle');
-            toggle.find('.dle_advanced_icon').removeClass('fa-chevron-right').addClass('fa-chevron-down');
-            toggle.contents().filter(function () { return this.nodeType === 3; }).last()[0].textContent = ' Hide Advanced';
-        }
-    });
 }
 
 // ============================================================================

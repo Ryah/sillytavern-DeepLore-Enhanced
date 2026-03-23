@@ -41,10 +41,6 @@
     font-size: 0.85em;
 }
 
-.dle_settings .dle_text_xs {
-    font-size: 0.75em;
-}
-
 .dle_settings .dle_muted {
     color: var(--dle-text-muted);
 }
@@ -157,8 +153,6 @@
     .dle_settings *,
     #deeplore-drawer,
     #deeplore-drawer *,
-    .dle-sources-popup,
-    .dle-sources-popup *,
     .dle-settings-popup,
     .dle-settings-popup * {
         transition-duration: 0.01ms !important;
@@ -170,18 +164,6 @@
 /* --- Section spacing between settings groups --- */
 .dle_settings .inline-drawer-content > hr {
     margin: 10px 0;
-}
-
-/* --- Settings validation feedback --- */
-.dle_settings .dle_input_error {
-    border-color: var(--dle-error) !important;
-}
-
-.dle_settings .dle_validation_msg {
-    font-size: 0.75em;
-    color: var(--dle-warning);
-    display: block;
-    margin-top: 2px;
 }
 
 /* ============================================================================

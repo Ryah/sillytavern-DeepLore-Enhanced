@@ -3,6 +3,7 @@
  */
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
+import { buildCopyButton, attachCopyHandler } from './popups.js';
 import { chat } from '../../../../../script.js';
 import { simpleHash } from '../core/utils.js';
 import { getSettings } from '../settings.js';
@@ -75,7 +76,17 @@ export function showSourcesPopup(sources) {
     const diff = computeSourcesDiff(sources, previousSources);
     setPreviousSources(sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy })));
 
+    // Build plain-text for clipboard
+    const plainLines = [`Injected Sources (${sources.length} entries, ~${totalTokens} tokens)`, '', 'Entry\tTokens\tMatched By\tChat×\tAll-time Inj\tAll-time Match\tLast Used'];
+    for (const src of sources) {
+        const ek = src.entry ? trackerKey(src.entry) : `${src.vaultSource || ''}:${src.title}`;
+        const cc = chatInjectionCounts.get(ek) || 0;
+        const at = settings.analyticsData?.[ek];
+        plainLines.push(`${src.title}\t${src.tokens}\t${src.matchedBy}\t${cc}\t${at?.injected || 0}\t${at?.matched || 0}\t${at?.lastTriggered ? new Date(at.lastTriggered).toLocaleString() : 'Never'}`);
+    }
+
     let html = `<div class="dle-popup">`;
+    html += buildCopyButton(plainLines.join('\n'));
     html += `<h3>Why? — Injected Sources (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
 
     // Diff display with reasons
@@ -253,5 +264,8 @@ export function showSourcesPopup(sources) {
         btn.remove();
     });
 
-    callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+    callGenericPopup(container, POPUP_TYPE.TEXT, '', {
+        wide: true, large: true, allowVerticalScrolling: true,
+        onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+    });
 }

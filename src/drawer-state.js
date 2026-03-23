@@ -25,7 +25,6 @@ export const TOOL_ACTIONS = {
     'status': '/dle-status',
     'simulate': '/dle-simulate',
     'ai-review': '/dle-review',
-    'analytics': '/dle-analytics',
     'notebook': '/dle-notebook',
     'summarize': '/dle-summarize',
     'import-wi': '/dle-import',

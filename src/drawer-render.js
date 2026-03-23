@@ -327,6 +327,11 @@ export function renderBrowseTab() {
         if (statusFilter === 'constant' && !e.constant) return false;
         if (statusFilter === 'seed' && !e.seed) return false;
         if (statusFilter === 'bootstrap' && !e.bootstrap) return false;
+        if (statusFilter === 'never_injected') {
+            const key = trackerKey(e);
+            const allTime = settings.analyticsData?.[key];
+            if (allTime && (allTime.injected || 0) > 0) return false;
+        }
 
         // Tag filter
         if (tagFilter && (!e.tags || !e.tags.includes(tagFilter))) return false;

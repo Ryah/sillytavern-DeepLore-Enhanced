@@ -89,7 +89,7 @@ export function trackerKey(entry) {
 
 export function setVaultIndex(v) { vaultIndex = v; }
 export function setIndexTimestamp(v) { indexTimestamp = v; }
-export function setIndexing(v) { indexing = v; }
+export function setIndexing(v) { indexing = v; notifyIndexingChanged(); }
 export function setBuildPromise(v) { buildPromise = v; }
 export function setIndexEverLoaded(v) { indexEverLoaded = v; }
 export function setAiSearchCache(v) { aiSearchCache = v; }
@@ -303,6 +303,22 @@ export function clearGenerationLockCallbacks() { generationLockCallbacks.length 
 function notifyGenerationLockChanged() {
     for (const cb of generationLockCallbacks) {
         try { cb(); } catch (err) { console.warn('[DLE] Generation lock callback error:', err.message); }
+    }
+}
+
+// ── Indexing state changed callbacks ──
+// Fired when setIndexing() toggles. Drawer uses this for loading indicators.
+
+/** @type {Array<() => void>} */
+const indexingChangedCallbacks = [];
+
+export function onIndexingChanged(callback) {
+    indexingChangedCallbacks.push(callback);
+}
+
+function notifyIndexingChanged() {
+    for (const cb of indexingChangedCallbacks) {
+        try { cb(); } catch (err) { console.warn('[DLE] Indexing changed callback error:', err.message); }
     }
 }
 

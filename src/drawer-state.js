@@ -95,6 +95,8 @@ export const ds = {
     browseLastRangeEnd: -1,
     browseScrollRAF: null,
     browseExpandedEntry: null,
+    /** Set by navigateToBrowseEntry() — renderBrowseTab() consumes and clears it */
+    browseNavigateTarget: null,
 
     // Context window token tracking
     contextTokens: 0,

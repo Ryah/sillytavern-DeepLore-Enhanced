@@ -7,7 +7,7 @@ import { escapeHtml } from '../../../../utils.js';
 import { getSettings } from '../settings.js';
 import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
-    generationLock, computeOverallStatus,
+    generationLock, indexing, computeOverallStatus,
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
     cooldownTracker, decayTracker, chatInjectionCounts, trackerKey,
 } from './state.js';
@@ -44,7 +44,7 @@ export function renderStatusZone() {
     $dot.toggleClass('dle-status-active', !!generationLock || ds.stGenerating);
 
     // Stats (with flash animation on value change)
-    const entryCount = vaultIndex.length;
+    const entryCount = indexing ? '…' : vaultIndex.length;
     // Use lastPipelineTrace as fallback — lastInjectionSources gets cleared by CHARACTER_MESSAGE_RENDERED
     // but lastPipelineTrace persists until CHAT_CHANGED
     const injectedCount = generationLock ? '…' : (lastInjectionSources?.length ?? lastPipelineTrace?.injected?.length ?? 0);
@@ -56,7 +56,7 @@ export function renderStatusZone() {
         $eStat[0]?.offsetWidth; // force reflow to restart animation
         $eStat.addClass('dle-stat-changed').off('animationend').one('animationend', function () { $(this).removeClass('dle-stat-changed'); });
     }
-    $entries.closest('.dle-stat').attr('aria-label', `${entryCount} vault entries indexed`);
+    $entries.closest('.dle-stat').attr('aria-label', indexing ? 'Loading vault entries...' : `${entryCount} vault entries indexed`);
     const $injected = $drawer.find('[data-stat="injected"]');
     if ($injected.text() !== String(injectedCount)) {
         $injected.text(injectedCount);
@@ -171,8 +171,13 @@ export function renderInjectionTab() {
     if (!sources || sources.length === 0) {
         $list.empty();
         $whyNotSection.removeClass('dle-visible');
-        $empty.addClass('dle-visible');
         $diff.empty();
+        // Show "Choosing lore..." during active generation, otherwise the default empty state
+        if (generationLock) {
+            $empty.html('<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><p>Choosing lore...</p>').addClass('dle-visible');
+        } else {
+            $empty.html('<i class="fa-solid fa-circle-question" aria-hidden="true"></i><p>No pipeline run yet. Send a message to see why entries were or weren\'t injected.</p>').addClass('dle-visible');
+        }
         return;
     }
 
@@ -220,6 +225,7 @@ export function renderInjectionTab() {
         if (whyChatCount > 0) html += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
         html += `<span class="dle-why-match" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
         if (isNew) html += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
+        html += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(src.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button>`;
         html += `</span>`;
         html += `</div>`;
     }
@@ -243,7 +249,8 @@ export function renderInjectionTab() {
             for (const r of rejections) {
                 whyNotHtml += `<div class="dle-why-entry dle-why-not-entry" role="listitem" aria-label="${escapeHtml(r.title)}, filtered: ${escapeHtml(r.reason)}">`;
                 whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(r.title)}</span>`;
-                whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(r.reason)}">${escapeHtml(r.reason)}</span></span>`;
+                whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(r.reason)}">${escapeHtml(r.reason)}</span>`;
+                whyNotHtml += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(r.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(r.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
                 whyNotHtml += `</div>`;
             }
             $whyNotList.html(whyNotHtml);
@@ -267,16 +274,29 @@ export function renderBrowseTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
     const $list = $drawer.find('.dle-browse-list');
+    const $emptyLoading = $drawer.find('#dle-browse-loading');
     const $emptyNoData = $drawer.find('#dle-browse-empty-no-data');
     const $emptyNoResults = $drawer.find('#dle-browse-empty-no-results');
+    const $refreshSpinner = $drawer.find('.dle-browse-refresh-spinner');
+
+    // Show/hide inline refresh spinner (visible when indexing with existing data)
+    $refreshSpinner.toggle(!!indexing && vaultIndex.length > 0);
 
     if (!vaultIndex || vaultIndex.length === 0) {
         $list.empty();
-        $emptyNoData.addClass('dle-visible');
+        // Show loading state during first index build, otherwise "no entries" state
+        if (indexing) {
+            $emptyLoading.addClass('dle-visible');
+            $emptyNoData.removeClass('dle-visible');
+        } else {
+            $emptyLoading.removeClass('dle-visible');
+            $emptyNoData.addClass('dle-visible');
+        }
         $emptyNoResults.removeClass('dle-visible');
         return;
     }
 
+    $emptyLoading.removeClass('dle-visible');
     $emptyNoData.removeClass('dle-visible');
 
     // Use pre-computed tag cache (rebuilt on index update)
@@ -356,7 +376,13 @@ export function renderBrowseTab() {
     ds.browseFilteredEntries = entries;
     ds.browseLastRangeStart = -1;
     ds.browseLastRangeEnd = -1;
-    ds.browseExpandedEntry = null; // collapse any expanded entry on filter change
+    // If navigating from Carto/Why?, preserve the target for auto-expand; otherwise reset
+    if (ds.browseNavigateTarget) {
+        ds.browseExpandedEntry = ds.browseNavigateTarget;
+        ds.browseNavigateTarget = null;
+    } else {
+        ds.browseExpandedEntry = null; // collapse any expanded entry on filter change
+    }
 
     // Set up virtual scroll container — use min-height so flex doesn't collapse it
     const listEl = $list[0];

@@ -16,6 +16,7 @@ import {
     lastInjectionSources,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
+    onIndexingChanged,
 } from './state.js';
 
 // ─── Drawer sub-modules ───
@@ -46,6 +47,7 @@ export function resetDrawerState() {
     ds.browseLastRangeStart = -1;
     ds.browseLastRangeEnd = -1;
     ds.browseExpandedEntry = null;
+    ds.browseNavigateTarget = null;
     ds.contextTokens = 0;
     // Note: ds.stGenerating is NOT reset here — it tracks ST's generation state
     // which persists across chat switches. GENERATION_ENDED clears it.
@@ -264,6 +266,14 @@ export async function createDrawerPanel() {
     wireGatingTab($drawer);
     wireHealthIcons($drawer);
 
+    // Wire browse navigation buttons (Why? tab → Browse tab)
+    // Delegated here to avoid circular imports (drawer-events.js ← drawer.js)
+    $drawer.on('click', '.dle-browse-nav-btn', function (e) {
+        e.stopPropagation();
+        const title = $(this).data('browse-title');
+        if (title) navigateToBrowseEntry(title);
+    });
+
     // ═══════════════════════════════════════════════════════════════════════
     // Context window event — track total prompt tokens after assembly
     // ═══════════════════════════════════════════════════════════════════════
@@ -375,5 +385,43 @@ export async function createDrawerPanel() {
 
     onGenerationLockChanged(() => {
         scheduleRender(renderStatusZone);
+        scheduleRender(renderInjectionTab);
     });
+
+    onIndexingChanged(() => {
+        scheduleRender(renderStatusZone);
+        scheduleRender(renderBrowseTab);
+    });
+}
+
+/**
+ * Navigate the drawer Browse tab to a specific entry.
+ * Opens the drawer if closed, switches to Browse, filters to the entry, and auto-expands it.
+ * @param {string} title - Entry title to navigate to
+ */
+export function navigateToBrowseEntry(title) {
+    if (!ds.$drawer) return;
+
+    // Open drawer if closed
+    const toggle = ds.$drawer.find('.drawer-toggle')[0];
+    if (toggle && !ds.$drawer.hasClass('openDrawer')) {
+        doNavbarIconClick.call(toggle);
+    }
+
+    // Switch to Browse tab
+    switchTab(ds.$drawer, 'browse');
+
+    // Set search to exact title, clear other filters
+    ds.browseQuery = title;
+    ds.browseStatusFilter = 'all';
+    ds.browseTagFilter = '';
+    ds.browseNavigateTarget = title; // renderBrowseTab will use this for auto-expand
+
+    // Update the search input UI to reflect the query
+    ds.$drawer.find('.dle-browse-input').val(title);
+    ds.$drawer.find('[data-filter="status"]').val('all');
+    ds.$drawer.find('[data-filter="tag"]').val('');
+
+    // Render
+    renderBrowseTab();
 }

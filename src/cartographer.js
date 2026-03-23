@@ -10,6 +10,7 @@ import { getSettings } from '../settings.js';
 import { vaultIndex, vaultAvgTokens, previousSources, setPreviousSources, lastPipelineTrace, chatInjectionCounts, trackerKey } from './state.js';
 import { diagnoseEntry } from './diagnostics.js';
 import { STAGE_COLORS, computeSourcesDiff, categorizeRejections, resolveEntryVault, parseMatchReason, tokenBarColor, formatRelativeTime } from './helpers.js';
+import { navigateToBrowseEntry } from './drawer.js';
 // Re-export from helpers.js (moved there for testability in Node.js)
 export { buildObsidianURI } from './helpers.js';
 
@@ -123,7 +124,8 @@ export function showSourcesPopup(sources) {
 
             html += `<div class="dle-card">`;
             html += `<div class="dle_ctx_toggle dle-card-header" data-target="dle_ctx_${entryId}">`;
-            html += `<span><strong>${titleHtml}</strong> <small class="dle-faint">pri ${src.priority}</small></span>`;
+            html += `<span><strong>${titleHtml}</strong> <small class="dle-faint">pri ${src.priority}</small>`;
+            html += ` <button class="dle-carto-browse-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
             html += `<small style="color: ${barColor};">~${src.tokens} tok</small>`;
             html += `</div>`;
             html += `<div class="dle-token-bar">`;
@@ -205,7 +207,7 @@ export function showSourcesPopup(sources) {
                     const entry = entryByTitle.get(e.title);
                     const whynotId = simpleHash(`whynot_${e.title}`);
                     html += `<div style="padding: 4px 0; border-bottom: 1px solid var(--dle-border);">`;
-                    html += `<span class="dle-text-sm">${escapeHtml(e.title)}</span>`;
+                    html += `<span class="dle-text-sm">${escapeHtml(e.title)} <button class="dle-carto-browse-btn" data-browse-title="${escapeHtml(e.title)}" title="Show in Browse"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
                     if (entry && !entry.constant) {
                         html += ` <button class="menu_button dle_carto_whynot_btn dle-text-xs" data-title="${escapeHtml(e.title)}" data-container="dle_whynot_carto_${whynotId}" style="padding: 1px 6px; margin-left: 6px;">Why?</button>`;
                         html += `<div id="dle_whynot_carto_${whynotId}"></div>`;
@@ -262,6 +264,19 @@ export function showSourcesPopup(sources) {
             targetEl.innerHTML = `<div class="dle-text-sm" style="color: ${color}; padding: var(--dle-space-1) 0;">${escapeHtml(result.detail)}${suggestions}</div>`;
         }
         btn.remove();
+    });
+
+    // Event delegation for browse navigation buttons (Carto → Drawer Browse)
+    container.addEventListener('click', (e) => {
+        const browseBtn = e.target.closest('.dle-carto-browse-btn');
+        if (!browseBtn) return;
+        e.stopPropagation();
+        const title = browseBtn.dataset.browseTitle;
+        if (title) {
+            navigateToBrowseEntry(title);
+            // Close the popup
+            document.querySelector('.popup .popup_ok')?.click();
+        }
     });
 
     callGenericPopup(container, POPUP_TYPE.TEXT, '', {

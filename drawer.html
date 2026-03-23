@@ -116,6 +116,7 @@
          role="tabpanel" aria-labelledby="dle-tab-browse">
         <div class="dle-panel-toolbar">
             <input type="text" class="text_pole dle-browse-input" placeholder="Search entries..." aria-label="Search vault entries" />
+            <i class="fa-solid fa-spinner fa-spin dle-browse-refresh-spinner" aria-hidden="true" title="Refreshing vault index..."></i>
             <button class="dle-tab-expand" data-expand="browse" title="Open full Browse popup" aria-label="Open full Browse popup">
                 <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
             </button>
@@ -145,6 +146,11 @@
             </select>
         </div>
         <div class="dle-browse-list" role="list" aria-label="Vault entries"></div>
+        <!-- Empty state: loading vault entries -->
+        <div class="dle-empty-state" id="dle-browse-loading">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            <p>Loading vault entries...</p>
+        </div>
         <!-- Empty state: no entries loaded -->
         <div class="dle-empty-state dle-visible" id="dle-browse-empty-no-data">
             <i class="fa-solid fa-database" aria-hidden="true"></i>

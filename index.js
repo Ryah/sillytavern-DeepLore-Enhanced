@@ -395,14 +395,13 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (trackingErr) {
             console.error('[DLE] Error in generation tracking:', trackingErr);
         }
-        // Notify drawer that pipeline is done (regardless of success/failure)
-        notifyPipelineComplete();
-
-        // Only release lock if this pipeline still owns it (epoch matches).
+        // Release lock FIRST so pipeline-complete renders see correct state.
         // A force-released stale pipeline must NOT release the newer pipeline's lock.
         if (lockEpoch === generationLockEpoch) {
             setGenerationLock(false);
         }
+        // Notify drawer that pipeline is done (regardless of success/failure)
+        notifyPipelineComplete();
     }
 }
 

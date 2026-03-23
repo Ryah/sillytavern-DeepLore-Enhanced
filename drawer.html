@@ -89,7 +89,7 @@
     <div class="dle-tab-panel active" id="dle-panel-injection" data-tab="injection"
          role="tabpanel" aria-labelledby="dle-tab-injection">
         <div class="dle-panel-toolbar">
-            <span class="dle-text-sm">Last Generation</span>
+            <span class="dle-text-sm dle-carto-link" data-expand="injection" title="Open full Cartographer popup" style="cursor: pointer;">Last Generation <i class="fa-solid fa-up-right-from-square" aria-hidden="true" style="font-size: 0.7em; opacity: 0.5;"></i></span>
             <span class="dle-section-diff"></span>
             <button class="dle-tab-expand" data-expand="injection" title="Open full details popup (/dle-why)" aria-label="Open full details popup">
                 <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
@@ -98,14 +98,14 @@
         <!-- Injected entries -->
         <div class="dle-why-list" role="list" aria-label="Injected entries — why these were included"></div>
         <!-- Rejected entries (why not) -->
-        <div class="dle-why-not-section" style="display: none;">
+        <div class="dle-why-not-section">
             <div class="dle-why-not-header dle-text-sm dle-muted" style="margin-top: 6px; padding: 4px 0; border-top: 1px solid var(--dle-border);">
                 <i class="fa-solid fa-filter-circle-xmark" aria-hidden="true" style="margin-right: 4px;"></i>Filtered Out
             </div>
             <div class="dle-why-not-list" role="list" aria-label="Filtered entries — why these were excluded"></div>
         </div>
         <!-- Empty state (shown when no pipeline has run) -->
-        <div class="dle-empty-state">
+        <div class="dle-empty-state dle-visible">
             <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
             <p>No pipeline run yet. Send a message to see why entries were or weren't injected.</p>
         </div>
@@ -113,7 +113,7 @@
 
     <!-- ─── Tab: Browse ─── -->
     <div class="dle-tab-panel" id="dle-panel-browse" data-tab="browse"
-         role="tabpanel" aria-labelledby="dle-tab-browse" hidden>
+         role="tabpanel" aria-labelledby="dle-tab-browse">
         <div class="dle-panel-toolbar">
             <input type="text" class="text_pole dle-browse-input" placeholder="Search entries..." aria-label="Search vault entries" />
             <button class="dle-tab-expand" data-expand="browse" title="Open full Browse popup" aria-label="Open full Browse popup">
@@ -144,12 +144,12 @@
         </div>
         <div class="dle-browse-list" role="list" aria-label="Vault entries"></div>
         <!-- Empty state: no entries loaded -->
-        <div class="dle-empty-state" id="dle-browse-empty-no-data">
+        <div class="dle-empty-state dle-visible" id="dle-browse-empty-no-data">
             <i class="fa-solid fa-database" aria-hidden="true"></i>
             <p>No entries loaded. Connect to Obsidian in Settings.</p>
         </div>
         <!-- Empty state: filters returned no results -->
-        <div class="dle-empty-state" id="dle-browse-empty-no-results" style="display: none;">
+        <div class="dle-empty-state" id="dle-browse-empty-no-results">
             <i class="fa-solid fa-filter-circle-xmark" aria-hidden="true"></i>
             <p>No entries match your filters. Try adjusting your search or filters.</p>
         </div>
@@ -157,7 +157,7 @@
 
     <!-- ─── Tab: Gating ─── -->
     <div class="dle-tab-panel" id="dle-panel-gating" data-tab="gating"
-         role="tabpanel" aria-labelledby="dle-tab-gating" hidden>
+         role="tabpanel" aria-labelledby="dle-tab-gating">
         <div class="dle-panel-toolbar">
             <span class="dle-text-sm">Contextual Gating</span>
             <button class="dle-tab-expand" data-expand="gating" title="Open full Context State popup" aria-label="Open full Context State popup">
@@ -207,12 +207,12 @@
             <span class="dle-text-sm">Entry Timers</span>
         </div>
         <div class="dle-timer-list" role="list" aria-label="Active entry timers (cooldowns, decay, warmup)"></div>
-        <div class="dle-timer-empty dle-text-sm" style="opacity: 0.5; padding: 4px 0;">No active timers</div>
+        <div class="dle-timer-empty dle-text-sm dle-visible" style="opacity: 0.5; padding: 4px 0;">No active timers</div>
     </div>
 
     <!-- ─── Tab: Tools ─── -->
     <div class="dle-tab-panel" id="dle-panel-tools" data-tab="tools"
-         role="tabpanel" aria-labelledby="dle-tab-tools" hidden>
+         role="tabpanel" aria-labelledby="dle-tab-tools">
 
         <div class="dle-tools-group">
             <h3 class="dle-tools-group-label">Diagnostics</h3>

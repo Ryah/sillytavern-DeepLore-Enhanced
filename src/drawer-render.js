@@ -43,14 +43,26 @@ export function renderStatusZone() {
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Pipeline stage: ${pipelineText}`);
     $dot.toggleClass('dle-status-active', !!generationLock || ds.stGenerating);
 
-    // Stats
+    // Stats (with flash animation on value change)
     const entryCount = vaultIndex.length;
     const injectedCount = generationLock ? '…' : (lastInjectionSources ? lastInjectionSources.length : 0);
     const $entries = $drawer.find('[data-stat="entries"]');
-    $entries.text(entryCount);
+    if ($entries.text() !== String(entryCount)) {
+        $entries.text(entryCount);
+        const $eStat = $entries.closest('.dle-stat');
+        $eStat.removeClass('dle-stat-changed');
+        $eStat[0]?.offsetWidth; // force reflow to restart animation
+        $eStat.addClass('dle-stat-changed').off('animationend').one('animationend', function () { $(this).removeClass('dle-stat-changed'); });
+    }
     $entries.closest('.dle-stat').attr('aria-label', `${entryCount} vault entries indexed`);
     const $injected = $drawer.find('[data-stat="injected"]');
-    $injected.text(injectedCount);
+    if ($injected.text() !== String(injectedCount)) {
+        $injected.text(injectedCount);
+        const $iStat = $injected.closest('.dle-stat');
+        $iStat.removeClass('dle-stat-changed');
+        $iStat[0]?.offsetWidth; // force reflow to restart animation
+        $iStat.addClass('dle-stat-changed').off('animationend').one('animationend', function () { $(this).removeClass('dle-stat-changed'); });
+    }
     $injected.closest('.dle-stat').attr('aria-label', `${injectedCount} entries injected`);
 
     const mode = settings.aiSearchEnabled !== false
@@ -156,13 +168,13 @@ export function renderInjectionTab() {
 
     if (!sources || sources.length === 0) {
         $list.empty();
-        $whyNotSection.hide();
-        $empty.show();
+        $whyNotSection.removeClass('dle-visible');
+        $empty.addClass('dle-visible');
         $diff.empty();
         return;
     }
 
-    $empty.hide();
+    $empty.removeClass('dle-visible');
 
     // Compute diff via shared data layer
     const diff = computeSourcesDiff(sources, prev);
@@ -178,7 +190,8 @@ export function renderInjectionTab() {
     const addedTitles = new Set(diff.added.map(s => s.title));
     let html = '';
 
-    for (const src of sources) {
+    for (let idx = 0; idx < sources.length; idx++) {
+        const src = sources[idx];
         const isNew = addedTitles.has(src.title);
         const isConstant = src.constant || (src.matchedBy && src.matchedBy.includes('Constant'));
         const classes = ['dle-why-entry'];
@@ -191,7 +204,7 @@ export function renderInjectionTab() {
         const matchLabel = getMatchLabel(src.matchedBy);
 
         const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens || '?'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
-        html += `<div class="${classes.join(' ')}" role="listitem" aria-label="${entryAriaLabel}">`;
+        html += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}">`;
         html += `<span class="dle-why-title">`;
         if (uri) {
             html += `<a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
@@ -230,12 +243,12 @@ export function renderInjectionTab() {
                 whyNotHtml += `</div>`;
             }
             $whyNotList.html(whyNotHtml);
-            $whyNotSection.show();
+            $whyNotSection.addClass('dle-visible');
         } else {
-            $whyNotSection.hide();
+            $whyNotSection.removeClass('dle-visible');
         }
     } else {
-        $whyNotSection.hide();
+        $whyNotSection.removeClass('dle-visible');
     }
 }
 
@@ -255,12 +268,12 @@ export function renderBrowseTab() {
 
     if (!vaultIndex || vaultIndex.length === 0) {
         $list.empty();
-        $emptyNoData.show();
-        $emptyNoResults.hide();
+        $emptyNoData.addClass('dle-visible');
+        $emptyNoResults.removeClass('dle-visible');
         return;
     }
 
-    $emptyNoData.hide();
+    $emptyNoData.removeClass('dle-visible');
 
     // Use pre-computed tag cache (rebuilt on index update)
     const $tagSelect = $drawer.find('[data-filter="tag"]');
@@ -346,7 +359,7 @@ export function renderBrowseTab() {
 
     // Render visible window
     renderBrowseWindow();
-    $emptyNoResults.toggle(entries.length === 0);
+    $emptyNoResults.toggleClass('dle-visible', entries.length === 0);
 }
 
 /**
@@ -522,9 +535,10 @@ export function renderTimers() {
     const settings = getSettings();
 
     // Cooldown entries
+    let timerIdx = 0;
     for (const [key, remaining] of cooldownTracker) {
         const name = key.includes(':') ? key.split(':').slice(1).join(':') : key;
-        rows.push(`<div class="dle-timer-row" role="listitem">
+        rows.push(`<div class="dle-timer-row" style="--i:${timerIdx++}" role="listitem">
             <span class="dle-timer-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
             <span class="dle-timer-badge dle-timer-cooldown">${remaining} gen cooldown</span>
         </div>`);
@@ -536,7 +550,7 @@ export function renderTimers() {
         for (const [key, staleness] of decayTracker) {
             if (staleness >= boostThreshold) {
                 const name = key.includes(':') ? key.split(':').slice(1).join(':') : key;
-                rows.push(`<div class="dle-timer-row" role="listitem">
+                rows.push(`<div class="dle-timer-row" style="--i:${timerIdx++}" role="listitem">
                     <span class="dle-timer-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
                     <span class="dle-timer-badge dle-timer-stale">stale ${staleness} gen</span>
                 </div>`);
@@ -548,7 +562,7 @@ export function renderTimers() {
     // Removed from timers section — would show ALL entries with warmup > 1 regardless of state.
 
     $list.html(rows.join(''));
-    $empty.toggle(rows.length === 0);
+    $empty.toggleClass('dle-visible', rows.length === 0);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -56,16 +56,11 @@ export function switchTab($drawer, tabName) {
             .attr('tabindex', isActive ? '0' : '-1');
     });
 
-    // Update panels — use hidden attribute for a11y
+    // Update panels — CSS handles visibility via .active class (fade-in animation)
     $panels.each(function () {
         const $p = $(this);
         const isActive = $p.data('tab') === tabName;
         $p.toggleClass('active', isActive);
-        if (isActive) {
-            $p.removeAttr('hidden');
-        } else {
-            $p.attr('hidden', '');
-        }
     });
 
     // Update label
@@ -95,7 +90,7 @@ export function wireToolsTab($drawer) {
 
 /** Wire tab expand buttons */
 export function wireTabExpand($drawer) {
-    $drawer.on('click', '.dle-tab-expand[data-expand]', function () {
+    $drawer.on('click', '[data-expand]', function () {
         const target = $(this).data('expand');
         const cmd = EXPAND_ACTIONS[target];
         if (cmd) executeCommand(cmd);
@@ -206,9 +201,15 @@ export function wireBrowseTab($drawer) {
 
         const $existing = $entry.find('.dle-browse-preview');
         if ($existing.length) {
-            // Collapse
-            $existing.remove();
+            // Animate collapse: set current height explicitly, then transition to row height
+            const currentHeight = $entry[0].scrollHeight;
+            $entry.css('height', currentHeight + 'px');
+            $entry[0].offsetHeight; // force reflow so browser sees start value
             $entry.css('height', BROWSE_ROW_HEIGHT + 'px');
+            let cleaned = false;
+            const cleanup = () => { if (!cleaned) { cleaned = true; $existing.remove(); } };
+            $entry.one('transitionend', cleanup);
+            setTimeout(cleanup, 250); // safety timeout
             ds.browseExpandedEntry = null;
             return;
         }
@@ -237,15 +238,20 @@ export function wireBrowseTab($drawer) {
 
         const previewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div><div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
 
+        // Animate expand: lock current height, append preview, measure, transition
+        $entry.css('height', BROWSE_ROW_HEIGHT + 'px');
         $entry.append(previewHtml);
-        // Expand the row height to fit
-        $entry.css({ height: 'auto', position: 'absolute' });
+        const naturalHeight = $entry[0].scrollHeight;
+        $entry[0].offsetHeight; // force reflow so browser sees 32px start
+        $entry.css({ height: naturalHeight + 'px', position: 'absolute' });
+        // After transition, switch to auto so content isn't clipped
+        $entry.one('transitionend', () => $entry.css('height', 'auto'));
     });
 }
 
 /** Wire gating tab interactions (chip remove, set buttons) */
 export function wireGatingTab($drawer) {
-    // Chip X buttons via event delegation
+    // Chip X buttons via event delegation — animate out before removing
     $drawer.find('#dle-panel-gating').on('click', '.dle-chip-x', function () {
         const field = $(this).data('field');
         const value = $(this).data('value');
@@ -254,20 +260,33 @@ export function wireGatingTab($drawer) {
         if (!chat_metadata.deeplore_context) return;
         const ctx = chat_metadata.deeplore_context;
 
-        if (field === 'characterPresent') {
-            if (ctx.characters_present) {
-                ctx.characters_present = ctx.characters_present.filter(c => c !== value);
-            }
-        } else if (field === 'era') {
-            ctx.era = null;
-        } else if (field === 'location') {
-            ctx.location = null;
-        } else if (field === 'sceneType') {
-            ctx.scene_type = null;
-        }
+        // Animate the chip out
+        const $chip = $(this).closest('.dle-chip');
+        $chip.addClass('dle-chip-removing');
 
-        saveChatDebounced();
-        notifyGatingChanged();
+        // Update state after animation starts (don't wait for transitionend to avoid
+        // the chip being re-rendered by a concurrent gating render)
+        const applyRemoval = () => {
+            if (field === 'characterPresent') {
+                if (ctx.characters_present) {
+                    ctx.characters_present = ctx.characters_present.filter(c => c !== value);
+                }
+            } else if (field === 'era') {
+                ctx.era = null;
+            } else if (field === 'location') {
+                ctx.location = null;
+            } else if (field === 'sceneType') {
+                ctx.scene_type = null;
+            }
+            saveChatDebounced();
+            notifyGatingChanged();
+        };
+
+        // Fire state update after animation completes (guard against double-fire)
+        let fired = false;
+        const once = () => { if (!fired) { fired = true; applyRemoval(); } };
+        $chip.one('transitionend', once);
+        setTimeout(once, 200); // safety timeout
     });
 
     // Set buttons via event delegation

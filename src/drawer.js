@@ -47,7 +47,8 @@ export function resetDrawerState() {
     ds.browseLastRangeEnd = -1;
     ds.browseExpandedEntry = null;
     ds.contextTokens = 0;
-    ds.stGenerating = false;
+    // Note: ds.stGenerating is NOT reset here — it tracks ST's generation state
+    // which persists across chat switches. GENERATION_ENDED clears it.
     if (ds.browseSearchTimeout) { clearTimeout(ds.browseSearchTimeout); ds.browseSearchTimeout = null; }
     // Clear the search input and filter selects if drawer exists
     const $input = $(`#${DRAWER_ID} .dle-browse-input`);
@@ -291,14 +292,26 @@ export async function createDrawerPanel() {
     try {
         const stCtx2 = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
         if (stCtx2?.eventSource && stCtx2?.eventTypes?.GENERATION_STARTED) {
-            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STARTED, () => {
+            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STARTED, (_type, _opts, dryRun) => {
+                if (dryRun) return; // Ignore dry runs (token counting) — they never end
                 ds.stGenerating = true;
                 scheduleRender(renderStatusZone);
             });
-            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_ENDED, () => {
+            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_ENDED, (...args) => {
+                // GENERATION_ENDED may not pass dryRun, but skip if stGenerating is already false
+                // (avoids dry-run END clearing a real generation's state)
+                if (!ds.stGenerating) return;
                 ds.stGenerating = false;
                 scheduleRender(renderStatusZone);
             });
+            // GENERATION_STOPPED fires when user clicks Stop — clear generating state
+            // as a safety net (GENERATION_ENDED may or may not fire depending on timing)
+            if (stCtx2.eventTypes.GENERATION_STOPPED) {
+                stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STOPPED, () => {
+                    ds.stGenerating = false;
+                    scheduleRender(renderStatusZone);
+                });
+            }
         }
     } catch (err) {
         console.warn('[DLE] Could not wire generation lifecycle tracking:', err.message);

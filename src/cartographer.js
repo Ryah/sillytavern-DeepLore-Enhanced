@@ -144,7 +144,7 @@ export function showSourcesPopup(sources) {
                     .replace(/\x00MARK_START\x00/g, '<mark class="dle-highlight">')
                     .replace(/\x00MARK_END\x00/g, '</mark>');
 
-                html += `<div id="dle_ctx_${entryId}" style="display: none; margin-top: var(--dle-space-1);">`;
+                html += `<div id="dle_ctx_${entryId}" class="dle-ctx-detail">`;
                 if (meta.length > 0) {
                     html += `<div class="dle-text-xs dle-faint" style="margin-bottom: var(--dle-space-1);">${meta.map(m => escapeHtml(m)).join(' · ')}</div>`;
                 }
@@ -172,7 +172,7 @@ export function showSourcesPopup(sources) {
                 html += `<span><i class="fa-solid ${group.icon}" style="margin-right: 6px; color: var(--dle-text-muted);"></i><strong>${escapeHtml(group.label)}</strong> <small class="dle-faint">(${group.entries.length})</small></span>`;
                 html += `<small class="dle-faint">click to expand</small>`;
                 html += `</div>`;
-                html += `<div id="dle_rej_${groupId}" style="display: none; margin-top: var(--dle-space-1);">`;
+                html += `<div id="dle_rej_${groupId}" class="dle-ctx-detail">`;
 
                 for (const e of group.entries) {
                     const entry = entryByTitle.get(e.title);
@@ -206,7 +206,7 @@ export function showSourcesPopup(sources) {
         if (!toggle) return;
         const targetId = toggle.dataset.target;
         const targetEl = document.getElementById(targetId);
-        if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+        if (targetEl) targetEl.classList.toggle('dle-ctx-expanded');
     });
 
     // Event delegation for "Why?" diagnostic buttons in rejected entries

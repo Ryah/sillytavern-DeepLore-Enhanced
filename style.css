@@ -154,7 +154,9 @@
     #deeplore-drawer,
     #deeplore-drawer *,
     .dle-settings-popup,
-    .dle-settings-popup * {
+    .dle-settings-popup *,
+    .dle-popup,
+    .dle-popup * {
         transition-duration: 0.01ms !important;
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
@@ -519,6 +521,7 @@
     border-radius: 50%;
     display: inline-block;
     flex-shrink: 0;
+    transition: background-color var(--animation-duration-slow, 375ms) ease;
 }
 
 .dle-status-ok { background: var(--dle-success); }
@@ -552,7 +555,7 @@
     border: none;
     border-bottom: 2px solid transparent;
     cursor: pointer;
-    transition: color 120ms, border-color 120ms;
+    transition: color var(--animation-duration-2x, 250ms), border-color var(--animation-duration-2x, 250ms);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -583,6 +586,7 @@
 }
 .dle-tab-badge:not(:empty) {
     display: inline-block;
+    animation: dle-badge-pop var(--animation-duration-2x, 250ms) ease-out;
 }
 
 /* Active tab label (below tab bar) — hidden by default, shown on narrow screens */
@@ -603,10 +607,6 @@
 .dle-tab-panel.active {
     display: flex;
     flex-direction: column;
-}
-
-.dle-tab-panel[hidden] {
-    display: none !important;
 }
 
 /* Panel toolbar (shared across tabs: label + diff + expand) */
@@ -723,6 +723,11 @@
     background: color-mix(in srgb, var(--dle-accent) 20%, transparent);
     border: 1px solid color-mix(in srgb, var(--dle-accent) 40%, transparent);
     color: var(--SmartThemeBodyColor, #eee);
+    transition: opacity 150ms ease-in, transform 150ms ease-in;
+}
+.dle-chip.dle-chip-removing {
+    opacity: 0;
+    transform: scale(0.8);
 }
 
 /* Chip remove button */
@@ -803,8 +808,8 @@ button.dle-chip-x:hover {
     gap: var(--dle-space-2);
 }
 
-.dle-diff-add { color: var(--dle-success); }
-.dle-diff-remove { color: var(--dle-error); }
+.dle-diff-add { color: var(--dle-success); animation: dle-fade-in var(--animation-duration-2x, 250ms) ease-out; }
+.dle-diff-remove { color: var(--dle-error); animation: dle-fade-in var(--animation-duration-2x, 250ms) ease-out; }
 
 .dle-section-body {
     padding: var(--dle-space-1) 0 var(--dle-space-2);
@@ -824,6 +829,8 @@ button.dle-chip-x:hover {
     padding: 3px var(--dle-space-2);
     border-radius: 3px;
     transition: background 120ms;
+    animation: dle-entry-in 200ms ease-out both;
+    animation-delay: calc(var(--i, 0) * 30ms);
 }
 
 .dle-why-entry:hover {
@@ -832,6 +839,8 @@ button.dle-chip-x:hover {
 
 .dle-why-entry.dle-why-new {
     border-left: 2px solid var(--dle-success);
+    animation: dle-entry-in 200ms ease-out both, dle-new-flash 600ms ease-out;
+    animation-delay: calc(var(--i, 0) * 30ms), calc(var(--i, 0) * 30ms);
 }
 
 .dle-why-entry.dle-why-constant .dle-obsidian-link {
@@ -935,6 +944,9 @@ button.dle-chip-x:hover {
     box-sizing: border-box;
 }
 
+.dle-browse-entry {
+    transition: height 200ms ease-out, background 120ms;
+}
 .dle-browse-entry:hover {
     background: var(--dle-bg-hover);
 }
@@ -977,6 +989,7 @@ button.dle-chip-x:hover {
 .dle-browse-preview {
     padding: 6px 8px;
     border-left: 2px solid var(--dle-border);
+    animation: dle-fade-in 150ms ease-out;
     margin-top: 2px;
     width: 100%;
 }
@@ -998,15 +1011,15 @@ button.dle-chip-x:hover {
     align-items: center;
 }
 
-/* When expanded, allow the entry to grow beyond fixed row height */
+/* When expanded, allow the entry to grow beyond fixed row height (no height override — JS manages it) */
 .dle-browse-entry:has(.dle-browse-preview) {
-    height: auto !important;
     flex-direction: column;
     align-items: stretch;
     z-index: 10;
     background: var(--SmartThemeBlurTintColor, #1a1a1a);
     border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    overflow: visible;
 }
 
 .dle-browse-info {
@@ -1115,6 +1128,8 @@ button.dle-browse-why:hover {
     gap: var(--dle-space-2);
     padding: 2px 0;
     font-size: var(--dle-text-xs);
+    animation: dle-entry-in 200ms ease-out both;
+    animation-delay: calc(var(--i, 0) * 30ms);
 }
 
 .dle-timer-name {
@@ -1152,6 +1167,13 @@ button.dle-browse-why:hover {
 .dle-timer-badge.dle-timer-warmup {
     background: color-mix(in srgb, var(--dle-success) 25%, transparent);
     color: var(--dle-success);
+}
+
+.dle-timer-empty {
+    display: none;
+}
+.dle-timer-empty.dle-visible {
+    display: block;
 }
 
 /* --- Tools tab --- */
@@ -1239,9 +1261,9 @@ button.dle-browse-why:hover {
     backdrop-filter: blur(calc(var(--SmartThemeBlurStrength, 10px) * 2));
 }
 
-/* --- Empty states --- */
+/* --- Empty states (class-based visibility for animation) --- */
 .dle-empty-state {
-    display: flex;
+    display: none;
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -1249,6 +1271,9 @@ button.dle-browse-why:hover {
     padding: var(--dle-space-5);
     color: var(--dle-text-muted);
     text-align: center;
+}
+.dle-empty-state.dle-visible {
+    display: flex;
 }
 
 .dle-empty-state i {
@@ -1401,6 +1426,11 @@ button.dle-browse-why:hover {
     white-space: nowrap;
 }
 
+/* Stat flash — brief accent highlight when value changes */
+.dle-stat-changed {
+    animation: dle-stat-flash 300ms ease-out;
+}
+
 /* ============================================================================
  * Settings Popup (tabbed layout)
  * ============================================================================ */
@@ -1526,3 +1556,71 @@ button.dle-browse-why:hover {
         display: none;
     }
 }
+
+/* ============================================================================
+ * Animations & Keyframes
+ * ============================================================================ */
+
+/* Fade in (used by tab panels, diff badges, browse preview) */
+@keyframes dle-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Entry slide-in (used by Why? entries, timer rows) */
+@keyframes dle-entry-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* NEW entry highlight flash */
+@keyframes dle-new-flash {
+    0% { background-color: color-mix(in srgb, var(--dle-success) 25%, transparent); }
+    100% { background-color: transparent; }
+}
+
+/* Tab badge pop-in */
+@keyframes dle-badge-pop {
+    0% { transform: scale(0); }
+    70% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+}
+
+/* Chip entrance */
+@keyframes dle-chip-in {
+    from { opacity: 0; transform: scale(0.8); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* Stat value flash on change */
+@keyframes dle-stat-flash {
+    from { color: var(--dle-accent); }
+    to { color: inherit; }
+}
+
+/* Cartographer popup — entry detail expand */
+.dle-ctx-detail {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 250ms ease-out, opacity 200ms ease;
+}
+.dle-ctx-detail.dle-ctx-expanded {
+    max-height: 2000px;
+    opacity: 1;
+    overflow-y: auto;
+    margin-top: var(--dle-space-1);
+}
+
+/* Why-Not section — animated expand */
+.dle-why-not-section {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 250ms ease-out, opacity 200ms ease;
+}
+.dle-why-not-section.dle-visible {
+    max-height: 2000px;
+    opacity: 1;
+}
+

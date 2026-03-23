@@ -3,9 +3,9 @@
 > **Personal project.** 530 tests, used daily against a 130+ entry vault, in beta. Bug reports welcome but fixes might take time -- I work.
 
 
-### Testimonials:
+### Testimonials (used with permission):
 
-*"[I've] been using it all day and still amazed by it."* — /u/chaeriixo (reddit.com)
+*"[I've] been using it all day and still amazed by it."* — /u/chaeriixo (via [reddit.com](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxd24v/))
 
 ## What is This?
 

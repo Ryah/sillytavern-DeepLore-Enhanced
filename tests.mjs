@@ -20,7 +20,7 @@ import { parseVaultFile, clearPrompts } from './core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from './core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor } from './src/helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime } from './src/helpers.js';
 import { encodeVaultPath, validateVaultPath } from './src/obsidian-api.js';
 
 // State module imports for computeOverallStatus tests
@@ -3040,6 +3040,44 @@ test('tokenBarColor: ratio 1.0 is yellow (hue 60)', () => {
 test('tokenBarColor: ratio 2.0+ is red (hue 0)', () => {
     const color = tokenBarColor(200, 100);
     assert(color.includes('hsl(0'));
+});
+
+// ============================================================================
+// formatRelativeTime tests
+// ============================================================================
+
+test('formatRelativeTime: null/undefined returns empty string', () => {
+    assertEqual(formatRelativeTime(null), '', 'null');
+    assertEqual(formatRelativeTime(undefined), '', 'undefined');
+    assertEqual(formatRelativeTime(0), '', 'zero');
+});
+
+test('formatRelativeTime: just now (< 1 minute ago)', () => {
+    assertEqual(formatRelativeTime(Date.now() - 30000), 'just now', '30s ago');
+    assertEqual(formatRelativeTime(Date.now()), 'just now', 'now');
+});
+
+test('formatRelativeTime: minutes ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 5 * 60000), '5m ago', '5 mins');
+    assertEqual(formatRelativeTime(Date.now() - 59 * 60000), '59m ago', '59 mins');
+});
+
+test('formatRelativeTime: hours ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 2 * 3600000), '2h ago', '2 hours');
+    assertEqual(formatRelativeTime(Date.now() - 23 * 3600000), '23h ago', '23 hours');
+});
+
+test('formatRelativeTime: days ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 3 * 86400000), '3d ago', '3 days');
+    assertEqual(formatRelativeTime(Date.now() - 29 * 86400000), '29d ago', '29 days');
+});
+
+test('formatRelativeTime: months ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 60 * 86400000), '2mo ago', '60 days');
+});
+
+test('formatRelativeTime: future timestamp returns just now', () => {
+    assertEqual(formatRelativeTime(Date.now() + 60000), 'just now', 'future');
 });
 
 // ============================================================================

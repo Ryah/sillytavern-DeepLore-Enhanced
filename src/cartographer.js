@@ -6,9 +6,9 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { chat } from '../../../../../script.js';
 import { simpleHash } from '../core/utils.js';
 import { getSettings } from '../settings.js';
-import { vaultIndex, vaultAvgTokens, previousSources, setPreviousSources, lastPipelineTrace } from './state.js';
+import { vaultIndex, vaultAvgTokens, previousSources, setPreviousSources, lastPipelineTrace, chatInjectionCounts, trackerKey } from './state.js';
 import { diagnoseEntry } from './diagnostics.js';
-import { STAGE_COLORS, computeSourcesDiff, categorizeRejections, resolveEntryVault, parseMatchReason, tokenBarColor } from './helpers.js';
+import { STAGE_COLORS, computeSourcesDiff, categorizeRejections, resolveEntryVault, parseMatchReason, tokenBarColor, formatRelativeTime } from './helpers.js';
 // Re-export from helpers.js (moved there for testability in Node.js)
 export { buildObsidianURI } from './helpers.js';
 
@@ -120,6 +120,22 @@ export function showSourcesPopup(sources) {
             html += `</div>`;
             const vaultLabel = src.vaultSource && (settings.vaults || []).length > 1 ? ` · <em>${escapeHtml(src.vaultSource)}</em>` : '';
             html += `<small class="dle-muted">${escapeHtml(src.matchedBy)}${vaultLabel}</small>`;
+
+            // Per-entry injection stats (chat + all-time)
+            const entryKey = src.entry ? trackerKey(src.entry) : `${src.vaultSource || ''}:${src.title}`;
+            const chatCount = chatInjectionCounts.get(entryKey) || 0;
+            const allTime = settings.analyticsData?.[entryKey];
+            const statParts = [];
+            if (chatCount > 0) statParts.push(`This chat: ${chatCount}×`);
+            if (allTime) {
+                statParts.push(`All-time: ${allTime.injected || 0} injected / ${allTime.matched || 0} matched`);
+                const lastUsed = formatRelativeTime(allTime.lastTriggered);
+                if (lastUsed) statParts.push(`Last: ${lastUsed}`);
+            }
+            if (statParts.length > 0) {
+                html += `<div class="dle-carto-stats dle-text-xs">${statParts.join(' · ')}</div>`;
+            }
+
             if (src.entry) {
                 // Metadata line
                 const meta = [];
@@ -182,6 +198,13 @@ export function showSourcesPopup(sources) {
                     if (entry && !entry.constant) {
                         html += ` <button class="menu_button dle_carto_whynot_btn dle-text-xs" data-title="${escapeHtml(e.title)}" data-container="dle_whynot_carto_${whynotId}" style="padding: 1px 6px; margin-left: 6px;">Why?</button>`;
                         html += `<div id="dle_whynot_carto_${whynotId}"></div>`;
+                    }
+                    // All-time stats for rejected entries
+                    const rejKey = entry ? trackerKey(entry) : `${e.vaultSource || ''}:${e.title}`;
+                    const rejAllTime = settings.analyticsData?.[rejKey];
+                    if (rejAllTime) {
+                        const lastUsed = formatRelativeTime(rejAllTime.lastTriggered);
+                        html += `<div class="dle-carto-stats dle-text-xs">${rejAllTime.injected || 0} injected / ${rejAllTime.matched || 0} matched${lastUsed ? ` · Last: ${lastUsed}` : ''}</div>`;
                     }
                     html += `</div>`;
                 }

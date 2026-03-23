@@ -25,6 +25,7 @@ import {
     vaultIndex, indexEverLoaded, indexing,
     lastInjectionSources, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
+    chatInjectionCounts, setChatInjectionCounts, trackerKey,
     lastWarningRatio, decayTracker, chatEpoch,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
@@ -345,6 +346,17 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
+        // Stage 9: Per-chat injection counts
+        for (const entry of injectedEntries) {
+            const key = trackerKey(entry);
+            chatInjectionCounts.set(key, (chatInjectionCounts.get(key) || 0) + 1);
+        }
+        // Persist to chat_metadata on same cadence as analytics
+        if (generationCount % 5 === 0) {
+            chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
+            saveChatDebounced();
+        }
+
         if (groups.length > 0) {
             // Context usage warning — BUG 6 FIX: reset ratio when it drops below threshold
             if (contextSize > 0) {
@@ -587,6 +599,9 @@ jQuery(async function () {
             cooldownTracker.clear();
             decayTracker.clear();
             consecutiveInjections.clear();
+            // Hydrate per-chat injection counts from saved metadata (survives page reload)
+            const savedCounts = chat_metadata?.deeplore_chat_counts;
+            setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
             setGenerationCount(0);
             setLastWarningRatio(0);
             setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });

@@ -9,7 +9,7 @@ import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
     generationLock, computeOverallStatus,
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
-    cooldownTracker, decayTracker,
+    cooldownTracker, decayTracker, chatInjectionCounts, trackerKey,
 } from './state.js';
 import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault } from './helpers.js';
 import { getCircuitState } from './obsidian-api.js';
@@ -45,7 +45,9 @@ export function renderStatusZone() {
 
     // Stats (with flash animation on value change)
     const entryCount = vaultIndex.length;
-    const injectedCount = generationLock ? '…' : (lastInjectionSources ? lastInjectionSources.length : 0);
+    // Use lastPipelineTrace as fallback — lastInjectionSources gets cleared by CHARACTER_MESSAGE_RENDERED
+    // but lastPipelineTrace persists until CHAT_CHANGED
+    const injectedCount = generationLock ? '…' : (lastInjectionSources?.length ?? lastPipelineTrace?.injected?.length ?? 0);
     const $entries = $drawer.find('[data-stat="entries"]');
     if ($entries.text() !== String(entryCount)) {
         $entries.text(entryCount);
@@ -86,8 +88,8 @@ export function renderStatusZone() {
             : 'DLE — / —';
     $drawer.find('.dle-token-bar-label').text(budgetLabel);
 
-    // Entries bar
-    const injectedNum = lastInjectionSources ? lastInjectionSources.length : 0;
+    // Entries bar (same fallback as injected stat above)
+    const injectedNum = lastInjectionSources?.length ?? lastPipelineTrace?.injected?.length ?? 0;
     const maxEntries = settings.unlimitedEntries ? 0 : (settings.maxEntries || 0);
     const entriesPct = maxEntries ? Math.min(100, Math.round((injectedNum / maxEntries) * 100)) : 0;
     const $entriesBarContainer = $drawer.find('.dle-entries-bar-container');
@@ -127,8 +129,8 @@ export function updateTabBadges() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
 
-    // Why? tab: injected entry count
-    const injCount = lastInjectionSources?.length || 0;
+    // Why? tab: injected entry count (fallback to trace — sources get cleared after message render)
+    const injCount = lastInjectionSources?.length ?? lastPipelineTrace?.injected?.length ?? 0;
     $drawer.find('[data-badge="injection"]').text(injCount || '');
 
     // Browse tab: total vault entries
@@ -214,6 +216,8 @@ export function renderInjectionTab() {
         html += `</span>`;
         html += `<span class="dle-why-meta">`;
         html += `<span class="dle-why-tokens" aria-label="${src.tokens || '?'} tokens">${src.tokens || '?'} tok</span>`;
+        const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
+        if (whyChatCount > 0) html += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
         html += `<span class="dle-why-match" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
         if (isNew) html += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
         html += `</span>`;
@@ -299,10 +303,11 @@ export function renderBrowseTab() {
     const pinSet = new Set(pins.map(t => t.toLowerCase()));
     const blockSet = new Set(blocks.map(t => t.toLowerCase()));
 
-    // Injected set
+    // Injected set — fall back to lastPipelineTrace (sources cleared after message render)
     const injectedSet = new Set();
-    if (lastInjectionSources) {
-        for (const s of lastInjectionSources) injectedSet.add(s.title.toLowerCase());
+    const injSources = lastInjectionSources ?? lastPipelineTrace?.injected;
+    if (injSources) {
+        for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
     // Filter
@@ -338,6 +343,7 @@ export function renderBrowseTab() {
         case 'alpha_desc': entries.sort((a, b) => b.title.localeCompare(a.title)); break;
         case 'tokens_desc': entries.sort((a, b) => (b.tokenEstimate || 0) - (a.tokenEstimate || 0)); break;
         case 'tokens_asc': entries.sort((a, b) => (a.tokenEstimate || 0) - (b.tokenEstimate || 0)); break;
+        case 'injections_desc': entries.sort((a, b) => (chatInjectionCounts.get(trackerKey(b)) || 0) - (chatInjectionCounts.get(trackerKey(a)) || 0)); break;
         default: entries.sort((a, b) => (a.priority || 50) - (b.priority || 50));
     }
 
@@ -397,9 +403,12 @@ export function renderBrowseWindow() {
     const blocks = chat_metadata?.deeplore_blocks || [];
     const pinSet = new Set(pins.map(t => t.toLowerCase()));
     const blockSet = new Set(blocks.map(t => t.toLowerCase()));
+    // Build injected set — fall back to lastPipelineTrace when lastInjectionSources
+    // has been consumed by CHARACTER_MESSAGE_RENDERED (moved to message.extra)
     const injectedSet = new Set();
-    if (lastInjectionSources) {
-        for (const s of lastInjectionSources) injectedSet.add(s.title.toLowerCase());
+    const injSources = lastInjectionSources ?? lastPipelineTrace?.injected;
+    if (injSources) {
+        for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
     let html = '';
@@ -431,6 +440,8 @@ export function renderBrowseWindow() {
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
         html += `<div class="dle-browse-controls">`;
+        const browseCount = chatInjectionCounts.get(trackerKey(e)) || 0;
+        if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat">${browseCount}×</span>`;
         html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected' : `Priority ${e.priority || 50}`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
         html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(e.title)}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
         html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" aria-label="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(e.title)}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;

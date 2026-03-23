@@ -899,6 +899,23 @@ button.dle-chip-x:hover {
     color: var(--dle-success);
 }
 
+/* --- Injection count badge (shared by Why? tab + Browse tab) --- */
+.dle-inject-count {
+    font-weight: 600;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--dle-accent, #9c27b0) 20%, transparent);
+    color: var(--dle-accent, #9c27b0);
+    white-space: nowrap;
+}
+
+/* --- Cartographer stats line --- */
+.dle-carto-stats {
+    color: var(--dle-text-muted, #888);
+    padding: 2px 0;
+}
+
 /* --- Why Not entries (filtered out) --- */
 .dle-why-not-entry {
     opacity: 0.6;

@@ -56,6 +56,9 @@ export let decayTracker = new Map();
 /** Consecutive injection counter: title → consecutive generations injected (reset per chat) */
 export let consecutiveInjections = new Map();
 
+/** Per-chat injection counts: trackerKey → number of generations this entry was injected (reset per chat) */
+export let chatInjectionCounts = new Map();
+
 /** Last health check result for settings badge */
 export let lastHealthResult = null;
 
@@ -104,6 +107,7 @@ export function setLastPipelineTrace(v) { lastPipelineTrace = v; }
 export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
 export function setConsecutiveInjections(v) { consecutiveInjections = v; }
+export function setChatInjectionCounts(v) { chatInjectionCounts = v; }
 export function setLastHealthResult(v) { lastHealthResult = v; }
 export function setLastVaultFailureCount(v) { lastVaultFailureCount = v; }
 export function setLastVaultAttemptCount(v) { lastVaultAttemptCount = v; }

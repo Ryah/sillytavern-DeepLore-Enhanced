@@ -3,6 +3,7 @@
  * Shared between drawer.js, drawer-render.js, and drawer-events.js.
  */
 import { escapeHtml } from '../../../../utils.js';
+import { parseMatchReason } from './helpers.js';
 
 // ─── Constants ───
 
@@ -130,15 +131,12 @@ export function scheduleRender(renderFn) {
 /** Convert matchedBy reason to a short badge label */
 export function getMatchLabel(matchedBy) {
     if (!matchedBy) return '?';
-    const lower = matchedBy.toLowerCase();
-    if (lower.startsWith('ai:') || lower === 'ai selection') return 'AI';
-    if (lower.includes('keyword') && lower.includes('ai')) return 'KEY+AI';
-    if (lower.includes('keyword')) return 'KEY';
-    if (lower.includes('constant')) return 'CONST';
-    if (lower.includes('pinned')) return 'PIN';
-    if (lower.includes('bootstrap')) return 'BOOT';
-    if (lower.includes('seed')) return 'SEED';
-    return matchedBy.length > 8 ? 'AI' : escapeHtml(matchedBy);
+    const { type } = parseMatchReason(matchedBy);
+    const labels = {
+        constant: 'CONST', pinned: 'PIN', bootstrap: 'BOOT',
+        seed: 'SEED', keyword: 'KEY', keyword_ai: 'KEY+AI', ai: 'AI',
+    };
+    return labels[type] || (matchedBy.length > 8 ? 'AI' : escapeHtml(matchedBy));
 }
 
 /** Announce a message to screen readers via the aria-live region */

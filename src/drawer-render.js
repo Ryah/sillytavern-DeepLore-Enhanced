@@ -11,7 +11,7 @@ import {
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
     cooldownTracker, decayTracker,
 } from './state.js';
-import { buildObsidianURI } from './helpers.js';
+import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault } from './helpers.js';
 import { getCircuitState } from './obsidian-api.js';
 import {
     ds, BROWSE_ROW_HEIGHT, BROWSE_OVERSCAN, MODE_LABELS, STATUS_CLASSES,
@@ -164,21 +164,18 @@ export function renderInjectionTab() {
 
     $empty.hide();
 
-    // Compute diff
-    const prevTitles = prev ? new Set(prev.map(s => s.title)) : null;
-    const currTitles = new Set(sources.map(s => s.title));
-    const added = prevTitles ? sources.filter(s => !prevTitles.has(s.title)) : [];
-    const removed = prev ? prev.filter(s => !currTitles.has(s.title)) : [];
+    // Compute diff via shared data layer
+    const diff = computeSourcesDiff(sources, prev);
 
     // Diff header
     const diffParts = [];
-    if (added.length) diffParts.push(`<span class="dle-diff-add" aria-label="${added.length} new entries added">+${added.length} new</span>`);
-    if (removed.length) diffParts.push(`<span class="dle-diff-remove" aria-label="${removed.length} entries removed">-${removed.length} removed</span>`);
+    if (diff.added.length) diffParts.push(`<span class="dle-diff-add" aria-label="${diff.added.length} new entries added">+${diff.added.length} new</span>`);
+    if (diff.removed.length) diffParts.push(`<span class="dle-diff-remove" aria-label="${diff.removed.length} entries removed">-${diff.removed.length} removed</span>`);
     $diff.html(diffParts.join(' '));
 
     // Build entries
     const settings = getSettings();
-    const addedTitles = new Set(added.map(s => s.title));
+    const addedTitles = new Set(diff.added.map(s => s.title));
     let html = '';
 
     for (const src of sources) {
@@ -189,11 +186,7 @@ export function renderInjectionTab() {
         if (isConstant) classes.push('dle-why-constant');
 
         // Obsidian link
-        const srcVault = src.vaultSource && settings.vaults
-            ? settings.vaults.find(v => v.name === src.vaultSource)
-            : null;
-        const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
-        const uri = src.filename ? buildObsidianURI(vaultName, src.filename) : null;
+        const { uri } = resolveEntryVault(src, settings.vaults);
 
         const matchLabel = getMatchLabel(src.matchedBy);
 
@@ -218,34 +211,13 @@ export function renderInjectionTab() {
 
     // ── "Why Not" section — entries that were candidates but got filtered out ──
     if (trace) {
+        // Use shared categorization (all 8 rejection stages), flatten to list
+        const injectedTitles = new Set(sources.map(s => s.title));
+        const rejectedGroups = categorizeRejections(trace, injectedTitles);
         const rejections = [];
-
-        if (trace.contextualGatingRemoved) {
-            for (const title of trace.contextualGatingRemoved) {
-                rejections.push({ title, reason: 'Gating mismatch' });
-            }
-        }
-        if (trace.cooldownRemoved) {
-            for (const title of trace.cooldownRemoved) {
-                rejections.push({ title, reason: 'Cooldown active' });
-            }
-        }
-        if (trace.gatedOut) {
-            for (const entry of trace.gatedOut) {
-                const parts = [];
-                if (entry.requires?.length) parts.push(`needs: ${entry.requires.join(', ')}`);
-                if (entry.excludes?.length) parts.push(`blocked by: ${entry.excludes.join(', ')}`);
-                rejections.push({ title: entry.title, reason: parts.join('; ') || 'requires/excludes' });
-            }
-        }
-        if (trace.stripDedupRemoved) {
-            for (const title of trace.stripDedupRemoved) {
-                rejections.push({ title, reason: 'Already in context' });
-            }
-        }
-        if (trace.budgetCut) {
-            for (const entry of trace.budgetCut) {
-                rejections.push({ title: entry.title, reason: `Over budget (${entry.tokens} tok)` });
+        for (const group of rejectedGroups) {
+            for (const e of group.entries) {
+                rejections.push({ title: e.title, reason: e.reason });
             }
         }
 

@@ -151,9 +151,9 @@
                     </div>
                 </div>
             </div>
-            <label class="checkbox_label" for="dle_sp_char_context_scan" title="Auto-match the active character's vault entry by name or keyword.">
+            <label class="checkbox_label" for="dle_sp_char_context_scan" title="Automatically include the active character's vault entry based on their name, without needing a keyword match.">
                 <input id="dle_sp_char_context_scan" type="checkbox" class="checkbox">
-                <span>Active Character Boost</span>
+                <span>Auto-match active character</span>
             </label>
             <label class="checkbox_label" for="dle_sp_fuzzy_search" title="Enable BM25 fuzzy text search alongside keyword matching.">
                 <input id="dle_sp_fuzzy_search" type="checkbox" class="checkbox">
@@ -215,20 +215,20 @@
                     </div>
                 </div>
                 <div class="flex-container">
-                    <div class="flex1" title="After an entry is injected, skip it for the next N generations. 0 = disabled.">
-                        <label for="dle_sp_reinjection_cooldown"><small>Re-injection Cooldown (0 = off)</small></label>
+                    <div class="flex1" title="After an entry is included, skip it for the next N messages. 0 = always include when matched.">
+                        <label for="dle_sp_reinjection_cooldown"><small>Rest period between repeats (0 = off)</small></label>
                         <input id="dle_sp_reinjection_cooldown" type="number" class="text_pole" min="0" max="50" />
                     </div>
                 </div>
                 <div class="flex-container">
                     <div class="flex1">
-                        <label class="checkbox_label" for="dle_sp_strip_dedup" title="Prevent entries from being injected if they appeared in recent generations.">
+                        <label class="checkbox_label" for="dle_sp_strip_dedup" title="Skip entries that were already injected in recent messages, preventing repeats.">
                             <input id="dle_sp_strip_dedup" type="checkbox" class="checkbox">
-                            <span>Strip Duplicate Injections</span>
+                            <span>Skip Recently Injected</span>
                         </label>
                     </div>
-                    <div class="flex1" title="How many prior generations to check when stripping duplicates.">
-                        <label for="dle_sp_strip_lookback"><small>Lookback Depth</small></label>
+                    <div class="flex1" title="How many prior messages to check for recently injected entries.">
+                        <label for="dle_sp_strip_lookback"><small>Messages to check</small></label>
                         <input id="dle_sp_strip_lookback" type="number" class="text_pole" min="1" max="10" />
                     </div>
                 </div>
@@ -289,7 +289,7 @@
                         <label for="dle_sp_template"><small>Injection Template</small></label>
                         <textarea id="dle_sp_template" class="text_pole textarea_compact" rows="3" placeholder="Use {{title}} and {{content}} macros."></textarea>
                     </div>
-                    <label class="checkbox_label" for="dle_sp_allow_wi_scan" title="Let SillyTavern's built-in World Info system scan the injected lore.">
+                    <label class="checkbox_label" for="dle_sp_allow_wi_scan" title="When enabled, SillyTavern's built-in World Info can trigger on text inside your DeepLore entries. Useful if you use both systems. May cause duplicate injections.">
                         <input id="dle_sp_allow_wi_scan" type="checkbox" class="checkbox">
                         <span>Allow World Info Scan</span>
                     </label>
@@ -372,8 +372,8 @@
                             <label for="dle_sp_ai_scan_depth"><small>AI Scan Depth</small></label>
                             <input id="dle_sp_ai_scan_depth" type="number" class="text_pole" min="1" max="100" />
                         </div>
-                        <div class="flex1" title="Max characters for entry descriptions in AI search. Default: 600">
-                            <label for="dle_sp_ai_summary_length"><small>Entry Description Length</small></label>
+                        <div class="flex1" title="Max characters for entry summaries shown to the AI when deciding which entries to include. Default: 600">
+                            <label for="dle_sp_ai_summary_length"><small>Summary length for AI</small></label>
                             <input id="dle_sp_ai_summary_length" type="number" class="text_pole" min="100" max="1000" />
                         </div>
                     </div>
@@ -381,9 +381,9 @@
                         <label for="dle_sp_ai_system_prompt"><small>System Prompt Override (empty = default)</small></label>
                         <textarea id="dle_sp_ai_system_prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default prompt."></textarea>
                     </div>
-                    <label class="checkbox_label" for="dle_sp_ai_claude_prefix" title="Add 'You are Claude Code' prefix. Only for proxy mode with Claude models.">
+                    <label class="checkbox_label" for="dle_sp_ai_claude_prefix" title="Adds a system identity prefix that improves Claude model performance when using the proxy connection. Proxy mode only.">
                         <input id="dle_sp_ai_claude_prefix" type="checkbox" class="checkbox">
-                        <span>Prepend 'You are Claude Code'</span>
+                        <span>Claude system prefix (proxy only)</span>
                     </label>
                     <label class="checkbox_label" for="dle_sp_scribe_informed_retrieval" title="Feed the Session Scribe's latest summary into AI search context.">
                         <input id="dle_sp_scribe_informed_retrieval" type="checkbox" class="checkbox">

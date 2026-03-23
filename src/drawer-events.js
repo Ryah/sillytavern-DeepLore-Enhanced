@@ -193,8 +193,10 @@ export function wireBrowseTab($drawer) {
         notifyPinBlockChanged();
     });
 
-    // Click-to-expand entry preview (click on entry info area, not buttons)
-    $drawer.find('.dle-browse-list').on('click', '.dle-browse-info', function (e) {
+    // Click/keyboard-to-expand entry preview (click on entry info area, not buttons)
+    $drawer.find('.dle-browse-list').on('click keydown', '.dle-browse-info', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.type === 'keydown') e.preventDefault();
         const $entry = $(this).closest('.dle-browse-entry');
         const title = $entry.data('title');
         if (!title) return;
@@ -210,6 +212,7 @@ export function wireBrowseTab($drawer) {
             const cleanup = () => { if (!cleaned) { cleaned = true; $existing.remove(); } };
             $entry.one('transitionend', cleanup);
             setTimeout(cleanup, 250); // safety timeout
+            $(this).attr('aria-expanded', 'false');
             ds.browseExpandedEntry = null;
             return;
         }
@@ -217,12 +220,14 @@ export function wireBrowseTab($drawer) {
         // Collapse any other expanded entry
         $drawer.find('.dle-browse-preview').remove();
         $drawer.find('.dle-browse-entry').css('height', BROWSE_ROW_HEIGHT + 'px');
+        $drawer.find('.dle-browse-info').attr('aria-expanded', 'false');
 
         // Find the entry data
         const entry = ds.browseFilteredEntries.find(e => e.title === title);
         if (!entry) return;
 
         ds.browseExpandedEntry = title;
+        $(this).attr('aria-expanded', 'true');
 
         // Build preview content
         const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');

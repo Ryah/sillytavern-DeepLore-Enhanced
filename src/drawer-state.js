@@ -134,7 +134,7 @@ export function getMatchLabel(matchedBy) {
     if (!matchedBy) return '?';
     const { type } = parseMatchReason(matchedBy);
     const labels = {
-        constant: 'CONST', pinned: 'PIN', bootstrap: 'BOOT',
+        constant: 'CONST', pinned: 'PIN', bootstrap: 'INIT',
         seed: 'SEED', keyword: 'KEY', keyword_ai: 'KEY+AI', ai: 'AI',
     };
     return labels[type] || (matchedBy.length > 8 ? 'AI' : escapeHtml(matchedBy));

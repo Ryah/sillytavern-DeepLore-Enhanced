@@ -319,7 +319,7 @@ export function yamlEscape(str) {
 /**
  * User-friendly message shown when no vault entries are loaded.
  */
-export const NO_ENTRIES_MSG = 'No vault entries loaded. Run /dle-refresh or /dle-health to diagnose.';
+export const NO_ENTRIES_MSG = 'No entries found. Check your Obsidian vault connection, or run /dle-health to troubleshoot.';
 
 /**
  * Classify an error into a user-friendly message based on common patterns.

@@ -71,7 +71,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
-            toastr.warning('Lore retrieval still running — this response may miss lore.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+            toastr.warning('Still selecting lore from the last message. This response will use existing context.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
             return;
         }
     }
@@ -164,14 +164,14 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (trace?.aiFallback) {
             const aiErr = trace.aiError || '';
             let fallbackMsg = 'AI search failed';
-            if (/timeout|timed out|abort/i.test(aiErr)) fallbackMsg += ' (timed out — try increasing AI Search timeout)';
-            else if (/401|403|auth/i.test(aiErr)) fallbackMsg += ' (auth error — check API key or profile)';
-            else if (/not found|no.*profile/i.test(aiErr)) fallbackMsg += ' (connection profile not found — check AI Search settings)';
-            else if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch|network/i.test(aiErr)) fallbackMsg += ' (network error — check proxy URL or profile)';
+            if (/timeout|timed out|abort/i.test(aiErr)) fallbackMsg += ' (timed out — try increasing the timeout in Settings > AI Search)';
+            else if (/401|403|auth/i.test(aiErr)) fallbackMsg += ' (auth error — check your API key or connection profile)';
+            else if (/not found|no.*profile/i.test(aiErr)) fallbackMsg += ' (connection profile not found — check Settings > AI Search)';
+            else if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch|network/i.test(aiErr)) fallbackMsg += ' (network error — check your proxy URL or connection profile)';
             else if (/5\d\d|502|503|server/i.test(aiErr)) fallbackMsg += ' (server error — try again later)';
             else if (aiErr) fallbackMsg += ` (${aiErr.slice(0, 80)})`;
             console.warn('[DLE] AI search error:', aiErr);
-            dedupWarning(`${fallbackMsg} — using keyword fallback`, 'ai_search', { timeOut: 6000 });
+            dedupWarning(`${fallbackMsg} — falling back to keywords`, 'ai_search', { timeOut: 6000 });
         }
 
         if (settings.debugMode && trace) {
@@ -308,8 +308,8 @@ async function onGenerate(chat, contextSize, abort, type) {
             trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings);
         }
 
-        // Clear stale injection log when dedup is toggled off
-        if (!settings.stripDuplicateInjections && chat_metadata.deeplore_injection_log?.length > 0) {
+        // Clear stale injection log when dedup is toggled off (epoch-guarded)
+        if (!settings.stripDuplicateInjections && epoch === chatEpoch && chat_metadata.deeplore_injection_log?.length > 0) {
             chat_metadata.deeplore_injection_log = [];
             saveChatDebounced();
         }
@@ -346,15 +346,17 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Stage 9: Per-chat injection counts
-        for (const entry of injectedEntries) {
-            const key = trackerKey(entry);
-            chatInjectionCounts.set(key, (chatInjectionCounts.get(key) || 0) + 1);
-        }
-        // Persist to chat_metadata on same cadence as analytics
-        if (generationCount % 5 === 0) {
-            chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
-            saveChatDebounced();
+        // Stage 9: Per-chat injection counts (epoch-guarded)
+        if (epoch === chatEpoch) {
+            for (const entry of injectedEntries) {
+                const key = trackerKey(entry);
+                chatInjectionCounts.set(key, (chatInjectionCounts.get(key) || 0) + 1);
+            }
+            // Persist to chat_metadata on same cadence as analytics
+            if (generationCount % 5 === 0) {
+                chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
+                saveChatDebounced();
+            }
         }
 
         if (groups.length > 0) {
@@ -364,7 +366,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 if (ratio > 0.20 && ratio > lastWarningRatio + 0.05) {
                     const pct = Math.round(ratio * 100);
                     toastr.warning(
-                        `${injectedCount} entries injected (~${totalTokens} tokens, ${pct}% of context). Consider setting a token budget.`,
+                        `Lore is using ${pct}% of your context window (~${totalTokens} tokens, ${injectedCount} entries). You can set a token budget in Settings to manage this.`,
                         'DeepLore Enhanced',
                         { preventDuplicates: true, timeOut: 8000 },
                     );
@@ -394,7 +396,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
-        dedupError('Lore injection failed. Try /dle-health to diagnose, or /dle-refresh to rebuild.', 'pipeline');
+        dedupError('Something went wrong loading your lore. Try /dle-health to check for issues, or /dle-refresh to reload.', 'pipeline');
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
@@ -454,7 +456,7 @@ jQuery(async function () {
                 let setupLaunched = false;
                 toastr.info(
                     'Welcome to DeepLore Enhanced! Click here to run the setup wizard, or close this to set up later via /dle-setup.',
-                    'DeepLore Enhanced — First Run',
+                    'DeepLore Enhanced',
                     {
                         timeOut: 0,
                         extendedTimeOut: 0,
@@ -548,8 +550,10 @@ jQuery(async function () {
             });
         }
 
-        // Context Cartographer: click handler (event delegation — registered once)
-        $('#chat').on('click', '.mes_deeplore_sources', function () {
+        // Context Cartographer: click + keyboard handler (event delegation — registered once)
+        $('#chat').on('click keydown', '.mes_deeplore_sources', function (e) {
+            if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+            if (e.type === 'keydown') e.preventDefault();
             const messageId = $(this).closest('.mes').attr('mesid');
             const message = chat[messageId];
             const sources = message?.extra?.deeplore_sources;

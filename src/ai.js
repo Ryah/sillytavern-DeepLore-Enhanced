@@ -13,6 +13,7 @@ import {
     notifyAiStatsUpdated,
     isAiCircuitOpen, recordAiSuccess, recordAiFailure,
 } from './state.js';
+import { dedupWarning } from './toast-dedup.js';
 // Re-export pure functions from helpers.js (moved there for testability in Node.js)
 export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from './helpers.js';
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from './helpers.js';
@@ -322,6 +323,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // Circuit breaker: skip AI search if service is repeatedly failing
     if (isAiCircuitOpen()) {
         if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
+        dedupWarning('AI search temporarily paused after repeated failures. Using keyword matching.', 'ai_circuit', { timeOut: 8000 });
         return { results: [], error: true };
     }
 

@@ -32,7 +32,7 @@ export function showChangesToast(changes) {
         parts.push(`Keys changed: ${truncList(changes.keysChanged)}`);
     }
 
-    toastr.info(parts.join('<br>'), 'DeepLore Enhanced - Vault Updated', {
+    toastr.info(parts.join('<br>'), 'DeepLore Enhanced', {
         timeOut: 8000,
         extendedTimeOut: 12000,
         progressBar: true,

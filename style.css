@@ -1076,13 +1076,13 @@ button.dle-browse-why:hover {
     opacity: 0.9;
 }
 
-.dle-pin-active {
-    opacity: 1 !important;
+button.dle-browse-pin.dle-pin-active {
+    opacity: 1;
     color: var(--dle-info);
 }
 
-.dle-block-active {
-    opacity: 1 !important;
+button.dle-browse-block.dle-block-active {
+    opacity: 1;
     color: var(--dle-error);
 }
 
@@ -1613,12 +1613,6 @@ button.dle-browse-why:hover {
     0% { transform: scale(0); }
     70% { transform: scale(1.15); }
     100% { transform: scale(1); }
-}
-
-/* Chip entrance */
-@keyframes dle-chip-in {
-    from { opacity: 0; transform: scale(0.8); }
-    to { opacity: 1; transform: scale(1); }
 }
 
 /* Stat value flash on change */

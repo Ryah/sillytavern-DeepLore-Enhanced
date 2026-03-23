@@ -31,7 +31,7 @@ export function injectSourcesButton(messageId) {
     if (mesEl.length === 0) return;
     if (mesEl.find('.mes_deeplore_sources').length > 0) return;
 
-    const btn = $('<div title="Why? — See which lore was injected" class="mes_button mes_deeplore_sources fa-solid fa-book-open"></div>');
+    const btn = $('<div title="Why? — See which lore was injected" class="mes_button mes_deeplore_sources fa-solid fa-book-open" role="button" tabindex="0" aria-label="Why? — See which lore was injected"></div>');
     mesEl.find('.extraMesButtons').prepend(btn);
 }
 

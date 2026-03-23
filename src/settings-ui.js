@@ -358,6 +358,14 @@ export async function openSettingsPopup() {
     $container.find('.dle-settings-tab.active').attr('tabindex', '0');
     $container.find('.dle-settings-panel').not('.active').attr('hidden', '');
 
+    // Keyboard support for all role="button" elements (Enter/Space fires click)
+    $container.on('keydown', '[role="button"][tabindex="0"]', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).trigger('click');
+        }
+    });
+
     // Advanced section toggles
     $container.on('click', '.dle_advanced_toggle', function () {
         const section = $(this).data('section');
@@ -536,6 +544,10 @@ function bindPopupEvents($container) {
     const settings = getSettings();
     const $c = (sel) => $container.find(sel);
 
+    // Debounced index rebuild for tag inputs — avoids rebuilding on every keystroke
+    let _rebuildTimer = null;
+    const debouncedRebuild = () => { clearTimeout(_rebuildTimer); _rebuildTimer = setTimeout(() => buildIndexWithReuse(), 500); };
+
     $container.on('change input', 'input, select, textarea', () => invalidateSettingsCache());
 
     // ── Connection ──
@@ -567,11 +579,11 @@ function bindPopupEvents($container) {
         } catch (err) { statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success'); }
     });
 
-    $c('#dle_sp_tag').on('input', function () { settings.lorebookTag = String($(this).val()).trim() || 'lorebook'; saveSettingsDebounced(); buildIndexWithReuse(); });
-    $c('#dle_sp_constant_tag').on('input', function () { settings.constantTag = String($(this).val()).trim() || 'lorebook-always'; saveSettingsDebounced(); buildIndexWithReuse(); });
-    $c('#dle_sp_never_insert_tag').on('input', function () { settings.neverInsertTag = String($(this).val()).trim() || 'lorebook-never'; saveSettingsDebounced(); buildIndexWithReuse(); });
-    $c('#dle_sp_seed_tag').on('input', function () { settings.seedTag = String($(this).val()).trim() || 'lorebook-seed'; saveSettingsDebounced(); buildIndexWithReuse(); });
-    $c('#dle_sp_bootstrap_tag').on('input', function () { settings.bootstrapTag = String($(this).val()).trim() || 'lorebook-bootstrap'; saveSettingsDebounced(); buildIndexWithReuse(); });
+    $c('#dle_sp_tag').on('input', function () { settings.lorebookTag = String($(this).val()).trim() || 'lorebook'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle_sp_constant_tag').on('input', function () { settings.constantTag = String($(this).val()).trim() || 'lorebook-always'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle_sp_never_insert_tag').on('input', function () { settings.neverInsertTag = String($(this).val()).trim() || 'lorebook-never'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle_sp_seed_tag').on('input', function () { settings.seedTag = String($(this).val()).trim() || 'lorebook-seed'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle_sp_bootstrap_tag').on('input', function () { settings.bootstrapTag = String($(this).val()).trim() || 'lorebook-bootstrap'; saveSettingsDebounced(); debouncedRebuild(); });
     $c('#dle_sp_new_chat_threshold').on('input', function () { settings.newChatThreshold = Number($(this).val()) || 3; saveSettingsDebounced(); });
 
     // ── Matching ──
@@ -803,4 +815,7 @@ export function bindSettingsEvents(buildIndexFn) {
     });
 
     $('#dle_open_settings').on('click', () => openSettingsPopup());
+    $('#dle_open_settings').on('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSettingsPopup(); }
+    });
 }

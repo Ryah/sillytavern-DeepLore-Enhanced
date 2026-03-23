@@ -248,7 +248,7 @@ export function convertWiEntry(wiEntry, lorebookTag) {
     let content = wiEntry.content || '';
     content = content.replace(/^---$/gm, '- - -'); // prevent YAML frontmatter delimiter injection
     content = content.replace(/%%deeplore-exclude%%[\s\S]*?%%\/deeplore-exclude%%/g, ''); // strip control sequences
-    content = content.replace(/^%%[\s\S]*?^%%/gm, ''); // strip Obsidian comment blocks
+    content = stripObsidianSyntax(content); // strip Templater, Dataview, CustomJS, obsidian:// links
     const fullContent = `${fm.join('\n')}\n\n# ${title}\n\n${content}`;
 
     return { filename: `${safeTitle}.md`, content: fullContent };
@@ -412,15 +412,15 @@ export function categorizeRejections(trace, injectedTitles) {
                 if (e.excludes?.length) parts.push(`blocked by: ${e.excludes.join(', ')}`);
                 return { title: e.title, reason: parts.join('; ') || 'requires/excludes' };
             });
-        if (entries.length > 0) groups.push({ stage: 'gated_out', label: 'Gated Out (requires/excludes)', icon: 'fa-lock', entries });
+        if (entries.length > 0) groups.push({ stage: 'gated_out', label: 'Blocked by dependencies', icon: 'fa-lock', entries });
     }
 
     // Contextual Gating Removed (string array)
     if (trace.contextualGatingRemoved?.length > 0) {
         const entries = trace.contextualGatingRemoved
             .filter(t => !injectedTitles.has(t))
-            .map(t => ({ title: t, reason: 'Gating mismatch' }));
-        if (entries.length > 0) groups.push({ stage: 'contextual_gating', label: 'Contextual Gating', icon: 'fa-filter', entries });
+            .map(t => ({ title: t, reason: 'Filtered by era/location/scene/character' }));
+        if (entries.length > 0) groups.push({ stage: 'contextual_gating', label: 'Filtered by context', icon: 'fa-filter', entries });
     }
 
     // AI Rejected — candidates that made it to manifest but AI didn't select
@@ -455,7 +455,7 @@ export function categorizeRejections(trace, injectedTitles) {
         const entries = trace.budgetCut
             .filter(e => !injectedTitles.has(e.title))
             .map(e => ({ title: e.title, reason: `Over budget${e.tokens ? ` (${e.tokens} tok)` : ''}` }));
-        if (entries.length > 0) groups.push({ stage: 'budget_cut', label: 'Budget/Max Cut', icon: 'fa-scissors', entries });
+        if (entries.length > 0) groups.push({ stage: 'budget_cut', label: 'Over budget', icon: 'fa-scissors', entries });
     }
 
     // Strip Dedup Removed (string array)

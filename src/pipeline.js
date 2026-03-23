@@ -49,14 +49,15 @@ export function matchEntries(chat, snapshot = null) {
         }
     }
 
+    // Memoize buildScanText by depth — shared across keyword matching and BM25 fuzzy search
+    const scanTextMemo = new Map();
+    function getScanText(depth) {
+        if (!scanTextMemo.has(depth)) scanTextMemo.set(depth, buildScanText(chat, depth));
+        return scanTextMemo.get(depth);
+    }
+
     // Keyword matching: skip entirely when scanDepth is 0 (AI-only mode)
     if (settings.scanDepth > 0) {
-        // C5: Memoize buildScanText by depth to avoid redundant string building
-        const scanTextMemo = new Map();
-        function getScanText(depth) {
-            if (!scanTextMemo.has(depth)) scanTextMemo.set(depth, buildScanText(chat, depth));
-            return scanTextMemo.get(depth);
-        }
         const globalScanText = getScanText(settings.scanDepth);
 
         // Initial scan pass
@@ -206,12 +207,7 @@ export function matchEntries(chat, snapshot = null) {
 
     // BM25 fuzzy search: supplement keyword matches with TF-IDF scored results
     if (settings.fuzzySearchEnabled && fuzzySearchIndex && settings.scanDepth > 0) {
-        const scanTextMemo2 = new Map();
-        function getScanText2(depth) {
-            if (!scanTextMemo2.has(depth)) scanTextMemo2.set(depth, buildScanText(chat, depth));
-            return scanTextMemo2.get(depth);
-        }
-        const fuzzyText = getScanText2(settings.scanDepth);
+        const fuzzyText = getScanText(settings.scanDepth);
         const bm25Results = queryBM25(fuzzySearchIndex, fuzzyText, 20);
         for (const result of bm25Results) {
             const entry = result.entry;

@@ -241,7 +241,8 @@ export function applyRequiresExcludesGating(entries, policy, debugMode) {
     }
 
     // Detect contradictory gating for debugging
-    const removed = entries.filter(e => !result.includes(e));
+    const resultSet = new Set(result);
+    const removed = entries.filter(e => !resultSet.has(e));
     if (removed.length > 0) {
         const entryMap = new Map(entries.map(e => [e.title.toLowerCase(), e]));
         for (const r of removed) {

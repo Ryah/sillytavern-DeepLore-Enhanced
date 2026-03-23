@@ -38,9 +38,9 @@ export function renderStatusZone() {
     $dot.attr('title', `Status: ${status}`);
     $dot.attr('aria-label', `System status: ${status}`);
 
-    // Pipeline label + activity animation (3-state: Choosing Lore → Writing → Idle)
-    const pipelineText = generationLock ? 'Choosing Lore...' : ds.stGenerating ? 'Writing...' : 'Idle';
-    $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Pipeline stage: ${pipelineText}`);
+    // Activity label (3-state: Choosing Lore → Generating → Idle)
+    const pipelineText = generationLock ? 'Choosing Lore...' : ds.stGenerating ? 'Generating...' : 'Idle';
+    $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
     $dot.toggleClass('dle-status-active', !!generationLock || ds.stGenerating);
 
     // Stats (with flash animation on value change)
@@ -85,7 +85,7 @@ export function renderStatusZone() {
         ? `DLE ${used.toLocaleString()} / ${budget.toLocaleString()}`
         : settings.unlimitedBudget
             ? `DLE ${used.toLocaleString()} / \u221E`
-            : 'DLE — / —';
+            : 'DLE: waiting';
     $drawer.find('.dle-token-bar-label').text(budgetLabel);
 
     // Entries bar (same fallback as injected stat above)
@@ -99,7 +99,7 @@ export function renderStatusZone() {
         ? `Entries ${injectedNum} / ${maxEntries}`
         : settings.unlimitedEntries
             ? `Entries ${injectedNum} / \u221E`
-            : 'Entries — / —';
+            : 'Entries: waiting';
     $drawer.find('.dle-entries-bar-label').text(entriesLabel);
 
     // Active gating filters
@@ -485,7 +485,7 @@ export function renderBrowseWindow() {
 
         const top = i * BROWSE_ROW_HEIGHT;
         html += `<div class="${classes.join(' ')}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;">`;
-        html += `<div class="dle-browse-info">`;
+        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}">`;
         html += `<span class="dle-browse-title">${escapeHtml(e.title)}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;

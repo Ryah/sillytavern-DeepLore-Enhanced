@@ -260,7 +260,7 @@ export async function buildIndex() {
                     const failRate = data.total > 0 ? data.failed / data.total : 0;
                     if (data.failed >= 5 || failRate >= 0.1) {
                         toastr.warning(
-                            `Vault "${vault.name}": ${data.failed} of ${data.total} files failed to fetch.`,
+                            `Some entries in "${vault.name}" couldn't be loaded (${data.failed} of ${data.total}). They'll be included on the next refresh.`,
                             'DeepLore Enhanced',
                             { timeOut: 8000, preventDuplicates: true },
                         );
@@ -305,13 +305,13 @@ export async function buildIndex() {
         const raw = String(err.message || err);
         let userMsg = raw;
         if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
-            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin enabled, (3) Port is correct.\n(${raw})`;
+            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin enabled, (3) Port is correct. (${raw})`;
         } else if (/No enabled vaults/i.test(raw)) {
             userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
         } else if (/401|403|auth/i.test(raw)) {
-            userMsg = `Authentication failed. Check your vault API key in settings.\n(${raw})`;
+            userMsg = `Authentication failed. Check your vault API key in settings. (${raw})`;
         } else if (/timeout|timed out/i.test(raw)) {
-            userMsg = `Obsidian connection timed out. Check that the REST API plugin is running.\n(${raw})`;
+            userMsg = `Obsidian connection timed out. Check that the REST API plugin is running. (${raw})`;
         }
         dedupError(userMsg, 'obsidian_connect');
     } finally {

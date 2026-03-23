@@ -254,16 +254,9 @@ export async function testConnection(port, apiKey) {
         // Users clicking "Test" expect a real connection attempt regardless of prior failures.
         // The breaker will re-trip naturally if the test fails 3 more times.
         const cb = getCircuitBreaker(port);
-<<<<<<< Updated upstream
-        if (cb.state !== 'closed') {
-            cb.state = 'half-open';
-            cb.halfOpenProbe = false; // let obsidianFetch be the probe
-        }
-=======
         cb.state = 'closed';
         cb.failures = 0;
         cb.halfOpenProbe = false;
->>>>>>> Stashed changes
         const result = await obsidianFetch({ port, apiKey: apiKey || '', path: '/vault/', timeout: 10000 });
         if (result.status === 200) {
             return { ok: true, authenticated: true };

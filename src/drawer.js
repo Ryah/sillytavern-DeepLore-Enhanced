@@ -123,6 +123,19 @@ let browseStatusFilter = 'all';
 let browseTagFilter = '';
 let browseSort = 'priority_asc';
 
+// Pre-computed tag cache (rebuilt on index update, avoids rebuilding on every browse render)
+let cachedTagSet = null;
+let cachedTagOptions = '';
+
+// Virtual scroll state for Browse tab
+const BROWSE_ROW_HEIGHT = 32; // px — must match CSS .dle-browse-entry height
+const BROWSE_OVERSCAN = 8;    // extra rows rendered above/below viewport
+let browseFilteredEntries = [];
+let browseLastRangeStart = -1;
+let browseLastRangeEnd = -1;
+let browseScrollRAF = null;
+let browseExpandedEntry = null; // title of currently expanded entry (disables virtual scroll)
+
 // Context window token tracking (updated via CHAT_COMPLETION_PROMPT_READY event)
 let contextTokens = 0;
 let promptManagerRef = null;
@@ -133,6 +146,10 @@ export function resetDrawerState() {
     browseStatusFilter = 'all';
     browseTagFilter = '';
     browseSort = 'priority_asc';
+    browseFilteredEntries = [];
+    browseLastRangeStart = -1;
+    browseLastRangeEnd = -1;
+    browseExpandedEntry = null;
     contextTokens = 0;
     stGenerating = false;
     if (browseSearchTimeout) { clearTimeout(browseSearchTimeout); browseSearchTimeout = null; }
@@ -251,6 +268,35 @@ function renderStatusZone() {
     } else {
         $filters.empty().hide();
     }
+
+    updateTabBadges();
+}
+
+/**
+ * Update tab count badges (cheap — just sets textContent on 3 spans).
+ */
+function updateTabBadges() {
+    const $drawer = $drawerRef;
+    if (!$drawer) return;
+
+    // Why? tab: injected entry count
+    const injCount = lastInjectionSources?.length || 0;
+    $drawer.find('[data-badge="injection"]').text(injCount || '');
+
+    // Browse tab: total vault entries
+    const browseCount = vaultIndex?.length || 0;
+    $drawer.find('[data-badge="browse"]').text(browseCount || '');
+
+    // Gating tab: count of active gating fields
+    const ctx = chat_metadata?.deeplore_context;
+    let gatingCount = 0;
+    if (ctx) {
+        if (ctx.era) gatingCount++;
+        if (ctx.location) gatingCount++;
+        if (ctx.scene_type) gatingCount++;
+        if (ctx.characters_present?.length) gatingCount += ctx.characters_present.length;
+    }
+    $drawer.find('[data-badge="gating"]').text(gatingCount || '');
 }
 
 /**
@@ -398,21 +444,15 @@ function renderBrowseTab() {
 
     $emptyNoData.hide();
 
-    // Build tag filter options dynamically
+    // Use pre-computed tag cache (rebuilt on index update)
     const $tagSelect = $drawer.find('[data-filter="tag"]');
-    const currentTagVal = $tagSelect.val() || '';
-    const tagSet = new Set();
-    for (const e of vaultIndex) {
-        if (e.tags) for (const t of e.tags) tagSet.add(t);
+    if (cachedTagOptions) {
+        $tagSelect.html(cachedTagOptions);
+        if (browseTagFilter) $tagSelect.val(browseTagFilter);
     }
-    const tagOpts = ['<option value="">Tags</option>'];
-    for (const t of [...tagSet].sort()) {
-        tagOpts.push(`<option value="${escapeHtml(t)}"${t === currentTagVal ? ' selected' : ''}>${escapeHtml(t)}</option>`);
-    }
-    $tagSelect.html(tagOpts.join(''));
 
     // Reset stale tag filter if the tag no longer exists in the vault
-    if (browseTagFilter && !tagSet.has(browseTagFilter)) {
+    if (browseTagFilter && cachedTagSet && !cachedTagSet.has(browseTagFilter)) {
         browseTagFilter = '';
     }
 
@@ -470,9 +510,70 @@ function renderBrowseTab() {
         default: entries.sort((a, b) => (a.priority || 50) - (b.priority || 50));
     }
 
-    // Render
+    // Store filtered entries for virtual scroll
+    browseFilteredEntries = entries;
+    browseLastRangeStart = -1;
+    browseLastRangeEnd = -1;
+    browseExpandedEntry = null; // collapse any expanded entry on filter change
+
+    // Set up virtual scroll container — use min-height so flex doesn't collapse it
+    const listEl = $list[0];
+    if (!listEl) return;
+    const totalHeight = entries.length * BROWSE_ROW_HEIGHT;
+    $list.css({ 'min-height': totalHeight + 'px' });
+
+    // Reset scroll to top when filters change (prevents seeing empty results after filtering while scrolled)
+    const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
+    if (scrollContainer) scrollContainer.scrollTop = 0;
+
+    // Render visible window
+    renderBrowseWindow();
+    $emptyNoResults.toggle(entries.length === 0);
+}
+
+/**
+ * Render only the visible window of browse entries (virtual scroll).
+ * Reads scroll position from the tab panel, computes visible range, renders only those rows.
+ */
+function renderBrowseWindow() {
+    const $drawer = $drawerRef;
+    if (!$drawer) return;
+    const $list = $drawer.find('.dle-browse-list');
+    const listEl = $list[0];
+    if (!listEl) return;
+
+    const entries = browseFilteredEntries;
+    if (!entries.length) { $list.empty(); return; }
+
+    // The scrollable container is .dle-drawer-inner, not the tab panel
+    const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
+    if (!scrollContainer) return;
+    const viewHeight = scrollContainer.clientHeight;
+    // How far the list's top is above (negative) or below (positive) the scroll container's viewport top
+    // Using getBoundingClientRect for robustness against intermediate positioned parents
+    const relativeScroll = scrollContainer.getBoundingClientRect().top - listEl.getBoundingClientRect().top;
+
+    const startIdx = Math.max(0, Math.floor(relativeScroll / BROWSE_ROW_HEIGHT) - BROWSE_OVERSCAN);
+    const endIdx = Math.min(entries.length, Math.ceil((relativeScroll + viewHeight) / BROWSE_ROW_HEIGHT) + BROWSE_OVERSCAN);
+
+    // Skip re-render if visible range hasn't changed
+    if (startIdx === browseLastRangeStart && endIdx === browseLastRangeEnd) return;
+    browseLastRangeStart = startIdx;
+    browseLastRangeEnd = endIdx;
+
+    // Pin/block/injected state for rendering
+    const pins = chat_metadata?.deeplore_pins || [];
+    const blocks = chat_metadata?.deeplore_blocks || [];
+    const pinSet = new Set(pins.map(t => t.toLowerCase()));
+    const blockSet = new Set(blocks.map(t => t.toLowerCase()));
+    const injectedSet = new Set();
+    if (lastInjectionSources) {
+        for (const s of lastInjectionSources) injectedSet.add(s.title.toLowerCase());
+    }
+
     let html = '';
-    for (const e of entries) {
+    for (let i = startIdx; i < endIdx; i++) {
+        const e = entries[i];
         const tl = e.title.toLowerCase();
         const isPinned = pinSet.has(tl);
         const isBlocked = blockSet.has(tl);
@@ -492,7 +593,8 @@ function renderBrowseTab() {
         if (e.constant) statusParts.push('constant');
         const browseAriaLabel = `${escapeHtml(e.title)}, ${prioLabel}${statusParts.length ? ', ' + statusParts.join(', ') : ''}`;
 
-        html += `<div class="${classes.join(' ')}" data-title="${escapeHtml(e.title)}" role="listitem" aria-label="${browseAriaLabel}">`;
+        const top = i * BROWSE_ROW_HEIGHT;
+        html += `<div class="${classes.join(' ')}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;">`;
         html += `<div class="dle-browse-info">`;
         html += `<span class="dle-browse-title">${escapeHtml(e.title)}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
@@ -505,10 +607,26 @@ function renderBrowseTab() {
         html += `</div>`;
     }
 
-    const scrollPos = $list[0]?.scrollTop || 0;
     $list.html(html);
-    if (scrollPos) $list[0].scrollTop = scrollPos;
-    $emptyNoResults.toggle(entries.length === 0);
+
+    // Re-expand entry if one was expanded before this re-render
+    if (browseExpandedEntry) {
+        const $entry = $list.find(`.dle-browse-entry[data-title="${CSS.escape(browseExpandedEntry)}"]`);
+        if ($entry.length) {
+            const entry = browseFilteredEntries.find(e => e.title === browseExpandedEntry);
+            if (entry) {
+                const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
+                const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
+                const settings = getSettings();
+                const srcVault = entry.vaultSource && settings.vaults ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
+                const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
+                const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
+                const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
+                $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div><div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
+                $entry.css({ height: 'auto', position: 'absolute' });
+            }
+        }
+    }
 }
 
 /**
@@ -532,11 +650,17 @@ function renderGatingTab() {
         const $setBtn = $value.find('.dle-gating-set');
 
         // Remove everything except the set button
-        $value.find('.dle-chip, .dle-gating-empty').remove();
+        $value.find('.dle-chip, .dle-gating-empty, .dle-gating-count').remove();
 
         if (single) {
             if (value) {
                 $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${field}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
+                // Impact count: how many entries have this field set but DON'T match
+                const entryField = field === 'sceneType' ? 'sceneType' : field;
+                const filtered = vaultIndex.filter(e => e[entryField] && e[entryField] !== value).length;
+                if (filtered > 0) {
+                    $setBtn.before(`<span class="dle-gating-count" aria-label="Filtering ${filtered} entries">filtering ${filtered}</span>`);
+                }
             } else {
                 $setBtn.before('<span class="dle-gating-empty">Not set</span>');
             }
@@ -545,6 +669,14 @@ function renderGatingTab() {
             if (value && value.length > 0) {
                 for (const c of value) {
                     $setBtn.before(`<span class="dle-chip">${escapeHtml(c)} <button class="dle-chip-x" data-field="${field}" data-value="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
+                }
+                // Impact count: entries with character_present set but no overlap with active characters
+                const charSet = new Set(value.map(c => c.toLowerCase()));
+                const filtered = vaultIndex.filter(e =>
+                    e.characterPresent?.length && !e.characterPresent.some(cp => charSet.has(cp.toLowerCase())),
+                ).length;
+                if (filtered > 0) {
+                    $setBtn.before(`<span class="dle-gating-count" aria-label="Filtering ${filtered} entries">filtering ${filtered}</span>`);
                 }
             } else {
                 $setBtn.before('<span class="dle-gating-empty">None set</span>');
@@ -638,6 +770,16 @@ function wireStatusActions($drawer) {
 
 /** Wire browse tab interactions (search, filters, pin/block) */
 function wireBrowseTab($drawer) {
+    // Virtual scroll — re-render visible window on scroll (RAF-throttled)
+    // The actual scroll container is .dle-drawer-inner (scrollableInner), not the tab panel
+    $drawer.find('.dle-drawer-inner').on('scroll', function () {
+        if (browseScrollRAF) return;
+        browseScrollRAF = requestAnimationFrame(() => {
+            browseScrollRAF = null;
+            renderBrowseWindow();
+        });
+    });
+
     // Search input with debounce
     $drawer.find('.dle-browse-input').on('input', function () {
         const val = $(this).val();
@@ -707,6 +849,50 @@ function wireBrowseTab($drawer) {
         }
         saveChatDebounced();
         notifyPinBlockChanged();
+    });
+
+    // Click-to-expand entry preview (click on entry info area, not buttons)
+    $drawer.find('.dle-browse-list').on('click', '.dle-browse-info', function (e) {
+        const $entry = $(this).closest('.dle-browse-entry');
+        const title = $entry.data('title');
+        if (!title) return;
+
+        const $existing = $entry.find('.dle-browse-preview');
+        if ($existing.length) {
+            // Collapse
+            $existing.remove();
+            $entry.css('height', BROWSE_ROW_HEIGHT + 'px');
+            browseExpandedEntry = null;
+            return;
+        }
+
+        // Collapse any other expanded entry
+        $drawer.find('.dle-browse-preview').remove();
+        $drawer.find('.dle-browse-entry').css('height', BROWSE_ROW_HEIGHT + 'px');
+
+        // Find the entry data
+        const entry = browseFilteredEntries.find(e => e.title === title);
+        if (!entry) return;
+
+        browseExpandedEntry = title;
+
+        // Build preview content
+        const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
+        const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
+
+        // Build Obsidian link
+        const settings = getSettings();
+        const srcVault = entry.vaultSource && settings.vaults
+            ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
+        const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
+        const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
+        const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
+
+        const previewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div><div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
+
+        $entry.append(previewHtml);
+        // Expand the row height to fit
+        $entry.css({ height: 'auto', position: 'absolute' });
     });
 }
 
@@ -983,6 +1169,14 @@ function switchTab($drawer, tabName) {
 
     // Update label
     $label.text(TAB_LABELS[tabName] || tabName);
+
+    // Re-render browse window when switching to browse tab (may have been rendered
+    // while hidden with degenerate viewport dimensions)
+    if (tabName === 'browse') {
+        browseLastRangeStart = -1;
+        browseLastRangeEnd = -1;
+        requestAnimationFrame(() => renderBrowseWindow());
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1019,12 +1213,20 @@ export async function createDrawerPanel() {
             </div>
             <div id="deeplore-panel" class="drawer-content closedDrawer fillRight" role="region" aria-label="DeepLore Enhanced panel">
                 <div id="deeplore-panelheader" class="fa-solid fa-grip drag-grabber" aria-hidden="true"></div>
-                <div class="dle-drawer-pin" title="Pin drawer open">
-                    <input type="checkbox" id="dle_drawer_pin" aria-label="Pin drawer open">
-                    <label for="dle_drawer_pin">
-                        <div class="fa-solid unchecked fa-unlock right_menu_button" aria-hidden="true"></div>
-                        <div class="fa-solid checked fa-lock right_menu_button" aria-hidden="true"></div>
-                    </label>
+                <div class="dle-drawer-controls">
+                    <div class="dle-drawer-pin" title="Pin drawer open">
+                        <input type="checkbox" id="dle_drawer_pin" aria-label="Pin drawer open">
+                        <label for="dle_drawer_pin">
+                            <div class="fa-solid unchecked fa-unlock right_menu_button" aria-hidden="true"></div>
+                            <div class="fa-solid checked fa-lock right_menu_button" aria-hidden="true"></div>
+                        </label>
+                    </div>
+                    <!-- NOTE: Do NOT use right_menu_button class on <button> elements — ST applies
+                         background-color: rgb(240,240,240) which creates a white square. The lock avoids
+                         this because it's a checkbox+label, not a button. Style manually instead. -->
+                    <button id="dle_drawer_close" class="dle-drawer-close" title="Close drawer" aria-label="Close drawer">
+                        <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
+                    </button>
                 </div>
                 <div class="scrollableInner dle-drawer-inner">
                 </div>
@@ -1050,6 +1252,27 @@ export async function createDrawerPanel() {
             $drawer.find('#deeploreDrawerIcon').attr('aria-expanded', String(isOpen));
         });
     });
+
+    // Overlay mode — when chat_width is set too high for the drawer to fit comfortably,
+    // switch to fixed overlay (mirrors ST's mobile pattern).
+    // Threshold: at chat_width >= 65, remaining fillRight space is ~17.5vw per side.
+    // On a 1280px screen that's ~224px — below usable minimum. Switch to overlay.
+    const OVERLAY_CHAT_WIDTH_THRESHOLD = 60;
+    const $panel = $drawer.find('#deeplore-panel');
+
+    function updateOverlayMode() {
+        const chatWidth = power_user?.chat_width || 50;
+        if (chatWidth >= OVERLAY_CHAT_WIDTH_THRESHOLD) {
+            $panel.addClass('dle-overlay-mode');
+        } else {
+            $panel.removeClass('dle-overlay-mode');
+        }
+    }
+
+    // Check on drawer toggle
+    $drawer.find('.drawer-toggle').on('click', () => requestAnimationFrame(updateOverlayMode));
+    // Check now (in case drawer is pinned open at init)
+    updateOverlayMode();
 
     // Hide pin on mobile (ST convention — native drawers gate behind !isMobile())
     if (isMobile && isMobile()) {
@@ -1084,6 +1307,14 @@ export async function createDrawerPanel() {
         if (!extension_settings[MODULE_NAME]) extension_settings[MODULE_NAME] = {};
         extension_settings[MODULE_NAME].drawerPinned = pinned;
         saveSettingsDebounced();
+    });
+
+    // Wire up close button — triggers the same toggle as clicking the drawer icon
+    $drawer.find('#dle_drawer_close').on('click', function () {
+        // Only close if drawer is actually open (prevent toggle-reopen)
+        if ($panel.hasClass('openDrawer')) {
+            doNavbarIconClick.call($drawer.find('.drawer-toggle')[0]);
+        }
     });
 
     // Moving UI support — let ST's drag system handle our panel
@@ -1170,6 +1401,17 @@ export async function createDrawerPanel() {
     // ═══════════════════════════════════════════════════════════════════════
     // Initial render
     // ═══════════════════════════════════════════════════════════════════════
+
+    // Build tag cache if index is already loaded
+    if (vaultIndex?.length) {
+        cachedTagSet = new Set();
+        for (const e of vaultIndex) {
+            if (e.tags) for (const t of e.tags) cachedTagSet.add(t);
+        }
+        cachedTagOptions = '<option value="">Tags</option>' +
+            [...cachedTagSet].sort().map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    }
+
     renderStatusZone();
     renderInjectionTab();
     renderBrowseTab();
@@ -1181,6 +1423,14 @@ export async function createDrawerPanel() {
     // Observer subscriptions — live data updates
     // ═══════════════════════════════════════════════════════════════════════
     onIndexUpdated(() => {
+        // Rebuild tag cache for browse tab dropdown
+        cachedTagSet = new Set();
+        for (const e of vaultIndex) {
+            if (e.tags) for (const t of e.tags) cachedTagSet.add(t);
+        }
+        cachedTagOptions = '<option value="">Tags</option>' +
+            [...cachedTagSet].sort().map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+
         scheduleRender(renderStatusZone);
         scheduleRender(renderBrowseTab);
         scheduleRender(renderTimers);

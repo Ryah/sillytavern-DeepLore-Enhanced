@@ -398,6 +398,14 @@
     height: calc(100dvh - var(--topBarBlockSize, 35px));
 }
 
+/* --- Drawer controls row (pin + close, side by side) --- */
+.dle-drawer-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    align-self: flex-start;
+}
+
 /* --- Drawer pin (matches ST native: top-left, inline after drag grabber) --- */
 .dle-drawer-pin {
     align-self: flex-start;
@@ -419,6 +427,24 @@
 }
 .dle-drawer-pin input:checked ~ label .unchecked {
     display: none;
+}
+
+/* --- Drawer close button — inline next to lock, matches lock icon style --- */
+.dle-drawer-close {
+    background: none;
+    border: none;
+    margin: 0;
+    color: var(--SmartThemeBodyColor, #ccc);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 120ms ease;
+    padding: 2px;
+    font-size: inherit;
+    font-family: inherit;
+    line-height: 1;
+}
+.dle-drawer-close:hover {
+    opacity: 1;
 }
 
 /* --- Two-zone architecture --- */
@@ -542,6 +568,22 @@
 }
 
 /* (tab icons inherit font-size from .dle-tab) */
+
+/* Tab count badges — small pill next to icon */
+.dle-tab-badge {
+    font-size: 9px;
+    min-width: 14px;
+    height: 14px;
+    line-height: 14px;
+    text-align: center;
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
+    padding: 0 3px;
+    display: none;
+}
+.dle-tab-badge:not(:empty) {
+    display: inline-block;
+}
 
 /* Active tab label (below tab bar) — hidden by default, shown on narrow screens */
 .dle-tab-label {
@@ -878,9 +920,7 @@ button.dle-chip-x:hover {
 }
 
 .dle-browse-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    position: relative; /* virtual scroll container — children use absolute positioning */
     flex: 1;
 }
 
@@ -891,6 +931,8 @@ button.dle-chip-x:hover {
     padding: 4px var(--dle-space-2);
     border-radius: 3px;
     overflow: hidden;
+    height: 32px; /* must match BROWSE_ROW_HEIGHT in drawer.js */
+    box-sizing: border-box;
 }
 
 .dle-browse-entry:hover {
@@ -929,6 +971,46 @@ button.dle-chip-x:hover {
     align-items: center;
     gap: var(--dle-space-2);
     flex-shrink: 0;
+}
+
+/* Entry expand preview (inline below entry row) */
+.dle-browse-preview {
+    padding: 6px 8px;
+    border-left: 2px solid var(--dle-border);
+    margin-top: 2px;
+    width: 100%;
+}
+.dle-browse-preview-text {
+    font-size: 11px;
+    opacity: 0.85;
+    max-height: 100px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.4;
+}
+.dle-browse-preview-meta {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* When expanded, allow the entry to grow beyond fixed row height */
+.dle-browse-entry:has(.dle-browse-preview) {
+    height: auto !important;
+    flex-direction: column;
+    align-items: stretch;
+    z-index: 10;
+    background: var(--SmartThemeBlurTintColor, #1a1a1a);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.dle-browse-info {
+    cursor: pointer;
 }
 
 .dle-browse-priority {
@@ -1000,6 +1082,12 @@ button.dle-browse-why:hover {
     font-size: var(--dle-text-xs);
     color: var(--dle-text-muted);
     font-style: italic;
+}
+
+.dle-gating-count {
+    font-size: 10px;
+    opacity: 0.6;
+    white-space: nowrap;
 }
 
 .dle-gating-set {
@@ -1121,6 +1209,7 @@ button.dle-browse-why:hover {
 
 @container (max-height: 250px) {
     .dle-zone-status .dle-token-bar-container,
+    .dle-zone-status .dle-entries-bar-container,
     .dle-zone-status .dle-active-filters,
     .dle-zone-status .dle-action-row {
         display: none;
@@ -1135,6 +1224,19 @@ button.dle-browse-why:hover {
     .dle-tab-label {
         display: none;
     }
+}
+
+/* Overlay mode — when fillRight space is too narrow (<250px), JS adds this class
+   to switch from inline side-panel to a fixed-width overlay (mirrors ST mobile pattern) */
+#deeplore-panel.dle-overlay-mode {
+    width: min(380px, 90dvw) !important;
+    min-width: unset !important;
+    position: fixed !important;
+    right: 0 !important;
+    left: auto !important;
+    z-index: 3001;
+    border-left: 1px solid var(--SmartThemeBorderColor);
+    backdrop-filter: blur(calc(var(--SmartThemeBlurStrength, 10px) * 2));
 }
 
 /* --- Empty states --- */

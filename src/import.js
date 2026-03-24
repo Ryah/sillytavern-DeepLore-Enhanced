@@ -40,6 +40,7 @@ export async function importEntries(entries, folder) {
             // Check if file already exists to avoid silent overwrites
             try {
                 const checkResult = await obsidianFetch({
+                    host: vault.host,
                     port: vault.port,
                     apiKey: vault.apiKey,
                     path: `/vault/${encodeVaultPath(fullPath)}`,
@@ -58,6 +59,7 @@ export async function importEntries(entries, folder) {
                         candidatePath = folder ? `${folder}/${candidateFilename}` : candidateFilename;
                         try {
                             const dupCheck = await obsidianFetch({
+                                host: vault.host,
                                 port: vault.port,
                                 apiKey: vault.apiKey,
                                 path: `/vault/${encodeVaultPath(candidatePath)}`,
@@ -94,7 +96,7 @@ export async function importEntries(entries, folder) {
                 continue;
             }
 
-            const result = await writeNote(vault.port, vault.apiKey, fullPath, content);
+            const result = await writeNote(vault.host, vault.port, vault.apiKey, fullPath, content);
             if (result.ok) {
                 imported++;
             } else {

@@ -4,6 +4,7 @@
 import { escapeHtml } from '../../../../utils.js';
 import { getSettings } from '../settings.js';
 import { syncIntervalId, indexing, setSyncIntervalId, setIndexing } from './state.js';
+import { getCircuitState } from './obsidian-api.js';
 
 // Track when we first observe indexing=true, to detect stuck builds
 let _indexingSeenSince = 0;
@@ -32,7 +33,7 @@ export function showChangesToast(changes) {
         parts.push(`Keys changed: ${truncList(changes.keysChanged)}`);
     }
 
-    toastr.info(parts.join('<br>'), 'DeepLore Enhanced - Vault Updated', {
+    toastr.info(parts.join('<br>'), 'DeepLore Enhanced', {
         timeOut: 8000,
         extendedTimeOut: 12000,
         progressBar: true,
@@ -81,6 +82,16 @@ export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
                     }
                 } else {
                     _indexingSeenSince = 0;
+                }
+
+                // Skip fetch when all Obsidian vault circuits are open (avoid hammering a dead connection)
+                const obsidianCircuit = getCircuitState();
+                if (obsidianCircuit.state === 'open') {
+                    if (current.debugMode) {
+                        console.debug('[DLE] Sync: all vault circuits open — skipping this tick');
+                    }
+                    scheduleNext();
+                    return;
                 }
 
                 try {

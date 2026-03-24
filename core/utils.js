@@ -291,7 +291,10 @@ export function buildAiChatContext(chat, depth) {
  */
 function clampWithLog(obj, key, min, max, label) {
     const before = obj[key];
-    obj[key] = Math.max(min, Math.min(max, Math.round(obj[key])));
+    // Only round to integer if the constraint range is integer-based (min and max are both integers).
+    // Float constraints (e.g. fuzzySearchMinScore: 0.1–2.0) must preserve decimal precision.
+    const isIntegerRange = Number.isInteger(min) && Number.isInteger(max);
+    obj[key] = Math.max(min, Math.min(max, isIntegerRange ? Math.round(obj[key]) : obj[key]));
     if (before !== obj[key]) {
         console.info(`[DeepLore] ${label} clamped from ${before} to ${obj[key]} (range: ${min}-${max})`);
     }
@@ -311,7 +314,7 @@ function clampWithLog(obj, key, min, max, label) {
  */
 export function yamlEscape(str) {
     if (/[:#\[\]{}&*!|>'"%@`\n\r\t]/.test(str) || str.trim() !== str) {
-        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+        return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')}"`;
     }
     return str;
 }
@@ -319,7 +322,7 @@ export function yamlEscape(str) {
 /**
  * User-friendly message shown when no vault entries are loaded.
  */
-export const NO_ENTRIES_MSG = 'No vault entries loaded. Run /dle-refresh or /dle-health to diagnose.';
+export const NO_ENTRIES_MSG = 'No entries found. Check your Obsidian vault connection, or run /dle-health to troubleshoot.';
 
 /**
  * Classify an error into a user-friendly message based on common patterns.

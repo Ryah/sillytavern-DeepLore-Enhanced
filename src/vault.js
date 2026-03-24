@@ -16,6 +16,7 @@ import {
     setFuzzySearchIndex,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
+    generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
@@ -135,16 +136,15 @@ function computeEntityDerivedState(entries) {
     }
     setEntityNameSet(names);
 
-    // Pre-compile word-boundary regexes for short entity names (≤3 chars)
-    // Avoids constructing new RegExp objects per-generation in the AI cache sliding window check
-    const shortRegexes = new Map();
+    // Pre-compile word-boundary regexes for ALL entity names
+    // Short names (≤3 chars): always use regex to avoid false positives ("an" in "want")
+    // Longer names: regex prevents substring false positives ("Arch" in "monarch")
+    const nameRegexes = new Map();
     for (const name of names) {
-        if (name.length <= 3) {
-            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            shortRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
-        }
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        nameRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
     }
-    setEntityShortNameRegexes(shortRegexes);
+    setEntityShortNameRegexes(nameRegexes);
 }
 
 /**
@@ -233,7 +233,7 @@ export async function buildIndex() {
             throw new Error('No enabled vaults configured');
         }
 
-        const entries = [];
+        let entries = [];
         const tagConfig = {
             lorebookTag: settings.lorebookTag,
             constantTag: settings.constantTag,
@@ -248,7 +248,7 @@ export async function buildIndex() {
         setLastVaultAttemptCount(enabledVaults.length);
         for (const vault of enabledVaults) {
             try {
-                const data = await fetchAllMdFiles(vault.port, vault.apiKey);
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Vault "${vault.name}" returned invalid data`);
                     continue;
@@ -261,7 +261,7 @@ export async function buildIndex() {
                     const failRate = data.total > 0 ? data.failed / data.total : 0;
                     if (data.failed >= 5 || failRate >= 0.1) {
                         toastr.warning(
-                            `Vault "${vault.name}": ${data.failed} of ${data.total} files failed to fetch.`,
+                            `Some entries in "${vault.name}" couldn't be loaded (${data.failed} of ${data.total}). They'll be included on the next refresh.`,
                             'DeepLore Enhanced',
                             { timeOut: 8000, preventDuplicates: true },
                         );
@@ -295,6 +295,29 @@ export async function buildIndex() {
             }
         }));
 
+        // E6: Multi-vault conflict resolution dedup pass
+        if (settings.multiVaultConflictResolution && settings.multiVaultConflictResolution !== 'all') {
+            const mode = settings.multiVaultConflictResolution;
+            const titleMap = new Map();
+            for (const entry of entries) {
+                const key = entry.title.toLowerCase();
+                if (titleMap.has(key)) {
+                    if (mode === 'first') continue; // skip, first wins
+                    if (mode === 'last') {
+                        titleMap.set(key, entry);
+                    } else if (mode === 'merge') {
+                        const existing = titleMap.get(key);
+                        const mergedKeys = [...new Set([...existing.keys, ...entry.keys])];
+                        existing.keys = mergedKeys;
+                        // Keep existing content, just merge keys
+                    }
+                } else {
+                    titleMap.set(key, entry);
+                }
+            }
+            entries = [...titleMap.values()];
+        }
+
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
 
@@ -306,13 +329,13 @@ export async function buildIndex() {
         const raw = String(err.message || err);
         let userMsg = raw;
         if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
-            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin enabled, (3) Port is correct.\n(${raw})`;
+            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin is enabled, (3) port is correct. (${raw})`;
         } else if (/No enabled vaults/i.test(raw)) {
             userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
         } else if (/401|403|auth/i.test(raw)) {
-            userMsg = `Authentication failed. Check your vault API key in settings.\n(${raw})`;
+            userMsg = `Authentication failed. Check your vault API key in settings. (${raw})`;
         } else if (/timeout|timed out/i.test(raw)) {
-            userMsg = `Obsidian connection timed out. Check that the REST API plugin is running.\n(${raw})`;
+            userMsg = `Obsidian connection timed out. Check that the REST API plugin is running. (${raw})`;
         }
         dedupError(userMsg, 'obsidian_connect');
     } finally {
@@ -425,7 +448,7 @@ export async function buildIndexWithReuse() {
             try {
                 // Fetch ALL file contents to detect content changes via hash comparison.
                 // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
-                const data = await fetchAllMdFiles(vault.port, vault.apiKey);
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
@@ -536,16 +559,44 @@ export async function buildIndexWithReuse() {
  */
 export async function ensureIndexFresh() {
     const settings = getSettings();
-    const ttlMs = settings.cacheTTL * 1000;
     const now = Date.now();
+    const rebuildTrigger = settings.indexRebuildTrigger || 'ttl';
+
+    // E9: Index rebuild trigger logic
+    if (rebuildTrigger === 'manual') {
+        // Only rebuild if index is empty — never auto-rebuild
+        if (vaultIndex.length === 0) {
+            await buildIndex();
+            setLastIndexGenerationCount(generationCount);
+        }
+        return;
+    }
+
+    if (rebuildTrigger === 'generation') {
+        const interval = settings.indexRebuildGenerationInterval || 10;
+        const shouldRebuild = vaultIndex.length === 0 || (generationCount - lastIndexGenerationCount >= interval);
+        if (shouldRebuild) {
+            if (vaultIndex.length > 0) {
+                const usedReuse = await buildIndexWithReuse();
+                if (usedReuse) { setLastIndexGenerationCount(generationCount); return; }
+            }
+            await buildIndex();
+            setLastIndexGenerationCount(generationCount);
+        }
+        return;
+    }
+
+    // Default: 'ttl' — current behavior
+    const ttlMs = settings.cacheTTL * 1000;
 
     // TTL=0 means "always fetch fresh" (rebuild every generation)
     if (vaultIndex.length === 0 || ttlMs === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
         // Use reuse path when index already exists (faster: skips re-parse/tokenize for unchanged entries)
-        if (vaultIndex.length > 0 && ttlMs > 0) {
+        if (vaultIndex.length > 0) {
             const usedReuse = await buildIndexWithReuse();
-            if (usedReuse) return;
+            if (usedReuse) { setLastIndexGenerationCount(generationCount); return; }
         }
         await buildIndex();
+        setLastIndexGenerationCount(generationCount);
     }
 }

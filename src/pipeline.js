@@ -49,14 +49,15 @@ export function matchEntries(chat, snapshot = null) {
         }
     }
 
+    // Memoize buildScanText by depth — shared across keyword matching and BM25 fuzzy search
+    const scanTextMemo = new Map();
+    function getScanText(depth) {
+        if (!scanTextMemo.has(depth)) scanTextMemo.set(depth, buildScanText(chat, depth));
+        return scanTextMemo.get(depth);
+    }
+
     // Keyword matching: skip entirely when scanDepth is 0 (AI-only mode)
     if (settings.scanDepth > 0) {
-        // C5: Memoize buildScanText by depth to avoid redundant string building
-        const scanTextMemo = new Map();
-        function getScanText(depth) {
-            if (!scanTextMemo.has(depth)) scanTextMemo.set(depth, buildScanText(chat, depth));
-            return scanTextMemo.get(depth);
-        }
         const globalScanText = getScanText(settings.scanDepth);
 
         // Initial scan pass
@@ -206,13 +207,8 @@ export function matchEntries(chat, snapshot = null) {
 
     // BM25 fuzzy search: supplement keyword matches with TF-IDF scored results
     if (settings.fuzzySearchEnabled && fuzzySearchIndex && settings.scanDepth > 0) {
-        const scanTextMemo2 = new Map();
-        function getScanText2(depth) {
-            if (!scanTextMemo2.has(depth)) scanTextMemo2.set(depth, buildScanText(chat, depth));
-            return scanTextMemo2.get(depth);
-        }
-        const fuzzyText = getScanText2(settings.scanDepth);
-        const bm25Results = queryBM25(fuzzySearchIndex, fuzzyText, 20);
+        const fuzzyText = getScanText(settings.scanDepth);
+        const bm25Results = queryBM25(fuzzySearchIndex, fuzzyText, 20, settings.fuzzySearchMinScore || 0.5);
         for (const result of bm25Results) {
             const entry = result.entry;
             if (matchedSet.has(entry)) continue; // Already matched by keywords
@@ -233,6 +229,17 @@ export function matchEntries(chat, snapshot = null) {
 
     // Sort by priority (ascending - lower number = higher priority)
     const matched = [...matchedSet].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
+
+    // Keyword occurrence weighting: re-sort within same priority group using hit count as tiebreaker
+    if (settings.keywordOccurrenceWeighting) {
+        const scanText = buildScanText(chat, settings.scanDepth);
+        matched.sort((a, b) => {
+            if (a.priority !== b.priority) return a.priority - b.priority;
+            const aCount = countKeywordOccurrences(a, scanText, settings);
+            const bCount = countKeywordOccurrences(b, scanText, settings);
+            return bCount - aCount || a.title.localeCompare(b.title);
+        });
+    }
 
     return { matched, matchedKeys, probabilitySkipped, warmupFailed };
 }
@@ -288,7 +295,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
             const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
-            aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode);
+            aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings);
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
@@ -308,20 +315,36 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates);
             if (aiResult.error) {
                 trace.aiFallback = true;
-                const kwResult = matchEntries(chat, vaultSnapshot);
-                finalEntries = kwResult.matched;
-                matchedKeys = kwResult.matchedKeys;
-                trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
-                trace.probabilitySkipped = kwResult.probabilitySkipped;
-                trace.warmupFailed = kwResult.warmupFailed;
-                // Warn if ai-only fallback collapsed to constants-only
-                const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
-                if (nonConstant.length === 0 && finalEntries.length > 0) {
-                    console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
-                    toastr.warning('AI search failed — only constant entries are active. Check your AI connection.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+                const fallback = settings.aiErrorFallback || 'keyword';
+                if (fallback === 'keyword') {
+                    const kwResult = matchEntries(chat, vaultSnapshot);
+                    finalEntries = kwResult.matched;
+                    matchedKeys = kwResult.matchedKeys;
+                    trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
+                    trace.probabilitySkipped = kwResult.probabilitySkipped;
+                    trace.warmupFailed = kwResult.warmupFailed;
+                    // Warn if ai-only fallback collapsed to constants-only
+                    const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
+                    if (nonConstant.length === 0 && finalEntries.length > 0) {
+                        console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
+                        toastr.warning('AI search failed — only constant entries are active. Check your AI connection.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+                    }
+                } else if (fallback === 'constants_only') {
+                    finalEntries = alwaysInject;
+                } else if (fallback === 'bootstrap_only') {
+                    finalEntries = alwaysInject.filter(e => bootstrapActive && e.bootstrap);
+                } else { // 'none'
+                    finalEntries = [];
                 }
             } else if (aiResult.results.length === 0) {
-                finalEntries = alwaysInject;
+                const emptyFallback = settings.aiEmptyFallback || 'constants';
+                if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
+                    finalEntries = alwaysInject;
+                } else if (emptyFallback === 'keyword') {
+                    finalEntries = matchEntries(chat, vaultSnapshot).matched;
+                } else { // 'none'
+                    finalEntries = [];
+                }
             } else {
                 const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
                 finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
@@ -378,7 +401,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
             const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
-            twoStageCandidates = applyContextualGating(twoStageCandidates, contextualGatingContext, prePolicy, settings.debugMode);
+            twoStageCandidates = applyContextualGating(twoStageCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings);
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(twoStageCandidates, bootstrapActive);
@@ -389,9 +412,25 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates);
             if (aiResult.error) {
                 trace.aiFallback = true;
-                finalEntries = keywordResult.matched;
+                const fallback = settings.aiErrorFallback || 'keyword';
+                if (fallback === 'keyword') {
+                    finalEntries = keywordResult.matched;
+                } else if (fallback === 'constants_only') {
+                    finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+                } else if (fallback === 'bootstrap_only') {
+                    finalEntries = keywordResult.matched.filter(e => bootstrapActive && e.bootstrap);
+                } else { // 'none'
+                    finalEntries = [];
+                }
             } else if (aiResult.results.length === 0) {
-                finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+                const emptyFallback = settings.aiEmptyFallback || 'constants';
+                if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
+                    finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+                } else if (emptyFallback === 'keyword') {
+                    finalEntries = keywordResult.matched;
+                } else { // 'none'
+                    finalEntries = [];
+                }
             } else {
                 const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
                 const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
@@ -420,7 +459,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
     // so budget trimming respects the user's explicit priority field.
     finalEntries.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
-    setLastPipelineTrace(trace);
+    // Note: trace is set by onGenerate after enrichment — don't set here to avoid double-write
     return { finalEntries, matchedKeys, trace };
 }
 

@@ -1,0 +1,158 @@
+/**
+ * DeepLore Enhanced — Drawer Render: Footer Zone
+ * Context bar, health icons, and AI stats.
+ */
+import { amount_gen } from '../../../../../script.js';
+import { getSettings } from '../settings.js';
+import {
+    vaultIndex, lastPipelineTrace,
+    aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
+} from './state.js';
+import { getCircuitState } from './obsidian-api.js';
+import { ds, formatTokensCompact } from './drawer-state.js';
+
+// ════════════════════════════════════════════════════════════════════════════
+// Footer Zone — Health Icons + AI Stats + Context Bar
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Render the footer zone: context bar, health icons, AI stats.
+ */
+export function renderFooter() {
+    const $drawer = ds.$drawer;
+    if (!$drawer) return;
+    const $footer = $drawer.find('#dle_drawer_footer');
+    if (!$footer.length) return;
+
+    // ── Context window bar ──
+    const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+    // Prefer chatCompletionSettings (respects unlocked context) over maxContext (base slider)
+    const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
+    const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
+    const contextUsed = ds.contextTokens || 0;
+
+    const $barContainer = $footer.find('.dle-context-bar-container');
+    if (maxContext > 0) {
+        const contextPct = Math.min(100, (contextUsed / maxContext) * 100);
+        const responsePct = Math.min(100 - contextPct, (responseTokens / maxContext) * 100);
+
+        $footer.find('.dle-context-bar-context').css('width', `${contextPct}%`);
+        $footer.find('.dle-context-bar-response').css({
+            left: `${contextPct}%`,
+            width: `${responsePct}%`,
+        });
+
+        const label = contextUsed
+            ? `Context | ${contextUsed.toLocaleString()} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
+            : `Context | ${responseTokens.toLocaleString()} res / ${maxContext.toLocaleString()}`;
+        $footer.find('.dle-context-bar-label').text(label);
+
+        const contextTitle = `${contextUsed.toLocaleString()} tokens used + ${responseTokens.toLocaleString()} reserved for the AI's response, out of ${maxContext.toLocaleString()} total`;
+        $barContainer.attr('aria-valuenow', contextUsed + responseTokens).attr('aria-valuemax', maxContext);
+        $barContainer.attr('title', contextTitle);
+    } else {
+        $footer.find('.dle-context-bar-context').css('width', '0%');
+        $footer.find('.dle-context-bar-response').css({ left: '0%', width: '0%' });
+        $footer.find('.dle-context-bar-label').text('Context | — / —');
+        $barContainer.attr('aria-valuenow', 0).attr('aria-valuemax', 0);
+        $barContainer.attr('title', 'Context window: waiting for data');
+    }
+
+    // ── Health icons ──
+    const settings = getSettings();
+
+    // Vault health
+    const $vault = $footer.find('[data-health="vault"]');
+    if (lastHealthResult) {
+        const { errors, warnings } = lastHealthResult;
+        if (errors > 0) {
+            $vault.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
+            $vault.attr('aria-label', `Vault health: ${errors} errors — click to see details`).attr('title', `Vault health: ${errors} errors, ${warnings} warnings — click to run health check`);
+        } else if (warnings > 3) {
+            $vault.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+            $vault.attr('aria-label', `Vault health: ${warnings} warnings — click to see details`).attr('title', `Vault health: ${warnings} warnings — click to run health check`);
+        } else {
+            $vault.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+            $vault.attr('aria-label', `Vault health: OK — click to run a full health check`).attr('title', `Vault health: OK${warnings ? ` (${warnings} minor warnings)` : ''} — click to run health check`);
+        }
+    } else {
+        $vault.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $vault.attr('aria-label', 'Vault health: not checked yet — click to run health check').attr('title', 'Vault health: not checked yet — click to run health check');
+    }
+
+    // Connection (Obsidian circuit breaker — aggregate)
+    const $conn = $footer.find('[data-health="connection"]');
+    const circuit = getCircuitState();
+    if (circuit.state === 'closed') {
+        $conn.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+        $conn.attr('aria-label', 'Obsidian: connected — click for full status').attr('title', 'Obsidian: connected — click for full status');
+    } else if (circuit.state === 'half-open') {
+        $conn.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+        $conn.attr('aria-label', 'Obsidian: recovering — probing vault').attr('title', 'Obsidian: recovering — click to retry');
+    } else {
+        $conn.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
+        $conn.attr('aria-label', `Obsidian: unreachable (${circuit.failures} failures) — click to retry`).attr('title', `Obsidian: unreachable (${circuit.failures} failures) — click to retry`);
+    }
+
+    // Pipeline
+    const $pipe = $footer.find('[data-health="pipeline"]');
+    if (lastPipelineTrace) {
+        const entryCount = lastPipelineTrace.injected?.length || 0;
+        const hasResults = entryCount > 0 || lastPipelineTrace.totalTokens > 0;
+        if (hasResults) {
+            $pipe.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+            $pipe.attr('aria-label', `Lore selection: last run found ${entryCount} entries — click for details`).attr('title', `Lore selection: last run found ${entryCount} entries — click for details`);
+        } else {
+            $pipe.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+            $pipe.attr('aria-label', 'Lore selection: last run produced no results — click for details').attr('title', 'Lore selection: last run produced no results — click for details');
+        }
+    } else {
+        $pipe.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $pipe.attr('aria-label', 'Lore selection: no runs yet').attr('title', 'Lore selection: no runs yet — send a message to trigger');
+    }
+
+    // Cache
+    const $cache = $footer.find('[data-health="cache"]');
+    if (indexEverLoaded && indexTimestamp) {
+        const ageMs = Date.now() - indexTimestamp;
+        const cacheTTL = (settings.cacheTTL || 300) * 1000;
+        if (ageMs < cacheTTL) {
+            const cacheLabel = `Cache: fresh (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries)`;
+            $cache.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+            $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
+        } else {
+            const cacheLabel = `Cache: stale (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries) — click to refresh`;
+            $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+            $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
+        }
+    } else if (vaultIndex.length > 0) {
+        const cacheLabel = `Cache: hydrated from IndexedDB (${vaultIndex.length} entries, not yet refreshed)`;
+        $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+        $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
+    } else {
+        $cache.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $cache.attr('aria-label', 'Cache: empty — no index loaded').attr('title', 'Cache: empty — no index loaded');
+    }
+
+    // AI service
+    const $ai = $footer.find('[data-health="ai"]');
+    if (isAiCircuitOpen()) {
+        $ai.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
+        $ai.attr('aria-label', 'AI search: circuit breaker tripped — temporarily disabled').attr('title', 'AI search: circuit breaker tripped — temporarily disabled, will retry automatically');
+    } else if (aiSearchStats.calls > 0) {
+        $ai.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
+        $ai.attr('aria-label', `AI search: OK (${aiSearchStats.calls} calls this session) — click for details`).attr('title', `AI search: OK (${aiSearchStats.calls} calls this session) — click for details`);
+    } else if (settings.aiSearchEnabled !== false) {
+        $ai.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
+        $ai.attr('aria-label', 'AI search: enabled but no calls yet').attr('title', 'AI search: enabled but no calls yet — will activate on first generation');
+    } else {
+        $ai.removeClass('dle-health-ok dle-health-warn dle-health-error');
+        $ai.attr('aria-label', 'AI search: disabled').attr('title', 'AI search: disabled — enable in DeepLore settings');
+    }
+
+    // ── AI stats ──
+    $footer.find('[data-ai-stat="calls"]').text(`${aiSearchStats.calls} calls`);
+    $footer.find('[data-ai-stat="cached"]').text(`${aiSearchStats.cachedHits} cached`);
+    const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
+    $footer.find('[data-ai-stat="tokens"]').text(`${formatTokensCompact(totalTok)} tok`);
+}

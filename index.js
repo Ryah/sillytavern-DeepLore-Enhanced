@@ -23,14 +23,18 @@ import { clearPrompts } from './core/pipeline.js';
 import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache } from './settings.js';
 import {
     vaultIndex, indexEverLoaded, indexing,
-    lastInjectionSources, lastScribeChatLength, scribeInProgress,
+    lastInjectionSources, lastInjectionEpoch, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
+    chatInjectionCounts, setChatInjectionCounts, trackerKey,
     lastWarningRatio, decayTracker, chatEpoch,
+    lastGenerationChatLength, lastGenerationInjectedKeys,
+    setLastGenerationChatLength, setLastGenerationInjectedKeys,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
-    setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
+    setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
-    setScribeInProgress,
+    setScribeInProgress, setPreviousSources,
+    notifyPipelineComplete, notifyGatingChanged,
 } from './src/state.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault.js';
 import { runPipeline } from './src/pipeline.js';
@@ -40,6 +44,7 @@ import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/
 import { loadSettingsUI, bindSettingsEvents } from './src/settings-ui.js';
 import { registerSlashCommands } from './src/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
+import { createDrawerPanel, resetDrawerState } from './src/drawer.js';
 
 // ============================================================================
 // Generation Interceptor
@@ -61,14 +66,14 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
     if (generationLock) {
-        // Auto-recover stale locks after 60 seconds
+        // Auto-recover stale locks after 90 seconds (allows time for large vaults + slow AI)
         const lockAge = Date.now() - generationLockTimestamp;
-        if (lockAge > 60_000) {
-            console.warn(`[DLE] Generation lock stale (${Math.round(lockAge / 1000)}s) — force-releasing`);
+        if (lockAge > 90_000) {
+            console.warn(`[DLE] Generation lock stale (${Math.round(lockAge / 1000)}s elapsed) — force-releasing`);
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
-            toastr.warning('Lore retrieval still running — this response may miss lore.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+            toastr.warning('Still selecting lore from the last message. This response will use existing context.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
             return;
         }
     }
@@ -84,8 +89,10 @@ async function onGenerate(chat, contextSize, abort, type) {
     let injectedEntries = [];
 
     try {
-        // Clear stale source data (after quiet check so Scribe doesn't wipe real sources)
-        setLastInjectionSources(null);
+        // Tag sources with this generation's epoch so CHARACTER_MESSAGE_RENDERED
+        // only consumes sources from the correct generation (race condition fix).
+        // We do NOT clear lastInjectionSources here — the render handler clears
+        // them after reading, and the epoch tag prevents stale consumption.
 
         // Clear all previous DeepLore prompts
         clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
@@ -152,7 +159,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // Stage 2: Contextual gating (era, location, scene, character)
         const preContextual = new Set(finalEntries.map(e => e.title));
-        finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode);
+        finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode, settings);
         if (trace) {
             const postContextual = new Set(finalEntries.map(e => e.title));
             trace.contextualGatingRemoved = [...preContextual].filter(t => !postContextual.has(t));
@@ -161,14 +168,14 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (trace?.aiFallback) {
             const aiErr = trace.aiError || '';
             let fallbackMsg = 'AI search failed';
-            if (/timeout|timed out|abort/i.test(aiErr)) fallbackMsg += ' (timed out — try increasing AI Search timeout)';
-            else if (/401|403|auth/i.test(aiErr)) fallbackMsg += ' (auth error — check API key or profile)';
-            else if (/not found|no.*profile/i.test(aiErr)) fallbackMsg += ' (connection profile not found — check AI Search settings)';
-            else if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch|network/i.test(aiErr)) fallbackMsg += ' (network error — check proxy URL or profile)';
+            if (/timeout|timed out|abort/i.test(aiErr)) fallbackMsg += ' (timed out — try increasing the timeout in Settings > AI Search)';
+            else if (/401|403|auth/i.test(aiErr)) fallbackMsg += ' (auth error — check your API key or connection profile)';
+            else if (/not found|no.*profile/i.test(aiErr)) fallbackMsg += ' (connection profile not found — check Settings > AI Search)';
+            else if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch|network/i.test(aiErr)) fallbackMsg += ' (network error — check your proxy URL or connection profile)';
             else if (/5\d\d|502|503|server/i.test(aiErr)) fallbackMsg += ' (server error — try again later)';
             else if (aiErr) fallbackMsg += ` (${aiErr.slice(0, 80)})`;
             console.warn('[DLE] AI search error:', aiErr);
-            dedupWarning(`${fallbackMsg} — using keyword fallback`, 'ai_search', { timeOut: 6000 });
+            dedupWarning(`${fallbackMsg} — falling back to keywords`, 'ai_search', { timeOut: 6000 });
         }
 
         if (settings.debugMode && trace) {
@@ -271,7 +278,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 );
             }
 
-            // Capture injection sources for Context Cartographer
+            // Capture injection sources for Context Cartographer (epoch-tagged for race safety)
             setLastInjectionSources(injectedEntries.map(e => ({
                 title: e.title,
                 filename: e.filename,
@@ -280,12 +287,13 @@ async function onGenerate(chat, contextSize, abort, type) {
                 tokens: e.tokenEstimate,
                 vaultSource: e.vaultSource || '',
             })));
+            setLastInjectionEpoch(epoch);
         }
 
         // Author's Notebook injection (independent of entry pipeline)
         if (settings.notebookEnabled && chat_metadata?.deeplore_notebook?.trim()) {
             const rawNotebook = chat_metadata.deeplore_notebook.trim();
-            const notebookContent = rawNotebook.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const notebookContent = rawNotebook;
             const usePromptList = settings.injectionMode === 'prompt_list';
             if (usePromptList && promptManager) {
                 const pmEntry = promptManager.getPromptById('deeplore_notebook');
@@ -305,8 +313,8 @@ async function onGenerate(chat, contextSize, abort, type) {
             trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings);
         }
 
-        // Clear stale injection log when dedup is toggled off
-        if (!settings.stripDuplicateInjections && chat_metadata.deeplore_injection_log?.length > 0) {
+        // Clear stale injection log when dedup is toggled off (epoch-guarded)
+        if (!settings.stripDuplicateInjections && epoch === chatEpoch && chat_metadata.deeplore_injection_log?.length > 0) {
             chat_metadata.deeplore_injection_log = [];
             saveChatDebounced();
         }
@@ -343,6 +351,31 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
+        // Stage 9: Per-chat injection counts (epoch-guarded, swipe-aware)
+        if (epoch === chatEpoch) {
+            // Detect swipe: same chat length as last generation → undo previous round's counts
+            if (chat.length === lastGenerationChatLength && lastGenerationInjectedKeys.size > 0) {
+                for (const key of lastGenerationInjectedKeys) {
+                    const cur = chatInjectionCounts.get(key) || 0;
+                    if (cur > 0) chatInjectionCounts.set(key, cur - 1);
+                }
+            }
+
+            // Track this round
+            const thisRoundKeys = new Set();
+            for (const entry of injectedEntries) {
+                const key = trackerKey(entry);
+                chatInjectionCounts.set(key, (chatInjectionCounts.get(key) || 0) + 1);
+                thisRoundKeys.add(key);
+            }
+            setLastGenerationChatLength(chat.length);
+            setLastGenerationInjectedKeys(thisRoundKeys);
+
+            // Persist to chat_metadata every generation (counts are lost on chat switch otherwise)
+            chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
+            saveChatDebounced();
+        }
+
         if (groups.length > 0) {
             // Context usage warning — BUG 6 FIX: reset ratio when it drops below threshold
             if (contextSize > 0) {
@@ -350,7 +383,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 if (ratio > 0.20 && ratio > lastWarningRatio + 0.05) {
                     const pct = Math.round(ratio * 100);
                     toastr.warning(
-                        `${injectedCount} entries injected (~${totalTokens} tokens, ${pct}% of context). Consider setting a token budget.`,
+                        `Lore is using ${pct}% of your context window (~${totalTokens} tokens, ${injectedCount} entries). You can set a token budget in Settings to manage this.`,
                         'DeepLore Enhanced',
                         { preventDuplicates: true, timeOut: 8000 },
                     );
@@ -380,7 +413,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
-        dedupError('Lore injection failed. Try /dle-health to diagnose, or /dle-refresh to rebuild.', 'pipeline');
+        dedupError('Something went wrong loading your lore. Try /dle-health to check for issues, or /dle-refresh to reload.', 'pipeline');
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
@@ -393,11 +426,13 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (trackingErr) {
             console.error('[DLE] Error in generation tracking:', trackingErr);
         }
-        // Only release lock if this pipeline still owns it (epoch matches).
+        // Release lock FIRST so pipeline-complete renders see correct state.
         // A force-released stale pipeline must NOT release the newer pipeline's lock.
         if (lockEpoch === generationLockEpoch) {
             setGenerationLock(false);
         }
+        // Notify drawer that pipeline is done (regardless of success/failure)
+        notifyPipelineComplete();
     }
 }
 
@@ -421,6 +456,9 @@ jQuery(async function () {
         );
         $('#extensions_settings2').append(settingsHtml);
 
+        // Create the drawer panel in the top bar
+        await createDrawerPanel();
+
         loadSettingsUI();
         bindSettingsEvents(buildIndex);
         registerSlashCommands();
@@ -435,7 +473,7 @@ jQuery(async function () {
                 let setupLaunched = false;
                 toastr.info(
                     'Welcome to DeepLore Enhanced! Click here to run the setup wizard, or close this to set up later via /dle-setup.',
-                    'DeepLore Enhanced — First Run',
+                    'DeepLore Enhanced',
                     {
                         timeOut: 0,
                         extendedTimeOut: 0,
@@ -513,7 +551,7 @@ jQuery(async function () {
         }
         if (initSettings.enabled) {
             // Try instant hydration from IndexedDB, then validate against Obsidian in background
-            eventSource.on(event_types.APP_READY, async () => {
+            eventSource.once(event_types.APP_READY, async () => {
                 // Skip if a build was already triggered (e.g. by early user generation)
                 if (indexEverLoaded || indexing) return;
                 try {
@@ -529,8 +567,10 @@ jQuery(async function () {
             });
         }
 
-        // Context Cartographer: click handler (event delegation — registered once)
-        $('#chat').on('click', '.mes_deeplore_sources', function () {
+        // Context Cartographer: click + keyboard handler (event delegation — registered once)
+        $('#chat').on('click keydown', '.mes_deeplore_sources', function (e) {
+            if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+            if (e.type === 'keydown') e.preventDefault();
             const messageId = $(this).closest('.mes').attr('mesid');
             const message = chat[messageId];
             const sources = message?.extra?.deeplore_sources;
@@ -543,13 +583,17 @@ jQuery(async function () {
             const settings = getSettings();
 
             // --- Context Cartographer: store sources and inject button ---
+            // Only consume sources that belong to the current chat epoch (race condition guard:
+            // prevents stale sources from a previous chat from being stored on the wrong message).
             if (settings.showLoreSources && lastInjectionSources && lastInjectionSources.length > 0) {
-                const message = chat[messageId];
-                if (message && !message.is_user) {
-                    message.extra = message.extra || {};
-                    message.extra.deeplore_sources = lastInjectionSources;
-                    setLastInjectionSources(null);
-                    saveChatDebounced();
+                if (lastInjectionEpoch === chatEpoch) {
+                    const message = chat[messageId];
+                    if (message && !message.is_user) {
+                        message.extra = message.extra || {};
+                        message.extra.deeplore_sources = lastInjectionSources;
+                        setLastInjectionSources(null);
+                        saveChatDebounced();
+                    }
                 }
             }
 
@@ -580,13 +624,24 @@ jQuery(async function () {
             cooldownTracker.clear();
             decayTracker.clear();
             consecutiveInjections.clear();
+            // Hydrate per-chat injection counts from saved metadata (survives page reload)
+            const savedCounts = chat_metadata?.deeplore_chat_counts;
+            setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
+            setLastGenerationChatLength(-1);
+            setLastGenerationInjectedKeys(new Set());
             setGenerationCount(0);
             setLastWarningRatio(0);
             setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
             setAutoSuggestMessageCount(0);
             setLastPipelineTrace(null);
             setLastInjectionSources(null);
+            setPreviousSources(null);
             resetCartographer();
+
+            // Reset drawer ephemeral state (browse filters, context tokens) and refresh
+            resetDrawerState();
+            notifyPipelineComplete();
+            notifyGatingChanged();
 
             // Re-register PM entries for the new active character (prompt_list mode)
             if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {

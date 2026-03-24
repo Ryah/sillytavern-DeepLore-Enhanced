@@ -15,13 +15,14 @@ import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParse
 import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
 import { parseFrontmatter, simpleHash, buildAiChatContext, classifyError, NO_ENTRIES_MSG } from '../core/utils.js';
 import { formatAndGroup } from '../core/matching.js';
-import { buildExemptionPolicy, applyRequiresExcludesGating } from './stages.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from './stages.js';
 import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, invalidateSettingsCache } from '../settings.js';
 import { fetchScribeNotes } from './obsidian-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress, buildPromise,
     lastPipelineTrace, injectionHistory, generationCount, generationLock,
     trackerKey, setIndexTimestamp,
+    notifyGatingChanged, notifyPinBlockChanged,
 } from './state.js';
 import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from './vault.js';
 import { buildCandidateManifest } from './ai.js';
@@ -132,7 +133,8 @@ export function registerSlashCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'dle-context',
+        name: 'dle-why',
+        aliases: ['dle-context'],
         callback: async () => {
             if (!chat || chat.length === 0) {
                 toastr.info('No active chat.', 'DeepLore Enhanced');
@@ -151,9 +153,10 @@ export function registerSlashCommands() {
             }
 
             const settings = getSettings();
-            // Warn if AI search is enabled — this command makes real API calls
+            // Confirm if AI search is enabled — this command makes real API calls
             if (settings.aiSearchEnabled) {
-                toastr.warning('Running pipeline with live AI search — this uses API tokens.', 'DeepLore Enhanced', { timeOut: 4000, preventDuplicates: true });
+                const proceed = await callGenericPopup('This will make a live AI search call and use API tokens. Continue?', POPUP_TYPE.CONFIRM);
+                if (!proceed) return '';
             }
             const { finalEntries, matchedKeys } = await runPipeline(chat);
 
@@ -165,6 +168,12 @@ export function registerSlashCommands() {
                     const lastGen = injectionHistory.get(trackerKey(e));
                     return lastGen === undefined || (generationCount - lastGen) >= settings.reinjectionCooldown;
                 });
+            }
+
+            // Apply contextual gating (era/location/scene/character) — matches onGenerate order
+            const gatingContext = chat_metadata?.deeplore_context;
+            if (gatingContext) {
+                filtered = applyContextualGating(filtered, gatingContext, { forceInject: new Set() }, settings.debugMode, settings);
             }
 
             const cmdPins = chat_metadata.deeplore_pins || [];
@@ -189,7 +198,7 @@ export function registerSlashCommands() {
             showSourcesPopup(sources);
             return '';
         },
-        helpString: 'Show what would be injected right now — runs the pipeline without generating.',
+        helpString: 'Preview which entries would be included in the next message, and why. Alias: /dle-context',
         returns: 'Context map popup',
     }));
 
@@ -209,7 +218,7 @@ export function registerSlashCommands() {
             await showNotebookPopup();
             return '';
         },
-        helpString: 'Open the Author\'s Notebook editor for the current chat.',
+        helpString: 'Open the Notebook editor for the current chat.',
         returns: 'Opens notebook popup',
     }));
 
@@ -248,7 +257,7 @@ export function registerSlashCommands() {
                 `Budget: ${settings.unlimitedBudget ? 'unlimited' : settings.maxTokensBudget + ' tokens'}`,
                 `Max Entries: ${settings.unlimitedEntries ? 'unlimited' : settings.maxEntries}`,
                 `Recursive: ${settings.recursiveScan ? 'on (max ' + settings.maxRecursionSteps + ' steps)' : 'off'}`,
-                `Cache: ${indexTimestamp ? Math.round((Date.now() - indexTimestamp) / 1000) + 's old' : 'none'} / TTL ${settings.cacheTTL}s`,
+                `Cache: ${indexTimestamp ? Math.round((Date.now() - indexTimestamp) / 1000) + 's old' : 'none'} / TTL ${settings.cacheTTL} seconds`,
                 `AI Search: ${settings.aiSearchEnabled ? 'on' : 'off'}`,
                 `AI Stats: ${aiSearchStats.calls} calls, ${aiSearchStats.cachedHits} cache hits, ~${aiSearchStats.totalInputTokens} in / ~${aiSearchStats.totalOutputTokens} out tokens`,
                 `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
@@ -293,7 +302,7 @@ export function registerSlashCommands() {
 
             try {
                 const histVault = getPrimaryVault(settings);
-                const data = await fetchScribeNotes(histVault.port, histVault.apiKey, settings.scribeFolder);
+                const data = await fetchScribeNotes(histVault.host, histVault.port, histVault.apiKey, settings.scribeFolder);
                 if (!data.ok) throw new Error(data.error || 'Failed to fetch notes');
 
                 if (!data.notes || data.notes.length === 0) {
@@ -543,6 +552,10 @@ export function registerSlashCommands() {
                         <input id="dle_setup_name" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.name || 'Primary')}" />
                     </div>
                     <div style="margin: 10px 0;">
+                        <label>Host (default: 127.0.0.1):</label>
+                        <input id="dle_setup_host" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.host || '127.0.0.1')}" />
+                    </div>
+                    <div style="margin: 10px 0;">
                         <label>Port (default: 27123):</label>
                         <input id="dle_setup_port" class="text_pole" type="number" value="${settings.vaults?.[0]?.port || 27123}" />
                     </div>
@@ -553,15 +566,17 @@ export function registerSlashCommands() {
                 </div>`;
 
             // Capture input values while popup is still open using onOpen + live binding
-            let vaultName = 'Primary', port = 27123, apiKey = '';
+            let vaultName = 'Primary', host = '127.0.0.1', port = 27123, apiKey = '';
             const step1Ok = await callGenericPopup(step1Html, POPUP_TYPE.CONFIRM, '', {
                 wide: true,
                 onOpen: () => {
                     // Attach input handlers to capture values in real-time
                     const nameEl = document.getElementById('dle_setup_name');
+                    const hostEl = document.getElementById('dle_setup_host');
                     const portEl = document.getElementById('dle_setup_port');
                     const keyEl = document.getElementById('dle_setup_key');
                     if (nameEl) { vaultName = nameEl.value.trim() || 'Primary'; nameEl.addEventListener('input', () => { vaultName = nameEl.value.trim() || 'Primary'; }); }
+                    if (hostEl) { host = hostEl.value.trim() || '127.0.0.1'; hostEl.addEventListener('input', () => { host = hostEl.value.trim() || '127.0.0.1'; }); }
                     if (portEl) { port = parseInt(portEl.value) || 27123; portEl.addEventListener('input', () => { port = parseInt(portEl.value) || 27123; }); }
                     if (keyEl) { apiKey = keyEl.value.trim() || ''; keyEl.addEventListener('input', () => { apiKey = keyEl.value.trim() || ''; }); }
                 },
@@ -571,7 +586,7 @@ export function registerSlashCommands() {
             // Test connection
             const { testConnection } = await import('./obsidian-api.js');
             toastr.info('Testing connection...', 'DeepLore Enhanced', { timeOut: 2000 });
-            const testResult = await testConnection(port, apiKey);
+            const testResult = await testConnection(host, port, apiKey);
             if (!testResult.ok) {
                 toastr.error(`Connection failed: ${testResult.error}. Check Obsidian and REST API plugin.`, 'DeepLore Enhanced');
                 return '';
@@ -611,7 +626,7 @@ export function registerSlashCommands() {
             // Apply settings
             settings.enabled = true;
             settings.lorebookTag = lorebookTag;
-            settings.vaults = [{ name: vaultName, port, apiKey, enabled: true }];
+            settings.vaults = [{ name: vaultName, host, port, apiKey, enabled: true }];
             settings.aiSearchEnabled = searchMode !== 'keywords';
             if (searchMode !== 'keywords') settings.aiSearchMode = searchMode;
             invalidateSettingsCache();
@@ -627,7 +642,7 @@ export function registerSlashCommands() {
                     <h3>DeepLore Enhanced Setup (3/3): Verification</h3>
                     <p class="dle-success dle-text-lg">Setup complete!</p>
                     <ul>
-                        <li>Vault: <b>${escapeHtml(vaultName)}</b> on port ${port}</li>
+                        <li>Vault: <b>${escapeHtml(vaultName)}</b> on ${escapeHtml(host)}:${port}</li>
                         <li>Lorebook tag: <b>#${escapeHtml(lorebookTag)}</b></li>
                         <li>Entries indexed: <b>${vaultIndex.length}</b></li>
                         <li>Mode: <b>${searchMode === 'keywords' ? 'Keywords Only' : searchMode === 'two-stage' ? 'Two-Stage' : 'AI Only'}</b></li>
@@ -731,6 +746,7 @@ export function registerSlashCommands() {
 
                     // Read current file, inject summary into frontmatter, write back
                     const fileResult = await obsidianFetch({
+                        host: vault.host,
                         port: vault.port,
                         apiKey: vault.apiKey,
                         path: `/vault/${encodeVaultPath(entry.filename)}`,
@@ -756,7 +772,7 @@ export function registerSlashCommands() {
                         }
                     }
 
-                    const writeResult = await writeNote(vault.port, vault.apiKey, entry.filename, fileContent);
+                    const writeResult = await writeNote(vault.host, vault.port, vault.apiKey, entry.filename, fileContent);
                     if (writeResult.ok) {
                         generated++;
                     } else {
@@ -973,6 +989,7 @@ export function registerSlashCommands() {
             }
             chat_metadata.deeplore_pins.push(entry.title);
             saveChatDebounced();
+            notifyPinBlockChanged();
             toastr.success(`Pinned "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
@@ -992,6 +1009,7 @@ export function registerSlashCommands() {
             if (idx === -1) { toastr.info(`"${name}" is not pinned.`, 'DeepLore Enhanced'); return ''; }
             const removed = chat_metadata.deeplore_pins.splice(idx, 1)[0];
             saveChatDebounced();
+            notifyPinBlockChanged();
             toastr.success(`Unpinned "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
@@ -1017,6 +1035,7 @@ export function registerSlashCommands() {
             }
             chat_metadata.deeplore_blocks.push(entry.title);
             saveChatDebounced();
+            notifyPinBlockChanged();
             toastr.success(`Blocked "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
@@ -1036,6 +1055,7 @@ export function registerSlashCommands() {
             if (idx === -1) { toastr.info(`"${name}" is not blocked.`, 'DeepLore Enhanced'); return ''; }
             const removed = chat_metadata.deeplore_blocks.splice(idx, 1)[0];
             saveChatDebounced();
+            notifyPinBlockChanged();
             toastr.success(`Unblocked "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
@@ -1145,11 +1165,11 @@ export function registerSlashCommands() {
             html += `<p style="margin-bottom:8px;">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
         }
         html += '<div style="display:flex;flex-direction:column;gap:4px;">';
-        html += `<button class="menu_button dle-field-select" data-value="" class="dle-popup">Clear filter</button>`;
+        html += `<button class="menu_button dle-field-select" data-value="" style="display:flex;justify-content:space-between;align-items:center;width:100%;">Clear filter</button>`;
         for (const [, { display, count }] of sorted) {
             const isActive = currentValue.toLowerCase() === display.toLowerCase();
             const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid var(--dle-success, #4caf50);padding-left:8px;' : '';
-            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="text-align:left;${activeStyle}">${escapeHtml(display)} <span class="dle-faint">(${count} ${count === 1 ? 'entry' : 'entries'})</span></button>`;
+            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="display:flex;justify-content:space-between;align-items:center;width:100%;${activeStyle}">${escapeHtml(display)}<span style="font-size:11px;opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
         }
         html += '</div></div>';
 
@@ -1164,6 +1184,7 @@ export function registerSlashCommands() {
                 const selected = btn.getAttribute('data-value');
                 ctx[ctxField] = selected;
                 saveChatDebounced();
+                notifyGatingChanged();
                 if (selected) {
                     toastr.success(`${label} set to "${selected}" for this chat.`, 'DeepLore Enhanced');
                 } else {
@@ -1192,6 +1213,7 @@ export function registerSlashCommands() {
             const ctx = ensureCtx();
             ctx.era = v;
             saveChatDebounced();
+            notifyGatingChanged();
 
             const matchCount = countFieldMatches('era', v);
             if (matchCount === 0) {
@@ -1224,6 +1246,7 @@ export function registerSlashCommands() {
             const ctx = ensureCtx();
             ctx.location = v;
             saveChatDebounced();
+            notifyGatingChanged();
 
             const matchCount = countFieldMatches('location', v);
             if (matchCount === 0) {
@@ -1256,6 +1279,7 @@ export function registerSlashCommands() {
             const ctx = ensureCtx();
             ctx.scene_type = v;
             saveChatDebounced();
+            notifyGatingChanged();
 
             const matchCount = countFieldMatches('sceneType', v);
             if (matchCount === 0) {
@@ -1283,11 +1307,13 @@ export function registerSlashCommands() {
             if (!v) {
                 ctx.characters_present = [];
                 saveChatDebounced();
+                notifyGatingChanged();
                 toastr.success('Present characters cleared.', 'DeepLore Enhanced');
                 return '';
             }
             ctx.characters_present = v.split(',').map(c => c.trim()).filter(Boolean);
             saveChatDebounced();
+            notifyGatingChanged();
             toastr.success(`Characters present: ${ctx.characters_present.join(', ')}`, 'DeepLore Enhanced');
             return '';
         },
@@ -1317,7 +1343,7 @@ export function registerSlashCommands() {
         name: 'dle-inspect',
         callback: async () => {
             if (!lastPipelineTrace) {
-                toastr.info('No pipeline trace yet. Send a message first to populate the inspector.', 'DeepLore Enhanced');
+                toastr.info('No trace data yet. Send a message first, then inspect.', 'DeepLore Enhanced');
                 return '';
             }
             const t = lastPipelineTrace;
@@ -1329,7 +1355,7 @@ export function registerSlashCommands() {
 
             // Build plain-text version for clipboard
             const plainLines = [
-                'Pipeline Inspector',
+                'Entry Inspector',
                 `Mode: ${t.mode} | Indexed: ${t.indexed} | Bootstrap active: ${t.bootstrapActive ? 'yes' : 'no'} | AI fallback: ${t.aiFallback ? 'yes' : 'no'}`,
                 '',
             ];
@@ -1396,7 +1422,7 @@ export function registerSlashCommands() {
             const plainText = plainLines.join('\n');
 
             let html = `<div class="dle-popup dle-popup--mono">`;
-            html += `<h3>Pipeline Inspector</h3>`;
+            html += `<h3>Entry Inspector</h3>`;
             html += buildCopyButton(plainText);
             html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
 
@@ -1405,7 +1431,7 @@ export function registerSlashCommands() {
                 && (!t.injected || t.injected.length === 0);
 
             if (nothingMatched) {
-                html += `<p style="color: var(--warning, #ff9800);">No entries matched. Check scan depth (currently ${settings.scanDepth}), keyword coverage, or run /dle-health.</p>`;
+                html += `<p style="color: var(--dle-warning);">No entries matched. Check scan depth (currently ${settings.scanDepth}), keyword coverage, or run /dle-health.</p>`;
             }
 
             if (t.keywordMatched.length > 0) {
@@ -1426,7 +1452,7 @@ export function registerSlashCommands() {
             }
 
             if (t.aiFallback) {
-                html += `<p style="color: var(--warning, #ff9800);">⚠ AI search failed — keyword results used as fallback</p>`;
+                html += `<p style="color: var(--dle-warning);">⚠ AI search failed — keyword results used as fallback</p>`;
             }
 
             // Injected entries (post-budget)
@@ -1434,7 +1460,7 @@ export function registerSlashCommands() {
                 const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
                 html += `<h4>${statusIcon(true)} Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel})</h4><ul>`;
                 for (const e of t.injected) {
-                    const truncLabel = e.truncated ? ` <span style="color: var(--warning, #ff9800);">[truncated from ~${e.originalTokens}]</span>` : '';
+                    const truncLabel = e.truncated ? ` <span style="color: var(--dle-warning);">[truncated from ~${e.originalTokens}]</span>` : '';
                     html += `<li>${escapeHtml(e.title)} (~${e.tokens} tokens)${truncLabel}</li>`;
                 }
                 html += '</ul>';
@@ -1442,7 +1468,7 @@ export function registerSlashCommands() {
 
             // Contextual gating removals
             if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
                 for (const title of t.contextualGatingRemoved) {
                     html += `<li>${escapeHtml(title)} — filtered by era/location/scene/character gate</li>`;
                 }
@@ -1451,7 +1477,7 @@ export function registerSlashCommands() {
 
             // Re-injection cooldown removals
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
                 for (const title of t.cooldownRemoved) {
                     html += `<li>${escapeHtml(title)} — recently injected, on cooldown</li>`;
                 }
@@ -1460,7 +1486,7 @@ export function registerSlashCommands() {
 
             // Gated out entries (requires/excludes) with cross-referencing
             if (t.gatedOut && t.gatedOut.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
                 for (const e of t.gatedOut) {
                     const reasons = [];
                     if (e.requires?.length > 0) {
@@ -1486,7 +1512,7 @@ export function registerSlashCommands() {
 
             // Strip dedup removals
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
                 for (const title of t.stripDedupRemoved) {
                     html += `<li>${escapeHtml(title)} — already injected in recent generation(s)</li>`;
                 }
@@ -1495,7 +1521,7 @@ export function registerSlashCommands() {
 
             // Probability skips
             if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
                 for (const e of t.probabilitySkipped) {
                     const rollLabel = e.probability === 0 ? 'probability is 0 (never fires)' : `rolled ${e.roll.toFixed(3)} > ${e.probability}`;
                     html += `<li>${escapeHtml(e.title)} — ${rollLabel}</li>`;
@@ -1505,7 +1531,7 @@ export function registerSlashCommands() {
 
             // Warmup failures
             if (t.warmupFailed && t.warmupFailed.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
                 for (const e of t.warmupFailed) {
                     html += `<li>${escapeHtml(e.title)} — needs ${e.needed} keyword occurrences, found ${e.found}</li>`;
                 }
@@ -1514,7 +1540,7 @@ export function registerSlashCommands() {
 
             // Budget/max cut entries
             if (t.budgetCut && t.budgetCut.length > 0) {
-                html += `<h4 style="color: var(--warning, #ff9800);">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
                 for (const e of t.budgetCut) {
                     html += `<li>${escapeHtml(e.title)} (pri ${e.priority}, ~${e.tokens} tokens)</li>`;
                 }
@@ -1528,8 +1554,8 @@ export function registerSlashCommands() {
             });
             return '';
         },
-        helpString: 'Show the last pipeline trace: which entries matched, why, and what the AI selected.',
-        returns: 'Pipeline inspector popup',
+        helpString: 'Show which entries matched, why, and what the AI selected in the last message.',
+        returns: 'Entry inspector popup',
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -1537,15 +1563,15 @@ export function registerSlashCommands() {
         callback: async () => {
             const commands = [
                 { cmd: '/dle-browse', desc: 'Search and preview vault entries' },
-                { cmd: '/dle-context', desc: 'Show what would inject right now (no generation needed)' },
-                { cmd: '/dle-inspect', desc: 'Inspect last pipeline trace in detail' },
+                { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (no generation needed)' },
+                { cmd: '/dle-inspect', desc: 'Inspect what happened in the last message' },
                 { cmd: '/dle-health', desc: 'Run vault health check' },
                 { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian' },
                 { cmd: '/dle-status', desc: 'Show extension status and stats' },
                 { cmd: '/dle-simulate', desc: 'Replay chat showing entry activation timeline' },
                 { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph' },
                 { cmd: '/dle-analytics', desc: 'View entry match/injection analytics' },
-                { cmd: '/dle-notebook', desc: 'Edit the Author\'s Notebook for this chat' },
+                { cmd: '/dle-notebook', desc: 'Edit the Notebook for this chat' },
                 { cmd: '/dle-scribe', desc: 'Run Session Scribe now' },
                 { cmd: '/dle-scribe-history', desc: 'View past Scribe notes' },
                 { cmd: '/dle-newlore', desc: 'AI suggests new lorebook entries from chat' },

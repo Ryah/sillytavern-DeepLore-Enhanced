@@ -122,7 +122,7 @@ export function runHealthCheck() {
 
         // Self-exclude detection
         if (entry.excludes.length > 0 && entry.excludes.some(exc => exc.toLowerCase() === entry.title.toLowerCase())) {
-            issues.push({ type: 'Gating', severity: 'error', entry: entry.title, detail: 'Entry excludes itself — it will never be injected' });
+            issues.push({ type: 'Gating', severity: 'error', entry: entry.title, detail: 'This entry can never trigger because it excludes itself' });
         }
 
         // Requires AND excludes same title
@@ -147,7 +147,7 @@ export function runHealthCheck() {
         // Short keywords
         for (const key of entry.keys) {
             if (key.length <= 2) {
-                issues.push({ type: 'Keywords', severity: 'info', entry: entry.title, detail: `Keyword "${key}" is ${key.length} char(s) — may match too aggressively` });
+                issues.push({ type: 'Keywords', severity: 'info', entry: entry.title, detail: `Keyword "${key}" is ${key.length} char(s) — may cause false matches` });
             }
             const lower = key.toLowerCase();
             if (!keywordMap.has(lower)) keywordMap.set(lower, []);
@@ -238,7 +238,7 @@ export function runHealthCheck() {
             if (target && target.requires.some(r => r.toLowerCase() === titleLower)) {
                 // Only report once (alphabetically first)
                 if (title < target.title) {
-                    issues.push({ type: 'Gating', severity: 'error', entry: `${title} ↔ ${target.title}`, detail: 'Circular requires — these entries require each other and will both be gated out' });
+                    issues.push({ type: 'Gating', severity: 'error', entry: `${title} ↔ ${target.title}`, detail: 'Neither entry can trigger because they each require the other' });
                 }
             }
         }

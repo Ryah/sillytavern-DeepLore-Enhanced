@@ -63,7 +63,7 @@ export async function saveIndexToCache(entries) {
         const cacheData = {
             schemaVersion: CACHE_SCHEMA_VERSION,
             timestamp: Date.now(),
-            entries: entries.map(e => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('_')))),
+            entries: entries.map(e => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('_') || k === '_contentHash'))),
         };
 
         store.put(cacheData, getCacheKey());
@@ -113,6 +113,10 @@ function validateCachedEntry(entry) {
     if (entry.requires !== undefined && !Array.isArray(entry.requires)) entry.requires = [];
     if (entry.excludes !== undefined && !Array.isArray(entry.excludes)) entry.excludes = [];
     if (entry.probability !== undefined && entry.probability !== null && typeof entry.probability !== 'number') entry.probability = null;
+    // Default array fields if missing or corrupt (defend against partial IndexedDB writes)
+    for (const field of ['era', 'location', 'sceneType', 'characterPresent', 'links', 'resolvedLinks', 'tags']) {
+        if (!Array.isArray(entry[field])) entry[field] = [];
+    }
     return true;
 }
 

@@ -62,7 +62,7 @@ export function extractAiResponseClient(text) {
         if (isValidResultArray(parsed)) return parsed;
     } catch { /* noop */ }
     // Try markdown code fence
-    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const fenceMatch = text.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/);
     if (fenceMatch) {
         try {
             const parsed = JSON.parse(fenceMatch[1]);
@@ -248,7 +248,7 @@ export function convertWiEntry(wiEntry, lorebookTag) {
     let content = wiEntry.content || '';
     content = content.replace(/^---$/gm, '- - -'); // prevent YAML frontmatter delimiter injection
     content = content.replace(/%%deeplore-exclude%%[\s\S]*?%%\/deeplore-exclude%%/g, ''); // strip control sequences
-    content = content.replace(/^%%[\s\S]*?^%%/gm, ''); // strip Obsidian comment blocks
+    content = stripObsidianSyntax(content); // strip Templater, Dataview, CustomJS, obsidian:// links
     const fullContent = `${fm.join('\n')}\n\n# ${title}\n\n${content}`;
 
     return { filename: `${safeTitle}.md`, content: fullContent };
@@ -341,6 +341,187 @@ export function checkHealthPure(vaultIndex, settings = {}) {
     return issues;
 }
 
+// ── Cartographer Data Layer ──
+// Shared data-preparation functions used by both the Context Cartographer popup
+// (src/cartographer.js) and the drawer Why? tab (src/drawer-render.js).
+
+/**
+ * Parse a matchedBy string into a structured match reason.
+ * Both renderers format this differently (popup: parenthetical, drawer: badge).
+ * @param {string|null} matchedBy - Raw matchedBy string from pipeline
+ * @returns {{ type: 'constant'|'pinned'|'bootstrap'|'seed'|'keyword_ai'|'keyword'|'ai'|'unknown', keyword: string|null }}
+ */
+export function parseMatchReason(matchedBy) {
+    if (!matchedBy) return { type: 'unknown', keyword: null };
+    const m = matchedBy.toLowerCase();
+    if (m.includes('constant') || m.includes('always')) return { type: 'constant', keyword: null };
+    if (m.includes('pin')) return { type: 'pinned', keyword: null };
+    if (m.includes('bootstrap')) return { type: 'bootstrap', keyword: null };
+    if (m.includes('seed')) return { type: 'seed', keyword: null };
+    // "keyword → AI: reason" pattern (two-stage match)
+    if (matchedBy.includes('→')) {
+        const keyword = matchedBy.split('→')[0].trim();
+        return { type: 'keyword_ai', keyword };
+    }
+    // Pure AI match
+    if (m.startsWith('ai:') || m === 'ai selection' || m === 'ai') return { type: 'ai', keyword: null };
+    // Bare keyword match
+    if (matchedBy.trim()) return { type: 'keyword', keyword: matchedBy.trim() };
+    return { type: 'unknown', keyword: null };
+}
+
+/**
+ * Compute diff between current and previous injection sources.
+ * @param {Array<{title: string, tokens?: number, matchedBy?: string}>} currentSources
+ * @param {Array<{title: string, tokens?: number, matchedBy?: string}>|null} previousSources
+ * @returns {{ added: Array, removed: Array<{title: string, tokens?: number, matchedBy?: string, removalReason: string}> }}
+ */
+export function computeSourcesDiff(currentSources, previousSources) {
+    if (!previousSources) return { added: [], removed: [] };
+    const prevMap = new Map(previousSources.map(s => [s.title, s]));
+    const currTitles = new Set(currentSources.map(s => s.title));
+    const added = currentSources.filter(s => !prevMap.has(s.title));
+    const removed = previousSources.filter(s => !currTitles.has(s.title)).map(s => {
+        const prevReason = (s.matchedBy || '').toLowerCase();
+        let removalReason = 'No longer matched';
+        if (prevReason.includes('bootstrap')) removalReason = 'Bootstrap fall-off';
+        else if (prevReason.includes('constant') || prevReason.includes('always')) removalReason = 'Constant removed';
+        return { ...s, removalReason };
+    });
+    return { added, removed };
+}
+
+/**
+ * Parse a pipeline trace and categorize rejected entries by stage.
+ * Handles mixed trace field shapes (some string arrays, some object arrays).
+ * @param {object|null} trace - lastPipelineTrace from pipeline run
+ * @param {Set<string>} injectedTitles - Titles of entries that were actually injected
+ * @returns {Array<{ stage: string, label: string, icon: string, entries: Array<{title: string, reason: string}> }>}
+ */
+export function categorizeRejections(trace, injectedTitles) {
+    if (!trace) return [];
+    const groups = [];
+
+    // Gated Out (requires/excludes)
+    if (trace.gatedOut?.length > 0) {
+        const entries = trace.gatedOut
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => {
+                const parts = [];
+                if (e.requires?.length) parts.push(`needs: ${e.requires.join(', ')}`);
+                if (e.excludes?.length) parts.push(`blocked by: ${e.excludes.join(', ')}`);
+                return { title: e.title, reason: parts.join('; ') || 'requires/excludes' };
+            });
+        if (entries.length > 0) groups.push({ stage: 'gated_out', label: 'Blocked by dependencies', icon: 'fa-lock', entries });
+    }
+
+    // Contextual Gating Removed (string array)
+    if (trace.contextualGatingRemoved?.length > 0) {
+        const entries = trace.contextualGatingRemoved
+            .filter(t => !injectedTitles.has(t))
+            .map(t => ({ title: t, reason: 'Filtered by era/location/scene/character' }));
+        if (entries.length > 0) groups.push({ stage: 'contextual_gating', label: 'Filtered by context', icon: 'fa-filter', entries });
+    }
+
+    // AI Rejected — candidates that made it to manifest but AI didn't select
+    if (trace.keywordMatched?.length > 0 && trace.aiSelected) {
+        const aiSelectedTitles = new Set(trace.aiSelected.map(m => m.title));
+        // Build set of entries accounted for by other stages
+        const accountedTitles = new Set([
+            ...(trace.gatedOut || []).map(e => e.title),
+            ...(trace.contextualGatingRemoved || []),
+            ...(trace.cooldownRemoved || []),
+            ...(trace.stripDedupRemoved || []),
+            ...(trace.probabilitySkipped || []).map(e => e.title),
+            ...(trace.warmupFailed || []).map(e => e.title),
+            ...(trace.budgetCut || []).map(e => e.title),
+        ]);
+        const entries = trace.keywordMatched
+            .filter(m => !aiSelectedTitles.has(m.title) && !injectedTitles.has(m.title) && !accountedTitles.has(m.title))
+            .map(m => ({ title: m.title, reason: 'AI did not select' }));
+        if (entries.length > 0) groups.push({ stage: 'ai_rejected', label: 'AI Rejected', icon: 'fa-robot', entries });
+    }
+
+    // Cooldown Removed (string array)
+    if (trace.cooldownRemoved?.length > 0) {
+        const entries = trace.cooldownRemoved
+            .filter(t => !injectedTitles.has(t))
+            .map(t => ({ title: t, reason: 'Cooldown active' }));
+        if (entries.length > 0) groups.push({ stage: 'cooldown', label: 'Cooldown Active', icon: 'fa-clock', entries });
+    }
+
+    // Budget/Max Cut (object array with title + tokens)
+    if (trace.budgetCut?.length > 0) {
+        const entries = trace.budgetCut
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => ({ title: e.title, reason: `Over budget${e.tokens ? ` (${e.tokens} tok)` : ''}` }));
+        if (entries.length > 0) groups.push({ stage: 'budget_cut', label: 'Over budget', icon: 'fa-scissors', entries });
+    }
+
+    // Strip Dedup Removed (string array)
+    if (trace.stripDedupRemoved?.length > 0) {
+        const entries = trace.stripDedupRemoved
+            .filter(t => !injectedTitles.has(t))
+            .map(t => ({ title: t, reason: 'Already in context' }));
+        if (entries.length > 0) groups.push({ stage: 'strip_dedup', label: 'Dedup Removed', icon: 'fa-copy', entries });
+    }
+
+    // Probability Skipped (object array)
+    if (trace.probabilitySkipped?.length > 0) {
+        const entries = trace.probabilitySkipped
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => ({ title: e.title, reason: 'Probability skipped' }));
+        if (entries.length > 0) groups.push({ stage: 'probability_skipped', label: 'Probability Skipped', icon: 'fa-dice', entries });
+    }
+
+    // Warmup Not Met (object array)
+    if (trace.warmupFailed?.length > 0) {
+        const entries = trace.warmupFailed
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => ({ title: e.title, reason: 'Warmup not met' }));
+        if (entries.length > 0) groups.push({ stage: 'warmup_failed', label: 'Warmup Not Met', icon: 'fa-temperature-low', entries });
+    }
+
+    return groups;
+}
+
+/**
+ * Resolve the vault name and Obsidian URI for a source entry.
+ * Encapsulates the vault-lookup + URI-build pattern used by both renderers.
+ * @param {{ vaultSource?: string, filename?: string }} source
+ * @param {Array<{ name: string }>|undefined} vaults - settings.vaults
+ * @returns {{ vaultName: string, uri: string|null }}
+ */
+export function resolveEntryVault(source, vaults) {
+    const srcVault = source.vaultSource && vaults
+        ? vaults.find(v => v.name === source.vaultSource)
+        : null;
+    const vaultName = srcVault ? srcVault.name : (source.vaultSource || vaults?.[0]?.name || '');
+    const uri = source.filename ? buildObsidianURI(vaultName, source.filename) : null;
+    return { vaultName, uri };
+}
+
+/**
+ * Compute a color on a green→yellow→red gradient based on token count vs vault average.
+ * Returns an HSL color string.
+ * @param {number} tokens - Token count for this entry
+ * @param {number} avgTokens - Average tokens across the vault
+ * @returns {string} CSS color value
+ */
+export function tokenBarColor(tokens, avgTokens) {
+    if (!avgTokens || avgTokens <= 0) return 'var(--SmartThemeQuoteColor, #4caf50)';
+    const ratio = Math.min(tokens / avgTokens, 3.0);
+    let hue;
+    if (ratio <= 0.5) {
+        hue = 120;
+    } else if (ratio <= 1.0) {
+        hue = 120 - ((ratio - 0.5) / 0.5) * 60; // 120 → 60
+    } else {
+        hue = 60 - (Math.min(ratio - 1.0, 1.0)) * 60; // 60 → 0
+    }
+    return `hsl(${Math.round(hue)}, 70%, 45%)`;
+}
+
 // ── Shared Stage Colors ──
 
 /**
@@ -361,3 +542,25 @@ export const STAGE_COLORS = {
     ai_rejected: 'var(--dle-info, #2196f3)',
     budget_cut: 'var(--dle-warning, #ff9800)',
 };
+
+// ── Relative Time Formatting ──
+
+/**
+ * Format a timestamp as a human-readable relative time string.
+ * @param {number} timestamp - Unix timestamp in milliseconds
+ * @returns {string} e.g. "just now", "5m ago", "2h ago", "3d ago"
+ */
+export function formatRelativeTime(timestamp) {
+    if (!timestamp) return '';
+    const diff = Date.now() - timestamp;
+    if (diff < 0) return 'just now';
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
+}

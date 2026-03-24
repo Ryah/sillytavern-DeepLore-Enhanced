@@ -96,14 +96,21 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
  * @param {boolean} debugMode
  * @returns {Array} Filtered entries
  */
-export function applyContextualGating(entries, context, policy, debugMode) {
+export function applyContextualGating(entries, context, policy, debugMode, settings) {
     const activeEra = (context.era || '').toLowerCase();
     const activeLocation = (context.location || '').toLowerCase();
     const activeScene = (context.scene_type || '').toLowerCase();
     const presentChars = (context.characters_present || []).map(c => c.toLowerCase());
 
+    const tolerance = (settings && settings.contextualGatingTolerance) || 'strict';
+
     // Only apply gating if at least one context dimension is set
     if (!activeEra && !activeLocation && !activeScene && presentChars.length === 0) {
+        return entries;
+    }
+
+    // E5: Lenient — if ALL active context dimensions are empty, allow everything through
+    if (tolerance === 'lenient') {
         return entries;
     }
 
@@ -115,30 +122,37 @@ export function applyContextualGating(entries, context, policy, debugMode) {
         if (e.era && e.era.length > 0) {
             if (activeEra) {
                 if (!e.era.some(v => v.toLowerCase() === activeEra)) return false;
-            } else {
+            } else if (tolerance === 'strict') {
                 return false; // Entry requires an era but none is set
             }
+            // moderate: entry has era set but active context doesn't — allow through
         }
         // Location gating
         if (e.location && e.location.length > 0) {
             if (activeLocation) {
                 if (!e.location.some(v => v.toLowerCase() === activeLocation)) return false;
-            } else {
+            } else if (tolerance === 'strict') {
                 return false;
             }
+            // moderate: entry has location set but active context doesn't — allow through
         }
         // Scene type gating
         if (e.sceneType && e.sceneType.length > 0) {
             if (activeScene) {
                 if (!e.sceneType.some(v => v.toLowerCase() === activeScene)) return false;
-            } else {
+            } else if (tolerance === 'strict') {
                 return false;
             }
+            // moderate: entry has sceneType set but active context doesn't — allow through
         }
         // Character present gating
         if (e.characterPresent && e.characterPresent.length > 0) {
-            if (presentChars.length === 0) return false;
-            if (!e.characterPresent.some(c => presentChars.some(p => c.toLowerCase() === p))) return false;
+            if (presentChars.length === 0) {
+                if (tolerance === 'strict') return false;
+                // moderate/lenient: no active characters — allow through
+            } else if (!e.characterPresent.some(c => presentChars.some(p => c.toLowerCase() === p))) {
+                return false;
+            }
         }
         return true;
     });
@@ -241,7 +255,8 @@ export function applyRequiresExcludesGating(entries, policy, debugMode) {
     }
 
     // Detect contradictory gating for debugging
-    const removed = entries.filter(e => !result.includes(e));
+    const resultSet = new Set(result);
+    const removed = entries.filter(e => !resultSet.has(e));
     if (removed.length > 0) {
         const entryMap = new Map(entries.map(e => [e.title.toLowerCase(), e]));
         for (const r of removed) {

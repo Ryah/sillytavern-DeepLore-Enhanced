@@ -4,15 +4,47 @@
 
 /* --- Theme-aware color variables (on :root so popups can inherit) --- */
 :root {
+    /* Semantic colors — theme-aware where possible */
     --dle-success: var(--SmartThemeQuoteColor, #4caf50);
     --dle-error: #f44336;
-    --dle-warning: #ff9800;
+    --dle-warning: color-mix(in srgb, var(--SmartThemeQuoteColor, #ff9800) 70%, orange);
     --dle-info: var(--SmartThemeUnderlineColor, #2196f3);
-    --dle-accent: #9c27b0;
+    --dle-accent: color-mix(in srgb, var(--SmartThemeUnderlineColor, #9c27b0) 60%, purple);
     --dle-border: var(--SmartThemeBorderColor, #444);
     --dle-bg-surface: var(--SmartThemeBlurTintColor, #1a1a2e);
     --dle-bg-hover: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 8%, transparent);
     --dle-text-muted: var(--SmartThemeEmColor, #888);
+
+    /* Type scale (minor third 1.2 ratio) */
+    --dle-text-xs: 0.7em;
+    --dle-text-sm: 0.82em;
+    --dle-text-base: 1em;
+    --dle-text-lg: 1.1em;
+    --dle-text-xl: 1.25em;
+
+    /* Spacing scale */
+    --dle-space-1: 4px;
+    --dle-space-2: 8px;
+    --dle-space-3: 12px;
+    --dle-space-4: 16px;
+    --dle-space-5: 24px;
+
+    /* Border radius scale */
+    --dle-radius-sm: 3px;
+    --dle-radius-md: 6px;
+    --dle-radius-lg: 10px;
+    --dle-radius-pill: 9999px;
+
+    /* Shadow / elevation */
+    --dle-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+    --dle-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --dle-shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.4);
+
+    /* Opacity scale */
+    --dle-opacity-muted: 0.65;
+    --dle-opacity-faint: 0.45;
+    --dle-opacity-ghost: 0.25;
+    --dle-opacity-disabled: 0.4;
 }
 
 /* --- Utility classes --- */
@@ -24,10 +56,6 @@
 
 .dle_settings .dle_text_sm {
     font-size: 0.85em;
-}
-
-.dle_settings .dle_text_xs {
-    font-size: 0.75em;
 }
 
 .dle_settings .dle_muted {
@@ -73,14 +101,19 @@
 /* --- Advanced toggle --- */
 .dle_settings .dle_advanced_toggle {
     cursor: pointer;
-    color: var(--dle-text-muted);
+    color: var(--dle-accent);
     font-size: 0.85em;
+    font-weight: 500;
     margin: 6px 0;
     user-select: none;
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
 }
 
 .dle_settings .dle_advanced_toggle:hover {
     color: var(--SmartThemeBodyColor, #eee);
+    text-decoration: underline;
 }
 
 .dle_settings .dle_advanced_icon {
@@ -91,7 +124,7 @@
 /* --- Vault row --- */
 .dle_settings .dle_vault_row {
     border: 1px solid var(--dle-border);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-md);
     padding: 8px;
     margin-bottom: 6px;
     transition: background 0.15s;
@@ -107,7 +140,7 @@
 
 /* --- Disabled button class (for div-based buttons) --- */
 .dle_settings .menu_button.disabled {
-    opacity: 0.4;
+    opacity: var(--dle-opacity-disabled);
     pointer-events: none;
 }
 
@@ -122,25 +155,39 @@
     outline-offset: 2px;
 }
 
-/* --- Screen reader only --- */
-.dle_settings .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
+/* --- Focus-visible styles (drawer + popup) --- */
+#deeplore-drawer button:focus-visible,
+#deeplore-drawer input:focus-visible,
+#deeplore-drawer select:focus-visible,
+#deeplore-drawer a:focus-visible,
+#deeplore-drawer [tabindex="0"]:focus-visible,
+.dle-settings-popup button:focus-visible,
+.dle-settings-popup input:focus-visible,
+.dle-settings-popup select:focus-visible,
+.dle-settings-popup [tabindex="0"]:focus-visible {
+    outline: 2px solid var(--dle-success);
+    outline-offset: 2px;
 }
 
 /* --- Reduced motion support --- */
 @media (prefers-reduced-motion: reduce) {
     .dle_settings,
-    .dle_settings * {
+    .dle_settings *,
+    #deeplore-drawer,
+    #deeplore-drawer *,
+    .dle-settings-popup,
+    .dle-settings-popup *,
+    .dle-popup,
+    .dle-popup * {
         transition-duration: 0.01ms !important;
         animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+    /* Explicitly disable budget pulse and status dot animations */
+    .dle-token-bar-container.dle-budget-critical .dle-token-bar,
+    .dle-entries-bar-container.dle-budget-critical .dle-entries-bar,
+    .dle-status-dot.dle-status-active {
+        animation: none !important;
     }
 }
 
@@ -149,36 +196,12 @@
     margin: 10px 0;
 }
 
-/* --- Settings validation feedback --- */
-.dle_settings .dle_input_error {
-    border-color: var(--dle-error) !important;
-}
-
-.dle_settings .dle_validation_msg {
-    font-size: 0.75em;
-    color: var(--dle-warning);
-    display: block;
-    margin-top: 2px;
-}
-
 /* ============================================================================
  * Popup Component Classes (Item 12)
  * Reusable classes for popup content — available globally since vars are on :root
  * ============================================================================ */
 
-/* --- Type scale (minor third 1.2 ratio) --- */
-:root {
-    --dle-text-xs: 0.72em;
-    --dle-text-sm: 0.85em;
-    --dle-text-base: 1em;
-    --dle-text-lg: 1.1em;
-    --dle-text-xl: 1.25em;
-    --dle-space-1: 4px;
-    --dle-space-2: 8px;
-    --dle-space-3: 12px;
-    --dle-space-4: 16px;
-    --dle-space-5: 24px;
-}
+/* (type scale and spacing tokens consolidated into :root above) */
 
 /* --- Semantic color classes --- */
 .dle-success { color: var(--dle-success); }
@@ -190,7 +213,7 @@
 /* --- Connection card (visual grouping for repeated connection config blocks) --- */
 .dle-connection-card {
     border: 1px solid var(--dle-border);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-md);
     padding: var(--dle-space-2) var(--dle-space-3);
     margin: var(--dle-space-2) 0;
 }
@@ -213,9 +236,9 @@
 /* --- Card container --- */
 .dle-card {
     border: 1px solid var(--dle-border);
-    border-radius: 4px;
-    padding: var(--dle-space-2);
-    margin-bottom: 6px;
+    border-radius: var(--dle-radius-md);
+    padding: var(--dle-space-1) var(--dle-space-2);
+    margin-bottom: 4px;
 }
 
 /* --- Card header (clickable flex row) --- */
@@ -234,15 +257,15 @@
     overflow-y: auto;
     background: var(--dle-bg-surface);
     padding: var(--dle-space-2);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-md);
 }
 .dle-preview--short { max-height: 200px; }
 .dle-preview--tall { max-height: 400px; }
 
 /* --- Muted text variants --- */
-.dle-muted { opacity: 0.65; }
-.dle-faint { opacity: 0.45; }
-.dle-ghost { opacity: 0.25; }
+.dle-muted { opacity: var(--dle-opacity-muted); }
+.dle-faint { opacity: var(--dle-opacity-faint); }
+.dle-ghost { opacity: var(--dle-opacity-ghost); }
 
 /* --- Text size utilities --- */
 .dle-text-xs { font-size: var(--dle-text-xs); }
@@ -289,28 +312,118 @@
 /* --- Token bar --- */
 .dle-token-bar {
     background: var(--dle-border);
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
     height: 6px;
     margin: var(--dle-space-1) 0;
 }
 .dle-token-bar-fill {
     height: 100%;
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
 }
 
 /* --- Keyword highlight --- */
 .dle-highlight {
     background: rgba(255, 193, 7, 0.3);
     padding: 0 2px;
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
 }
 
 /* --- Disabled / dimmed states --- */
 .dle-disabled {
-    opacity: 0.4;
+    opacity: var(--dle-opacity-disabled);
     pointer-events: none;
 }
 .dle-dimmed { opacity: 0.5; }
+
+/* --- Danger button --- */
+.dle-danger-btn {
+    border-color: var(--dle-error, #f44336) !important;
+    color: var(--dle-error, #f44336) !important;
+}
+.dle-danger-btn:hover {
+    background: color-mix(in srgb, var(--dle-error, #f44336) 15%, transparent);
+}
+
+/* --- Info notices --- */
+.dle-notice {
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    border-radius: var(--dle-radius-md);
+    background: var(--SmartThemeQuoteColor, #2a4a6b);
+    color: var(--SmartThemeBodyColor, #eee);
+    font-size: 0.95em;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* AI disabled overlay */
+.dle-ai-content-wrap {
+    position: relative;
+}
+
+.dle-ai-content-wrap.dle-blurred {
+    filter: blur(3px);
+    opacity: 0.5;
+    pointer-events: none;
+    user-select: none;
+}
+
+.dle-overlay-notice {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 60px;
+}
+
+.dle-overlay-notice-card {
+    background: var(--SmartThemeBlurTintColor, rgba(20, 20, 35, 0.95));
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: var(--dle-radius-md);
+    padding: 24px 32px;
+    text-align: center;
+    max-width: 360px;
+    color: var(--SmartThemeBodyColor, #ddd);
+    font-size: 0.95em;
+    line-height: 1.5;
+    backdrop-filter: blur(4px);
+    box-shadow: var(--dle-shadow-lg);
+}
+
+.dle-overlay-notice-card p {
+    margin: 6px 0;
+}
+
+.dle-overlay-notice-card p:first-of-type {
+    font-size: 1.05em;
+    opacity: 0.7;
+}
+
+.dle-notice-link {
+    color: var(--SmartThemeUnderlineColor, #9c9cff);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.dle-notice-link:hover {
+    opacity: 0.8;
+}
+
+@keyframes dle-pulse-glow {
+    0%, 100% { box-shadow: none; }
+    50% { box-shadow: 0 0 8px 2px var(--SmartThemeUnderlineColor, #9c9cff); }
+}
+
+.dle-pulse {
+    animation: dle-pulse-glow 0.6s ease-in-out 3;
+}
 
 /* --- Screen reader only (global scope for popups) --- */
 .sr-only {
@@ -353,7 +466,7 @@
 }
 .dle_settings h4[data-zone="c"] + .dle_section_desc,
 .dle_settings h4[data-zone="d"] + .dle_section_desc {
-    opacity: 0.65;
+    opacity: var(--dle-opacity-muted);
 }
 
 /* Zone boundary separators (thicker hr between major zones) */
@@ -384,7 +497,1545 @@
     transition: border-color 150ms ease;
 }
 
+/* --- Browse popup table --- */
+.dle-browse-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    table-layout: fixed;
+}
+.dle-browse-table thead th {
+    font-size: 11px;
+    color: var(--dle-text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--dle-border);
+    position: sticky;
+    top: 0;
+    background: var(--SmartThemeBlurTintColor, #1a1a1a);
+    z-index: 1;
+}
+.dle-browse-table-row {
+    cursor: pointer;
+    transition: background 120ms;
+}
+.dle-browse-table-row:hover {
+    background: var(--dle-bg-hover);
+}
+.dle-browse-table-row td {
+    padding: 4px 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 40%, transparent);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dle-browse-table-keys {
+    color: var(--dle-text-muted);
+    font-size: 11px;
+}
+.dle-browse-table-detail {
+    padding: 8px 12px !important;
+    border-bottom: 1px solid var(--dle-border);
+    background: color-mix(in srgb, var(--dle-bg-hover) 50%, transparent);
+}
+
 /* Focus-visible transition */
 .dle_settings [tabindex="0"] {
     transition: outline-color 100ms ease;
 }
+
+/* ============================================================================
+ * Drawer Panel (Phase 0 mockup)
+ * ============================================================================ */
+
+/* --- Drawer z-index: lower than native drawers so they layer on top when DLE is pinned --- */
+#deeplore-panel.pinnedOpen {
+    z-index: 2999;
+}
+
+/* Fix for dynamically-injected drawers: @starting-style transition from height:0 → height:100%
+   doesn't complete reliably for elements added after page load. Use explicit calc instead. */
+#deeplore-panel.openDrawer {
+    height: calc(100vh - var(--topBarBlockSize, 35px));
+    height: calc(100dvh - var(--topBarBlockSize, 35px));
+}
+
+/* --- Drawer controls row (pin + close, side by side) --- */
+.dle-drawer-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    align-self: flex-start;
+}
+
+/* --- Drawer pin (matches ST native: top-left, inline after drag grabber) --- */
+.dle-drawer-pin {
+    align-self: flex-start;
+}
+
+.dle-drawer-pin input[type="checkbox"] {
+    display: none;
+}
+
+/* Show unlock when unchecked, lock when checked */
+.dle-drawer-pin .checked {
+    display: none;
+}
+.dle-drawer-pin .unchecked {
+    display: block;
+}
+.dle-drawer-pin input:checked ~ label .checked {
+    display: block;
+}
+.dle-drawer-pin input:checked ~ label .unchecked {
+    display: none;
+}
+
+/* --- Drawer close button — inline next to lock, matches lock icon style --- */
+.dle-drawer-close {
+    background: none;
+    border: none;
+    margin: 0;
+    color: var(--SmartThemeBodyColor, #ccc);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 120ms ease;
+    padding: 2px;
+    font-size: inherit;
+    font-family: inherit;
+    line-height: 1;
+}
+.dle-drawer-close:hover {
+    opacity: 1;
+}
+.dle-drawer-help {
+    background: none;
+    border: none;
+    margin: 0;
+    color: var(--SmartThemeBodyColor, #ccc);
+    cursor: pointer;
+    opacity: 0.5;
+    transition: opacity 120ms ease;
+    padding: 2px;
+    font-size: inherit;
+    font-family: inherit;
+    line-height: 1;
+}
+.dle-drawer-help:hover {
+    opacity: 1;
+    color: var(--dle-info);
+}
+
+/* --- Two-zone architecture --- */
+#deeplore-drawer {
+    line-height: 1.4;
+}
+
+.dle-drawer-zone {
+    padding: var(--dle-space-2);
+}
+
+.dle-zone-divider {
+    border: none;
+    border-top: 1px solid var(--dle-border);
+    margin: var(--dle-space-1) 0;
+}
+
+/* --- Zone 1: Fixed Status --- */
+.dle-zone-status {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-2);
+    background: color-mix(in srgb, var(--dle-bg-surface) 30%, transparent);
+    border-left: 3px solid var(--dle-accent);
+    border-radius: var(--dle-radius-md);
+    padding: var(--dle-space-3);
+}
+
+/* Merged status + stats row */
+.dle-status-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    flex-wrap: wrap;
+}
+
+.dle-pipeline-label {
+    font-size: var(--dle-text-xl);
+    font-weight: 700;
+}
+
+.dle-stat-divider {
+    color: var(--dle-text-muted);
+    opacity: var(--dle-opacity-disabled);
+    font-size: var(--dle-text-xs);
+}
+
+.dle-stat {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+/* Active filters (compact chips in status zone) */
+.dle-active-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dle-space-1);
+}
+
+.dle-chip-sm {
+    font-size: 11px;
+    padding: 2px 8px;
+    /* Neutral tint — differentiate from interactive gating tab chips */
+    background: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 10%, transparent);
+    border-color: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 20%, transparent);
+}
+
+/* --- Status dot (shared) --- */
+.dle-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+    position: relative;
+    transition: background-color var(--animation-duration-slow, 375ms) ease;
+}
+
+.dle-status-ok { background: var(--dle-success); }
+.dle-status-degraded { background: var(--dle-warning); }
+.dle-status-limited { background: var(--dle-warning); }
+.dle-status-offline { background: var(--dle-error); }
+
+/* Shape encoding for non-OK status (accessibility: not color-only) */
+.dle-status-degraded::after,
+.dle-status-limited::after {
+    content: '!';
+    position: absolute;
+    font-size: 7px;
+    font-weight: bold;
+    color: var(--SmartThemeBlurTintColor, #1a1a2e);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
+.dle-status-offline::after {
+    content: '\00d7';
+    position: absolute;
+    font-size: 8px;
+    font-weight: bold;
+    color: var(--SmartThemeBlurTintColor, #1a1a2e);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
+
+/* --- Zone 2: Tabs --- */
+.dle-zone-tabs {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    padding-top: 0;
+}
+
+/* Tab bar */
+.dle-tab-bar {
+    display: flex;
+    border-bottom: 1px solid var(--dle-border);
+    gap: 0;
+    padding: 0 var(--dle-space-2);
+}
+
+.dle-tab {
+    flex: 1;
+    padding: var(--dle-space-2);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--dle-text-muted);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: color var(--animation-duration-2x, 250ms), border-color var(--animation-duration-2x, 250ms);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.dle-tab:hover {
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+.dle-tab.active {
+    color: var(--SmartThemeBodyColor, #eee);
+    font-weight: 600;
+    border-bottom-color: var(--dle-accent);
+}
+
+/* (tab icons inherit font-size from .dle-tab) */
+
+/* Tab count badges — small pill next to icon */
+.dle-tab-badge {
+    font-size: 10px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    text-align: center;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--dle-accent) 30%, transparent);
+    font-weight: 600;
+    display: inline-block;
+    visibility: hidden;
+}
+.dle-tab-badge:not(:empty) {
+    visibility: visible;
+    animation: dle-badge-pop var(--animation-duration-2x, 250ms) ease-out;
+}
+
+/* Active tab label (below tab bar) — hidden by default, shown on narrow screens */
+.dle-tab-label {
+    display: none;
+}
+
+/* Tab panels */
+.dle-tab-panel {
+    display: none;
+    padding: var(--dle-space-2);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    flex: 1;
+    min-height: 0; /* Allow flex item to shrink below content height for proper scrolling */
+}
+
+.dle-tab-panel.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Panel toolbar (shared across tabs: label + diff + expand) */
+.dle-panel-toolbar {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    margin-bottom: var(--dle-space-2);
+}
+
+.dle-panel-toolbar .dle-text-sm {
+    flex-shrink: 0;
+}
+
+.dle-panel-toolbar .dle-section-diff {
+    flex: 1;
+}
+
+.dle-panel-toolbar .dle-browse-input {
+    flex: 1;
+    min-width: 0;
+}
+
+/* Tab expand button (open full popup) */
+.dle-tab-expand {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--dle-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 0.75rem;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+    line-height: 1;
+}
+
+.dle-tab-expand:hover {
+    opacity: 1;
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+/* --- Token bar (drawer version) --- */
+.dle-token-bar-container {
+    position: relative;
+    background: var(--dle-border);
+    border-radius: var(--dle-radius-sm);
+    height: 18px;
+    margin: 0;
+    overflow: hidden;
+}
+
+.dle-token-bar-container .dle-token-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--dle-success), color-mix(in srgb, var(--dle-success) 70%, white));
+    border-radius: var(--dle-radius-sm);
+    transition: width 300ms ease, background 300ms ease, box-shadow 300ms ease;
+    margin: 0;
+}
+
+/* Budget urgency states */
+.dle-token-bar-container.dle-budget-high .dle-token-bar {
+    background: linear-gradient(90deg, var(--dle-warning), var(--dle-error));
+    box-shadow: 0 0 6px color-mix(in srgb, var(--dle-warning) 40%, transparent);
+}
+.dle-token-bar-container.dle-budget-critical .dle-token-bar {
+    background: var(--dle-error);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
+    animation: dle-bar-pulse 2s ease-in-out infinite;
+}
+@keyframes dle-bar-pulse {
+    0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--dle-error) 30%, transparent); }
+    50% { box-shadow: 0 0 12px color-mix(in srgb, var(--dle-error) 60%, transparent); }
+}
+
+.dle-token-bar-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--SmartThemeBodyColor, #ccc);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    font-weight: 600;
+}
+
+/* --- Entries bar (max entries budget) --- */
+.dle-entries-bar-container {
+    position: relative;
+    background: var(--dle-border);
+    border-radius: var(--dle-radius-sm);
+    height: 14px;
+    margin: 2px 0 0;
+    overflow: hidden;
+}
+
+.dle-entries-bar-container .dle-entries-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--dle-info), color-mix(in srgb, var(--dle-info) 70%, white));
+    border-radius: var(--dle-radius-sm);
+    transition: width 300ms ease, background 300ms ease, box-shadow 300ms ease;
+    margin: 0;
+}
+.dle-entries-bar-container.dle-budget-high .dle-entries-bar {
+    background: linear-gradient(90deg, var(--dle-warning), var(--dle-error));
+    box-shadow: 0 0 6px color-mix(in srgb, var(--dle-warning) 40%, transparent);
+}
+.dle-entries-bar-container.dle-budget-critical .dle-entries-bar {
+    background: var(--dle-error);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
+    animation: dle-bar-pulse 2s ease-in-out infinite;
+}
+
+.dle-entries-bar-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    line-height: 14px;
+    color: var(--SmartThemeBodyColor, #ccc);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    font-weight: 600;
+}
+
+/* --- Chips (gating filters, tags) --- */
+
+.dle-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--dle-text-xs);
+    padding: 2px 8px;
+    border-radius: var(--dle-radius-lg);
+    background: color-mix(in srgb, var(--dle-accent) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--dle-accent) 40%, transparent);
+    color: var(--SmartThemeBodyColor, #eee);
+    transition: opacity 150ms ease-in, transform 150ms ease-in;
+}
+.dle-chip.dle-chip-removing {
+    opacity: 0;
+    transform: scale(0.8);
+}
+
+/* Chip remove button */
+button.dle-chip-x {
+    font-size: 10px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 120ms;
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 4px;
+    min-width: 24px;
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+button.dle-chip-x:hover {
+    opacity: 1;
+}
+
+/* --- Quick Actions --- */
+.dle-quick-actions {
+    padding-bottom: var(--dle-space-2);
+    border-bottom: 1px solid var(--dle-border);
+}
+
+.dle-action-row {
+    display: flex;
+    gap: var(--dle-space-1);
+    flex-wrap: wrap;
+}
+
+.dle-action-btn {
+    flex: 0 0 auto;
+    min-width: 36px;
+    min-height: 36px;
+    justify-content: center;
+}
+
+/* --- Collapsible section headers --- */
+.dle-section-header {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    cursor: pointer;
+    padding: var(--dle-space-1) 0;
+    user-select: none;
+}
+
+.dle-section-header:hover {
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+.dle-section-chevron {
+    font-size: 10px;
+    transition: transform 200ms ease;
+    width: 12px;
+    text-align: center;
+}
+
+.dle-section-header.collapsed .dle-section-chevron {
+    transform: rotate(-90deg);
+}
+
+.dle-section-badge {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    margin-left: auto;
+}
+
+.dle-section-diff {
+    font-size: var(--dle-text-xs);
+    display: flex;
+    gap: var(--dle-space-2);
+}
+
+.dle-diff-add { color: var(--dle-success); animation: dle-fade-in var(--animation-duration-2x, 250ms) ease-out; }
+.dle-diff-remove { color: var(--dle-error); animation: dle-fade-in var(--animation-duration-2x, 250ms) ease-out; }
+
+.dle-section-body {
+    padding: var(--dle-space-1) 0 var(--dle-space-2);
+}
+
+/* --- Why? tab filter toggle --- */
+.dle-why-filter-btn {
+    background: none;
+    border: 1px solid var(--dle-border);
+    border-radius: var(--dle-radius-sm);
+    color: var(--dle-text-muted);
+    cursor: pointer;
+    padding: 1px 8px;
+    font-size: var(--dle-text-xs);
+    transition: all 120ms ease;
+}
+.dle-why-filter-btn.active {
+    background: color-mix(in srgb, var(--dle-accent) 20%, transparent);
+    color: var(--SmartThemeBodyColor, #eee);
+    border-color: var(--dle-accent);
+}
+.dle-why-filter-btn:hover:not(.active) {
+    background: var(--dle-bg-hover);
+}
+
+/* --- Why? tab entries --- */
+.dle-why-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dle-why-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px var(--dle-space-2);
+    border-radius: var(--dle-radius-sm);
+    transition: background 120ms;
+    animation: dle-entry-in 200ms ease-out both;
+    animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+.dle-why-entry:hover {
+    background: var(--dle-bg-hover);
+}
+
+.dle-why-entry.dle-why-new {
+    border-left: 2px solid var(--dle-success);
+    animation: dle-entry-in 200ms ease-out both, dle-new-flash 600ms ease-out;
+    animation-delay: calc(var(--i, 0) * 30ms), calc(var(--i, 0) * 30ms);
+}
+
+.dle-why-entry.dle-why-constant .dle-obsidian-link {
+    color: var(--dle-text-muted);
+}
+
+.dle-why-title {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+/* Obsidian link as button */
+.dle-obsidian-link {
+    cursor: pointer;
+    color: var(--dle-info);
+    text-decoration: none;
+    font-size: var(--dle-text-sm);
+    background: none;
+    border: none;
+    padding: 4px 0;
+    text-align: left;
+}
+
+.dle-obsidian-link:hover {
+    text-decoration: underline;
+}
+
+.dle-why-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    font-size: var(--dle-text-xs);
+}
+
+.dle-why-tokens {
+    color: var(--dle-text-muted);
+}
+
+.dle-why-match {
+    font-weight: 600;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: var(--dle-radius-sm);
+    background: color-mix(in srgb, var(--dle-info) 20%, transparent);
+    color: var(--dle-info);
+}
+
+/* Match type differentiation — semantic colors by how the entry was matched */
+.dle-why-match[data-match-type="keyword"] {
+    background: color-mix(in srgb, var(--dle-success) 20%, transparent);
+    color: var(--dle-success);
+}
+.dle-why-match[data-match-type="ai"] {
+    background: color-mix(in srgb, var(--dle-accent) 25%, transparent);
+    color: var(--dle-accent);
+    border-left: 2px solid var(--dle-accent);
+    padding-left: 6px;
+}
+.dle-why-match[data-match-type="constant"] {
+    background: color-mix(in srgb, var(--dle-text-muted) 15%, transparent);
+    color: var(--dle-text-muted);
+    font-style: italic;
+}
+.dle-why-match[data-match-type="pinned"] {
+    background: color-mix(in srgb, var(--dle-info) 20%, transparent);
+    color: var(--dle-info);
+}
+.dle-why-match[data-match-type="bootstrap"],
+.dle-why-match[data-match-type="seed"] {
+    background: color-mix(in srgb, var(--dle-success) 20%, transparent);
+    color: var(--dle-success);
+}
+
+.dle-why-new-badge {
+    font-weight: 600;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: var(--dle-radius-sm);
+    background: color-mix(in srgb, var(--dle-success) 20%, transparent);
+    color: var(--dle-success);
+}
+
+/* --- Injection count badge (shared by Why? tab + Browse tab) --- */
+.dle-inject-count {
+    font-weight: 600;
+    font-size: 10px;
+    padding: 0 4px;
+    border-radius: var(--dle-radius-sm);
+    background: color-mix(in srgb, var(--dle-accent, #9c27b0) 20%, transparent);
+    color: var(--dle-accent, #9c27b0);
+    white-space: nowrap;
+}
+
+/* --- Cartographer stats line --- */
+.dle-carto-stats {
+    color: var(--dle-text-muted, #888);
+    padding: 2px 0;
+}
+
+/* --- Why Not entries (filtered out) --- */
+.dle-why-not-entry {
+    opacity: 0.75;
+}
+
+.dle-why-not-reason {
+    font-size: 10px;
+    color: var(--dle-warning);
+    background: color-mix(in srgb, var(--dle-warning) 20%, transparent);
+}
+
+/* --- Browse panel --- */
+.dle-browse-filters {
+    display: flex;
+    gap: var(--dle-space-1);
+}
+
+.dle-browse-filter-select,
+.dle-browse-sort-select {
+    flex: 1;
+    font-size: var(--dle-text-xs);
+    padding: 2px 4px;
+    min-width: 0;
+}
+
+.dle-browse-input {
+    margin-bottom: var(--dle-space-2);
+}
+
+.dle-browse-list {
+    position: relative; /* virtual scroll container — children use absolute positioning */
+    flex: 1;
+}
+
+.dle-browse-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px var(--dle-space-2);
+    border-radius: var(--dle-radius-sm);
+    overflow: hidden;
+    height: 32px; /* must match BROWSE_ROW_HEIGHT in drawer-state.js */
+    box-sizing: border-box;
+}
+
+.dle-browse-entry {
+    transition: height 200ms ease-out, background 120ms;
+}
+.dle-browse-entry:hover {
+    background: var(--dle-bg-hover);
+}
+
+/* Injected-last-gen indicator */
+.dle-browse-entry.dle-browse-injected {
+    border-left: 2px solid var(--dle-success);
+}
+
+/* Entry temperature indicator — cell filter tint by injection frequency */
+/* HOT: red — saturation and strength scale with --dle-temp */
+.dle-browse-entry.dle-temp-hot {
+    background: color-mix(in srgb,
+        hsl(0, calc(var(--dle-temp, 0) * 30%), calc(25% + var(--dle-temp, 0) * 5%))
+        calc(var(--dle-temp, 0) * 22%), transparent);
+    border-left: 3px solid color-mix(in srgb,
+        hsl(0, calc(var(--dle-temp, 0) * 30%), 35%)
+        calc(var(--dle-temp, 0) * 55%), transparent);
+}
+.dle-browse-entry.dle-temp-hot .dle-browse-title {
+    color: color-mix(in srgb, #cc4444 calc(var(--dle-temp, 0) * 12%), currentColor);
+}
+/* COLD: deep indigo blue — saturation and strength scale with --dle-temp */
+.dle-browse-entry.dle-temp-cold {
+    background: color-mix(in srgb,
+        #1a2255 calc(var(--dle-temp, 0) * 25%), transparent);
+    border-left: 3px solid color-mix(in srgb,
+        #223388 calc(var(--dle-temp, 0) * 60%), transparent);
+}
+.dle-browse-entry.dle-temp-cold .dle-browse-title {
+    color: color-mix(in srgb, #4455bb calc(var(--dle-temp, 0) * 14%), currentColor);
+}
+
+.dle-browse-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-width: 0;
+}
+
+.dle-browse-title {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dle-browse-keys {
+    font-size: 9px;
+    color: var(--dle-text-muted);
+    line-height: 1;
+    letter-spacing: 0.02em;
+    margin-top: -1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dle-browse-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
+    flex-shrink: 0;
+}
+
+/* Entry expand preview (inline below entry row) */
+.dle-browse-preview {
+    padding: 6px 8px;
+    border-left: 2px solid var(--dle-border);
+    animation: dle-fade-in 150ms ease-out;
+    margin-top: 2px;
+    width: 100%;
+}
+.dle-browse-preview-text {
+    font-size: 11px;
+    opacity: 0.85;
+    max-height: 100px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.4;
+}
+.dle-browse-preview-meta {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* When expanded, allow the entry to grow beyond fixed row height (no height override — JS manages it) */
+.dle-browse-entry:has(.dle-browse-preview) {
+    flex-direction: column;
+    align-items: stretch;
+    z-index: 10;
+    background: var(--SmartThemeBlurTintColor, #1a1a1a);
+    border-radius: var(--dle-radius-md);
+    box-shadow: var(--dle-shadow-md);
+    overflow: visible;
+}
+
+.dle-browse-info {
+    cursor: pointer;
+}
+
+.dle-browse-priority {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--dle-text-muted);
+}
+
+.dle-browse-constant {
+    color: var(--dle-accent);
+}
+
+button.dle-browse-pin,
+button.dle-browse-block,
+button.dle-browse-why {
+    font-size: 12px;
+    cursor: pointer;
+    opacity: var(--dle-opacity-muted);
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 6px;
+    min-width: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+button.dle-browse-pin:hover,
+button.dle-browse-block:hover,
+button.dle-browse-why:hover {
+    opacity: 1;
+    background: var(--dle-bg-hover);
+    border-radius: var(--dle-radius-sm);
+}
+
+button.dle-browse-pin.dle-pin-active {
+    opacity: 1;
+    color: var(--dle-info);
+}
+
+button.dle-browse-block.dle-block-active {
+    opacity: 1;
+    color: var(--dle-error);
+}
+
+/* --- Contextual Gating --- */
+.dle-gating-group {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    padding: 3px 0;
+}
+
+.dle-gating-label {
+    font-size: var(--dle-text-sm);
+    font-weight: 500;
+    min-width: 70px;
+    flex-shrink: 0;
+}
+
+.dle-gating-value {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
+    flex-wrap: wrap;
+}
+
+.dle-gating-empty {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    font-style: italic;
+}
+
+.dle-gating-count {
+    font-size: 10px;
+    opacity: 0.6;
+    white-space: nowrap;
+}
+
+.dle-gating-set {
+    font-size: 10px;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 4px;
+}
+
+/* --- Entry Timers (cooldown / decay / warmup) --- */
+.dle-gating-divider {
+    border-top: 1px solid var(--dle-border);
+    margin: 8px 0 4px;
+}
+
+.dle-timer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dle-timer-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    padding: 2px 0;
+    font-size: var(--dle-text-xs);
+    animation: dle-entry-in 200ms ease-out both;
+    animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+.dle-timer-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+.dle-timer-badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: var(--dle-radius-sm);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Timer badge icons via Font Awesome */
+.dle-timer-badge::before {
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    font-size: 8px;
+    margin-right: 3px;
+}
+.dle-timer-cooldown::before { content: '\f017'; }
+.dle-timer-stale::before { content: '\f06a'; }
+.dle-timer-frequent::before { content: '\f0e7'; }
+.dle-timer-warmup::before { content: '\f2dc'; }
+
+.dle-timer-badge.dle-timer-cooldown {
+    background: color-mix(in srgb, var(--SmartThemeUnderlineColor, #2196f3) 25%, transparent);
+    color: var(--SmartThemeUnderlineColor, #2196f3);
+}
+
+.dle-timer-badge.dle-timer-stale {
+    background: color-mix(in srgb, var(--dle-warning) 25%, transparent);
+    color: var(--dle-warning);
+}
+
+.dle-timer-badge.dle-timer-frequent {
+    background: color-mix(in srgb, var(--dle-accent) 25%, transparent);
+    color: var(--dle-accent);
+}
+
+.dle-timer-badge.dle-timer-warmup {
+    background: color-mix(in srgb, var(--dle-success) 25%, transparent);
+    color: var(--dle-success);
+}
+
+.dle-timer-empty {
+    display: none;
+}
+.dle-timer-empty.dle-visible {
+    display: block;
+}
+
+/* --- Tools tab --- */
+.dle-tools-group {
+    margin-bottom: var(--dle-space-2);
+}
+
+.dle-tools-group:last-child {
+    margin-bottom: 0;
+}
+
+.dle-tools-group-label {
+    display: block;
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    padding-bottom: 2px;
+    border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 50%, transparent);
+}
+
+.dle-tools-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--dle-space-1);
+}
+
+.dle-tool-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--dle-text-sm);
+    padding: 6px 8px;
+    justify-content: flex-start;
+    white-space: nowrap;
+    min-height: 32px;
+}
+
+.dle-tool-btn i {
+    font-size: 12px;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+/* --- Small drawer / top-panel mode --- */
+/* On narrow screens ST constrains the drawer to ~100px tall.
+   Hide everything except pipeline label and tabs so content is reachable. */
+/* Container queries — on #deeplore-panel (not .dle-drawer-inner) because
+   footer is moved outside .dle-drawer-inner by JS for sticky positioning */
+#deeplore-panel {
+    container-type: size;
+}
+
+@container (max-height: 250px) {
+    .dle-zone-status .dle-token-bar-container,
+    .dle-zone-status .dle-entries-bar-container,
+    .dle-zone-status .dle-active-filters,
+    .dle-zone-status .dle-action-row {
+        display: none;
+    }
+    .dle-zone-status {
+        gap: 0;
+        padding: var(--dle-space-1);
+    }
+    .dle-zone-divider {
+        margin: 0;
+    }
+    .dle-tab-label {
+        display: none;
+    }
+}
+
+/* Overlay mode — when fillRight space is too narrow (<250px), JS adds this class
+   to switch from inline side-panel to a fixed-width overlay (mirrors ST mobile pattern) */
+#deeplore-panel.dle-overlay-mode {
+    width: min(380px, 90dvw) !important;
+    min-width: unset !important;
+    position: fixed !important;
+    right: 0 !important;
+    left: auto !important;
+    z-index: 3001;
+    border-left: 1px solid var(--SmartThemeBorderColor);
+    backdrop-filter: blur(calc(var(--SmartThemeBlurStrength, 10px) * 2));
+}
+
+/* --- Empty states (class-based visibility for animation) --- */
+.dle-empty-state {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dle-space-2);
+    padding: var(--dle-space-5) var(--dle-space-4);
+    color: var(--dle-text-muted);
+    text-align: center;
+    background: color-mix(in srgb, var(--dle-bg-surface) 40%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--dle-border) 50%, transparent);
+    border-radius: var(--dle-radius-md);
+    margin: var(--dle-space-2) 0;
+}
+.dle-empty-state.dle-visible {
+    display: flex;
+}
+
+.dle-empty-state i {
+    font-size: 28px;
+    opacity: var(--dle-opacity-faint);
+}
+
+.dle-empty-state p {
+    font-size: var(--dle-text-sm);
+    line-height: 1.5;
+    opacity: 0.8;
+    margin: 0;
+}
+
+/* --- Pipeline activity animation --- */
+@keyframes dle-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: var(--dle-opacity-disabled); }
+}
+
+.dle-status-dot.dle-status-active {
+    animation: dle-pulse 1.5s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ZONE 3: Health Footer
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dle-zone-footer {
+    border-top: 1px solid var(--dle-border);
+    padding: var(--dle-space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-2);
+    flex-shrink: 0;
+}
+
+/* --- Context window bar --- */
+.dle-context-bar-container {
+    position: relative;
+}
+
+.dle-context-bar-track {
+    position: relative;
+    background: var(--dle-border);
+    border-radius: var(--dle-radius-sm);
+    height: 16px;
+    overflow: hidden;
+}
+
+.dle-context-bar-context {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    background: var(--SmartThemeQuoteColor, #4caf50);
+    border-radius: var(--dle-radius-sm) 0 0 var(--dle-radius-sm);
+    transition: width 300ms ease;
+}
+
+.dle-context-bar-response {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 0;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor, #e0e0e0) 40%, transparent);
+    transition: width 300ms ease, left 300ms ease;
+}
+
+.dle-context-bar-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    line-height: 16px;
+    color: var(--SmartThemeBodyColor, #ccc);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.9);
+    pointer-events: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 600;
+}
+
+/* --- Footer row (health icons left, AI stats right) --- */
+.dle-footer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 22px;
+}
+
+/* --- Health icons --- */
+.dle-health-icons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.dle-health-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: none;
+    border-radius: var(--dle-radius-sm);
+    transition: filter 150ms ease, color 300ms ease;
+    color: var(--dle-text-muted);
+    /* Button reset (changed from <a> to <button> for keyboard accessibility) */
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.dle-health-icon:hover {
+    filter: brightness(1.3);
+}
+
+.dle-health-icon.dle-health-ok {
+    color: var(--dle-success, #4caf50);
+}
+
+.dle-health-icon.dle-health-warn {
+    color: var(--dle-warning, #ff9800);
+}
+
+.dle-health-icon.dle-health-error {
+    color: var(--dle-error, #f44336);
+}
+
+/* --- AI stats --- */
+.dle-ai-stats {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.dle-ai-stat {
+    font-size: 10px;
+    color: var(--dle-text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* Stat flash — brief accent highlight when value changes */
+.dle-stat-changed {
+    animation: dle-stat-flash 300ms ease-out;
+}
+
+/* ============================================================================
+ * Settings Popup (tabbed layout)
+ * ============================================================================ */
+
+.dle-settings-popup {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    height: 70vh;
+    min-height: 400px;
+    max-height: 80vh;
+}
+
+.dle-settings-popup input:disabled,
+.dle-settings-popup select:disabled,
+.dle-settings-popup textarea:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.dle-settings-preview-banner {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.dle-settings-sidebar {
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--dle-border);
+    background: var(--dle-bg-surface);
+    padding: 8px 0;
+    gap: 2px;
+    overflow-y: auto;
+}
+
+.dle-settings-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: none;
+    background: none;
+    color: var(--SmartThemeBodyColor, #ccc);
+    cursor: pointer;
+    text-align: left;
+    font-size: 12px;
+    font-family: inherit;
+    transition: background 150ms ease, border-color 150ms ease;
+    border-left: 3px solid transparent;
+    white-space: nowrap;
+}
+
+.dle-settings-tab:hover {
+    background: var(--dle-bg-hover);
+}
+
+.dle-settings-tab.active {
+    background: var(--dle-bg-hover);
+    border-left-color: var(--SmartThemeQuoteColor, #4caf50);
+    font-weight: 600;
+}
+
+.dle-settings-tab i {
+    width: 16px;
+    text-align: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.dle-settings-content {
+    overflow-y: auto;
+    padding: 16px 20px;
+}
+
+.dle-settings-panel {
+    display: none;
+    position: relative;
+}
+
+.dle-settings-panel.active {
+    display: block;
+}
+
+/* Settings section card (groups related controls visually) */
+.dle-settings-section {
+    border: 1px solid color-mix(in srgb, var(--dle-border) 60%, transparent);
+    border-radius: var(--dle-radius-md);
+    padding: var(--dle-space-3);
+    margin-bottom: var(--dle-space-3);
+    background: color-mix(in srgb, var(--dle-bg-surface) 20%, transparent);
+}
+.dle-settings-section > h4:first-child {
+    margin-top: 0;
+}
+
+/* Section spacing inside panels */
+.dle-settings-panel h4 {
+    margin: 0 0 4px;
+    font-size: 14px;
+}
+
+.dle-settings-panel h4:not(:first-child) {
+    margin-top: 4px;
+}
+
+.dle-settings-panel hr {
+    margin: 12px 0;
+    border: none;
+    border-top: 1px solid var(--dle-border);
+}
+
+/* Hide hr between settings sections (cards provide visual grouping) */
+.dle-settings-section + hr,
+.dle-settings-section + .dle-settings-section { /* reset margin for adjacent sections */ }
+
+.dle-settings-panel .dle_section_desc {
+    font-size: 11px;
+    opacity: 0.6;
+    margin: 0 0 8px;
+}
+
+/* Connection cards inside popup */
+.dle-settings-panel .dle-connection-card {
+    border: 1px solid var(--dle-border);
+    border-radius: var(--dle-radius-md);
+    padding: 8px 10px;
+    margin: 4px 0;
+}
+
+.dle-settings-panel .dle-connection-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+}
+
+/* --- Container query: hide footer in collapsed drawers --- */
+@container (max-height: 250px) {
+    .dle-zone-footer {
+        display: none;
+    }
+}
+
+/* ============================================================================
+ * Animations & Keyframes
+ * ============================================================================ */
+
+/* Fade in (used by tab panels, diff badges, browse preview) */
+@keyframes dle-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Entry slide-in (used by Why? entries, timer rows) */
+@keyframes dle-entry-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Entry slide-out (used by Why? entries exiting between generations) */
+@keyframes dle-entry-out {
+    from { opacity: 1; transform: translateX(0); max-height: 30px; }
+    to { opacity: 0; transform: translateX(12px); max-height: 0; padding: 0; }
+}
+
+.dle-why-entry.dle-why-exit {
+    animation: dle-entry-out 180ms ease-in forwards !important;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+/* NEW entry highlight flash */
+@keyframes dle-new-flash {
+    0% { background-color: color-mix(in srgb, var(--dle-success) 25%, transparent); }
+    100% { background-color: transparent; }
+}
+
+/* Tab badge pop-in */
+@keyframes dle-badge-pop {
+    0% { transform: scale(0); }
+    70% { transform: scale(1.15); }
+    100% { transform: scale(1); }
+}
+
+/* Stat value flash on change */
+@keyframes dle-stat-flash {
+    from { color: var(--dle-accent); }
+    to { color: inherit; }
+}
+
+/* Cartographer popup — entry detail expand */
+.dle-ctx-detail {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 250ms ease-out, opacity 200ms ease;
+}
+.dle-ctx-detail.dle-ctx-expanded {
+    max-height: 2000px;
+    opacity: 1;
+    overflow-y: auto;
+    margin-top: var(--dle-space-1);
+}
+
+/* Why-Not section — animated expand */
+.dle-why-not-section {
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 250ms ease-out, opacity 200ms ease;
+    background: color-mix(in srgb, var(--dle-warning) 5%, transparent);
+    border-left: 3px solid color-mix(in srgb, var(--dle-warning) 40%, transparent);
+    border-radius: 0 var(--dle-radius-md) var(--dle-radius-md) 0;
+    padding: 0 var(--dle-space-2);
+    margin-top: var(--dle-space-2);
+}
+.dle-why-not-section.dle-visible {
+    max-height: 2000px;
+    opacity: 1;
+    padding: var(--dle-space-2);
+}
+
+.dle-why-not-header {
+    padding: var(--dle-space-1) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
+}
+
+/* Browse refresh spinner (inline, next to search input) */
+.dle-browse-refresh-spinner {
+    font-size: var(--dle-text-sm);
+    color: var(--dle-text-muted);
+    flex-shrink: 0;
+}
+
+/* Browse navigation buttons (Why? tab → Browse, Carto popup → Browse) */
+.dle-browse-nav-btn,
+.dle-carto-browse-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--dle-text-muted);
+    cursor: pointer;
+    padding: 1px 3px;
+    font-size: 0.75em;
+    opacity: 0.5;
+    transition: opacity 150ms, color 150ms;
+    vertical-align: middle;
+}
+.dle-browse-nav-btn:hover,
+.dle-carto-browse-btn:hover {
+    opacity: 1;
+    color: var(--dle-accent, var(--SmartThemeQuoteColor, #aac8ff));
+}
+

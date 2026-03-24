@@ -20,7 +20,7 @@ import { parseVaultFile, clearPrompts } from './core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from './core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure } from './src/helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime } from './src/helpers.js';
 import { encodeVaultPath, validateVaultPath } from './src/obsidian-api.js';
 
 // State module imports for computeOverallStatus tests
@@ -2729,6 +2729,355 @@ test('computeOverallStatus: limited takes priority over degraded', () => {
     recordAiFailure();
     assertEqual(computeOverallStatus(), 'limited');
     recordAiSuccess();
+});
+
+// ============================================================================
+// parseMatchReason tests
+// ============================================================================
+
+test('parseMatchReason: null returns unknown', () => {
+    const r = parseMatchReason(null);
+    assertEqual(r.type, 'unknown');
+    assertEqual(r.keyword, null);
+});
+
+test('parseMatchReason: empty string returns unknown', () => {
+    assertEqual(parseMatchReason('').type, 'unknown');
+});
+
+test('parseMatchReason: constant', () => {
+    const r = parseMatchReason('Constant entry');
+    assertEqual(r.type, 'constant');
+    assertEqual(r.keyword, null);
+});
+
+test('parseMatchReason: always tag', () => {
+    assertEqual(parseMatchReason('lorebook-always').type, 'constant');
+});
+
+test('parseMatchReason: pinned', () => {
+    assertEqual(parseMatchReason('Pinned').type, 'pinned');
+});
+
+test('parseMatchReason: bootstrap', () => {
+    assertEqual(parseMatchReason('Bootstrap').type, 'bootstrap');
+});
+
+test('parseMatchReason: seed', () => {
+    assertEqual(parseMatchReason('Seed').type, 'seed');
+});
+
+test('parseMatchReason: keyword → AI (two-stage)', () => {
+    const r = parseMatchReason('Eris → AI: relevant (high)');
+    assertEqual(r.type, 'keyword_ai');
+    assertEqual(r.keyword, 'Eris');
+});
+
+test('parseMatchReason: pure AI selection', () => {
+    assertEqual(parseMatchReason('AI selection').type, 'ai');
+});
+
+test('parseMatchReason: AI: prefix', () => {
+    assertEqual(parseMatchReason('AI: context relevant').type, 'ai');
+});
+
+test('parseMatchReason: bare keyword', () => {
+    const r = parseMatchReason('vampire');
+    assertEqual(r.type, 'keyword');
+    assertEqual(r.keyword, 'vampire');
+});
+
+// ============================================================================
+// computeSourcesDiff tests
+// ============================================================================
+
+test('computeSourcesDiff: null previous returns empty', () => {
+    const r = computeSourcesDiff([{ title: 'A' }], null);
+    assertEqual(r.added.length, 0);
+    assertEqual(r.removed.length, 0);
+});
+
+test('computeSourcesDiff: identical sets return empty diff', () => {
+    const sources = [{ title: 'A' }, { title: 'B' }];
+    const r = computeSourcesDiff(sources, sources);
+    assertEqual(r.added.length, 0);
+    assertEqual(r.removed.length, 0);
+});
+
+test('computeSourcesDiff: detects added entries', () => {
+    const prev = [{ title: 'A' }];
+    const curr = [{ title: 'A' }, { title: 'B' }];
+    const r = computeSourcesDiff(curr, prev);
+    assertEqual(r.added.length, 1);
+    assertEqual(r.added[0].title, 'B');
+});
+
+test('computeSourcesDiff: detects removed entries', () => {
+    const prev = [{ title: 'A' }, { title: 'B' }];
+    const curr = [{ title: 'A' }];
+    const r = computeSourcesDiff(curr, prev);
+    assertEqual(r.removed.length, 1);
+    assertEqual(r.removed[0].title, 'B');
+});
+
+test('computeSourcesDiff: bootstrap removal reason', () => {
+    const prev = [{ title: 'A', matchedBy: 'Bootstrap' }];
+    const r = computeSourcesDiff([], prev);
+    assertEqual(r.removed[0].removalReason, 'Bootstrap fall-off');
+});
+
+test('computeSourcesDiff: constant removal reason', () => {
+    const prev = [{ title: 'A', matchedBy: 'Constant entry' }];
+    const r = computeSourcesDiff([], prev);
+    assertEqual(r.removed[0].removalReason, 'Constant removed');
+});
+
+test('computeSourcesDiff: always tag removal reason', () => {
+    const prev = [{ title: 'A', matchedBy: 'lorebook-always' }];
+    const r = computeSourcesDiff([], prev);
+    assertEqual(r.removed[0].removalReason, 'Constant removed');
+});
+
+test('computeSourcesDiff: default removal reason', () => {
+    const prev = [{ title: 'A', matchedBy: 'vampire' }];
+    const r = computeSourcesDiff([], prev);
+    assertEqual(r.removed[0].removalReason, 'No longer matched');
+});
+
+test('computeSourcesDiff: mixed adds and removes', () => {
+    const prev = [{ title: 'A' }, { title: 'B' }];
+    const curr = [{ title: 'B' }, { title: 'C' }];
+    const r = computeSourcesDiff(curr, prev);
+    assertEqual(r.added.length, 1);
+    assertEqual(r.added[0].title, 'C');
+    assertEqual(r.removed.length, 1);
+    assertEqual(r.removed[0].title, 'A');
+});
+
+// ============================================================================
+// categorizeRejections tests
+// ============================================================================
+
+test('categorizeRejections: null trace returns empty', () => {
+    assertEqual(categorizeRejections(null, new Set()).length, 0);
+});
+
+test('categorizeRejections: empty trace returns empty', () => {
+    assertEqual(categorizeRejections({}, new Set()).length, 0);
+});
+
+test('categorizeRejections: gatedOut entries', () => {
+    const trace = { gatedOut: [{ title: 'A', requires: ['B'], excludes: [] }] };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups.length, 1);
+    assertEqual(groups[0].stage, 'gated_out');
+    assertEqual(groups[0].entries[0].title, 'A');
+    assert(groups[0].entries[0].reason.includes('needs: B'));
+});
+
+test('categorizeRejections: contextualGatingRemoved', () => {
+    const trace = { contextualGatingRemoved: ['A', 'B'] };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups.length, 1);
+    assertEqual(groups[0].stage, 'contextual_gating');
+    assertEqual(groups[0].entries.length, 2);
+});
+
+test('categorizeRejections: cooldownRemoved', () => {
+    const trace = { cooldownRemoved: ['A'] };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups[0].stage, 'cooldown');
+    assertEqual(groups[0].entries[0].reason, 'Cooldown active');
+});
+
+test('categorizeRejections: budgetCut with tokens', () => {
+    const trace = { budgetCut: [{ title: 'A', tokens: 500 }] };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups[0].stage, 'budget_cut');
+    assert(groups[0].entries[0].reason.includes('500 tok'));
+});
+
+test('categorizeRejections: stripDedupRemoved', () => {
+    const trace = { stripDedupRemoved: ['A'] };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups[0].stage, 'strip_dedup');
+    assertEqual(groups[0].entries[0].reason, 'Already in context');
+});
+
+test('categorizeRejections: probabilitySkipped', () => {
+    const trace = { probabilitySkipped: [{ title: 'A' }] };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups[0].stage, 'probability_skipped');
+});
+
+test('categorizeRejections: warmupFailed', () => {
+    const trace = { warmupFailed: [{ title: 'A' }] };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups[0].stage, 'warmup_failed');
+});
+
+test('categorizeRejections: excludes injected titles from all groups', () => {
+    const trace = {
+        gatedOut: [{ title: 'A', requires: [], excludes: [] }],
+        cooldownRemoved: ['B'],
+    };
+    const groups = categorizeRejections(trace, new Set(['A', 'B']));
+    assertEqual(groups.length, 0);
+});
+
+test('categorizeRejections: AI rejected cross-references other stages', () => {
+    const trace = {
+        keywordMatched: [
+            { title: 'A', matchedBy: 'vampire' },
+            { title: 'B', matchedBy: 'blood' },
+            { title: 'C', matchedBy: 'night' },
+        ],
+        aiSelected: [{ title: 'A' }],
+        cooldownRemoved: ['B'], // B is accounted for by cooldown, not AI rejection
+    };
+    const groups = categorizeRejections(trace, new Set());
+    const aiGroup = groups.find(g => g.stage === 'ai_rejected');
+    assert(aiGroup !== undefined, 'Should have ai_rejected group');
+    assertEqual(aiGroup.entries.length, 1);
+    assertEqual(aiGroup.entries[0].title, 'C');
+});
+
+test('categorizeRejections: full trace with all 8 categories', () => {
+    const trace = {
+        gatedOut: [{ title: 'A', requires: ['X'], excludes: [] }],
+        contextualGatingRemoved: ['B'],
+        keywordMatched: [{ title: 'C', matchedBy: 'key' }, { title: 'D', matchedBy: 'key2' }],
+        aiSelected: [{ title: 'D' }],
+        cooldownRemoved: ['E'],
+        budgetCut: [{ title: 'F', tokens: 100 }],
+        stripDedupRemoved: ['G'],
+        probabilitySkipped: [{ title: 'H' }],
+        warmupFailed: [{ title: 'I' }],
+    };
+    const groups = categorizeRejections(trace, new Set());
+    assertEqual(groups.length, 8);
+    const stages = groups.map(g => g.stage);
+    assert(stages.includes('gated_out'));
+    assert(stages.includes('contextual_gating'));
+    assert(stages.includes('ai_rejected'));
+    assert(stages.includes('cooldown'));
+    assert(stages.includes('budget_cut'));
+    assert(stages.includes('strip_dedup'));
+    assert(stages.includes('probability_skipped'));
+    assert(stages.includes('warmup_failed'));
+});
+
+// ============================================================================
+// resolveEntryVault tests
+// ============================================================================
+
+test('resolveEntryVault: matching vaultSource', () => {
+    const r = resolveEntryVault({ vaultSource: 'MyVault', filename: 'notes/test.md' }, [{ name: 'MyVault' }]);
+    assertEqual(r.vaultName, 'MyVault');
+    assert(r.uri !== null);
+    assert(r.uri.includes('MyVault'));
+});
+
+test('resolveEntryVault: falls back to first vault', () => {
+    const r = resolveEntryVault({ filename: 'test.md' }, [{ name: 'Default' }]);
+    assertEqual(r.vaultName, 'Default');
+    assert(r.uri !== null);
+});
+
+test('resolveEntryVault: no vaults returns empty name and null URI', () => {
+    const r = resolveEntryVault({ filename: 'test.md' }, undefined);
+    assertEqual(r.vaultName, '');
+    assertEqual(r.uri, null);
+});
+
+test('resolveEntryVault: no filename returns null URI', () => {
+    const r = resolveEntryVault({ vaultSource: 'V' }, [{ name: 'V' }]);
+    assertEqual(r.uri, null);
+});
+
+test('resolveEntryVault: empty vaults array', () => {
+    const r = resolveEntryVault({ filename: 'test.md' }, []);
+    assertEqual(r.vaultName, '');
+    assertEqual(r.uri, null);
+});
+
+test('resolveEntryVault: vaultSource not in vaults array uses vaultSource as fallback', () => {
+    const r = resolveEntryVault({ vaultSource: 'MyVault', filename: 'test.md' }, [{ name: 'Other' }]);
+    assertEqual(r.vaultName, 'MyVault');
+    assert(r.uri.includes('MyVault'));
+});
+
+test('resolveEntryVault: vaultSource with undefined vaults uses vaultSource', () => {
+    const r = resolveEntryVault({ vaultSource: 'MyVault', filename: 'test.md' }, undefined);
+    assertEqual(r.vaultName, 'MyVault');
+    assert(r.uri !== null);
+});
+
+// ============================================================================
+// tokenBarColor tests
+// ============================================================================
+
+test('tokenBarColor: zero avgTokens returns fallback', () => {
+    const color = tokenBarColor(100, 0);
+    assert(color.includes('SmartThemeQuoteColor') || color.includes('#4caf50'));
+});
+
+test('tokenBarColor: null avgTokens returns fallback', () => {
+    const color = tokenBarColor(100, null);
+    assert(color.includes('SmartThemeQuoteColor') || color.includes('#4caf50'));
+});
+
+test('tokenBarColor: ratio 0.5 is green (hue 120)', () => {
+    const color = tokenBarColor(50, 100);
+    assert(color.includes('120'));
+});
+
+test('tokenBarColor: ratio 1.0 is yellow (hue 60)', () => {
+    const color = tokenBarColor(100, 100);
+    assert(color.includes('60'));
+});
+
+test('tokenBarColor: ratio 2.0+ is red (hue 0)', () => {
+    const color = tokenBarColor(200, 100);
+    assert(color.includes('hsl(0'));
+});
+
+// ============================================================================
+// formatRelativeTime tests
+// ============================================================================
+
+test('formatRelativeTime: null/undefined returns empty string', () => {
+    assertEqual(formatRelativeTime(null), '', 'null');
+    assertEqual(formatRelativeTime(undefined), '', 'undefined');
+    assertEqual(formatRelativeTime(0), '', 'zero');
+});
+
+test('formatRelativeTime: just now (< 1 minute ago)', () => {
+    assertEqual(formatRelativeTime(Date.now() - 30000), 'just now', '30s ago');
+    assertEqual(formatRelativeTime(Date.now()), 'just now', 'now');
+});
+
+test('formatRelativeTime: minutes ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 5 * 60000), '5m ago', '5 mins');
+    assertEqual(formatRelativeTime(Date.now() - 59 * 60000), '59m ago', '59 mins');
+});
+
+test('formatRelativeTime: hours ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 2 * 3600000), '2h ago', '2 hours');
+    assertEqual(formatRelativeTime(Date.now() - 23 * 3600000), '23h ago', '23 hours');
+});
+
+test('formatRelativeTime: days ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 3 * 86400000), '3d ago', '3 days');
+    assertEqual(formatRelativeTime(Date.now() - 29 * 86400000), '29d ago', '29 days');
+});
+
+test('formatRelativeTime: months ago', () => {
+    assertEqual(formatRelativeTime(Date.now() - 60 * 86400000), '2mo ago', '60 days');
+});
+
+test('formatRelativeTime: future timestamp returns just now', () => {
+    assertEqual(formatRelativeTime(Date.now() + 60000), 'just now', 'future');
 });
 
 // ============================================================================

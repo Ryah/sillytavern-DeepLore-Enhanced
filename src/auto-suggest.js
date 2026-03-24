@@ -5,6 +5,7 @@
 import {
     generateQuietPrompt,
     chat,
+    saveSettingsDebounced,
 } from '../../../../../script.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
@@ -65,11 +66,16 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
     throw new Error(`Unknown auto-suggest connection mode: ${mode}`);
 }
 
+let autoSuggestInProgress = false;
+
 /**
  * Run auto-suggest: analyze chat for entities not in lorebook, return suggestions.
  * BUG 3 FIX: Uses aiSearchScanDepth instead of autoSuggestInterval for chat context depth.
  */
 export async function runAutoSuggest() {
+    if (autoSuggestInProgress) return [];
+    autoSuggestInProgress = true;
+    try {
     const settings = getSettings();
     await ensureIndexFresh();
 
@@ -91,6 +97,9 @@ export async function runAutoSuggest() {
         s && typeof s === 'object' && s.title &&
         !existingLower.has(s.title.toLowerCase())
     );
+    } finally {
+        autoSuggestInProgress = false;
+    }
 }
 
 /**
@@ -135,6 +144,10 @@ export async function showSuggestionPopup(suggestions) {
     container.innerHTML = `
         <h3>Suggested Entries (${suggestions.length})</h3>
         <p class="dle-muted dle-text-sm">Review each suggestion. Accept to write to Obsidian, reject to skip.</p>
+        <label class="checkbox_label dle-text-sm" style="margin-bottom: 8px;">
+            <input type="checkbox" class="checkbox" id="dle_suggest_skip_review" ${settings.autoSuggestSkipReview ? 'checked' : ''}>
+            <span>Write directly (skip review)</span>
+        </label>
         ${cardsHtml}
     `;
 
@@ -143,6 +156,15 @@ export async function showSuggestionPopup(suggestions) {
         large: true,
         allowVerticalScrolling: true,
         onOpen: () => {
+            // E11: Sync skip-review checkbox with settings
+            const skipCheckbox = container.querySelector('#dle_suggest_skip_review');
+            if (skipCheckbox) {
+                skipCheckbox.addEventListener('change', function () {
+                    settings.autoSuggestSkipReview = this.checked;
+                    saveSettingsDebounced();
+                });
+            }
+
             container.querySelectorAll('.dle_accept_suggest').forEach(btn => {
                 btn.addEventListener('click', async function () {
                     if (this.disabled) return; // Double-click guard
@@ -182,7 +204,7 @@ ${safeContent}`;
 
                     try {
                         const suggestVault = getPrimaryVault(settings);
-                        const data = await writeNote(suggestVault.port, suggestVault.apiKey, filename, fileContent);
+                        const data = await writeNote(suggestVault.host, suggestVault.port, suggestVault.apiKey, filename, fileContent);
                         if (data.ok) {
                             card.style.opacity = '0.4';
                             card.style.borderColor = 'var(--dle-success, #4caf50)';
@@ -206,6 +228,9 @@ ${safeContent}`;
                     if (card) {
                         card.style.opacity = '0.3';
                         card.style.borderColor = 'var(--dle-error, #f44336)';
+                        // Disable both buttons and update label
+                        card.querySelectorAll('button').forEach(b => b.disabled = true);
+                        this.textContent = 'Rejected';
                     }
                 });
             });

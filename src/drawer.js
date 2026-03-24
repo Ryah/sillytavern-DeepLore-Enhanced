@@ -23,6 +23,7 @@ import {
 import {
     ds, DRAWER_ID, MODULE_NAME, OVERLAY_CHAT_WIDTH_THRESHOLD,
     scheduleRender, announceToScreenReader, loadSTInternals, dragElement, isMobile, power_user,
+    invalidateTemperatureCache,
 } from './drawer-state.js';
 import {
     renderStatusZone, renderInjectionTab, renderBrowseTab, renderBrowseWindow,
@@ -30,7 +31,7 @@ import {
 } from './drawer-render.js';
 import {
     switchTab,
-    wireToolsTab, wireTabExpand, wireStatusActions, wireBrowseTab, wireGatingTab, wireHealthIcons,
+    wireToolsTab, wireTabExpand, wireStatusActions, wireInjectionTab, wireBrowseTab, wireGatingTab, wireHealthIcons,
 } from './drawer-events.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -122,6 +123,9 @@ export async function createDrawerPanel() {
                     <!-- NOTE: Do NOT use right_menu_button class on <button> elements — ST applies
                          background-color: rgb(240,240,240) which creates a white square. The lock avoids
                          this because it's a checkbox+label, not a button. Style manually instead. -->
+                    <button class="dle-drawer-help" title="Show available commands (/dle-help)" aria-label="Show help">
+                        <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
+                    </button>
                     <button id="dle_drawer_close" class="dle-drawer-close" title="Close drawer" aria-label="Close drawer">
                         <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
                     </button>
@@ -223,6 +227,14 @@ export async function createDrawerPanel() {
         }
     });
 
+    // Help button — opens /dle-help command
+    $drawer.find('.dle-drawer-help').on('click', function () {
+        const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+        if (ctx?.executeSlashCommands) {
+            ctx.executeSlashCommands('/dle-help');
+        }
+    });
+
     // Moving UI support — let ST's drag system handle our panel
     if (power_user?.movingUI && dragElement) {
         dragElement($('#deeplore-panel'));
@@ -262,6 +274,7 @@ export async function createDrawerPanel() {
     wireToolsTab($drawer);
     wireTabExpand($drawer);
     wireStatusActions($drawer);
+    wireInjectionTab($drawer);
     wireBrowseTab($drawer);
     wireGatingTab($drawer);
     wireHealthIcons($drawer);
@@ -328,6 +341,14 @@ export async function createDrawerPanel() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // E10: Restore last viewed drawer tab
+    // ═══════════════════════════════════════════════════════════════════════
+    try {
+        const lastTab = localStorage.getItem('dle_last_drawer_tab');
+        if (lastTab) switchTab($drawer, lastTab);
+    } catch { /* noop */ }
+
+    // ═══════════════════════════════════════════════════════════════════════
     // Initial render
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -364,6 +385,7 @@ export async function createDrawerPanel() {
     });
 
     onPipelineComplete(() => {
+        invalidateTemperatureCache();
         scheduleRender(renderStatusZone);
         scheduleRender(renderInjectionTab);
         scheduleRender(renderBrowseTab);

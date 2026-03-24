@@ -23,12 +23,12 @@ import { clearPrompts } from './core/pipeline.js';
 import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache } from './settings.js';
 import {
     vaultIndex, indexEverLoaded, indexing,
-    lastInjectionSources, lastScribeChatLength, scribeInProgress,
+    lastInjectionSources, lastInjectionEpoch, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
     chatInjectionCounts, setChatInjectionCounts, trackerKey,
     lastWarningRatio, decayTracker, chatEpoch,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
-    setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
+    setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources,
@@ -64,10 +64,10 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
     if (generationLock) {
-        // Auto-recover stale locks after 60 seconds
+        // Auto-recover stale locks after 90 seconds (allows time for large vaults + slow AI)
         const lockAge = Date.now() - generationLockTimestamp;
-        if (lockAge > 60_000) {
-            console.warn(`[DLE] Generation lock stale (${Math.round(lockAge / 1000)}s) — force-releasing`);
+        if (lockAge > 90_000) {
+            console.warn(`[DLE] Generation lock stale (${Math.round(lockAge / 1000)}s elapsed) — force-releasing`);
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
@@ -87,8 +87,10 @@ async function onGenerate(chat, contextSize, abort, type) {
     let injectedEntries = [];
 
     try {
-        // Clear stale source data (after quiet check so Scribe doesn't wipe real sources)
-        setLastInjectionSources(null);
+        // Tag sources with this generation's epoch so CHARACTER_MESSAGE_RENDERED
+        // only consumes sources from the correct generation (race condition fix).
+        // We do NOT clear lastInjectionSources here — the render handler clears
+        // them after reading, and the epoch tag prevents stale consumption.
 
         // Clear all previous DeepLore prompts
         clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
@@ -155,7 +157,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // Stage 2: Contextual gating (era, location, scene, character)
         const preContextual = new Set(finalEntries.map(e => e.title));
-        finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode);
+        finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode, settings);
         if (trace) {
             const postContextual = new Set(finalEntries.map(e => e.title));
             trace.contextualGatingRemoved = [...preContextual].filter(t => !postContextual.has(t));
@@ -274,7 +276,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 );
             }
 
-            // Capture injection sources for Context Cartographer
+            // Capture injection sources for Context Cartographer (epoch-tagged for race safety)
             setLastInjectionSources(injectedEntries.map(e => ({
                 title: e.title,
                 filename: e.filename,
@@ -283,6 +285,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 tokens: e.tokenEstimate,
                 vaultSource: e.vaultSource || '',
             })));
+            setLastInjectionEpoch(epoch);
         }
 
         // Author's Notebook injection (independent of entry pipeline)
@@ -566,13 +569,17 @@ jQuery(async function () {
             const settings = getSettings();
 
             // --- Context Cartographer: store sources and inject button ---
+            // Only consume sources that belong to the current chat epoch (race condition guard:
+            // prevents stale sources from a previous chat from being stored on the wrong message).
             if (settings.showLoreSources && lastInjectionSources && lastInjectionSources.length > 0) {
-                const message = chat[messageId];
-                if (message && !message.is_user) {
-                    message.extra = message.extra || {};
-                    message.extra.deeplore_sources = lastInjectionSources;
-                    setLastInjectionSources(null);
-                    saveChatDebounced();
+                if (lastInjectionEpoch === chatEpoch) {
+                    const message = chat[messageId];
+                    if (message && !message.is_user) {
+                        message.extra = message.extra || {};
+                        message.extra.deeplore_sources = lastInjectionSources;
+                        setLastInjectionSources(null);
+                        saveChatDebounced();
+                    }
                 }
             }
 

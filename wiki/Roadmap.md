@@ -83,6 +83,8 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Health Icon Colorblind Indicators** | S | Add shape-based indicators (icons, patterns) alongside color for health status, improving accessibility for colorblind users. |
 | **Context Bar Hide for Non-OAI Backends** | S | Hide the context token bar in the drawer footer when using non-OpenAI backends where `CHAT_COMPLETION_PROMPT_READY` never fires. |
 | **Browse List Virtualization** | M | Virtual scrolling for the Browse tab entry list to handle vaults with 500+ entries without DOM bloat. |
+| **Story Timeline View** | M | Scrollable timeline of Session Scribe notes with one-click expansion to full summaries. Replace popup-based `/dle-scribe-history` with a persistent view. |
+| **Debug Mode Lite** | M | In-drawer panel showing live matching traces, pipeline decisions, and cache state — avoiding the need for browser console or `/dle-inspect`. |
 
 ---
 
@@ -90,8 +92,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 | Feature | Size | Description |
 |---------|------|-------------|
-| **Remote Obsidian Support** | S | Allow connecting to Obsidian on a different machine. Currently hardcoded to `127.0.0.1`. Needs a configurable hostname/IP field per vault connection. |
-| **Phone/Mobile Support** | M | Use DLE when SillyTavern runs on a PC but the user accesses from a phone. Related to remote Obsidian support. |
+| **Phone/Mobile Support** | M | Use DLE when SillyTavern runs on a PC but the user accesses from a phone. Remote Obsidian support shipped — this is the remaining UX work. |
 | **Higher/Unlimited AI Timeout** | S | Allow AI search timeout beyond the current 30,000ms cap, or disable it entirely. Scribe and Auto-Suggest already allow up to 60,000ms. |
 | **Web Worker for Keyword Matching** | M | Offload regex matching off the main thread for vaults with 500+ entries. |
 | **Pipeline Telemetry Dashboard** | M | Timing data, performance counters, and user-facing metrics for pipeline runs. |
@@ -115,6 +116,6 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 ---
 
-*Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23).*
+*Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23), 5-perspective review + fixes (2026-03-23).*
 
 *Last updated: 2026-03-23*

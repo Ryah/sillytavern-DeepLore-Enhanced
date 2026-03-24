@@ -7,7 +7,7 @@ import { escapeHtml } from '../../../../utils.js';
 import { getSettings } from '../settings.js';
 import {
     vaultIndex, lastInjectionSources, lastPipelineTrace,
-    generationLock, indexing, computeOverallStatus,
+    generationLock, indexing, indexEverLoaded, computeOverallStatus,
 } from './state.js';
 import { getCircuitState } from './obsidian-api.js';
 import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS } from './drawer-state.js';
@@ -37,6 +37,23 @@ export function renderStatusZone() {
     const pipelineText = generationLock ? 'Choosing Lore...' : ds.stGenerating ? 'Generating...' : 'Idle';
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
     $dot.toggleClass('dle-status-active', !!generationLock || ds.stGenerating);
+
+    // First-run setup banner (shown when no vaults configured and setup not dismissed)
+    const $setupBanner = $drawer.find('.dle-setup-banner');
+    const hasEnabledVaults = (settings.vaults || []).some(v => v.enabled);
+    if (!hasEnabledVaults && !settings._setupDismissed && !indexEverLoaded) {
+        if (!$setupBanner.length) {
+            const banner = `<div class="dle-setup-banner" role="alert" style="padding: var(--dle-space-2) var(--dle-space-3); background: color-mix(in srgb, var(--dle-info) 15%, transparent); border-radius: 4px; margin: var(--dle-space-2) 0; display: flex; align-items: center; gap: var(--dle-space-2); font-size: var(--dle-text-sm);">
+                <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--dle-info);"></i>
+                <span>New to DeepLore?</span>
+                <button class="dle-setup-banner-btn menu_button" style="padding: 2px 8px; font-size: var(--dle-text-xs);" title="Run the setup wizard">Run Setup</button>
+                <button class="dle-setup-banner-dismiss" style="margin-left: auto; background: none; border: none; cursor: pointer; opacity: 0.5; padding: 2px;" title="Dismiss" aria-label="Dismiss setup banner"><i class="fa-solid fa-xmark"></i></button>
+            </div>`;
+            $drawer.find('.dle-zone-status').after(banner);
+        }
+    } else {
+        $setupBanner.remove();
+    }
 
     // Stats (with flash animation on value change)
     const entryCount = indexing ? '…' : vaultIndex.length;

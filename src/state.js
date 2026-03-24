@@ -20,6 +20,9 @@ export let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, total
 
 /** Context Cartographer: sources from the last generation interceptor run */
 export let lastInjectionSources = null;
+/** Epoch at which lastInjectionSources was set (race condition guard: CHARACTER_MESSAGE_RENDERED
+ *  only consumes sources when this matches chatEpoch, preventing stale cross-chat writes) */
+export let lastInjectionEpoch = -1;
 
 /** Session Scribe: chat position tracking, lock, and prior note context */
 export let lastScribeChatLength = 0;
@@ -94,6 +97,7 @@ export function setBuildPromise(v) { buildPromise = v; }
 export function setIndexEverLoaded(v) { indexEverLoaded = v; }
 export function setAiSearchCache(v) { aiSearchCache = v; }
 export function setLastInjectionSources(v) { lastInjectionSources = v; }
+export function setLastInjectionEpoch(v) { lastInjectionEpoch = v; }
 export function setLastScribeChatLength(v) { lastScribeChatLength = v; }
 export function setScribeInProgress(v) { scribeInProgress = v; }
 export function setLastScribeSummary(v) { lastScribeSummary = v; }
@@ -114,6 +118,10 @@ export function setLastVaultAttemptCount(v) { lastVaultAttemptCount = v; }
 export function setPreviousSources(v) { previousSources = v; }
 export function setVaultAvgTokens(v) { vaultAvgTokens = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
+
+/** E9: Generation count at last index rebuild (for generation-based rebuild trigger) */
+export let lastIndexGenerationCount = 0;
+export function setLastIndexGenerationCount(v) { lastIndexGenerationCount = v; }
 
 /** Generation lock to prevent concurrent onGenerate runs */
 export let generationLock = false;

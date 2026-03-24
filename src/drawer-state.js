@@ -4,6 +4,7 @@
  */
 import { escapeHtml } from '../../../../utils.js';
 import { parseMatchReason } from './helpers.js';
+import { chatInjectionCounts, consecutiveInjections, vaultIndex, trackerKey } from './state.js';
 
 // ─── Constants ───
 
@@ -116,7 +117,65 @@ export const ds = {
     // Context window token tracking
     contextTokens: 0,
     promptManagerRef: null,
+
+    /** Why? tab filter: 'both' | 'injected' | 'filtered' */
+    whyTabFilter: 'both',
 };
+
+// ─── Entry Temperature Computation ───
+
+/** Cached temperature map — recomputed on pipeline complete */
+let _tempCache = null;
+
+/**
+ * Compute injection frequency "temperature" for each entry.
+ * Hot entries (above average injection rate) get warm accent tints;
+ * cold entries (below average) get cool blue tints; neutral entries are untinted.
+ *
+ * Constants and contextually-gated entries are excluded from both the average
+ * calculation and temperature display.
+ *
+ * @returns {Map<string, {ratio: number, consecutive: number, tempScore: number, hue: string}>}
+ */
+export function computeEntryTemperatures() {
+    if (_tempCache) return _tempCache;
+
+    const temps = new Map();
+    if (!vaultIndex.length || !chatInjectionCounts.size) return temps;
+
+    // Filter out constants and gated entries from the calculation
+    const eligible = vaultIndex.filter(e =>
+        !e.constant && !e.era && !e.location && !e.sceneType && !e.characterPresent,
+    );
+    if (!eligible.length) return temps;
+
+    // Compute average injection count across eligible entries
+    let totalCount = 0;
+    for (const entry of eligible) {
+        const key = trackerKey(entry);
+        totalCount += chatInjectionCounts.get(key) || 0;
+    }
+    const avg = totalCount / eligible.length;
+    if (avg === 0) return temps;
+
+    for (const entry of eligible) {
+        const key = trackerKey(entry);
+        const count = chatInjectionCounts.get(key) || 0;
+        const ratio = count / avg;
+        const consec = consecutiveInjections.get(key) || 0;
+        const tempScore = Math.min(3, Math.max(0, ratio + consec * 0.15));
+        const hue = tempScore > 1.2 ? 'accent' : tempScore < 0.8 ? 'cool' : 'neutral';
+        temps.set(key, { ratio, consecutive: consec, tempScore, hue });
+    }
+
+    _tempCache = temps;
+    return temps;
+}
+
+/** Invalidate the temperature cache (call on pipeline complete) */
+export function invalidateTemperatureCache() {
+    _tempCache = null;
+}
 
 // ─── Render Scheduling ───
 

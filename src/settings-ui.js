@@ -53,6 +53,7 @@ function renderVaultList(settings, container = null) {
                     <input type="checkbox" class="dle_vault_enabled checkbox" ${v.enabled ? 'checked' : ''} />
                 </label>
                 <input type="text" class="dle_vault_name text_pole" placeholder="Name" value="${escapeHtml(v.name)}" style="flex: 1; min-width: 80px;" aria-label="Vault name" />
+                <input type="text" class="dle_vault_host text_pole" placeholder="Host" value="${escapeHtml(v.host || '127.0.0.1')}" style="flex: 0 0 100px;" aria-label="Vault host" />
                 <input type="number" class="dle_vault_port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" aria-label="Vault port" />
                 <input type="password" class="dle_vault_key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" aria-label="API key" />
                 <div class="dle_vault_test menu_button menu_button_icon" title="Test this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Test vault connection">
@@ -77,7 +78,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     const container = $scope || $('#dle_vault_list');
 
     // Input changes on vault fields
-    container.on('input', '.dle_vault_name, .dle_vault_port, .dle_vault_key', function () {
+    container.on('input', '.dle_vault_name, .dle_vault_host, .dle_vault_port, .dle_vault_key', function () {
         const row = $(this).closest('.dle_vault_row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
@@ -99,6 +100,11 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
                 toastr.warning(`Vault name already in use. Renamed to "${newName}".`, 'DeepLore Enhanced', { timeOut: 4000 });
             }
             settings.vaults[idx].name = newName;
+        } else if ($(this).hasClass('dle_vault_host')) {
+            let hostVal = String($(this).val()).trim();
+            hostVal = hostVal.replace(/^https?:\/\//, ''); // Strip protocol prefix
+            hostVal = hostVal.replace(/:\d+$/, ''); // Strip port suffix if user pasted host:port
+            settings.vaults[idx].host = hostVal || '127.0.0.1';
         } else if ($(this).hasClass('dle_vault_port')) {
             settings.vaults[idx].port = Math.max(1, Math.min(65535, numVal($(this).val(), 27123)));
         } else if ($(this).hasClass('dle_vault_key')) {
@@ -135,7 +141,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         const statusEl = row.find('.dle_vault_status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
-            const data = await testConnection(vault.port, vault.apiKey);
+            const data = await testConnection(vault.host, vault.port, vault.apiKey);
             if (data.ok) {
                 statusEl.text(`Connected${data.authenticated ? '' : ' (no auth)'}`).addClass('success').removeClass('failure');
                 announceToSR(`Vault ${vault.name} connected successfully.`);
@@ -175,7 +181,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     // Add vault button
     const $addButton = $addBtn || $('#dle_add_vault');
     $addButton.on('click', function () {
-        settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, port: 27123, apiKey: '', enabled: true });
+        settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27123, apiKey: '', enabled: true });
         saveSettingsDebounced();
         renderVaultList(settings, container[0]);
     });
@@ -648,7 +654,7 @@ function bindPopupEvents($container) {
             const results = [];
             for (const vault of enabledVaults) {
                 try {
-                    const data = await testConnection(vault.port, vault.apiKey);
+                    const data = await testConnection(vault.host, vault.port, vault.apiKey);
                     results.push({ name: vault.name, ok: data.ok, auth: data.authenticated, error: data.error });
                 } catch (err) { results.push({ name: vault.name, ok: false, error: err.message }); }
             }

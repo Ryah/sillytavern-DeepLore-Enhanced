@@ -5,6 +5,7 @@
 import {
     generateQuietPrompt,
     chat,
+    saveSettingsDebounced,
 } from '../../../../../script.js';
 import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
@@ -143,6 +144,10 @@ export async function showSuggestionPopup(suggestions) {
     container.innerHTML = `
         <h3>Suggested Entries (${suggestions.length})</h3>
         <p class="dle-muted dle-text-sm">Review each suggestion. Accept to write to Obsidian, reject to skip.</p>
+        <label class="checkbox_label dle-text-sm" style="margin-bottom: 8px;">
+            <input type="checkbox" class="checkbox" id="dle_suggest_skip_review" ${settings.autoSuggestSkipReview ? 'checked' : ''}>
+            <span>Write directly (skip review)</span>
+        </label>
         ${cardsHtml}
     `;
 
@@ -151,6 +156,15 @@ export async function showSuggestionPopup(suggestions) {
         large: true,
         allowVerticalScrolling: true,
         onOpen: () => {
+            // E11: Sync skip-review checkbox with settings
+            const skipCheckbox = container.querySelector('#dle_suggest_skip_review');
+            if (skipCheckbox) {
+                skipCheckbox.addEventListener('change', function () {
+                    settings.autoSuggestSkipReview = this.checked;
+                    saveSettingsDebounced();
+                });
+            }
+
             container.querySelectorAll('.dle_accept_suggest').forEach(btn => {
                 btn.addEventListener('click', async function () {
                     if (this.disabled) return; // Double-click guard
@@ -190,7 +204,7 @@ ${safeContent}`;
 
                     try {
                         const suggestVault = getPrimaryVault(settings);
-                        const data = await writeNote(suggestVault.port, suggestVault.apiKey, filename, fileContent);
+                        const data = await writeNote(suggestVault.host, suggestVault.port, suggestVault.apiKey, filename, fileContent);
                         if (data.ok) {
                             card.style.opacity = '0.4';
                             card.style.borderColor = 'var(--dle-success, #4caf50)';

@@ -20,6 +20,12 @@ import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normali
 
 // extractAiResponseClient — imported from ./helpers.js
 
+// ── AI call throttle ──
+// Minimum 2 seconds between actual AI API calls to prevent rapid-generation spam.
+// Cache hits and circuit breaker skips are not throttled (they don't make API calls).
+let _lastAiCallTimestamp = 0;
+const AI_CALL_MIN_INTERVAL_MS = 2000;
+
 /**
  * Get the model name from the selected Connection Manager profile.
  * @returns {string} Model name or empty string
@@ -127,6 +133,17 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
 export async function callAI(systemPrompt, userMessage, connectionConfig) {
+    // Throttle: enforce minimum interval between API calls to prevent rapid-generation spam.
+    // Throws a distinct error type so callers can distinguish throttle from real failure
+    // (throttle should NOT trip the circuit breaker).
+    const now = Date.now();
+    if (now - _lastAiCallTimestamp < AI_CALL_MIN_INTERVAL_MS) {
+        const err = new Error('AI call throttled — minimum 2s between calls');
+        err.throttled = true;
+        throw err;
+    }
+    _lastAiCallTimestamp = now;
+
     const { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints } = connectionConfig;
 
     if (mode === 'profile') {
@@ -156,14 +173,22 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
     const summaryLen = settings.aiSearchManifestSummaryLength || 600;
 
     const isForceInjected = e => e.constant || (excludeBootstrap && e.bootstrap);
-    const selectable = candidates.filter(e => !isForceInjected(e));
+    const summaryMode = settings.manifestSummaryMode || 'prefer_summary';
+    let selectable = candidates.filter(e => !isForceInjected(e));
+
+    // E8: In summary_only mode, exclude entries that have no summary field
+    if (summaryMode === 'summary_only') {
+        selectable = selectable.filter(e => e.summary && e.summary.trim());
+    }
 
     if (selectable.length === 0) return { manifest: '', header: '' };
 
     const manifest = selectable
         .map(entry => {
-            const summaryText = entry.summary
-                || truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen);
+            // E8: Select summary text based on manifestSummaryMode
+            const summaryText = summaryMode === 'content_only'
+                ? truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen)
+                : (entry.summary || truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen));
             const safeSummary = summaryText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
                 ? ` → ${entry.resolvedLinks.join(', ')}`
@@ -284,15 +309,16 @@ export async function hierarchicalPreFilter(candidates, chat) {
             console.log(`[DLE] Hierarchical pre-filter: ${clusters.size} categories → ${selectedCategories.size} selected, ${selectable.length} → ${filtered.length} entries`);
         }
 
-        // If filtering removed too many entries (>80%), skip — the AI was probably too aggressive
-        if (filtered.length < selectable.length * 0.2) {
+        // If filtering removed too many entries (>80% by default), skip — the AI was probably too aggressive
+        const minRetention = 1 - (settings.hierarchicalAggressiveness ?? 0.8);
+        if (filtered.length < selectable.length * minRetention) {
             if (settings.debugMode) console.log('[DLE] Hierarchical pre-filter too aggressive, using full manifest');
             return null;
         }
 
         return filteredResult;
     } catch (err) {
-        recordAiFailure();
+        if (!err.throttled) recordAiFailure();
         if (settings.debugMode) console.warn('[DLE] Hierarchical pre-filter failed:', err.message);
         return null; // Fall back to single-call
     }
@@ -514,17 +540,26 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         const confidenceOrder = { high: 0, medium: 1, low: 2 };
         results.sort((a, b) => (confidenceOrder[a.confidence] ?? 1) - (confidenceOrder[b.confidence] ?? 1));
 
+        // E1: Filter by confidence threshold
+        const threshold = settings.aiConfidenceThreshold || 'low';
+        const filteredResults = threshold === 'low'
+            ? results
+            : results.filter(r => {
+                const allowedTiers = threshold === 'high' ? ['high'] : ['high', 'medium'];
+                return allowedTiers.includes(r.confidence);
+            });
+
         // Cache results by title (not entry reference) to survive index rebuilds
         setAiSearchCache({
             hash: chatHash,
             manifestHash,
             chatLineCount: getChatLines().length,
-            results: results.map(r => ({ title: r.entry.title, confidence: r.confidence, reason: r.reason })),
+            results: filteredResults.map(r => ({ title: r.entry.title, confidence: r.confidence, reason: r.reason })),
         });
 
         if (settings.debugMode) {
-            console.log(`[DLE] AI search found ${aiResults.length} titles, matched ${results.length} entries`);
-            console.table(results.map(r => ({
+            console.log(`[DLE] AI search found ${aiResults.length} titles, matched ${results.length} entries${threshold !== 'low' ? `, ${filteredResults.length} after confidence threshold (${threshold})` : ''}`);
+            console.table(filteredResults.map(r => ({
                 title: r.entry.title,
                 confidence: r.confidence,
                 reason: r.reason,
@@ -532,11 +567,13 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
 
         recordAiSuccess();
-        return { results, error: false };
+        return { results: filteredResults, error: false };
     } catch (err) {
-        recordAiFailure();
+        if (!err.throttled) recordAiFailure();
         if (err.name === 'AbortError') {
             console.warn('[DLE] AI search timed out');
+        } else if (err.throttled) {
+            if (settings.debugMode) console.debug('[DLE] AI search throttled — using cache/keywords');
         } else {
             console.error('[DLE] AI search error:', err);
         }

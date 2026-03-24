@@ -16,6 +16,7 @@ import {
     setFuzzySearchIndex,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
+    generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
 } from './state.js';
 import { resolveLinks } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
@@ -232,7 +233,7 @@ export async function buildIndex() {
             throw new Error('No enabled vaults configured');
         }
 
-        const entries = [];
+        let entries = [];
         const tagConfig = {
             lorebookTag: settings.lorebookTag,
             constantTag: settings.constantTag,
@@ -247,7 +248,7 @@ export async function buildIndex() {
         setLastVaultAttemptCount(enabledVaults.length);
         for (const vault of enabledVaults) {
             try {
-                const data = await fetchAllMdFiles(vault.port, vault.apiKey);
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Vault "${vault.name}" returned invalid data`);
                     continue;
@@ -293,6 +294,29 @@ export async function buildIndex() {
                 entry.tokenEstimate = Math.ceil(entry.content.length / 3.5);
             }
         }));
+
+        // E6: Multi-vault conflict resolution dedup pass
+        if (settings.multiVaultConflictResolution && settings.multiVaultConflictResolution !== 'all') {
+            const mode = settings.multiVaultConflictResolution;
+            const titleMap = new Map();
+            for (const entry of entries) {
+                const key = entry.title.toLowerCase();
+                if (titleMap.has(key)) {
+                    if (mode === 'first') continue; // skip, first wins
+                    if (mode === 'last') {
+                        titleMap.set(key, entry);
+                    } else if (mode === 'merge') {
+                        const existing = titleMap.get(key);
+                        const mergedKeys = [...new Set([...existing.keys, ...entry.keys])];
+                        existing.keys = mergedKeys;
+                        // Keep existing content, just merge keys
+                    }
+                } else {
+                    titleMap.set(key, entry);
+                }
+            }
+            entries = [...titleMap.values()];
+        }
 
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
@@ -424,7 +448,7 @@ export async function buildIndexWithReuse() {
             try {
                 // Fetch ALL file contents to detect content changes via hash comparison.
                 // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
-                const data = await fetchAllMdFiles(vault.port, vault.apiKey);
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
@@ -535,16 +559,44 @@ export async function buildIndexWithReuse() {
  */
 export async function ensureIndexFresh() {
     const settings = getSettings();
-    const ttlMs = settings.cacheTTL * 1000;
     const now = Date.now();
+    const rebuildTrigger = settings.indexRebuildTrigger || 'ttl';
+
+    // E9: Index rebuild trigger logic
+    if (rebuildTrigger === 'manual') {
+        // Only rebuild if index is empty — never auto-rebuild
+        if (vaultIndex.length === 0) {
+            await buildIndex();
+            setLastIndexGenerationCount(generationCount);
+        }
+        return;
+    }
+
+    if (rebuildTrigger === 'generation') {
+        const interval = settings.indexRebuildGenerationInterval || 10;
+        const shouldRebuild = vaultIndex.length === 0 || (generationCount - lastIndexGenerationCount >= interval);
+        if (shouldRebuild) {
+            if (vaultIndex.length > 0) {
+                const usedReuse = await buildIndexWithReuse();
+                if (usedReuse) { setLastIndexGenerationCount(generationCount); return; }
+            }
+            await buildIndex();
+            setLastIndexGenerationCount(generationCount);
+        }
+        return;
+    }
+
+    // Default: 'ttl' — current behavior
+    const ttlMs = settings.cacheTTL * 1000;
 
     // TTL=0 means "always fetch fresh" (rebuild every generation)
     if (vaultIndex.length === 0 || ttlMs === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
         // Use reuse path when index already exists (faster: skips re-parse/tokenize for unchanged entries)
         if (vaultIndex.length > 0) {
             const usedReuse = await buildIndexWithReuse();
-            if (usedReuse) return;
+            if (usedReuse) { setLastIndexGenerationCount(generationCount); return; }
         }
         await buildIndex();
+        setLastIndexGenerationCount(generationCount);
     }
 }

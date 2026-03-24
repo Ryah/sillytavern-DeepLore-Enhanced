@@ -302,7 +302,7 @@ export function registerSlashCommands() {
 
             try {
                 const histVault = getPrimaryVault(settings);
-                const data = await fetchScribeNotes(histVault.port, histVault.apiKey, settings.scribeFolder);
+                const data = await fetchScribeNotes(histVault.host, histVault.port, histVault.apiKey, settings.scribeFolder);
                 if (!data.ok) throw new Error(data.error || 'Failed to fetch notes');
 
                 if (!data.notes || data.notes.length === 0) {
@@ -552,6 +552,10 @@ export function registerSlashCommands() {
                         <input id="dle_setup_name" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.name || 'Primary')}" />
                     </div>
                     <div style="margin: 10px 0;">
+                        <label>Host (default: 127.0.0.1):</label>
+                        <input id="dle_setup_host" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.host || '127.0.0.1')}" />
+                    </div>
+                    <div style="margin: 10px 0;">
                         <label>Port (default: 27123):</label>
                         <input id="dle_setup_port" class="text_pole" type="number" value="${settings.vaults?.[0]?.port || 27123}" />
                     </div>
@@ -562,15 +566,17 @@ export function registerSlashCommands() {
                 </div>`;
 
             // Capture input values while popup is still open using onOpen + live binding
-            let vaultName = 'Primary', port = 27123, apiKey = '';
+            let vaultName = 'Primary', host = '127.0.0.1', port = 27123, apiKey = '';
             const step1Ok = await callGenericPopup(step1Html, POPUP_TYPE.CONFIRM, '', {
                 wide: true,
                 onOpen: () => {
                     // Attach input handlers to capture values in real-time
                     const nameEl = document.getElementById('dle_setup_name');
+                    const hostEl = document.getElementById('dle_setup_host');
                     const portEl = document.getElementById('dle_setup_port');
                     const keyEl = document.getElementById('dle_setup_key');
                     if (nameEl) { vaultName = nameEl.value.trim() || 'Primary'; nameEl.addEventListener('input', () => { vaultName = nameEl.value.trim() || 'Primary'; }); }
+                    if (hostEl) { host = hostEl.value.trim() || '127.0.0.1'; hostEl.addEventListener('input', () => { host = hostEl.value.trim() || '127.0.0.1'; }); }
                     if (portEl) { port = parseInt(portEl.value) || 27123; portEl.addEventListener('input', () => { port = parseInt(portEl.value) || 27123; }); }
                     if (keyEl) { apiKey = keyEl.value.trim() || ''; keyEl.addEventListener('input', () => { apiKey = keyEl.value.trim() || ''; }); }
                 },
@@ -580,7 +586,7 @@ export function registerSlashCommands() {
             // Test connection
             const { testConnection } = await import('./obsidian-api.js');
             toastr.info('Testing connection...', 'DeepLore Enhanced', { timeOut: 2000 });
-            const testResult = await testConnection(port, apiKey);
+            const testResult = await testConnection(host, port, apiKey);
             if (!testResult.ok) {
                 toastr.error(`Connection failed: ${testResult.error}. Check Obsidian and REST API plugin.`, 'DeepLore Enhanced');
                 return '';
@@ -620,7 +626,7 @@ export function registerSlashCommands() {
             // Apply settings
             settings.enabled = true;
             settings.lorebookTag = lorebookTag;
-            settings.vaults = [{ name: vaultName, port, apiKey, enabled: true }];
+            settings.vaults = [{ name: vaultName, host, port, apiKey, enabled: true }];
             settings.aiSearchEnabled = searchMode !== 'keywords';
             if (searchMode !== 'keywords') settings.aiSearchMode = searchMode;
             invalidateSettingsCache();
@@ -636,7 +642,7 @@ export function registerSlashCommands() {
                     <h3>DeepLore Enhanced Setup (3/3): Verification</h3>
                     <p class="dle-success dle-text-lg">Setup complete!</p>
                     <ul>
-                        <li>Vault: <b>${escapeHtml(vaultName)}</b> on port ${port}</li>
+                        <li>Vault: <b>${escapeHtml(vaultName)}</b> on ${escapeHtml(host)}:${port}</li>
                         <li>Lorebook tag: <b>#${escapeHtml(lorebookTag)}</b></li>
                         <li>Entries indexed: <b>${vaultIndex.length}</b></li>
                         <li>Mode: <b>${searchMode === 'keywords' ? 'Keywords Only' : searchMode === 'two-stage' ? 'Two-Stage' : 'AI Only'}</b></li>
@@ -740,6 +746,7 @@ export function registerSlashCommands() {
 
                     // Read current file, inject summary into frontmatter, write back
                     const fileResult = await obsidianFetch({
+                        host: vault.host,
                         port: vault.port,
                         apiKey: vault.apiKey,
                         path: `/vault/${encodeVaultPath(entry.filename)}`,
@@ -765,7 +772,7 @@ export function registerSlashCommands() {
                         }
                     }
 
-                    const writeResult = await writeNote(vault.port, vault.apiKey, entry.filename, fileContent);
+                    const writeResult = await writeNote(vault.host, vault.port, vault.apiKey, entry.filename, fileContent);
                     if (writeResult.ok) {
                         generated++;
                     } else {

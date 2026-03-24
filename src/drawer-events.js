@@ -2,9 +2,9 @@
  * DeepLore Enhanced — Drawer Event Wiring
  * All event handlers and interaction wiring for the drawer panel.
  */
-import { chat_metadata, saveChatDebounced } from '../../../../../script.js';
+import { chat_metadata, saveChatDebounced, saveSettingsDebounced } from '../../../../../script.js';
 import { escapeHtml } from '../../../../utils.js';
-import { getSettings } from '../settings.js';
+import { getSettings, invalidateSettingsCache } from '../settings.js';
 import {
     vaultIndex, indexTimestamp, indexEverLoaded,
     aiSearchStats,
@@ -17,7 +17,7 @@ import {
     ds, TAB_LABELS, TOOL_ACTIONS, EXPAND_ACTIONS, BROWSE_ROW_HEIGHT,
     scheduleRender,
 } from './drawer-state.js';
-import { renderBrowseTab, renderBrowseWindow } from './drawer-render.js';
+import { renderInjectionTab, renderBrowseTab, renderBrowseWindow } from './drawer-render.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -73,6 +73,9 @@ export function switchTab($drawer, tabName) {
         ds.browseLastRangeEnd = -1;
         requestAnimationFrame(() => renderBrowseWindow());
     }
+
+    // E10: Persist last viewed tab
+    try { localStorage.setItem('dle_last_drawer_tab', tabName); } catch { /* noop */ }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -107,6 +110,26 @@ export function wireStatusActions($drawer) {
             case 'scribe': executeCommand('/dle-scribe'); break;
             case 'newlore': executeCommand('/dle-newlore'); break;
         }
+    });
+
+    // First-run setup banner actions
+    $drawer.on('click', '.dle-setup-banner-btn', () => {
+        executeCommand('/dle-setup');
+    });
+    $drawer.on('click', '.dle-setup-banner-dismiss', () => {
+        $drawer.find('.dle-setup-banner').remove();
+        const s = getSettings();
+        s._setupDismissed = true;
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+    });
+}
+
+/** Wire the Why? tab filter toggle (Injected / Filtered / Both) */
+export function wireInjectionTab($drawer) {
+    $drawer.on('click', '.dle-why-filter-btn', function () {
+        ds.whyTabFilter = $(this).data('filter') || 'both';
+        scheduleRender(renderInjectionTab);
     });
 }
 

@@ -7,15 +7,15 @@ const DEFAULT_TIMEOUT = 30000;
 
 // ── Circuit Breaker (per-vault) ──
 // Prevents hammering Obsidian when it's down. Short backoffs (it's local and free).
-// Each vault (keyed by port) gets its own circuit breaker to avoid cross-contamination.
-// Note: keyed by port only since Obsidian always runs on localhost.
+// Each vault gets its own circuit breaker keyed by "host:port" string for multi-vault
+// and remote Obsidian isolation (e.g., "127.0.0.1:27123", "192.168.1.5:27124").
 
-/** @type {Map<number, {failures: number, maxFailures: number, state: string, openedAt: number, baseBackoff: number, maxBackoff: number}>} */
+/** @type {Map<string, {failures: number, maxFailures: number, state: string, openedAt: number, baseBackoff: number, maxBackoff: number}>} */
 const circuitBreakers = new Map();
 
-function getCircuitBreaker(port) {
-    if (!circuitBreakers.has(port)) {
-        circuitBreakers.set(port, {
+function getCircuitBreaker(key) {
+    if (!circuitBreakers.has(key)) {
+        circuitBreakers.set(key, {
             failures: 0,
             maxFailures: 3,
             state: 'closed',
@@ -25,12 +25,12 @@ function getCircuitBreaker(port) {
             halfOpenProbe: false, // Only one request allowed through in half-open state
         });
     }
-    return circuitBreakers.get(port);
+    return circuitBreakers.get(key);
 }
 
 /**
  * Get the current circuit breaker state (for UI display).
- * @param {number} [port] - Vault port. If omitted, returns aggregate worst state.
+ * @param {string|number} [port] - Vault key (host:port string or legacy port number). If omitted, returns aggregate worst state.
  * @returns {{ state: string, failures: number, backoffRemaining: number }}
  */
 export function getCircuitState(port) {
@@ -131,6 +131,7 @@ export function validateVaultPath(filename) {
 /**
  * Make an HTTP request to the Obsidian Local REST API.
  * @param {object} options
+ * @param {string} [options.host='127.0.0.1'] - Obsidian host (IP or hostname)
  * @param {number} options.port - Obsidian REST API port
  * @param {string} options.apiKey - Bearer token
  * @param {string} options.path - API path (e.g. /vault/)
@@ -141,10 +142,12 @@ export function validateVaultPath(filename) {
  * @param {number} [options.timeout=30000] - Timeout in ms
  * @returns {Promise<{status: number, data: string}>}
  */
-export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT }) {
+export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT }) {
+    // Circuit breaker key: host:port for multi-vault isolation
+    const circuitKey = `${host}:${port}`;
     // Circuit breaker: reject immediately if circuit is open
-    if (!circuitAllows(port)) {
-        const cs = getCircuitState(port);
+    if (!circuitAllows(circuitKey)) {
+        const cs = getCircuitState(circuitKey);
         throw new Error(`Obsidian circuit breaker open (${cs.failures} failures, retry in ${Math.ceil(cs.backoffRemaining / 1000)}s)`);
     }
 
@@ -160,7 +163,7 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
-        const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+        const response = await fetch(`http://${host || '127.0.0.1'}:${port}${path}`, {
             method,
             headers,
             body: body ?? undefined,
@@ -170,14 +173,14 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
         // Track server errors (5xx) as circuit breaker failures
         // Don't count auth errors (401/403) or client errors (404) — they are persistent config issues, not transient server failures
         if (response.status >= 500) {
-            recordFailure(port);
+            recordFailure(circuitKey);
         } else if (response.status >= 200 && response.status < 300) {
-            recordSuccess(port);
+            recordSuccess(circuitKey);
         }
         // 4xx errors: neither success nor failure — don't affect circuit breaker state
         return { status: response.status, data };
     } catch (err) {
-        recordFailure(port);
+        recordFailure(circuitKey);
         if (err.name === 'AbortError') throw new Error('Request timed out');
         throw err;
     } finally {
@@ -193,12 +196,12 @@ export async function obsidianFetch({ port, apiKey, path, method = 'GET', accept
  * @param {number} [depth=0] - Current recursion depth
  * @returns {Promise<string[]>} Array of full file paths
  */
-export async function listAllFiles(port, apiKey, directory = '', depth = 0) {
+export async function listAllFiles(host, port, apiKey, directory = '', depth = 0) {
     if (depth >= 20) {
         throw new Error(`Directory nesting too deep at "${directory}"`);
     }
     const urlPath = directory ? `/vault/${encodeVaultPath(directory)}/` : '/vault/';
-    const res = await obsidianFetch({ port, apiKey, path: urlPath });
+    const res = await obsidianFetch({ host, port, apiKey, path: urlPath });
 
     if (res.status !== 200) {
         throw new Error(`Failed to list files at "${directory}": HTTP ${res.status}`);
@@ -228,7 +231,7 @@ export async function listAllFiles(port, apiKey, directory = '', depth = 0) {
     // Fetch sibling directories in parallel — use allSettled so one failure doesn't kill the whole index
     if (dirs.length > 0) {
         const dirResults = await Promise.allSettled(
-            dirs.map(fullDirPath => listAllFiles(port, apiKey, fullDirPath, depth + 1)),
+            dirs.map(fullDirPath => listAllFiles(host, port, apiKey, fullDirPath, depth + 1)),
         );
         for (const result of dirResults) {
             if (result.status === 'fulfilled') {
@@ -248,16 +251,15 @@ export async function listAllFiles(port, apiKey, directory = '', depth = 0) {
  * @param {string} apiKey
  * @returns {Promise<{ok: boolean, authenticated?: boolean, versions?: object, error?: string}>}
  */
-export async function testConnection(port, apiKey) {
+export async function testConnection(host, port, apiKey) {
     try {
         // Force-reset circuit breaker for explicit user-initiated test.
-        // Users clicking "Test" expect a real connection attempt regardless of prior failures.
-        // The breaker will re-trip naturally if the test fails 3 more times.
-        const cb = getCircuitBreaker(port);
+        const circuitKey = `${host || '127.0.0.1'}:${port}`;
+        const cb = getCircuitBreaker(circuitKey);
         cb.state = 'closed';
         cb.failures = 0;
         cb.halfOpenProbe = false;
-        const result = await obsidianFetch({ port, apiKey: apiKey || '', path: '/vault/', timeout: 10000 });
+        const result = await obsidianFetch({ host, port, apiKey: apiKey || '', path: '/vault/', timeout: 10000 });
         if (result.status === 200) {
             return { ok: true, authenticated: true };
         }
@@ -276,8 +278,8 @@ export async function testConnection(port, apiKey) {
  * @param {string} apiKey
  * @returns {Promise<{files: Array<{filename: string, content: string}>, total: number, failed: number}>}
  */
-export async function fetchAllMdFiles(port, apiKey) {
-    const allFiles = await listAllFiles(port, apiKey);
+export async function fetchAllMdFiles(host, port, apiKey) {
+    const allFiles = await listAllFiles(host, port, apiKey);
     const mdFiles = allFiles.filter(f => f.endsWith('.md'));
 
     const BATCH_SIZE = 50;
@@ -290,6 +292,7 @@ export async function fetchAllMdFiles(port, apiKey) {
             batch.map(async (filename) => {
                 try {
                     const result = await obsidianFetch({
+                        host,
                         port,
                         apiKey,
                         path: `/vault/${encodeVaultPath(filename)}`,
@@ -325,10 +328,11 @@ export async function fetchAllMdFiles(port, apiKey) {
  * @param {string} content - Markdown content
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
-export async function writeNote(port, apiKey, filename, content) {
+export async function writeNote(host, port, apiKey, filename, content) {
     try {
         const normalizedPath = validateVaultPath(filename);
         const result = await obsidianFetch({
+            host,
             port,
             apiKey,
             path: `/vault/${encodeVaultPath(normalizedPath)}`,
@@ -353,9 +357,9 @@ export async function writeNote(port, apiKey, filename, content) {
  * @param {string} folder - Folder path within vault
  * @returns {Promise<{ok: boolean, notes?: Array<{filename: string, content: string}>, error?: string}>}
  */
-export async function fetchScribeNotes(port, apiKey, folder) {
+export async function fetchScribeNotes(host, port, apiKey, folder) {
     try {
-        const allFiles = await listAllFiles(port, apiKey, folder);
+        const allFiles = await listAllFiles(host, port, apiKey, folder);
         const mdFiles = allFiles.filter(f => f.endsWith('.md'));
         const BATCH_SIZE = 50;
         const notes = [];
@@ -365,6 +369,7 @@ export async function fetchScribeNotes(port, apiKey, folder) {
             const batchSettled = await Promise.allSettled(batch.map(async (filepath) => {
                 try {
                     const result = await obsidianFetch({
+                        host,
                         port,
                         apiKey,
                         path: `/vault/${encodeVaultPath(filepath)}`,

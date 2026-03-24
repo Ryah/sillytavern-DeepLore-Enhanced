@@ -852,7 +852,7 @@ export async function showOptimizePopup(entry, result) {
             // Fetch current file content from Obsidian (no longer cached in _rawContent to save memory)
             let rawContent = entry.content;
             try {
-                const fetchResult = await obsidianFetch({ port: optVault.port, apiKey: optVault.apiKey, path: `/vault/${encodeVaultPath(entry.filename)}`, accept: 'text/markdown' });
+                const fetchResult = await obsidianFetch({ host: optVault.host, port: optVault.port, apiKey: optVault.apiKey, path: `/vault/${encodeVaultPath(entry.filename)}`, accept: 'text/markdown' });
                 if (fetchResult.status === 200) rawContent = fetchResult.data;
             } catch { /* fall back to entry.content */ }
             const { frontmatter, body } = parseFrontmatter(rawContent);
@@ -874,7 +874,7 @@ export async function showOptimizePopup(entry, result) {
             }
             newContent += `---\n${body}`;
 
-            const data = await writeNote(optVault.port, optVault.apiKey, entry.filename, newContent);
+            const data = await writeNote(optVault.host, optVault.port, optVault.apiKey, entry.filename, newContent);
             if (data.ok) {
                 toastr.success(`Keywords updated for "${entry.title}"`, 'DeepLore Enhanced');
                 setVaultIndex([]);

@@ -124,7 +124,7 @@ export const defaultSettings = {
     autoSuggestTimeout: 30000,
     autoSuggestFolder: '',
     // Injection Deduplication
-    stripDuplicateInjections: false,
+    stripDuplicateInjections: true,
     stripLookbackDepth: 2,
     // Optimize Keys
     optimizeKeysMode: 'keyword-only',
@@ -132,10 +132,29 @@ export const defaultSettings = {
     characterContextScan: false,
     // Fuzzy (BM25) search — supplements keyword matching with TF-IDF scoring
     fuzzySearchEnabled: false,
+    fuzzySearchMinScore: 0.5,
     // Multi-Vault
     vaults: [],
     // UI State
     advancedVisible: {},
+    // AI Search advanced
+    aiConfidenceThreshold: 'low',          // E1: low (all), medium (medium+high), high (high only)
+    hierarchicalAggressiveness: 0.8,       // E2: 0.0 (keep all) to 0.8 (aggressive); min retention = 1 - this
+    manifestSummaryMode: 'prefer_summary', // E8: prefer_summary, summary_only, content_only
+    // AI Fallback Strategy
+    aiErrorFallback: 'keyword',            // E4: keyword, constants_only, bootstrap_only, none
+    aiEmptyFallback: 'constants',          // E4: constants, constants_bootstrap, keyword, none
+    // Contextual Gating
+    contextualGatingTolerance: 'strict',   // E5: strict, moderate, lenient
+    // Multi-Vault
+    multiVaultConflictResolution: 'all',   // E6: all, first, last, merge
+    // Keyword Occurrence Weighting
+    keywordOccurrenceWeighting: false,     // E7: toggle
+    // Index Rebuild
+    indexRebuildTrigger: 'ttl',            // E9: ttl, generation, manual
+    indexRebuildGenerationInterval: 10,    // E9: rebuild every N generations
+    // Auto-Suggest
+    autoSuggestSkipReview: false,          // E11: skip review popup checkbox
     // Entry Decay & Freshness
     decayEnabled: false,
     decayBoostThreshold: 5,    // Generations without injection before freshness boost
@@ -189,6 +208,9 @@ export const settingsConstraints = {
     autoSuggestTimeout: { min: 5000, max: 60000 },
     decayBoostThreshold: { min: 2, max: 20 },
     decayPenaltyThreshold: { min: 2, max: 10 },
+    fuzzySearchMinScore: { min: 0.1, max: 2.0 },
+    hierarchicalAggressiveness: { min: 0.0, max: 0.8 },
+    indexRebuildGenerationInterval: { min: 1, max: 100 },
 };
 
 // Settings cache — avoids re-validating/coercing ~60 keys on every getSettings() call
@@ -249,11 +271,19 @@ export function getSettings() {
     if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort) {
         s.vaults = [{
             name: 'Primary',
+            host: '127.0.0.1',
             port: s.obsidianPort,
             apiKey: s.obsidianApiKey || '',
             enabled: true,
         }];
         s._vaultsMigrated = true;
+    }
+
+    // Migrate existing vaults missing the host field (added for remote Obsidian support)
+    if (Array.isArray(s.vaults)) {
+        for (const v of s.vaults) {
+            if (!v.host) v.host = '127.0.0.1';
+        }
     }
 
     _cacheValid = true;
@@ -267,7 +297,7 @@ export function getSettings() {
  */
 export function getPrimaryVault(settings) {
     const s = settings || getSettings();
-    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', port: 27123, apiKey: '', enabled: false };
+    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', host: '127.0.0.1', port: 27123, apiKey: '', enabled: false };
 }
 
 /**

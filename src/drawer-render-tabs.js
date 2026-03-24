@@ -13,7 +13,7 @@ import {
 import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault } from './helpers.js';
 import {
     ds, BROWSE_ROW_HEIGHT, BROWSE_OVERSCAN,
-    getMatchLabel,
+    getMatchLabel, computeEntryTemperatures,
 } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -49,6 +49,22 @@ export function renderInjectionTab() {
     }
 
     $empty.removeClass('dle-visible');
+
+    // Why? tab filter toggle (Injected / Filtered / Both)
+    let $filterToggle = $drawer.find('.dle-why-filter-toggle');
+    if (!$filterToggle.length) {
+        const toggleHtml = `<div class="dle-why-filter-toggle" role="radiogroup" aria-label="Filter entries" style="display: flex; gap: 2px; margin-bottom: var(--dle-space-2); font-size: var(--dle-text-xs);">
+            <button class="dle-why-filter-btn${ds.whyTabFilter === 'injected' ? ' active' : ''}" data-filter="injected" role="radio" aria-checked="${ds.whyTabFilter === 'injected'}">Injected</button>
+            <button class="dle-why-filter-btn${ds.whyTabFilter === 'filtered' ? ' active' : ''}" data-filter="filtered" role="radio" aria-checked="${ds.whyTabFilter === 'filtered'}">Filtered</button>
+            <button class="dle-why-filter-btn${ds.whyTabFilter === 'both' ? ' active' : ''}" data-filter="both" role="radio" aria-checked="${ds.whyTabFilter === 'both'}">Both</button>
+        </div>`;
+        $list.before(toggleHtml);
+        $filterToggle = $drawer.find('.dle-why-filter-toggle');
+    } else {
+        // Update active state
+        $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false');
+        $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true');
+    }
 
     // Compute diff via shared data layer
     const diff = computeSourcesDiff(sources, prev);
@@ -99,8 +115,14 @@ export function renderInjectionTab() {
         return h;
     }
 
+    // Apply filter visibility
+    const showInjected = ds.whyTabFilter !== 'filtered';
+    const showFiltered = ds.whyTabFilter !== 'injected';
+    $list.toggle(showInjected);
+    $diff.toggle(showInjected);
+
     // Animate exit for removed entries, then swap in new content
-    if (removedTitles.size > 0 && $list.children().length > 0) {
+    if (showInjected && removedTitles.size > 0 && $list.children().length > 0) {
         const exitEls = $list.find('.dle-why-entry').filter(function () {
             return removedTitles.has($(this).data('title'));
         });
@@ -119,7 +141,9 @@ export function renderInjectionTab() {
     }
 
     // ── "Why Not" section — entries that were candidates but got filtered out ──
-    if (trace) {
+    if (!showFiltered) {
+        $whyNotSection.removeClass('dle-visible');
+    } else if (trace) {
         // Use shared categorization (all 8 rejection stages), flatten to list
         const injectedTitles = new Set(sources.map(s => s.title));
         const rejectedGroups = categorizeRejections(trace, injectedTitles);
@@ -304,6 +328,8 @@ export function renderBrowseWindow() {
     // The scrollable container is .dle-drawer-inner, not the tab panel
     const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
     if (!scrollContainer) return;
+    // Guard: skip calculation when drawer is hidden (getBoundingClientRect returns zeros)
+    if (!scrollContainer.offsetParent && !scrollContainer.offsetHeight) return;
     const viewHeight = scrollContainer.clientHeight;
     // How far the list's top is above (negative) or below (positive) the scroll container's viewport top
     // Using getBoundingClientRect for robustness against intermediate positioned parents
@@ -330,6 +356,9 @@ export function renderBrowseWindow() {
         for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
+    // Compute entry temperatures for visual heat indicator
+    const tempMap = computeEntryTemperatures();
+
     let html = '';
     for (let i = startIdx; i < endIdx; i++) {
         const e = entries[i];
@@ -353,7 +382,13 @@ export function renderBrowseWindow() {
         const browseAriaLabel = `${escapeHtml(e.title)}, ${prioLabel}${statusParts.length ? ', ' + statusParts.join(', ') : ''}`;
 
         const top = i * BROWSE_ROW_HEIGHT;
-        html += `<div class="${classes.join(' ')}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;">`;
+        // Temperature indicator: tint entry based on injection frequency
+        const tempKey = trackerKey(e);
+        const temp = tempMap.get(tempKey);
+        const tempStyle = temp && temp.hue !== 'neutral' ? `--dle-temp:${temp.tempScore.toFixed(2)};--dle-temp-hue:${temp.hue};` : '';
+        const tempClass = temp && temp.hue !== 'neutral' ? ` dle-temp-${temp.hue}` : '';
+
+        html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
         html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}">`;
         html += `<span class="dle-browse-title">${escapeHtml(e.title)}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;

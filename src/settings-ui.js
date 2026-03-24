@@ -10,7 +10,7 @@ import { escapeHtml } from '../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
 import { renderExtensionTemplateAsync } from '../../../../extensions.js';
 import { buildAiChatContext } from '../core/utils.js';
-import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache } from '../settings.js';
+import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache, defaultSettings } from '../settings.js';
 import { testConnection } from './obsidian-api.js';
 import { testProxyConnection } from './proxy-api.js';
 import {
@@ -100,7 +100,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
             }
             settings.vaults[idx].name = newName;
         } else if ($(this).hasClass('dle_vault_port')) {
-            settings.vaults[idx].port = Math.max(1, Math.min(65535, Number($(this).val()) || 27123));
+            settings.vaults[idx].port = Math.max(1, Math.min(65535, numVal($(this).val(), 27123)));
         } else if ($(this).hasClass('dle_vault_key')) {
             settings.vaults[idx].apiKey = String($(this).val());
         }
@@ -125,9 +125,12 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
 
     // Test individual vault
     container.on('click', '.dle_vault_test', async function () {
-        const row = $(this).closest('.dle_vault_row');
+        const $btn = $(this);
+        if ($btn.hasClass('disabled')) return;
+        $btn.addClass('disabled');
+        const row = $btn.closest('.dle_vault_row');
         const idx = parseInt(row.data('index'), 10);
-        if (isNaN(idx) || !settings.vaults[idx]) return;
+        if (isNaN(idx) || !settings.vaults[idx]) { $btn.removeClass('disabled'); return; }
         const vault = settings.vaults[idx];
         const statusEl = row.find('.dle_vault_status');
         statusEl.text('Testing...').removeClass('success failure');
@@ -143,7 +146,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         } catch (err) {
             statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success');
             announceToSR(`Vault ${vault.name} test error: ${err.message}`);
-        }
+        } finally { $btn.removeClass('disabled'); }
     });
 
     // Remove vault (with confirmation)
@@ -291,6 +294,16 @@ function updatePopupModeVisibility($container, settings) {
     $container.find('#dle_sp_scan_depth').closest('.flex-container').toggle(!isAiOnly);
     $container.find('#dle_sp_optimize_keys_mode').closest('.flex-container').toggleClass('dle-disabled', isAiOnly);
     $container.find('#dle_sp_ai_claude_prefix').closest('.checkbox_label').toggle(aiEnabled && isProxy);
+    // Blur/overlay AI tab content when AI search is off
+    const $aiPanel = $container.find('#dle-sp-ai');
+    $container.find('#dle_sp_ai_disabled_notice').toggle(!aiEnabled);
+    $aiPanel.find('.dle-ai-content-wrap').toggleClass('dle-blurred', !aiEnabled);
+    $aiPanel.find('.dle-ai-content-wrap input, .dle-ai-content-wrap select, .dle-ai-content-wrap textarea, .dle-ai-content-wrap .menu_button').prop('disabled', !aiEnabled);
+    // Source Tracking + Decay are always available (not AI-dependent)
+    if (!aiEnabled) {
+        $container.find('#dle_sp_show_sources, #dle_sp_decay_enabled').prop('disabled', false);
+        $container.find('#dle_sp_decay_controls input').prop('disabled', !settings.decayEnabled);
+    }
 }
 
 function updatePopupInjectionModeVisibility($container, settings) {
@@ -334,6 +347,14 @@ export async function openSettingsPopup() {
         $tab.addClass('active').attr('aria-selected', 'true').attr('tabindex', '0');
         $container.find('.dle-settings-panel').removeClass('active').attr('hidden', '');
         $container.find(`[data-settings-panel="${tab}"]`).addClass('active').removeAttr('hidden');
+        localStorage.setItem('dle_last_settings_tab', tab);
+    }
+
+    // Restore last viewed tab
+    const lastTab = localStorage.getItem('dle_last_settings_tab');
+    if (lastTab) {
+        const $lastTab = $container.find(`.dle-settings-tab[data-settings-tab="${lastTab}"]`);
+        if ($lastTab.length) switchSettingsTab($lastTab);
     }
 
     $container.on('click', '.dle-settings-tab', function () { switchSettingsTab($(this)); });
@@ -357,6 +378,16 @@ export async function openSettingsPopup() {
     $container.find('.dle-settings-tab').attr('tabindex', '-1');
     $container.find('.dle-settings-tab.active').attr('tabindex', '0');
     $container.find('.dle-settings-panel').not('.active').attr('hidden', '');
+
+    // "Go to Matching tab" link in AI disabled notice
+    $container.on('click', '#dle_sp_goto_matching', function (e) {
+        e.preventDefault();
+        const $matchingTab = $container.find('[data-settings-tab="matching"]');
+        switchSettingsTab($matchingTab);
+        const $modeSelect = $container.find('#dle_sp_search_mode');
+        $modeSelect.addClass('dle-pulse');
+        setTimeout(() => $modeSelect.removeClass('dle-pulse'), 2000);
+    });
 
     // Keyboard support for all role="button" elements (Enter/Space fires click)
     $container.on('keydown', '[role="button"][tabindex="0"]', function (e) {
@@ -403,6 +434,7 @@ function loadPopupSettings($container) {
     // ── Connection ──
     $c('#dle_sp_enabled').prop('checked', settings.enabled);
     renderVaultList(settings, $c('#dle_sp_vault_list')[0]);
+    $c('#dle_sp_multi_vault_conflict').val(settings.multiVaultConflictResolution);
     $c('#dle_sp_tag').val(settings.lorebookTag);
     $c('#dle_sp_constant_tag').val(settings.constantTag);
     $c('#dle_sp_never_insert_tag').val(settings.neverInsertTag);
@@ -417,6 +449,8 @@ function loadPopupSettings($container) {
     $c('#dle_sp_scan_depth').val(settings.scanDepth);
     $c('#dle_sp_char_context_scan').prop('checked', settings.characterContextScan);
     $c('#dle_sp_fuzzy_search').prop('checked', settings.fuzzySearchEnabled);
+    $c('#dle_sp_fuzzy_min_score').val(settings.fuzzySearchMinScore);
+    $c('#dle_sp_fuzzy_min_score_row').toggle(settings.fuzzySearchEnabled);
     $c('#dle_sp_unlimited_entries').prop('checked', settings.unlimitedEntries);
     $c('#dle_sp_max_entries').val(settings.maxEntries).prop('disabled', settings.unlimitedEntries);
     $c('#dle_sp_unlimited_budget').prop('checked', settings.unlimitedBudget);
@@ -429,6 +463,8 @@ function loadPopupSettings($container) {
     $c('#dle_sp_reinjection_cooldown').val(settings.reinjectionCooldown);
     $c('#dle_sp_strip_dedup').prop('checked', settings.stripDuplicateInjections);
     $c('#dle_sp_strip_lookback').val(settings.stripLookbackDepth).prop('disabled', !settings.stripDuplicateInjections);
+    $c('#dle_sp_keyword_occurrence_weighting').prop('checked', settings.keywordOccurrenceWeighting);
+    $c('#dle_sp_contextual_gating_tolerance').val(settings.contextualGatingTolerance);
 
     // ── Injection ──
     $c(`input[name="dle_sp_injection_mode"][value="${settings.injectionMode || 'extension'}"]`).prop('checked', true);
@@ -460,6 +496,12 @@ function loadPopupSettings($container) {
     $c('#dle_sp_ai_summary_length').val(settings.aiSearchManifestSummaryLength);
     $c('#dle_sp_ai_claude_prefix').prop('checked', settings.aiSearchClaudeCodePrefix);
     $c('#dle_sp_scribe_informed_retrieval').prop('checked', settings.scribeInformedRetrieval);
+    $c('#dle_sp_ai_confidence_threshold').val(settings.aiConfidenceThreshold);
+    $c('#dle_sp_hierarchical_aggressiveness').val(settings.hierarchicalAggressiveness);
+    $c('#dle_sp_hierarchical_value').text(settings.hierarchicalAggressiveness);
+    $c('#dle_sp_manifest_summary_mode').val(settings.manifestSummaryMode);
+    $c('#dle_sp_ai_error_fallback').val(settings.aiErrorFallback);
+    $c('#dle_sp_ai_empty_fallback').val(settings.aiEmptyFallback);
     $c('#dle_sp_show_sources').prop('checked', settings.showLoreSources);
     $c('#dle_sp_decay_enabled').prop('checked', settings.decayEnabled);
     $c('#dle_sp_decay_boost_threshold').val(settings.decayBoostThreshold);
@@ -472,6 +514,11 @@ function loadPopupSettings($container) {
     $c(`input[name="dle_sp_notebook_position"][value="${settings.notebookPosition}"]`).prop('checked', true);
     $c('#dle_sp_notebook_depth').val(settings.notebookDepth);
     $c('#dle_sp_notebook_role').val(settings.notebookRole);
+    if (!settings.notebookEnabled && settings.injectionMode !== 'prompt_list') {
+        const nbControls = $c('#dle_sp_notebook_position_controls');
+        nbControls.find('input, select').prop('disabled', true);
+        nbControls.addClass('dle-dimmed');
+    }
 
     // ── Features — Scribe ──
     $c('#dle_sp_scribe_enabled').prop('checked', settings.scribeEnabled);
@@ -512,14 +559,36 @@ function loadPopupSettings($container) {
     $c('#dle_sp_autosuggest_proxy_url').val(settings.autoSuggestProxyUrl);
     $c('#dle_sp_autosuggest_model').val(settings.autoSuggestModel);
     $c('#dle_sp_autosuggest_max_tokens').val(settings.autoSuggestMaxTokens);
+    $c('#dle_sp_autosuggest_timeout').val(settings.autoSuggestTimeout);
 
     // ── System ──
     updatePopupIndexStats($container);
     $c('#dle_sp_cache_ttl').val(settings.cacheTTL);
     $c('#dle_sp_sync_interval').val(settings.syncPollingInterval);
+    $c('#dle_sp_index_rebuild_trigger').val(settings.indexRebuildTrigger);
+    $c('#dle_sp_rebuild_gen_interval').val(settings.indexRebuildGenerationInterval);
+    // Show/hide rebuild trigger descriptions
+    const showTrigger = (t) => {
+        $c('#dle_sp_rebuild_trigger_ttl_desc').toggle(t === 'ttl');
+        $c('#dle_sp_rebuild_trigger_gen_desc').toggle(t === 'generation');
+        $c('#dle_sp_rebuild_trigger_manual_desc').toggle(t === 'manual');
+        $c('#dle_sp_rebuild_gen_interval_row').toggle(t === 'generation');
+    };
+    showTrigger(settings.indexRebuildTrigger);
     $c('#dle_sp_show_sync_toasts').prop('checked', settings.showSyncToasts);
     $c('#dle_sp_review_tokens').val(settings.reviewResponseTokens);
     $c('#dle_sp_debug').prop('checked', settings.debugMode);
+
+    // Migrate renamed data-section keys (D4 consistency fix)
+    if (settings.advancedVisible) {
+        const renames = { sp_vaultTags: 'sp_vault_tags', sp_aiSearch: 'sp_ai_search' };
+        for (const [old, nw] of Object.entries(renames)) {
+            if (old in settings.advancedVisible) {
+                settings.advancedVisible[nw] = settings.advancedVisible[old];
+                delete settings.advancedVisible[old];
+            }
+        }
+    }
 
     // Restore advanced toggles
     const advVisible = settings.advancedVisible || {};
@@ -540,6 +609,12 @@ function loadPopupSettings($container) {
 // Popup: Bind Events
 // ============================================================================
 
+/** Parse a numeric input value, returning fallback only when the value is truly non-numeric (not when it's 0). */
+function numVal(raw, fallback) {
+    const n = Number(raw);
+    return Number.isNaN(n) ? fallback : n;
+}
+
 function bindPopupEvents($container) {
     const settings = getSettings();
     const $c = (sel) => $container.find(sel);
@@ -559,8 +634,12 @@ function bindPopupEvents($container) {
     });
 
     bindVaultListEvents(settings, $c('#dle_sp_vault_list'), $c('#dle_sp_add_vault'));
+    $c('#dle_sp_multi_vault_conflict').on('change', function () { settings.multiVaultConflictResolution = String($(this).val()); saveSettingsDebounced(); });
 
     $c('#dle_sp_test_connection').on('click', async function () {
+        const $btn = $(this);
+        if ($btn.prop('disabled')) return;
+        $btn.prop('disabled', true).addClass('disabled');
         const statusEl = $c('#dle_sp_connection_status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
@@ -577,6 +656,7 @@ function bindPopupEvents($container) {
             const summary = results.map(r => `${r.name}: ${r.ok ? (r.auth ? 'OK' : 'OK (no auth)') : 'FAIL'}`).join(', ');
             statusEl.text(summary).toggleClass('success', allOk).toggleClass('failure', !allOk);
         } catch (err) { statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success'); }
+        finally { $btn.prop('disabled', false).removeClass('disabled'); }
     });
 
     $c('#dle_sp_tag').on('input', function () { settings.lorebookTag = String($(this).val()).trim() || 'lorebook'; saveSettingsDebounced(); debouncedRebuild(); });
@@ -584,31 +664,34 @@ function bindPopupEvents($container) {
     $c('#dle_sp_never_insert_tag').on('input', function () { settings.neverInsertTag = String($(this).val()).trim() || 'lorebook-never'; saveSettingsDebounced(); debouncedRebuild(); });
     $c('#dle_sp_seed_tag').on('input', function () { settings.seedTag = String($(this).val()).trim() || 'lorebook-seed'; saveSettingsDebounced(); debouncedRebuild(); });
     $c('#dle_sp_bootstrap_tag').on('input', function () { settings.bootstrapTag = String($(this).val()).trim() || 'lorebook-bootstrap'; saveSettingsDebounced(); debouncedRebuild(); });
-    $c('#dle_sp_new_chat_threshold').on('input', function () { settings.newChatThreshold = Number($(this).val()) || 3; saveSettingsDebounced(); });
+    $c('#dle_sp_new_chat_threshold').on('input', function () { settings.newChatThreshold = numVal($(this).val(), 3); saveSettingsDebounced(); });
 
     // ── Matching ──
     $c('#dle_sp_search_mode').on('change', function () { const mode = $(this).val(); settings.aiSearchEnabled = mode !== 'keyword-only'; settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage'; saveSettingsDebounced(); updatePopupModeVisibility($container, settings); });
-    $c('#dle_sp_scan_depth').on('input', function () { settings.scanDepth = Number($(this).val()) || 4; saveSettingsDebounced(); });
+    $c('#dle_sp_scan_depth').on('input', function () { settings.scanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
     $c('#dle_sp_char_context_scan').on('change', function () { settings.characterContextScan = $(this).is(':checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_fuzzy_search').on('change', function () { settings.fuzzySearchEnabled = $(this).is(':checked'); saveSettingsDebounced(); buildIndexWithReuse(); });
+    $c('#dle_sp_fuzzy_search').on('change', function () { settings.fuzzySearchEnabled = $(this).is(':checked'); $c('#dle_sp_fuzzy_min_score_row').toggle(settings.fuzzySearchEnabled); saveSettingsDebounced(); buildIndexWithReuse(); });
+    $c('#dle_sp_fuzzy_min_score').on('input', function () { settings.fuzzySearchMinScore = numVal($(this).val(), 0.5); saveSettingsDebounced(); });
     $c('#dle_sp_unlimited_entries').on('change', function () { settings.unlimitedEntries = $(this).prop('checked'); $c('#dle_sp_max_entries').prop('disabled', settings.unlimitedEntries); saveSettingsDebounced(); });
-    $c('#dle_sp_max_entries').on('input', function () { settings.maxEntries = Number($(this).val()) || 10; saveSettingsDebounced(); });
+    $c('#dle_sp_max_entries').on('input', function () { settings.maxEntries = numVal($(this).val(), 10); saveSettingsDebounced(); });
     $c('#dle_sp_unlimited_budget').on('change', function () { settings.unlimitedBudget = $(this).prop('checked'); $c('#dle_sp_token_budget').prop('disabled', settings.unlimitedBudget); saveSettingsDebounced(); });
-    $c('#dle_sp_token_budget').on('input', function () { settings.maxTokensBudget = Number($(this).val()) || 2048; saveSettingsDebounced(); });
+    $c('#dle_sp_token_budget').on('input', function () { settings.maxTokensBudget = numVal($(this).val(), 2048); saveSettingsDebounced(); });
     $c('#dle_sp_optimize_keys_mode').on('change', function () { settings.optimizeKeysMode = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_case_sensitive').on('change', function () { settings.caseSensitive = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle_sp_match_whole_words').on('change', function () { settings.matchWholeWords = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle_sp_recursive_scan').on('change', function () { settings.recursiveScan = $(this).prop('checked'); $c('#dle_sp_max_recursion').prop('disabled', !settings.recursiveScan); saveSettingsDebounced(); });
-    $c('#dle_sp_max_recursion').on('input', function () { settings.maxRecursionSteps = Number($(this).val()) || 3; saveSettingsDebounced(); });
-    $c('#dle_sp_reinjection_cooldown').on('input', function () { settings.reinjectionCooldown = Number($(this).val()) || 0; saveSettingsDebounced(); });
+    $c('#dle_sp_max_recursion').on('input', function () { settings.maxRecursionSteps = numVal($(this).val(), 3); saveSettingsDebounced(); });
+    $c('#dle_sp_reinjection_cooldown').on('input', function () { settings.reinjectionCooldown = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_strip_dedup').on('change', function () { settings.stripDuplicateInjections = $(this).prop('checked'); $c('#dle_sp_strip_lookback').prop('disabled', !settings.stripDuplicateInjections); saveSettingsDebounced(); });
-    $c('#dle_sp_strip_lookback').on('input', function () { settings.stripLookbackDepth = Number($(this).val()) || 2; saveSettingsDebounced(); });
+    $c('#dle_sp_strip_lookback').on('input', function () { settings.stripLookbackDepth = numVal($(this).val(), 2); saveSettingsDebounced(); });
+    $c('#dle_sp_keyword_occurrence_weighting').on('change', function () { settings.keywordOccurrenceWeighting = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle_sp_contextual_gating_tolerance').on('change', function () { settings.contextualGatingTolerance = String($(this).val()); saveSettingsDebounced(); });
 
     // ── Injection ──
     $c('input[name="dle_sp_injection_mode"]').on('change', function () { settings.injectionMode = String($(this).val()); updatePopupInjectionModeVisibility($container, settings); saveSettingsDebounced(); });
     $c('input[name="dle_sp_position"]').on('change', function () { settings.injectionPosition = Number($(this).val()); const inChat = settings.injectionPosition === 1; $c('#dle_sp_depth, #dle_sp_role').prop('disabled', !inChat).toggleClass('dle-disabled', !inChat); saveSettingsDebounced(); });
-    $c('#dle_sp_depth').on('input', function () { settings.injectionDepth = Number($(this).val()) || 4; saveSettingsDebounced(); });
-    $c('#dle_sp_role').on('change', function () { settings.injectionRole = Number($(this).val()) || 0; saveSettingsDebounced(); });
+    $c('#dle_sp_depth').on('input', function () { settings.injectionDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
+    $c('#dle_sp_role').on('change', function () { settings.injectionRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_template').on('input', function () { settings.injectionTemplate = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_allow_wi_scan').on('change', function () { settings.allowWIScan = $(this).prop('checked'); saveSettingsDebounced(); });
 
@@ -622,20 +705,28 @@ function bindPopupEvents($container) {
     $c('#dle_sp_ai_profile_select').on('change', function () { settings.aiSearchProfileId = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_ai_proxy_url').on('input', function () { settings.aiSearchProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
     $c('#dle_sp_ai_model').on('input', function () { settings.aiSearchModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_max_tokens').on('input', function () { settings.aiSearchMaxTokens = Number($(this).val()) || 1024; saveSettingsDebounced(); });
-    $c('#dle_sp_ai_timeout').on('input', function () { settings.aiSearchTimeout = Number($(this).val()) || 10000; saveSettingsDebounced(); });
-    $c('#dle_sp_ai_scan_depth').on('input', function () { settings.aiSearchScanDepth = Number($(this).val()) || 4; saveSettingsDebounced(); });
+    $c('#dle_sp_ai_max_tokens').on('input', function () { settings.aiSearchMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_timeout').on('input', function () { settings.aiSearchTimeout = numVal($(this).val(), 10000); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_scan_depth').on('input', function () { settings.aiSearchScanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
     $c('#dle_sp_ai_system_prompt').on('input', function () { settings.aiSearchSystemPrompt = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_summary_length').on('input', function () { settings.aiSearchManifestSummaryLength = Number($(this).val()) || 600; saveSettingsDebounced(); });
+    $c('#dle_sp_ai_summary_length').on('input', function () { settings.aiSearchManifestSummaryLength = numVal($(this).val(), 600); saveSettingsDebounced(); });
     $c('#dle_sp_ai_claude_prefix').on('change', function () { settings.aiSearchClaudeCodePrefix = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle_sp_scribe_informed_retrieval').on('change', function () { settings.scribeInformedRetrieval = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_confidence_threshold').on('change', function () { settings.aiConfidenceThreshold = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle_sp_hierarchical_aggressiveness').on('input', function () { const v = parseFloat($(this).val()); settings.hierarchicalAggressiveness = v; $c('#dle_sp_hierarchical_value').text(v.toFixed(1)); saveSettingsDebounced(); });
+    $c('#dle_sp_manifest_summary_mode').on('change', function () { settings.manifestSummaryMode = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_error_fallback').on('change', function () { settings.aiErrorFallback = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_empty_fallback').on('change', function () { settings.aiEmptyFallback = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_show_sources').on('change', function () { settings.showLoreSources = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle_sp_decay_enabled').on('change', function () { settings.decayEnabled = $(this).prop('checked'); saveSettingsDebounced(); $c('#dle_sp_decay_controls').toggleClass('dle-dimmed', !settings.decayEnabled); $c('#dle_sp_decay_controls input').prop('disabled', !settings.decayEnabled); });
-    $c('#dle_sp_decay_boost_threshold').on('input', function () { settings.decayBoostThreshold = Number($(this).val()) || 5; saveSettingsDebounced(); });
-    $c('#dle_sp_decay_penalty_threshold').on('input', function () { settings.decayPenaltyThreshold = Number($(this).val()) || 2; saveSettingsDebounced(); });
+    $c('#dle_sp_decay_boost_threshold').on('input', function () { settings.decayBoostThreshold = numVal($(this).val(), 5); saveSettingsDebounced(); });
+    $c('#dle_sp_decay_penalty_threshold').on('input', function () { settings.decayPenaltyThreshold = numVal($(this).val(), 2); saveSettingsDebounced(); });
 
     // Test AI / Preview
     $c('#dle_sp_test_ai').on('click', async function () {
+        const $btn = $(this);
+        if ($btn.prop('disabled')) return;
+        $btn.prop('disabled', true).addClass('disabled');
         const statusEl = $c('#dle_sp_ai_status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
@@ -648,6 +739,7 @@ function bindPopupEvents($container) {
                 statusEl.text(data.ok ? 'Connected' : `Failed: ${data.error}`).toggleClass('success', data.ok).toggleClass('failure', !data.ok);
             }
         } catch (err) { statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success'); }
+        finally { $btn.prop('disabled', false).removeClass('disabled'); }
     });
 
     $c('#dle_sp_preview_ai').on('click', async function () {
@@ -668,10 +760,18 @@ function bindPopupEvents($container) {
     });
 
     // ── Features — Notebook ──
-    $c('#dle_sp_notebook_enabled').on('change', function () { settings.notebookEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle_sp_notebook_enabled').on('change', function () {
+        settings.notebookEnabled = $(this).prop('checked'); saveSettingsDebounced();
+        const nbControls = $c('#dle_sp_notebook_position_controls');
+        const isPromptList = settings.injectionMode === 'prompt_list';
+        if (!isPromptList) {
+            nbControls.find('input, select').prop('disabled', !settings.notebookEnabled);
+            nbControls.toggleClass('dle-dimmed', !settings.notebookEnabled);
+        }
+    });
     $c('input[name="dle_sp_notebook_position"]').on('change', function () { settings.notebookPosition = Number($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_notebook_depth').on('input', function () { settings.notebookDepth = Number($(this).val()) || 0; saveSettingsDebounced(); });
-    $c('#dle_sp_notebook_role').on('change', function () { settings.notebookRole = Number($(this).val()) || 0; saveSettingsDebounced(); });
+    $c('#dle_sp_notebook_depth').on('input', function () { settings.notebookDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
+    $c('#dle_sp_notebook_role').on('change', function () { settings.notebookRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Notebook first.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
 
     // ── Features — Scribe ──
@@ -681,16 +781,16 @@ function bindPopupEvents($container) {
         $c('#dle_sp_scribe_controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
         if (settings.scribeEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle_sp_scribe_profile_row', proxyRowSelector: '#dle_sp_scribe_proxy_row', modelInputSelector: '#dle_sp_scribe_model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle_sp_scribe_model_row'], hasStMode: true });
     });
-    $c('#dle_sp_scribe_interval').on('input', function () { settings.scribeInterval = Number($(this).val()) || 5; saveSettingsDebounced(); });
+    $c('#dle_sp_scribe_interval').on('input', function () { settings.scribeInterval = numVal($(this).val(), 5); saveSettingsDebounced(); });
     $c('#dle_sp_scribe_folder').on('input', function () { settings.scribeFolder = String($(this).val()).trim() || 'Sessions'; saveSettingsDebounced(); });
     $c('#dle_sp_scribe_prompt').on('input', function () { settings.scribePrompt = String($(this).val()); saveSettingsDebounced(); });
     $c('input[name="dle_sp_scribe_connection_mode"]').on('change', function () { settings.scribeConnectionMode = $c('input[name="dle_sp_scribe_connection_mode"]:checked').val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle_sp_scribe_profile_row', proxyRowSelector: '#dle_sp_scribe_proxy_row', modelInputSelector: '#dle_sp_scribe_model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle_sp_scribe_model_row'], hasStMode: true }); });
     $c('#dle_sp_scribe_profile_select').on('change', function () { settings.scribeProfileId = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_scribe_proxy_url').on('input', function () { settings.scribeProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
     $c('#dle_sp_scribe_model').on('input', function () { settings.scribeModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_max_tokens').on('input', function () { settings.scribeMaxTokens = Number($(this).val()) || 1024; saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_timeout').on('input', function () { settings.scribeTimeout = Number($(this).val()) || 30000; saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_scan_depth').on('input', function () { settings.scribeScanDepth = Number($(this).val()) || 20; saveSettingsDebounced(); });
+    $c('#dle_sp_scribe_max_tokens').on('input', function () { settings.scribeMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
+    $c('#dle_sp_scribe_timeout').on('input', function () { settings.scribeTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
+    $c('#dle_sp_scribe_scan_depth').on('input', function () { settings.scribeScanDepth = numVal($(this).val(), 20); saveSettingsDebounced(); });
 
     // ── Features — Auto Lorebook ──
     $c('#dle_sp_autosuggest_enabled').on('change', function () {
@@ -698,13 +798,14 @@ function bindPopupEvents($container) {
         $c('#dle_sp_autosuggest_controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
         if (settings.autoSuggestEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle_sp_autosuggest_profile_container', proxyRowSelector: '#dle_sp_autosuggest_proxy_container' });
     });
-    $c('#dle_sp_autosuggest_interval').on('input', function () { settings.autoSuggestInterval = Number($(this).val()) || 10; saveSettingsDebounced(); });
+    $c('#dle_sp_autosuggest_interval').on('input', function () { settings.autoSuggestInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
     $c('#dle_sp_autosuggest_folder').on('input', function () { settings.autoSuggestFolder = String($(this).val()).trim(); saveSettingsDebounced(); });
     $c('input[name="dle_sp_autosuggest_connection_mode"]').on('change', function () { settings.autoSuggestConnectionMode = $(this).val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle_sp_autosuggest_profile_container', proxyRowSelector: '#dle_sp_autosuggest_proxy_container' }); });
     $c('#dle_sp_autosuggest_profile').on('change', function () { settings.autoSuggestProfileId = $(this).val(); saveSettingsDebounced(); });
     $c('#dle_sp_autosuggest_proxy_url').on('input', function () { settings.autoSuggestProxyUrl = String($(this).val()).trim(); saveSettingsDebounced(); });
     $c('#dle_sp_autosuggest_model').on('input', function () { settings.autoSuggestModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_autosuggest_max_tokens').on('input', function () { settings.autoSuggestMaxTokens = Number($(this).val()) || 2048; saveSettingsDebounced(); });
+    $c('#dle_sp_autosuggest_max_tokens').on('input', function () { settings.autoSuggestMaxTokens = numVal($(this).val(), 2048); saveSettingsDebounced(); });
+    $c('#dle_sp_autosuggest_timeout').on('input', function () { settings.autoSuggestTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
 
     // Copy from AI Search buttons
     $container.on('click', '.dle-copy-ai-btn', function () {
@@ -735,11 +836,54 @@ function bindPopupEvents($container) {
     });
     $c('#dle_sp_browse_entries').on('click', () => showBrowsePopup());
     $c('#dle_sp_test_match').on('click', () => toastr.info('Use /dle-simulate in chat for a full match test.', 'DeepLore Enhanced'));
-    $c('#dle_sp_cache_ttl').on('input', function () { settings.cacheTTL = Number($(this).val()) || 300; saveSettingsDebounced(); });
-    $c('#dle_sp_sync_interval').on('input', function () { settings.syncPollingInterval = Number($(this).val()) || 0; saveSettingsDebounced(); setupSyncPolling(buildIndexWithReuse, buildIndexWithReuse); });
+    $c('#dle_sp_cache_ttl').on('input', function () { settings.cacheTTL = numVal($(this).val(), 300); saveSettingsDebounced(); });
+    $c('#dle_sp_sync_interval').on('input', function () { settings.syncPollingInterval = numVal($(this).val(), 0); saveSettingsDebounced(); setupSyncPolling(buildIndexWithReuse, buildIndexWithReuse); });
+    $c('#dle_sp_index_rebuild_trigger').on('change', function () {
+        settings.indexRebuildTrigger = String($(this).val());
+        $c('#dle_sp_rebuild_trigger_ttl_desc').toggle(settings.indexRebuildTrigger === 'ttl');
+        $c('#dle_sp_rebuild_trigger_gen_desc').toggle(settings.indexRebuildTrigger === 'generation');
+        $c('#dle_sp_rebuild_trigger_manual_desc').toggle(settings.indexRebuildTrigger === 'manual');
+        $c('#dle_sp_rebuild_gen_interval_row').toggle(settings.indexRebuildTrigger === 'generation');
+        saveSettingsDebounced();
+    });
+    $c('#dle_sp_rebuild_gen_interval').on('input', function () { settings.indexRebuildGenerationInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
     $c('#dle_sp_show_sync_toasts').on('change', function () { settings.showSyncToasts = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_review_tokens').on('input', function () { settings.reviewResponseTokens = Number($(this).val()) || 0; saveSettingsDebounced(); });
+    $c('#dle_sp_review_tokens').on('input', function () { settings.reviewResponseTokens = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_debug').on('change', function () { settings.debugMode = $(this).prop('checked'); saveSettingsDebounced(); });
+
+    // ── Reset All Settings ──
+    $c('#dle_sp_reset_defaults').on('click', async function () {
+        const confirmed = await callGenericPopup(
+            '<div style="text-align:center;"><p><strong>Reset all DeepLore Enhanced settings to defaults?</strong></p><p>This cannot be undone. Vault connection details (ports, API keys) will be preserved.</p></div>',
+            POPUP_TYPE.CONFIRM, '', { okButton: 'Reset', cancelButton: 'Cancel' },
+        );
+        if (!confirmed) return;
+
+        // Preserve vault connections
+        const savedVaults = JSON.parse(JSON.stringify(settings.vaults || []));
+        const savedPort = settings.obsidianPort;
+        const savedKey = settings.obsidianApiKey;
+
+        // Reset all settings to defaults
+        for (const [key, value] of Object.entries(defaultSettings)) {
+            settings[key] = (typeof value === 'object' && value !== null)
+                ? JSON.parse(JSON.stringify(value))
+                : value;
+        }
+
+        // Restore vault connections
+        settings.vaults = savedVaults;
+        settings.obsidianPort = savedPort;
+        settings.obsidianApiKey = savedKey;
+        settings._vaultsMigrated = true;
+
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+
+        // Reload the popup contents
+        loadPopupSettings($container);
+        toastr.success('All settings reset to defaults. Vault connections preserved.', 'DeepLore Enhanced');
+    });
 
     // Visual clamping
     const clampMap = {
@@ -752,16 +896,23 @@ function bindPopupEvents($container) {
         dle_sp_scribe_timeout: 'scribeTimeout', dle_sp_scribe_scan_depth: 'scribeScanDepth',
         dle_sp_new_chat_threshold: 'newChatThreshold', dle_sp_sync_interval: 'syncPollingInterval',
         dle_sp_reinjection_cooldown: 'reinjectionCooldown', dle_sp_strip_lookback: 'stripLookbackDepth',
-        dle_sp_autosuggest_interval: 'autoSuggestInterval', dle_sp_autosuggest_max_tokens: 'autoSuggestMaxTokens',
+        dle_sp_autosuggest_interval: 'autoSuggestInterval', dle_sp_autosuggest_max_tokens: 'autoSuggestMaxTokens', dle_sp_autosuggest_timeout: 'autoSuggestTimeout',
         dle_sp_decay_boost_threshold: 'decayBoostThreshold', dle_sp_decay_penalty_threshold: 'decayPenaltyThreshold',
+        dle_sp_fuzzy_min_score: 'fuzzySearchMinScore', dle_sp_rebuild_gen_interval: 'indexRebuildGenerationInterval',
     };
     for (const [inputId, settingName] of Object.entries(clampMap)) {
         $c(`#${inputId}`).on('blur', function () {
             const constraints = settingsConstraints[settingName];
             if (!constraints) return;
             const val = Number($(this).val());
+            if (Number.isNaN(val)) {
+                $(this).val(constraints.min);
+                settings[settingName] = constraints.min;
+                saveSettingsDebounced();
+                return;
+            }
             const clamped = Math.max(constraints.min, Math.min(constraints.max, val));
-            if (val !== clamped) { $(this).val(clamped); }
+            if (val !== clamped) { $(this).val(clamped); settings[settingName] = clamped; saveSettingsDebounced(); }
         });
     }
 }

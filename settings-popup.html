@@ -72,6 +72,18 @@
                 </div>
             </div>
 
+            <div class="flex-container" style="margin-top: 8px;">
+                <div class="flex1" title="When two vaults have entries with the same title: All keeps both, First/Last vault wins, Merge combines their keywords.">
+                    <label for="dle_sp_multi_vault_conflict"><small>Multi-Vault Conflict Resolution</small></label>
+                    <select id="dle_sp_multi_vault_conflict" class="text_pole">
+                        <option value="all">All (keep duplicates)</option>
+                        <option value="first">First vault wins</option>
+                        <option value="last">Last vault wins</option>
+                        <option value="merge">Merge (union keywords)</option>
+                    </select>
+                </div>
+            </div>
+
             <hr>
             <h4>Vault Tags</h4>
             <p class="dle_section_desc">Tags control which Obsidian notes are indexed and how they behave.</p>
@@ -93,10 +105,10 @@
                         <input id="dle_sp_never_insert_tag" type="text" class="text_pole" placeholder="lorebook-never" />
                     </div>
                 </div>
-                <div class="dle_advanced_toggle" data-section="sp_vaultTags" tabindex="0" role="button" aria-expanded="false">
+                <div class="dle_advanced_toggle" data-section="sp_vault_tags" tabindex="0" role="button" aria-expanded="false">
                     <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
                 </div>
-                <div class="dle_advanced_section" data-section="sp_vaultTags" style="display: none;">
+                <div class="dle_advanced_section" data-section="sp_vault_tags" style="display: none;">
                     <div class="flex-container">
                         <div class="flex1" title="Tag for entries whose content is sent to the AI as background context on new chats.">
                             <label for="dle_sp_seed_tag"><small>Seed Tag</small></label>
@@ -108,7 +120,7 @@
                         </div>
                     </div>
                     <div class="flex-container">
-                        <div class="flex1" title="Message count threshold for new chat features. Default: 3">
+                        <div class="flex1" title="Message count threshold for new chat features. Default: 3.">
                             <label for="dle_sp_new_chat_threshold"><small>New Chat Threshold</small></label>
                             <input id="dle_sp_new_chat_threshold" type="number" class="text_pole" min="1" max="20" />
                         </div>
@@ -145,7 +157,7 @@
 
             <div class="flex-container flexFlowColumn">
                 <div class="flex-container">
-                    <div class="flex1" title="Number of recent chat messages to scan for keyword matches. Default: 4">
+                    <div class="flex1" title="Number of recent chat messages to scan for keyword matches. Default: 4.">
                         <label for="dle_sp_scan_depth"><small>Keyword Scan Depth</small></label>
                         <input id="dle_sp_scan_depth" type="number" class="text_pole" min="0" max="100" />
                     </div>
@@ -155,10 +167,16 @@
                 <input id="dle_sp_char_context_scan" type="checkbox" class="checkbox">
                 <span>Auto-match active character</span>
             </label>
-            <label class="checkbox_label" for="dle_sp_fuzzy_search" title="Enable BM25 fuzzy text search alongside keyword matching.">
+            <label class="checkbox_label" for="dle_sp_fuzzy_search" title="Enable fuzzy text search (BM25 similarity) alongside keyword matching — finds partial and approximate keyword matches.">
                 <input id="dle_sp_fuzzy_search" type="checkbox" class="checkbox">
-                <span>Fuzzy Search (BM25)</span>
+                <span>Fuzzy Search</span>
             </label>
+            <div class="flex-container" id="dle_sp_fuzzy_min_score_row" style="margin-left: 20px;">
+                <div class="flex1" title="Minimum BM25 score for fuzzy matches to be included. Lower = more matches (more noise). Higher = stricter (fewer matches). Default: 0.5.">
+                    <label for="dle_sp_fuzzy_min_score"><small>Fuzzy Min Score</small></label>
+                    <input id="dle_sp_fuzzy_min_score" type="number" class="text_pole" min="0.1" max="2.0" step="0.1" />
+                </div>
+            </div>
             <div class="flex-container">
                 <div class="flex1">
                     <label class="checkbox_label" for="dle_sp_unlimited_entries" title="Remove the cap on how many entries can be injected per generation.">
@@ -209,14 +227,14 @@
                     <span>Recursive Scanning</span>
                 </label>
                 <div class="flex-container" style="margin-left: 20px;">
-                    <div class="flex1" title="Maximum number of recursive scan passes. Default: 3">
+                    <div class="flex1" title="Maximum number of recursive scan passes. Default: 3.">
                         <label for="dle_sp_max_recursion"><small>Max Recursion Steps</small></label>
                         <input id="dle_sp_max_recursion" type="number" class="text_pole" min="1" max="10" />
                     </div>
                 </div>
                 <div class="flex-container">
-                    <div class="flex1" title="After an entry is included, skip it for the next N messages. 0 = always include when matched.">
-                        <label for="dle_sp_reinjection_cooldown"><small>Rest period between repeats (0 = off)</small></label>
+                    <div class="flex1" title="After an entry is injected, skip it for the next N generations. 0 = always include when matched.">
+                        <label for="dle_sp_reinjection_cooldown"><small>Reinjection Cooldown (0 = off)</small></label>
                         <input id="dle_sp_reinjection_cooldown" type="number" class="text_pole" min="0" max="50" />
                     </div>
                 </div>
@@ -230,6 +248,21 @@
                     <div class="flex1" title="How many prior messages to check for recently injected entries.">
                         <label for="dle_sp_strip_lookback"><small>Messages to check</small></label>
                         <input id="dle_sp_strip_lookback" type="number" class="text_pole" min="1" max="10" />
+                    </div>
+                </div>
+                <label class="checkbox_label" for="dle_sp_keyword_occurrence_weighting" title="When enabled, entries with more keyword occurrences in the chat sort higher within the same priority tier. May increase processing time on large vaults.">
+                    <input id="dle_sp_keyword_occurrence_weighting" type="checkbox" class="checkbox">
+                    <span>Keyword Occurrence Weighting</span>
+                </label>
+                <small style="opacity: 0.6; margin-left: 20px;"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May increase processing time on large vaults — counts occurrences for every matched entry.</small>
+                <div class="flex-container">
+                    <div class="flex1" title="How to handle entries with era/location/scene requirements when no context is set. Strict: block if any dimension is missing. Moderate: block only when entry's dimension is set but doesn't match. Lenient: allow all entries when no context dimensions are set.">
+                        <label for="dle_sp_contextual_gating_tolerance"><small>Contextual Gating Tolerance</small></label>
+                        <select id="dle_sp_contextual_gating_tolerance" class="text_pole">
+                            <option value="strict">Strict (block when context missing)</option>
+                            <option value="moderate">Moderate (block only on mismatch)</option>
+                            <option value="lenient">Lenient (allow when no context set)</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -264,7 +297,7 @@
                         </label>
                         <label title="Inject lore as a message in the chat history at the specified depth.">
                             <input type="radio" name="dle_sp_position" value="1" />
-                            <span>In-chat @ Depth </span>
+                            <span>In-chat at depth</span>
                             <input id="dle_sp_depth" class="text_pole widthUnset" type="number" min="0" max="9999" />
                             <span> as </span>
                             <select id="dle_sp_role" class="text_pole widthNatural">
@@ -303,6 +336,16 @@
         <div class="dle-settings-panel" id="dle-sp-ai" data-settings-panel="ai"
              role="tabpanel" aria-labelledby="dle-sp-tab-ai" hidden>
 
+            <div id="dle_sp_ai_disabled_notice" class="dle-overlay-notice" style="display: none;">
+                <div class="dle-overlay-notice-card">
+                    <i class="fa-solid fa-brain" aria-hidden="true" style="font-size: 1.4em; opacity: 0.6;"></i>
+                    <p>AI search is currently disabled.</p>
+                    <p>Set Search Mode to <strong>Two-Stage</strong> or <strong>AI Only</strong> in the
+                    <a href="#" id="dle_sp_goto_matching" class="dle-notice-link">Matching tab</a>
+                    to configure these settings.</p>
+                </div>
+            </div>
+            <div class="dle-ai-content-wrap">
             <h4>AI Search Settings</h4>
             <p class="dle_section_desc">Configure the AI model that selects which entries to inject.</p>
 
@@ -353,27 +396,27 @@
                     </div>
                     <span id="dle_sp_ai_status" class="dle_status"></span>
                 </div>
-                <div class="dle_advanced_toggle" data-section="sp_aiSearch" tabindex="0" role="button" aria-expanded="false">
+                <div class="dle_advanced_toggle" data-section="sp_ai_search" tabindex="0" role="button" aria-expanded="false">
                     <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
                 </div>
-                <div class="dle_advanced_section" data-section="sp_aiSearch" style="display: none;">
+                <div class="dle_advanced_section" data-section="sp_ai_search" style="display: none;">
                     <div class="flex-container">
-                        <div class="flex1" title="Maximum tokens for the AI search response. Default: 1024">
+                        <div class="flex1" title="Maximum tokens for the AI search response. Default: 1024.">
                             <label for="dle_sp_ai_max_tokens"><small>Max Response Tokens</small></label>
                             <input id="dle_sp_ai_max_tokens" type="number" class="text_pole" min="64" max="4096" />
                         </div>
-                        <div class="flex1" title="Timeout in ms for the AI search request. Default: 10000">
+                        <div class="flex1" title="Timeout in ms for the AI search request. Default: 10000.">
                             <label for="dle_sp_ai_timeout"><small>Timeout (ms)</small></label>
                             <input id="dle_sp_ai_timeout" type="number" class="text_pole" min="1000" max="30000" />
                         </div>
                     </div>
                     <div class="flex-container">
-                        <div class="flex1" title="Number of recent chat messages for AI search context. Default: 4">
-                            <label for="dle_sp_ai_scan_depth"><small>AI Scan Depth</small></label>
+                        <div class="flex1" title="Number of recent chat messages included as context for the AI search. Default: 4.">
+                            <label for="dle_sp_ai_scan_depth"><small>AI Chat Context (messages)</small></label>
                             <input id="dle_sp_ai_scan_depth" type="number" class="text_pole" min="1" max="100" />
                         </div>
-                        <div class="flex1" title="Max characters for entry summaries shown to the AI when deciding which entries to include. Default: 600">
-                            <label for="dle_sp_ai_summary_length"><small>Summary length for AI</small></label>
+                        <div class="flex1" title="Max characters for each entry's summary shown to the AI when deciding which entries to include. Default: 600.">
+                            <label for="dle_sp_ai_summary_length"><small>Max Summary Length (chars)</small></label>
                             <input id="dle_sp_ai_summary_length" type="number" class="text_pole" min="100" max="1000" />
                         </div>
                     </div>
@@ -389,6 +432,59 @@
                         <input id="dle_sp_scribe_informed_retrieval" type="checkbox" class="checkbox">
                         <span>Use Session Notes as AI Context</span>
                     </label>
+                    <hr style="margin: 8px 0;">
+                    <div class="flex-container">
+                        <div class="flex1" title="Filter AI results by confidence tier. Low includes all, Medium drops low-confidence, High keeps only high-confidence entries.">
+                            <label for="dle_sp_ai_confidence_threshold"><small>AI Confidence Threshold</small></label>
+                            <select id="dle_sp_ai_confidence_threshold" class="text_pole">
+                                <option value="low">Low (include all tiers)</option>
+                                <option value="medium">Medium (medium + high only)</option>
+                                <option value="high">High (high confidence only)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex-container">
+                        <div class="flex1" title="Controls how aggressively the hierarchical pre-filter can trim categories for large vaults (40+ entries). Higher = more categories can be cut. 0 = keep all categories.">
+                            <label for="dle_sp_hierarchical_aggressiveness"><small>Hierarchical Pre-filter Aggressiveness</small></label>
+                            <input id="dle_sp_hierarchical_aggressiveness" type="range" min="0" max="0.8" step="0.1" style="width: 100%;" />
+                            <div class="flex-container" style="justify-content: space-between;">
+                                <small class="dle_muted">Conservative (keep all)</small>
+                                <small class="dle_muted" id="dle_sp_hierarchical_value">0.8</small>
+                                <small class="dle_muted">Aggressive (trim 80%)</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex-container">
+                        <div class="flex1" title="Controls how entry summaries are built in the AI manifest. Prefer Summary uses the summary field if it exists, otherwise truncates content. Summary Only skips entries without summaries. Content Only always truncates the full content.">
+                            <label for="dle_sp_manifest_summary_mode"><small>Manifest Summary Mode</small></label>
+                            <select id="dle_sp_manifest_summary_mode" class="text_pole">
+                                <option value="prefer_summary">Prefer Summary (use summary, fall back to content)</option>
+                                <option value="summary_only">Summary Only (skip entries without summaries)</option>
+                                <option value="content_only">Content Only (always truncate content)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <hr style="margin: 8px 0;">
+                    <div class="flex-container">
+                        <div class="flex1" title="What to inject when AI search encounters an error (network failure, timeout, etc).">
+                            <label for="dle_sp_ai_error_fallback"><small>AI Error Fallback</small></label>
+                            <select id="dle_sp_ai_error_fallback" class="text_pole">
+                                <option value="keyword">Keyword matching</option>
+                                <option value="constants_only">Constants only</option>
+                                <option value="bootstrap_only">Bootstrap entries only</option>
+                                <option value="none">Nothing (skip injection)</option>
+                            </select>
+                        </div>
+                        <div class="flex1" title="What to inject when AI search returns no results (AI decided nothing is relevant).">
+                            <label for="dle_sp_ai_empty_fallback"><small>AI Empty Result Fallback</small></label>
+                            <select id="dle_sp_ai_empty_fallback" class="text_pole">
+                                <option value="constants">Constants only</option>
+                                <option value="constants_bootstrap">Constants + Bootstrap</option>
+                                <option value="keyword">Keyword matching</option>
+                                <option value="none">Nothing (skip injection)</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -409,15 +505,16 @@
                 <span>Enable Entry Decay</span>
             </label>
             <div class="flex-container" id="dle_sp_decay_controls">
-                <div class="flex1" title="Generations skipped before marked stale. Default: 5">
+                <div class="flex1" title="Generations skipped before marked stale. Default: 5.">
                     <label for="dle_sp_decay_boost_threshold"><small>Mark Stale After N Skips</small></label>
                     <input id="dle_sp_decay_boost_threshold" type="number" class="text_pole" min="2" max="20" />
                 </div>
-                <div class="flex1" title="Consecutive injections before marked frequent. Default: 2">
+                <div class="flex1" title="Consecutive injections before marked frequent. Default: 2.">
                     <label for="dle_sp_decay_penalty_threshold"><small>Mark Frequent After N Injections</small></label>
                     <input id="dle_sp_decay_penalty_threshold" type="number" class="text_pole" min="2" max="10" />
                 </div>
             </div>
+            </div><!-- /.dle-ai-content-wrap -->
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -452,7 +549,7 @@
                         </label>
                         <label title="Place notebook content in the chat history at a specific depth.">
                             <input type="radio" name="dle_sp_notebook_position" value="1" />
-                            <span>In-chat @ Depth </span>
+                            <span>In-chat at depth</span>
                             <input id="dle_sp_notebook_depth" class="text_pole widthUnset" type="number" min="0" max="9999" style="width: 60px;" />
                             <span> as </span>
                             <select id="dle_sp_notebook_role" class="text_pole widthNatural">
@@ -476,7 +573,7 @@
 
             <div class="flex-container flexFlowColumn" id="dle_sp_scribe_controls">
                 <div class="flex-container">
-                    <div class="flex1" title="Write a session note every N AI messages. Default: 5">
+                    <div class="flex1" title="Write a session note every N AI messages. Default: 5.">
                         <label for="dle_sp_scribe_interval"><small>Auto-scribe Every N Messages</small></label>
                         <input id="dle_sp_scribe_interval" type="number" class="text_pole" min="1" max="50" />
                     </div>
@@ -488,7 +585,7 @@
                 <div class="dle-connection-card" id="dle_sp_scribe_connection_card">
                     <div class="dle-connection-card-header">
                         <small>Connection</small>
-                        <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="scribe" role="button" tabindex="0" title="Copy connection settings from AI Search">
+                        <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="scribe" role="button" tabindex="0" title="Copy connection settings from AI Search.">
                             <i class="fa-solid fa-copy" aria-hidden="true"></i>
                             <span>Copy from AI Search</span>
                         </div>
@@ -529,17 +626,17 @@
                     </div>
                 </div>
                 <div class="flex-container">
-                    <div class="flex1" title="Max tokens for summary response. Default: 1024">
+                    <div class="flex1" title="Max tokens for summary response. Default: 1024.">
                         <label for="dle_sp_scribe_max_tokens"><small>Max Response Tokens</small></label>
                         <input id="dle_sp_scribe_max_tokens" type="number" class="text_pole" min="256" max="4096" />
                     </div>
-                    <div class="flex1" title="Timeout in ms. Default: 30000">
+                    <div class="flex1" title="Timeout in ms. Default: 30000.">
                         <label for="dle_sp_scribe_timeout"><small>Timeout (ms)</small></label>
                         <input id="dle_sp_scribe_timeout" type="number" class="text_pole" min="5000" max="60000" />
                     </div>
                 </div>
                 <div class="flex-container">
-                    <div class="flex1" title="Messages to include as context. Default: 20">
+                    <div class="flex1" title="Messages to include as context. Default: 20.">
                         <label for="dle_sp_scribe_scan_depth"><small>Messages to Include</small></label>
                         <input id="dle_sp_scribe_scan_depth" type="number" class="text_pole" min="5" max="100" />
                     </div>
@@ -559,7 +656,7 @@
             </label>
             <div class="flex-container flexFlowColumn" id="dle_sp_autosuggest_controls">
                 <div class="flex-container">
-                    <div class="flex1" title="Trigger auto-suggest every N AI messages. Default: 10">
+                    <div class="flex1" title="Trigger auto-suggest every N AI messages. Default: 10.">
                         <label for="dle_sp_autosuggest_interval"><small>Interval (messages)</small></label>
                         <input id="dle_sp_autosuggest_interval" type="number" class="text_pole" min="3" max="50" />
                     </div>
@@ -571,15 +668,15 @@
                 <div class="dle-connection-card" id="dle_sp_autosuggest_connection_card">
                     <div class="dle-connection-card-header">
                         <small>Connection</small>
-                        <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="autosuggest" role="button" tabindex="0" title="Copy connection settings from AI Search">
+                        <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="autosuggest" role="button" tabindex="0" title="Copy connection settings from AI Search.">
                             <i class="fa-solid fa-copy" aria-hidden="true"></i>
                             <span>Copy from AI Search</span>
                         </div>
                     </div>
                     <div class="radio_group">
                         <label title="Use SillyTavern's active AI connection."><input type="radio" name="dle_sp_autosuggest_connection_mode" value="st" /> SillyTavern</label>
-                        <label title="Use a Connection Manager profile."><input type="radio" name="dle_sp_autosuggest_connection_mode" value="profile" /> Profile</label>
-                        <label title="Use a proxy server."><input type="radio" name="dle_sp_autosuggest_connection_mode" value="proxy" /> Proxy</label>
+                        <label title="Use a saved Connection Manager profile."><input type="radio" name="dle_sp_autosuggest_connection_mode" value="profile" /> Connection Profile</label>
+                        <label title="Use a separate proxy server."><input type="radio" name="dle_sp_autosuggest_connection_mode" value="proxy" /> Custom Proxy</label>
                     </div>
                     <div id="dle_sp_autosuggest_profile_container">
                         <label for="dle_sp_autosuggest_profile"><small>Connection Profile</small></label>
@@ -594,9 +691,13 @@
                             <label for="dle_sp_autosuggest_model"><small>Model</small></label>
                             <input id="dle_sp_autosuggest_model" type="text" class="text_pole" placeholder="claude-haiku-4-5-20251001" />
                         </div>
-                        <div class="flex1" title="Max tokens for auto-suggest response. Default: 2048">
+                        <div class="flex1" title="Max tokens for auto-suggest response. Default: 2048.">
                             <label for="dle_sp_autosuggest_max_tokens"><small>Max Tokens</small></label>
                             <input id="dle_sp_autosuggest_max_tokens" type="number" class="text_pole" min="256" max="4096" />
+                        </div>
+                        <div class="flex1" title="Timeout in ms for auto-suggest requests. Default: 30000.">
+                            <label for="dle_sp_autosuggest_timeout"><small>Timeout (ms)</small></label>
+                            <input id="dle_sp_autosuggest_timeout" type="number" class="text_pole" min="5000" max="60000" />
                         </div>
                     </div>
                 </div>
@@ -632,7 +733,7 @@
                 </div>
                 <div class="dle_advanced_section" data-section="sp_index" style="display: none;">
                     <div class="flex-container">
-                        <div class="flex1" title="How long (seconds) to cache the vault index. Default: 300">
+                        <div class="flex1" title="How long (seconds) to cache the vault index. Default: 300.">
                             <label for="dle_sp_cache_ttl"><small>Cache Duration (seconds)</small></label>
                             <input id="dle_sp_cache_ttl" type="number" class="text_pole" min="0" max="86400" />
                         </div>
@@ -645,6 +746,28 @@
                         <input id="dle_sp_show_sync_toasts" type="checkbox" class="checkbox">
                         <span>Show Sync Change Toasts</span>
                     </label>
+                    <hr style="margin: 8px 0;">
+                    <div class="flex-container">
+                        <div class="flex1" title="Controls when the vault index is rebuilt.">
+                            <label for="dle_sp_index_rebuild_trigger"><small>Index Rebuild Trigger</small></label>
+                            <select id="dle_sp_index_rebuild_trigger" class="text_pole">
+                                <option value="ttl">Time-based (Cache TTL)</option>
+                                <option value="generation">Generation-based</option>
+                                <option value="manual">Manual only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="dle_sp_rebuild_trigger_desc" style="margin-bottom: 4px;">
+                        <small class="dle_muted" id="dle_sp_rebuild_trigger_ttl_desc">Rebuild after a time interval (uses Cache Duration above). Best for most users.</small>
+                        <small class="dle_muted" id="dle_sp_rebuild_trigger_gen_desc" style="display: none;">Rebuild every N generations (messages sent). Use if you edit vault entries mid-chat and want changes picked up quickly.</small>
+                        <small class="dle_muted" id="dle_sp_rebuild_trigger_manual_desc" style="display: none;">Only rebuild when you use /dle-rebuild or reopen the chat. Best for stable vaults that rarely change.</small>
+                    </div>
+                    <div class="flex-container" id="dle_sp_rebuild_gen_interval_row" style="display: none;">
+                        <div class="flex1" title="Rebuild the index every N generations. Default: 10.">
+                            <label for="dle_sp_rebuild_gen_interval"><small>Rebuild Every N Generations</small></label>
+                            <input id="dle_sp_rebuild_gen_interval" type="number" class="text_pole" min="1" max="100" />
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -653,7 +776,7 @@
 
             <div class="flex-container flexFlowColumn">
                 <div class="flex-container">
-                    <div class="flex1" title="Max response tokens for /dle-review. 0 = auto. Default: 0">
+                    <div class="flex1" title="Max response tokens for /dle-review. 0 = auto. Default: 0.">
                         <label for="dle_sp_review_tokens"><small>Review Response Tokens (0 = auto)</small></label>
                         <input id="dle_sp_review_tokens" type="number" class="text_pole" min="0" max="100000" />
                     </div>
@@ -720,6 +843,15 @@
                 <code>/dle-notebook</code> — Notebook<br>
                 <code>/dle-scribe [focus]</code> — Session notes<br>
             </small>
+
+            <hr>
+            <h4>Danger Zone</h4>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 8px 0;">
+                <div id="dle_sp_reset_defaults" class="menu_button menu_button_icon dle-danger-btn" role="button" tabindex="0" title="Reset all DeepLore Enhanced settings to their defaults. Vault connections are optionally preserved.">
+                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                    <span>Reset All Settings to Defaults</span>
+                </div>
+            </div>
         </div>
 
     </div>

@@ -307,6 +307,96 @@
 }
 .dle-dimmed { opacity: 0.5; }
 
+/* --- Danger button --- */
+.dle-danger-btn {
+    border-color: var(--dle-error, #f44336) !important;
+    color: var(--dle-error, #f44336) !important;
+}
+.dle-danger-btn:hover {
+    background: color-mix(in srgb, var(--dle-error, #f44336) 15%, transparent);
+}
+
+/* --- Info notices --- */
+.dle-notice {
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    background: var(--SmartThemeQuoteColor, #2a4a6b);
+    color: var(--SmartThemeBodyColor, #eee);
+    font-size: 0.95em;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* AI disabled overlay */
+.dle-ai-content-wrap {
+    position: relative;
+}
+
+.dle-ai-content-wrap.dle-blurred {
+    filter: blur(3px);
+    opacity: 0.5;
+    pointer-events: none;
+    user-select: none;
+}
+
+.dle-overlay-notice {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 60px;
+}
+
+.dle-overlay-notice-card {
+    background: var(--SmartThemeBlurTintColor, rgba(20, 20, 35, 0.95));
+    border: 1px solid var(--SmartThemeBorderColor, #444);
+    border-radius: 8px;
+    padding: 24px 32px;
+    text-align: center;
+    max-width: 360px;
+    color: var(--SmartThemeBodyColor, #ddd);
+    font-size: 0.95em;
+    line-height: 1.5;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dle-overlay-notice-card p {
+    margin: 6px 0;
+}
+
+.dle-overlay-notice-card p:first-of-type {
+    font-size: 1.05em;
+    opacity: 0.7;
+}
+
+.dle-notice-link {
+    color: var(--SmartThemeUnderlineColor, #9c9cff);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.dle-notice-link:hover {
+    opacity: 0.8;
+}
+
+@keyframes dle-pulse-glow {
+    0%, 100% { box-shadow: none; }
+    50% { box-shadow: 0 0 8px 2px var(--SmartThemeUnderlineColor, #9c9cff); }
+}
+
+.dle-pulse {
+    animation: dle-pulse-glow 0.6s ease-in-out 3;
+}
+
 /* --- Screen reader only (global scope for popups) --- */
 .sr-only {
     position: absolute;
@@ -1524,6 +1614,7 @@ button.dle-browse-block.dle-block-active {
 
 .dle-settings-panel {
     display: none;
+    position: relative;
 }
 
 .dle-settings-panel.active {

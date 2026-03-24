@@ -143,9 +143,9 @@ export function computeEntryTemperatures() {
     const temps = new Map();
     if (!vaultIndex.length || !chatInjectionCounts.size) return temps;
 
-    // Filter out constants and gated entries from the calculation
+    // Filter out constants and entries with contextual gating from the calculation
     const eligible = vaultIndex.filter(e =>
-        !e.constant && !e.era && !e.location && !e.sceneType && !e.characterPresent,
+        !e.constant && !e.era?.length && !e.location?.length && !e.sceneType?.length && !e.characterPresent?.length,
     );
     if (!eligible.length) return temps;
 

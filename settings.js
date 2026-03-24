@@ -267,8 +267,9 @@ export function getSettings() {
         s.settingsVersion = currentVersion;
     }
 
-    // Multi-vault migration: if vaults[] was never migrated and legacy obsidianPort exists, migrate once
-    if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort) {
+    // Multi-vault migration: if vaults[] was never migrated and legacy obsidianPort+apiKey exist, migrate once.
+    // Require apiKey to avoid creating phantom vaults for brand-new users (default port 27123 is always set).
+    if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort && s.obsidianApiKey) {
         s.vaults = [{
             name: 'Primary',
             host: '127.0.0.1',

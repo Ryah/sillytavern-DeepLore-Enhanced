@@ -400,8 +400,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             .filter(r => r.entry);
     };
 
-    if (aiSearchCache.hash === chatHash && aiSearchCache.manifestHash === manifestHash && aiSearchCache.results.length > 0) {
-        // Exact match — nothing changed at all
+    if (aiSearchCache.hash === chatHash && aiSearchCache.manifestHash === manifestHash && aiSearchCache.chatLineCount > 0) {
+        // Exact match — nothing changed at all (includes cached empty results)
         aiSearchStats.cachedHits++;
         notifyAiStatsUpdated();
         if (settings.debugMode) console.debug('[DLE] AI search cache hit (exact)');
@@ -410,7 +410,6 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
 
     // Sliding window: manifest unchanged + only newest message(s) differ
     if (aiSearchCache.manifestHash === manifestHash
-        && aiSearchCache.results.length > 0
         && aiSearchCache.chatLineCount > 0
         && getChatLines().length > aiSearchCache.chatLineCount) {
         // Extract only the new lines added since last cache

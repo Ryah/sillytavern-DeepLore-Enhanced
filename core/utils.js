@@ -291,7 +291,10 @@ export function buildAiChatContext(chat, depth) {
  */
 function clampWithLog(obj, key, min, max, label) {
     const before = obj[key];
-    obj[key] = Math.max(min, Math.min(max, Math.round(obj[key])));
+    // Only round to integer if the constraint range is integer-based (min and max are both integers).
+    // Float constraints (e.g. fuzzySearchMinScore: 0.1–2.0) must preserve decimal precision.
+    const isIntegerRange = Number.isInteger(min) && Number.isInteger(max);
+    obj[key] = Math.max(min, Math.min(max, isIntegerRange ? Math.round(obj[key]) : obj[key]));
     if (before !== obj[key]) {
         console.info(`[DeepLore] ${label} clamped from ${before} to ${obj[key]} (range: ${min}-${max})`);
     }

@@ -371,11 +371,9 @@ async function onGenerate(chat, contextSize, abort, type) {
             setLastGenerationChatLength(chat.length);
             setLastGenerationInjectedKeys(thisRoundKeys);
 
-            // Persist to chat_metadata on same cadence as analytics
-            if (generationCount % 5 === 0) {
-                chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
-                saveChatDebounced();
-            }
+            // Persist to chat_metadata every generation (counts are lost on chat switch otherwise)
+            chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
+            saveChatDebounced();
         }
 
         if (groups.length > 0) {

@@ -74,7 +74,7 @@ export function renderInjectionTab() {
         for (let idx = 0; idx < srcs.length; idx++) {
             const src = srcs[idx];
             const isNew = addedTitles.has(src.title);
-            const isConstant = src.constant || (src.matchedBy && src.matchedBy.includes('Constant'));
+            const isConstant = src.constant || (src.matchedBy && src.matchedBy.toLowerCase().includes('constant'));
             const classes = ['dle-why-entry'];
             if (isNew) classes.push('dle-why-new');
             if (isConstant) classes.push('dle-why-constant');
@@ -452,7 +452,12 @@ export function renderGatingTab() {
                 $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${field}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
                 // Impact count: how many entries have this field set but DON'T match
                 const entryField = field === 'sceneType' ? 'sceneType' : field;
-                const filtered = vaultIndex.filter(e => e[entryField] && e[entryField] !== value).length;
+                const filtered = vaultIndex.filter(e => {
+                    const val = e[entryField];
+                    if (!val || (Array.isArray(val) && val.length === 0)) return false;
+                    if (Array.isArray(val)) return !val.some(v => v.toLowerCase() === value.toLowerCase());
+                    return String(val).toLowerCase() !== value.toLowerCase();
+                }).length;
                 if (filtered > 0) {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Filtering ${filtered} entries">filtering ${filtered}</span>`);
                 }

@@ -97,7 +97,7 @@ export function renderFooter() {
     // Pipeline
     const $pipe = $footer.find('[data-health="pipeline"]');
     if (lastPipelineTrace) {
-        const entryCount = lastPipelineTrace.finalEntries?.length || 0;
+        const entryCount = lastPipelineTrace.injected?.length || 0;
         const hasResults = entryCount > 0 || lastPipelineTrace.totalTokens > 0;
         if (hasResults) {
             $pipe.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');

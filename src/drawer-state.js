@@ -164,7 +164,7 @@ export function computeEntryTemperatures() {
         const ratio = count / avg;
         const consec = consecutiveInjections.get(key) || 0;
         const tempScore = Math.min(3, Math.max(0, ratio + consec * 0.15));
-        const hue = tempScore > 1.2 ? 'accent' : tempScore < 0.8 ? 'cool' : 'neutral';
+        const hue = tempScore > 1.2 ? 'hot' : tempScore < 0.8 ? 'cold' : 'neutral';
         temps.set(key, { ratio, consecutive: consec, tempScore, hue });
     }
 

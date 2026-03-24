@@ -27,6 +27,8 @@ import {
     cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
     chatInjectionCounts, setChatInjectionCounts, trackerKey,
     lastWarningRatio, decayTracker, chatEpoch,
+    lastGenerationChatLength, lastGenerationInjectedKeys,
+    setLastGenerationChatLength, setLastGenerationInjectedKeys,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
@@ -349,12 +351,26 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Stage 9: Per-chat injection counts (epoch-guarded)
+        // Stage 9: Per-chat injection counts (epoch-guarded, swipe-aware)
         if (epoch === chatEpoch) {
+            // Detect swipe: same chat length as last generation → undo previous round's counts
+            if (chat.length === lastGenerationChatLength && lastGenerationInjectedKeys.size > 0) {
+                for (const key of lastGenerationInjectedKeys) {
+                    const cur = chatInjectionCounts.get(key) || 0;
+                    if (cur > 0) chatInjectionCounts.set(key, cur - 1);
+                }
+            }
+
+            // Track this round
+            const thisRoundKeys = new Set();
             for (const entry of injectedEntries) {
                 const key = trackerKey(entry);
                 chatInjectionCounts.set(key, (chatInjectionCounts.get(key) || 0) + 1);
+                thisRoundKeys.add(key);
             }
+            setLastGenerationChatLength(chat.length);
+            setLastGenerationInjectedKeys(thisRoundKeys);
+
             // Persist to chat_metadata on same cadence as analytics
             if (generationCount % 5 === 0) {
                 chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
@@ -613,6 +629,8 @@ jQuery(async function () {
             // Hydrate per-chat injection counts from saved metadata (survives page reload)
             const savedCounts = chat_metadata?.deeplore_chat_counts;
             setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
+            setLastGenerationChatLength(-1);
+            setLastGenerationInjectedKeys(new Set());
             setGenerationCount(0);
             setLastWarningRatio(0);
             setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });

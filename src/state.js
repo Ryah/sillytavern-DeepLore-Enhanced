@@ -119,6 +119,14 @@ export function setPreviousSources(v) { previousSources = v; }
 export function setVaultAvgTokens(v) { vaultAvgTokens = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
 
+/** Swipe detection: chat length at last generation (to detect swipe = same length) */
+export let lastGenerationChatLength = -1;
+export function setLastGenerationChatLength(v) { lastGenerationChatLength = v; }
+
+/** Swipe detection: keys injected in last generation (to undo on swipe) */
+export let lastGenerationInjectedKeys = new Set();
+export function setLastGenerationInjectedKeys(v) { lastGenerationInjectedKeys = v; }
+
 /** E9: Generation count at last index rebuild (for generation-based rebuild trigger) */
 export let lastIndexGenerationCount = 0;
 export function setLastIndexGenerationCount(v) { lastIndexGenerationCount = v; }

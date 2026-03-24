@@ -16,8 +16,8 @@
     --dle-text-muted: var(--SmartThemeEmColor, #888);
 
     /* Type scale (minor third 1.2 ratio) */
-    --dle-text-xs: 0.72em;
-    --dle-text-sm: 0.85em;
+    --dle-text-xs: 0.7em;
+    --dle-text-sm: 0.82em;
     --dle-text-base: 1em;
     --dle-text-lg: 1.1em;
     --dle-text-xl: 1.25em;
@@ -28,6 +28,23 @@
     --dle-space-3: 12px;
     --dle-space-4: 16px;
     --dle-space-5: 24px;
+
+    /* Border radius scale */
+    --dle-radius-sm: 3px;
+    --dle-radius-md: 6px;
+    --dle-radius-lg: 10px;
+    --dle-radius-pill: 9999px;
+
+    /* Shadow / elevation */
+    --dle-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+    --dle-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --dle-shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.4);
+
+    /* Opacity scale */
+    --dle-opacity-muted: 0.65;
+    --dle-opacity-faint: 0.45;
+    --dle-opacity-ghost: 0.25;
+    --dle-opacity-disabled: 0.4;
 }
 
 /* --- Utility classes --- */
@@ -84,14 +101,19 @@
 /* --- Advanced toggle --- */
 .dle_settings .dle_advanced_toggle {
     cursor: pointer;
-    color: var(--dle-text-muted);
+    color: var(--dle-accent);
     font-size: 0.85em;
+    font-weight: 500;
     margin: 6px 0;
     user-select: none;
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
 }
 
 .dle_settings .dle_advanced_toggle:hover {
     color: var(--SmartThemeBodyColor, #eee);
+    text-decoration: underline;
 }
 
 .dle_settings .dle_advanced_icon {
@@ -102,7 +124,7 @@
 /* --- Vault row --- */
 .dle_settings .dle_vault_row {
     border: 1px solid var(--dle-border);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-md);
     padding: 8px;
     margin-bottom: 6px;
     transition: background 0.15s;
@@ -118,7 +140,7 @@
 
 /* --- Disabled button class (for div-based buttons) --- */
 .dle_settings .menu_button.disabled {
-    opacity: 0.4;
+    opacity: var(--dle-opacity-disabled);
     pointer-events: none;
 }
 
@@ -161,6 +183,12 @@
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
     }
+    /* Explicitly disable budget pulse and status dot animations */
+    .dle-token-bar-container.dle-budget-critical .dle-token-bar,
+    .dle-entries-bar-container.dle-budget-critical .dle-entries-bar,
+    .dle-status-dot.dle-status-active {
+        animation: none !important;
+    }
 }
 
 /* --- Section spacing between settings groups --- */
@@ -185,7 +213,7 @@
 /* --- Connection card (visual grouping for repeated connection config blocks) --- */
 .dle-connection-card {
     border: 1px solid var(--dle-border);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-md);
     padding: var(--dle-space-2) var(--dle-space-3);
     margin: var(--dle-space-2) 0;
 }
@@ -208,7 +236,7 @@
 /* --- Card container --- */
 .dle-card {
     border: 1px solid var(--dle-border);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-md);
     padding: var(--dle-space-1) var(--dle-space-2);
     margin-bottom: 4px;
 }
@@ -229,15 +257,15 @@
     overflow-y: auto;
     background: var(--dle-bg-surface);
     padding: var(--dle-space-2);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-md);
 }
 .dle-preview--short { max-height: 200px; }
 .dle-preview--tall { max-height: 400px; }
 
 /* --- Muted text variants --- */
-.dle-muted { opacity: 0.65; }
-.dle-faint { opacity: 0.45; }
-.dle-ghost { opacity: 0.25; }
+.dle-muted { opacity: var(--dle-opacity-muted); }
+.dle-faint { opacity: var(--dle-opacity-faint); }
+.dle-ghost { opacity: var(--dle-opacity-ghost); }
 
 /* --- Text size utilities --- */
 .dle-text-xs { font-size: var(--dle-text-xs); }
@@ -284,25 +312,25 @@
 /* --- Token bar --- */
 .dle-token-bar {
     background: var(--dle-border);
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
     height: 6px;
     margin: var(--dle-space-1) 0;
 }
 .dle-token-bar-fill {
     height: 100%;
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
 }
 
 /* --- Keyword highlight --- */
 .dle-highlight {
     background: rgba(255, 193, 7, 0.3);
     padding: 0 2px;
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
 }
 
 /* --- Disabled / dimmed states --- */
 .dle-disabled {
-    opacity: 0.4;
+    opacity: var(--dle-opacity-disabled);
     pointer-events: none;
 }
 .dle-dimmed { opacity: 0.5; }
@@ -320,7 +348,7 @@
 .dle-notice {
     padding: 12px 16px;
     margin-bottom: 12px;
-    border-radius: 6px;
+    border-radius: var(--dle-radius-md);
     background: var(--SmartThemeQuoteColor, #2a4a6b);
     color: var(--SmartThemeBodyColor, #eee);
     font-size: 0.95em;
@@ -358,7 +386,7 @@
 .dle-overlay-notice-card {
     background: var(--SmartThemeBlurTintColor, rgba(20, 20, 35, 0.95));
     border: 1px solid var(--SmartThemeBorderColor, #444);
-    border-radius: 8px;
+    border-radius: var(--dle-radius-md);
     padding: 24px 32px;
     text-align: center;
     max-width: 360px;
@@ -366,7 +394,7 @@
     font-size: 0.95em;
     line-height: 1.5;
     backdrop-filter: blur(4px);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--dle-shadow-lg);
 }
 
 .dle-overlay-notice-card p {
@@ -438,7 +466,7 @@
 }
 .dle_settings h4[data-zone="c"] + .dle_section_desc,
 .dle_settings h4[data-zone="d"] + .dle_section_desc {
-    opacity: 0.65;
+    opacity: var(--dle-opacity-muted);
 }
 
 /* Zone boundary separators (thicker hr between major zones) */
@@ -602,6 +630,10 @@
 }
 
 /* --- Two-zone architecture --- */
+#deeplore-drawer {
+    line-height: 1.4;
+}
+
 .dle-drawer-zone {
     padding: var(--dle-space-2);
 }
@@ -617,6 +649,10 @@
     display: flex;
     flex-direction: column;
     gap: var(--dle-space-2);
+    background: color-mix(in srgb, var(--dle-bg-surface) 30%, transparent);
+    border-left: 3px solid var(--dle-accent);
+    border-radius: var(--dle-radius-md);
+    padding: var(--dle-space-3);
 }
 
 /* Merged status + stats row */
@@ -628,13 +664,13 @@
 }
 
 .dle-pipeline-label {
-    font-size: var(--dle-text-lg);
-    font-weight: 600;
+    font-size: var(--dle-text-xl);
+    font-weight: 700;
 }
 
 .dle-stat-divider {
     color: var(--dle-text-muted);
-    opacity: 0.4;
+    opacity: var(--dle-opacity-disabled);
     font-size: var(--dle-text-xs);
 }
 
@@ -668,6 +704,7 @@
     border-radius: 50%;
     display: inline-block;
     flex-shrink: 0;
+    position: relative;
     transition: background-color var(--animation-duration-slow, 375ms) ease;
 }
 
@@ -675,6 +712,31 @@
 .dle-status-degraded { background: var(--dle-warning); }
 .dle-status-limited { background: var(--dle-warning); }
 .dle-status-offline { background: var(--dle-error); }
+
+/* Shape encoding for non-OK status (accessibility: not color-only) */
+.dle-status-degraded::after,
+.dle-status-limited::after {
+    content: '!';
+    position: absolute;
+    font-size: 7px;
+    font-weight: bold;
+    color: var(--SmartThemeBlurTintColor, #1a1a2e);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
+.dle-status-offline::after {
+    content: '\00d7';
+    position: absolute;
+    font-size: 8px;
+    font-weight: bold;
+    color: var(--SmartThemeBlurTintColor, #1a1a2e);
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    line-height: 1;
+}
 
 /* --- Zone 2: Tabs --- */
 .dle-zone-tabs {
@@ -697,6 +759,7 @@
     flex: 1;
     padding: var(--dle-space-2);
     font-size: 14px;
+    font-weight: 500;
     color: var(--dle-text-muted);
     background: none;
     border: none;
@@ -714,6 +777,7 @@
 
 .dle-tab.active {
     color: var(--SmartThemeBodyColor, #eee);
+    font-weight: 600;
     border-bottom-color: var(--dle-accent);
 }
 
@@ -721,18 +785,19 @@
 
 /* Tab count badges — small pill next to icon */
 .dle-tab-badge {
-    font-size: 9px;
-    min-width: 14px;
-    height: 14px;
-    line-height: 14px;
+    font-size: 10px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
     text-align: center;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--SmartThemeBodyColor) 15%, transparent);
-    padding: 0 3px;
-    display: none;
+    border-radius: 9999px;
+    background: color-mix(in srgb, var(--dle-accent) 30%, transparent);
+    font-weight: 600;
+    display: inline-block;
+    visibility: hidden;
 }
 .dle-tab-badge:not(:empty) {
-    display: inline-block;
+    visibility: visible;
     animation: dle-badge-pop var(--animation-duration-2x, 250ms) ease-out;
 }
 
@@ -800,7 +865,7 @@
 .dle-token-bar-container {
     position: relative;
     background: var(--dle-border);
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     height: 18px;
     margin: 0;
     overflow: hidden;
@@ -808,10 +873,25 @@
 
 .dle-token-bar-container .dle-token-bar {
     height: 100%;
-    background: var(--dle-success);
-    border-radius: 3px;
-    transition: width 300ms ease;
+    background: linear-gradient(90deg, var(--dle-success), color-mix(in srgb, var(--dle-success) 70%, white));
+    border-radius: var(--dle-radius-sm);
+    transition: width 300ms ease, background 300ms ease, box-shadow 300ms ease;
     margin: 0;
+}
+
+/* Budget urgency states */
+.dle-token-bar-container.dle-budget-high .dle-token-bar {
+    background: linear-gradient(90deg, var(--dle-warning), var(--dle-error));
+    box-shadow: 0 0 6px color-mix(in srgb, var(--dle-warning) 40%, transparent);
+}
+.dle-token-bar-container.dle-budget-critical .dle-token-bar {
+    background: var(--dle-error);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
+    animation: dle-bar-pulse 2s ease-in-out infinite;
+}
+@keyframes dle-bar-pulse {
+    0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--dle-error) 30%, transparent); }
+    50% { box-shadow: 0 0 12px color-mix(in srgb, var(--dle-error) 60%, transparent); }
 }
 
 .dle-token-bar-label {
@@ -831,7 +911,7 @@
 .dle-entries-bar-container {
     position: relative;
     background: var(--dle-border);
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     height: 14px;
     margin: 2px 0 0;
     overflow: hidden;
@@ -839,10 +919,19 @@
 
 .dle-entries-bar-container .dle-entries-bar {
     height: 100%;
-    background: var(--dle-info);
-    border-radius: 3px;
-    transition: width 300ms ease;
+    background: linear-gradient(90deg, var(--dle-info), color-mix(in srgb, var(--dle-info) 70%, white));
+    border-radius: var(--dle-radius-sm);
+    transition: width 300ms ease, background 300ms ease, box-shadow 300ms ease;
     margin: 0;
+}
+.dle-entries-bar-container.dle-budget-high .dle-entries-bar {
+    background: linear-gradient(90deg, var(--dle-warning), var(--dle-error));
+    box-shadow: 0 0 6px color-mix(in srgb, var(--dle-warning) 40%, transparent);
+}
+.dle-entries-bar-container.dle-budget-critical .dle-entries-bar {
+    background: var(--dle-error);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
+    animation: dle-bar-pulse 2s ease-in-out infinite;
 }
 
 .dle-entries-bar-label {
@@ -866,7 +955,7 @@
     gap: 4px;
     font-size: var(--dle-text-xs);
     padding: 2px 8px;
-    border-radius: 12px;
+    border-radius: var(--dle-radius-lg);
     background: color-mix(in srgb, var(--dle-accent) 20%, transparent);
     border: 1px solid color-mix(in srgb, var(--dle-accent) 40%, transparent);
     color: var(--SmartThemeBodyColor, #eee);
@@ -966,7 +1055,7 @@ button.dle-chip-x:hover {
 .dle-why-filter-btn {
     background: none;
     border: 1px solid var(--dle-border);
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     color: var(--dle-text-muted);
     cursor: pointer;
     padding: 1px 8px;
@@ -994,7 +1083,7 @@ button.dle-chip-x:hover {
     justify-content: space-between;
     align-items: center;
     padding: 3px var(--dle-space-2);
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     transition: background 120ms;
     animation: dle-entry-in 200ms ease-out both;
     animation-delay: calc(var(--i, 0) * 30ms);
@@ -1052,16 +1141,42 @@ button.dle-chip-x:hover {
     font-weight: 600;
     font-size: 10px;
     padding: 0 4px;
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
     background: color-mix(in srgb, var(--dle-info) 20%, transparent);
     color: var(--dle-info);
+}
+
+/* Match type differentiation — semantic colors by how the entry was matched */
+.dle-why-match[data-match-type="keyword"] {
+    background: color-mix(in srgb, var(--dle-success) 20%, transparent);
+    color: var(--dle-success);
+}
+.dle-why-match[data-match-type="ai"] {
+    background: color-mix(in srgb, var(--dle-accent) 25%, transparent);
+    color: var(--dle-accent);
+    border-left: 2px solid var(--dle-accent);
+    padding-left: 6px;
+}
+.dle-why-match[data-match-type="constant"] {
+    background: color-mix(in srgb, var(--dle-text-muted) 15%, transparent);
+    color: var(--dle-text-muted);
+    font-style: italic;
+}
+.dle-why-match[data-match-type="pinned"] {
+    background: color-mix(in srgb, var(--dle-info) 20%, transparent);
+    color: var(--dle-info);
+}
+.dle-why-match[data-match-type="bootstrap"],
+.dle-why-match[data-match-type="seed"] {
+    background: color-mix(in srgb, var(--dle-success) 20%, transparent);
+    color: var(--dle-success);
 }
 
 .dle-why-new-badge {
     font-weight: 600;
     font-size: 10px;
     padding: 0 4px;
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
     background: color-mix(in srgb, var(--dle-success) 20%, transparent);
     color: var(--dle-success);
 }
@@ -1071,7 +1186,7 @@ button.dle-chip-x:hover {
     font-weight: 600;
     font-size: 10px;
     padding: 0 4px;
-    border-radius: 2px;
+    border-radius: var(--dle-radius-sm);
     background: color-mix(in srgb, var(--dle-accent, #9c27b0) 20%, transparent);
     color: var(--dle-accent, #9c27b0);
     white-space: nowrap;
@@ -1085,13 +1200,13 @@ button.dle-chip-x:hover {
 
 /* --- Why Not entries (filtered out) --- */
 .dle-why-not-entry {
-    opacity: 0.6;
+    opacity: 0.75;
 }
 
 .dle-why-not-reason {
     font-size: 10px;
     color: var(--dle-warning);
-    background: color-mix(in srgb, var(--dle-warning) 12%, transparent);
+    background: color-mix(in srgb, var(--dle-warning) 20%, transparent);
 }
 
 /* --- Browse panel --- */
@@ -1122,7 +1237,7 @@ button.dle-chip-x:hover {
     justify-content: space-between;
     align-items: center;
     padding: 2px var(--dle-space-2);
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     overflow: hidden;
     height: 32px; /* must match BROWSE_ROW_HEIGHT in drawer-state.js */
     box-sizing: border-box;
@@ -1140,18 +1255,28 @@ button.dle-chip-x:hover {
     border-left: 2px solid var(--dle-success);
 }
 
-/* Entry temperature indicator — tints entries by injection frequency */
-.dle-browse-entry.dle-temp-accent {
-    background: color-mix(in srgb, var(--dle-accent) calc(var(--dle-temp, 0) * 8%), transparent);
+/* Entry temperature indicator — cell filter tint by injection frequency */
+/* HOT: red — saturation and strength scale with --dle-temp */
+.dle-browse-entry.dle-temp-hot {
+    background: color-mix(in srgb,
+        hsl(0, calc(var(--dle-temp, 0) * 30%), calc(25% + var(--dle-temp, 0) * 5%))
+        calc(var(--dle-temp, 0) * 22%), transparent);
+    border-left: 3px solid color-mix(in srgb,
+        hsl(0, calc(var(--dle-temp, 0) * 30%), 35%)
+        calc(var(--dle-temp, 0) * 55%), transparent);
 }
-.dle-browse-entry.dle-temp-accent .dle-browse-title {
-    color: color-mix(in srgb, var(--dle-accent) calc(var(--dle-temp, 0) * 30%), currentColor);
+.dle-browse-entry.dle-temp-hot .dle-browse-title {
+    color: color-mix(in srgb, #cc4444 calc(var(--dle-temp, 0) * 12%), currentColor);
 }
-.dle-browse-entry.dle-temp-cool {
-    background: color-mix(in srgb, var(--dle-info) calc(var(--dle-temp, 0) * 6%), transparent);
+/* COLD: deep indigo blue — saturation and strength scale with --dle-temp */
+.dle-browse-entry.dle-temp-cold {
+    background: color-mix(in srgb,
+        #1a2255 calc(var(--dle-temp, 0) * 25%), transparent);
+    border-left: 3px solid color-mix(in srgb,
+        #223388 calc(var(--dle-temp, 0) * 60%), transparent);
 }
-.dle-browse-entry.dle-temp-cool .dle-browse-title {
-    color: color-mix(in srgb, var(--dle-info) calc(var(--dle-temp, 0) * 20%), currentColor);
+.dle-browse-entry.dle-temp-cold .dle-browse-title {
+    color: color-mix(in srgb, #4455bb calc(var(--dle-temp, 0) * 14%), currentColor);
 }
 
 .dle-browse-info {
@@ -1163,7 +1288,7 @@ button.dle-chip-x:hover {
 
 .dle-browse-title {
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;
     line-height: 1.1;
     white-space: nowrap;
     overflow: hidden;
@@ -1174,6 +1299,7 @@ button.dle-chip-x:hover {
     font-size: 9px;
     color: var(--dle-text-muted);
     line-height: 1;
+    letter-spacing: 0.02em;
     margin-top: -1px;
     white-space: nowrap;
     overflow: hidden;
@@ -1219,8 +1345,8 @@ button.dle-chip-x:hover {
     align-items: stretch;
     z-index: 10;
     background: var(--SmartThemeBlurTintColor, #1a1a1a);
-    border-radius: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    border-radius: var(--dle-radius-md);
+    box-shadow: var(--dle-shadow-md);
     overflow: visible;
 }
 
@@ -1243,13 +1369,13 @@ button.dle-browse-block,
 button.dle-browse-why {
     font-size: 12px;
     cursor: pointer;
-    opacity: 0.65;
+    opacity: var(--dle-opacity-muted);
     background: none;
     border: none;
     color: inherit;
     padding: 6px;
-    min-width: 28px;
-    min-height: 28px;
+    min-width: 32px;
+    min-height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1258,7 +1384,9 @@ button.dle-browse-why {
 button.dle-browse-pin:hover,
 button.dle-browse-block:hover,
 button.dle-browse-why:hover {
-    opacity: 0.9;
+    opacity: 1;
+    background: var(--dle-bg-hover);
+    border-radius: var(--dle-radius-sm);
 }
 
 button.dle-browse-pin.dle-pin-active {
@@ -1346,10 +1474,24 @@ button.dle-browse-block.dle-block-active {
 .dle-timer-badge {
     font-size: 10px;
     padding: 1px 5px;
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: center;
 }
+
+/* Timer badge icons via Font Awesome */
+.dle-timer-badge::before {
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    font-size: 8px;
+    margin-right: 3px;
+}
+.dle-timer-cooldown::before { content: '\f017'; }
+.dle-timer-stale::before { content: '\f06a'; }
+.dle-timer-frequent::before { content: '\f0e7'; }
+.dle-timer-warmup::before { content: '\f2dc'; }
 
 .dle-timer-badge.dle-timer-cooldown {
     background: color-mix(in srgb, var(--SmartThemeUnderlineColor, #2196f3) 25%, transparent);
@@ -1470,28 +1612,34 @@ button.dle-browse-block.dle-block-active {
     align-items: center;
     justify-content: center;
     gap: var(--dle-space-2);
-    padding: var(--dle-space-5);
+    padding: var(--dle-space-5) var(--dle-space-4);
     color: var(--dle-text-muted);
     text-align: center;
+    background: color-mix(in srgb, var(--dle-bg-surface) 40%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--dle-border) 50%, transparent);
+    border-radius: var(--dle-radius-md);
+    margin: var(--dle-space-2) 0;
 }
 .dle-empty-state.dle-visible {
     display: flex;
 }
 
 .dle-empty-state i {
-    font-size: 24px;
-    opacity: 0.3;
+    font-size: 28px;
+    opacity: var(--dle-opacity-faint);
 }
 
 .dle-empty-state p {
     font-size: var(--dle-text-sm);
+    line-height: 1.5;
+    opacity: 0.8;
     margin: 0;
 }
 
 /* --- Pipeline activity animation --- */
 @keyframes dle-pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    50% { opacity: var(--dle-opacity-disabled); }
 }
 
 .dle-status-dot.dle-status-active {
@@ -1519,7 +1667,7 @@ button.dle-browse-block.dle-block-active {
 .dle-context-bar-track {
     position: relative;
     background: var(--dle-border);
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     height: 16px;
     overflow: hidden;
 }
@@ -1531,7 +1679,7 @@ button.dle-browse-block.dle-block-active {
     left: 0;
     width: 0;
     background: var(--SmartThemeQuoteColor, #4caf50);
-    border-radius: 3px 0 0 3px;
+    border-radius: var(--dle-radius-sm) 0 0 var(--dle-radius-sm);
     transition: width 300ms ease;
 }
 
@@ -1587,7 +1735,7 @@ button.dle-browse-block.dle-block-active {
     font-size: 12px;
     cursor: pointer;
     text-decoration: none;
-    border-radius: 3px;
+    border-radius: var(--dle-radius-sm);
     transition: filter 150ms ease, color 300ms ease;
     color: var(--dle-text-muted);
     /* Button reset (changed from <a> to <button> for keyboard accessibility) */
@@ -1716,6 +1864,18 @@ button.dle-browse-block.dle-block-active {
     display: block;
 }
 
+/* Settings section card (groups related controls visually) */
+.dle-settings-section {
+    border: 1px solid color-mix(in srgb, var(--dle-border) 60%, transparent);
+    border-radius: var(--dle-radius-md);
+    padding: var(--dle-space-3);
+    margin-bottom: var(--dle-space-3);
+    background: color-mix(in srgb, var(--dle-bg-surface) 20%, transparent);
+}
+.dle-settings-section > h4:first-child {
+    margin-top: 0;
+}
+
 /* Section spacing inside panels */
 .dle-settings-panel h4 {
     margin: 0 0 4px;
@@ -1732,6 +1892,10 @@ button.dle-browse-block.dle-block-active {
     border-top: 1px solid var(--dle-border);
 }
 
+/* Hide hr between settings sections (cards provide visual grouping) */
+.dle-settings-section + hr,
+.dle-settings-section + .dle-settings-section { /* reset margin for adjacent sections */ }
+
 .dle-settings-panel .dle_section_desc {
     font-size: 11px;
     opacity: 0.6;
@@ -1741,7 +1905,7 @@ button.dle-browse-block.dle-block-active {
 /* Connection cards inside popup */
 .dle-settings-panel .dle-connection-card {
     border: 1px solid var(--dle-border);
-    border-radius: 6px;
+    border-radius: var(--dle-radius-md);
     padding: 8px 10px;
     margin: 4px 0;
 }
@@ -1827,10 +1991,23 @@ button.dle-browse-block.dle-block-active {
     max-height: 0;
     opacity: 0;
     transition: max-height 250ms ease-out, opacity 200ms ease;
+    background: color-mix(in srgb, var(--dle-warning) 5%, transparent);
+    border-left: 3px solid color-mix(in srgb, var(--dle-warning) 40%, transparent);
+    border-radius: 0 var(--dle-radius-md) var(--dle-radius-md) 0;
+    padding: 0 var(--dle-space-2);
+    margin-top: var(--dle-space-2);
 }
 .dle-why-not-section.dle-visible {
     max-height: 2000px;
     opacity: 1;
+    padding: var(--dle-space-2);
+}
+
+.dle-why-not-header {
+    padding: var(--dle-space-1) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
 }
 
 /* Browse refresh spinner (inline, next to search input) */

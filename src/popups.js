@@ -24,6 +24,7 @@ import { callAutoSuggest } from './auto-suggest.js';
 import { extractAiResponseClient } from './ai.js';
 import { buildObsidianURI } from './cartographer.js';
 import { diagnoseEntry } from './diagnostics.js';
+import { computeEntryTemperatures } from './drawer-state.js';
 import { STAGE_COLORS } from './helpers.js';
 
 /**
@@ -134,7 +135,6 @@ export async function showNotebookPopup() {
  * Show a searchable, filterable popup of all indexed vault entries.
  */
 export async function showBrowsePopup() {
-    await ensureIndexFresh();
     if (vaultIndex.length === 0) {
         toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
         return;
@@ -233,6 +233,7 @@ export async function showBrowsePopup() {
         }
         countEl.textContent = `Showing ${filtered.length} of ${vaultIndex.length} entries`;
 
+        const tempMap = computeEntryTemperatures();
         let html = '<table class="dle-browse-table"><thead><tr>';
         html += '<th style="text-align:left;width:28%;">Title</th>';
         html += '<th style="text-align:left;width:40%;">Keywords</th>';
@@ -263,7 +264,11 @@ export async function showBrowsePopup() {
                 ? ` <a href="${escapeHtml(obsidianUri)}" target="_blank" class="dle-text-xs dle-muted">Open in Obsidian</a>`
                 : '';
 
-            html += `<tr class="dle_entry_toggle dle-browse-table-row" data-target="dle_entry_${entryId}">`;
+            const temp = tempMap.get(trackerKey(entry));
+            const tempBorder = temp && temp.hue !== 'neutral'
+                ? `border-left: 3px solid ${temp.hue === 'hot' ? '#cc4444' : '#223388'};`
+                : '';
+            html += `<tr class="dle_entry_toggle dle-browse-table-row" data-target="dle_entry_${entryId}" style="${tempBorder}">`;
             html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</td>`;
             html += `<td class="dle-browse-table-keys">${keysDisplay || '<em class="dle-muted">none</em>'}</td>`;
             html += `<td style="text-align:center;">P${entry.priority}</td>`;

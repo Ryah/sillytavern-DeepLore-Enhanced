@@ -43,6 +43,7 @@
         <div class="dle-settings-panel active" id="dle-sp-connection" data-settings-panel="connection"
              role="tabpanel" aria-labelledby="dle-sp-tab-connection">
 
+            <div class="dle-settings-section">
             <label class="checkbox_label" for="dle_sp_enabled" title="Enable or disable DeepLore Enhanced. When disabled, no entries are injected into prompts.">
                 <input id="dle_sp_enabled" type="checkbox" class="checkbox">
                 <span>Enable DeepLore Enhanced</span>
@@ -50,8 +51,9 @@
             <div style="margin: 4px 0;">
                 <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki" target="_blank" rel="noopener noreferrer" class="dle_text_sm dle_muted">Documentation Wiki &rarr;</a>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Vault Connections</h4>
             <p class="dle_section_desc">Connect to your Obsidian vaults. Each vault needs the Local REST API plugin running.</p>
 
@@ -83,8 +85,9 @@
                     </select>
                 </div>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Vault Tags</h4>
             <p class="dle_section_desc">Tags control which Obsidian notes are indexed and how they behave.</p>
 
@@ -127,6 +130,7 @@
                     </div>
                 </div>
             </div>
+            </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -135,6 +139,7 @@
         <div class="dle-settings-panel" id="dle-sp-matching" data-settings-panel="matching"
              role="tabpanel" aria-labelledby="dle-sp-tab-matching" hidden>
 
+            <div class="dle-settings-section">
             <h4>Search Mode</h4>
             <p class="dle_section_desc">Choose how entries are selected: keywords (free), two-stage (keywords + AI), or AI-only.</p>
 
@@ -150,8 +155,9 @@
                     </div>
                 </div>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Matching &amp; Budget</h4>
             <p class="dle_section_desc">Control how entries are matched and how much context they can use.</p>
 
@@ -266,8 +272,9 @@
                     </div>
                 </div>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Injection</h4>
             <p class="dle_section_desc">Control where and how matched entries are placed in the prompt.</p>
 
@@ -327,6 +334,7 @@
                         <span>Allow World Info Scan</span>
                     </label>
                 </div>
+            </div>
             </div>
         </div>
 
@@ -488,7 +496,7 @@
                 </div>
             </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Source Tracking</h4>
             <div class="flex-container flexFlowColumn">
                 <label class="checkbox_label" for="dle_sp_show_sources" title="Add a book icon to AI messages showing which vault entries were injected and why.">
@@ -497,8 +505,9 @@
                 </label>
                 <small style="opacity: 0.6;">Deep links require vault connection names to match your Obsidian vault names.</small>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Entry Decay &amp; Freshness</h4>
             <label class="checkbox_label" for="dle_sp_decay_enabled" title="Track how long since each entry was last included. Stale entries get a boost, frequent entries get a penalty.">
                 <input id="dle_sp_decay_enabled" type="checkbox" class="checkbox">
@@ -514,6 +523,7 @@
                     <input id="dle_sp_decay_penalty_threshold" type="number" class="text_pole" min="2" max="10" />
                 </div>
             </div>
+            </div>
             </div><!-- /.dle-ai-content-wrap -->
         </div>
 
@@ -523,6 +533,7 @@
         <div class="dle-settings-panel" id="dle-sp-features" data-settings-panel="features"
              role="tabpanel" aria-labelledby="dle-sp-tab-features" hidden>
 
+            <div class="dle-settings-section">
             <h4>Notebook</h4>
             <p class="dle_section_desc">A per-chat scratchpad for notes, scene direction, or writing instructions.</p>
             <div class="flex-container flexFlowColumn">
@@ -562,8 +573,9 @@
                     <small id="dle_sp_notebook_pm_note" style="display: none; opacity: 0.6;">Position is controlled by the prompt list — drag <b>deeplore_notebook</b>.</small>
                 </div>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Session Scribe</h4>
             <p class="dle_section_desc">Automatically summarize the roleplay session and write notes to your Obsidian vault.</p>
             <label class="checkbox_label" for="dle_sp_scribe_enabled" title="Generate session summaries using your chosen AI connection.">
@@ -646,8 +658,9 @@
                     <textarea id="dle_sp_scribe_prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default."></textarea>
                 </div>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Auto Lorebook</h4>
             <p class="dle_section_desc">AI analyzes chat for entities not in the lorebook and suggests new entries.</p>
             <label class="checkbox_label" for="dle_sp_autosuggest_enabled" title="Suggestions appear in a popup for review before being written to Obsidian.">
@@ -702,6 +715,7 @@
                     </div>
                 </div>
             </div>
+            </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -710,6 +724,7 @@
         <div class="dle-settings-panel" id="dle-sp-system" data-settings-panel="system"
              role="tabpanel" aria-labelledby="dle-sp-tab-system" hidden>
 
+            <div class="dle-settings-section">
             <h4>Index &amp; Cache</h4>
 
             <div class="flex-container flexFlowColumn">
@@ -770,8 +785,9 @@
                     </div>
                 </div>
             </div>
+            </div>
 
-            <hr>
+            <div class="dle-settings-section">
             <h4>Advanced</h4>
 
             <div class="flex-container flexFlowColumn">
@@ -785,6 +801,7 @@
                     <input id="dle_sp_debug" type="checkbox" class="checkbox">
                     <span>Debug Mode</span>
                 </label>
+            </div>
             </div>
 
         </div>

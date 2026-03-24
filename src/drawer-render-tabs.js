@@ -50,21 +50,10 @@ export function renderInjectionTab() {
 
     $empty.removeClass('dle-visible');
 
-    // Why? tab filter toggle (Injected / Filtered / Both)
-    let $filterToggle = $drawer.find('.dle-why-filter-toggle');
-    if (!$filterToggle.length) {
-        const toggleHtml = `<div class="dle-why-filter-toggle" role="radiogroup" aria-label="Filter entries" style="display: flex; gap: 2px; margin-bottom: var(--dle-space-2); font-size: var(--dle-text-xs);">
-            <button class="dle-why-filter-btn${ds.whyTabFilter === 'injected' ? ' active' : ''}" data-filter="injected" role="radio" aria-checked="${ds.whyTabFilter === 'injected'}">Injected</button>
-            <button class="dle-why-filter-btn${ds.whyTabFilter === 'filtered' ? ' active' : ''}" data-filter="filtered" role="radio" aria-checked="${ds.whyTabFilter === 'filtered'}">Filtered</button>
-            <button class="dle-why-filter-btn${ds.whyTabFilter === 'both' ? ' active' : ''}" data-filter="both" role="radio" aria-checked="${ds.whyTabFilter === 'both'}">Both</button>
-        </div>`;
-        $list.before(toggleHtml);
-        $filterToggle = $drawer.find('.dle-why-filter-toggle');
-    } else {
-        // Update active state
-        $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false');
-        $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true');
-    }
+    // Why? tab filter toggle — now static in drawer.html, just update active state
+    const $filterToggle = $drawer.find('.dle-why-filter-toggle');
+    $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false');
+    $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true');
 
     // Compute diff via shared data layer
     const diff = computeSourcesDiff(sources, prev);
@@ -103,10 +92,12 @@ export function renderInjectionTab() {
             }
             h += `</span>`;
             h += `<span class="dle-why-meta">`;
-            h += `<span class="dle-why-tokens" aria-label="${src.tokens || '?'} tokens">${src.tokens || '?'} tok</span>`;
+            const tokVal = src.tokens || 0;
+            const tokHue = Math.max(0, 120 - (tokVal / 5000) * 120); // 120=green, 0=red
+            h += `<span class="dle-why-tokens" style="color: hsl(${Math.round(tokHue)}, 80%, 50%)" aria-label="${tokVal} tokens">${tokVal} tok</span>`;
             const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
             if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
-            h += `<span class="dle-why-match" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
+            h += `<span class="dle-why-match" data-match-type="${matchLabel.toLowerCase()}" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
             if (isNew) h += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
             h += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(src.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button>`;
             h += `</span>`;
@@ -191,6 +182,9 @@ export function renderBrowseTab() {
 
     // Show/hide inline refresh spinner (visible when indexing with existing data)
     $refreshSpinner.toggle(!!indexing && vaultIndex.length > 0);
+
+    // Announce loading state to screen readers
+    $drawer.find('#dle-panel-browse').attr('aria-busy', indexing ? 'true' : 'false');
 
     if (!vaultIndex || vaultIndex.length === 0) {
         $list.empty();
@@ -388,7 +382,7 @@ export function renderBrowseWindow() {
         const tempStyle = temp && temp.hue !== 'neutral' ? `--dle-temp:${temp.tempScore.toFixed(2)};--dle-temp-hue:${temp.hue};` : '';
         const tempClass = temp && temp.hue !== 'neutral' ? ` dle-temp-${temp.hue}` : '';
 
-        html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
+        html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" aria-setsize="${entries.length}" aria-posinset="${i + 1}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
         html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}">`;
         html += `<span class="dle-browse-title">${escapeHtml(e.title)}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;

@@ -31,7 +31,7 @@ import {
     setLastInjectionSources, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
-    setScribeInProgress,
+    setScribeInProgress, setPreviousSources,
     notifyPipelineComplete, notifyGatingChanged,
 } from './src/state.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault.js';
@@ -612,6 +612,7 @@ jQuery(async function () {
             setAutoSuggestMessageCount(0);
             setLastPipelineTrace(null);
             setLastInjectionSources(null);
+            setPreviousSources(null);
             resetCartographer();
 
             // Reset drawer ephemeral state (browse filters, context tokens) and refresh

@@ -45,6 +45,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 |---------|------|-------------|
 | **Inclusion Groups** | M | A `group` frontmatter field where only one entry per group injects per chat. User-creatable toggles with a panel UI to select which group member is active. |
 | **Outlet / outletName Support** | M | Map entries to SillyTavern lorebook outlet names, or support named injection positions like "before char" and "after author's note". |
+| **Fuzzy Name Matching for Commands** | S | Allow `/dle-pin`, `/dle-block`, and other entry commands to fuzzy-match titles instead of requiring exact names. |
 
 ---
 
@@ -73,6 +74,15 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Entry Clustering / Smart Grouping** | M | AI-powered thematic clustering of vault entries with gap analysis. |
 | **Keyboard Shortcuts** | S | Ctrl+Shift+B/M/N/R for common drawer and pipeline actions. |
 | **Entry Versioning / History Timeline** | M | Track changes to vault entries over time with diffs. |
+| **Setup Wizard AI Connection Step** | S | Extend `/dle-setup` to also configure AI search connection (profile or proxy), not just vault connection. |
+| **`/dle-summarize` Batch UX** | M | Batch mode for generating summaries across many entries with progress tracking and abort support. |
+| **`/dle-set-characters` Browse Popup** | S | Rich browse-and-select popup for the character gating command, matching the style of `/dle-set-era`. |
+| **Simulation Scope Disclaimer** | S | Add a note to `/dle-simulate` output clarifying that results are approximate and may differ from real generations. |
+| **`/dle-review` Chat Pollution Warning** | S | Warn users that `/dle-review` injects a system message visible to the AI, which may affect subsequent generations. |
+| **`color-mix()` @supports Wrappers** | S | Wrap ~25 `color-mix()` CSS usages in `@supports` blocks for browsers that don't support it. |
+| **Health Icon Colorblind Indicators** | S | Add shape-based indicators (icons, patterns) alongside color for health status, improving accessibility for colorblind users. |
+| **Context Bar Hide for Non-OAI Backends** | S | Hide the context token bar in the drawer footer when using non-OpenAI backends where `CHAT_COMPLETION_PROMPT_READY` never fires. |
+| **Browse List Virtualization** | M | Virtual scrolling for the Browse tab entry list to handle vaults with 500+ entries without DOM bloat. |
 
 ---
 
@@ -85,6 +95,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Higher/Unlimited AI Timeout** | S | Allow AI search timeout beyond the current 30,000ms cap, or disable it entirely. Scribe and Auto-Suggest already allow up to 60,000ms. |
 | **Web Worker for Keyword Matching** | M | Offload regex matching off the main thread for vaults with 500+ entries. |
 | **Pipeline Telemetry Dashboard** | M | Timing data, performance counters, and user-facing metrics for pipeline runs. |
+| **Observer Unsubscribe Pattern** | M | Refactor state.js callback arrays to return unsubscribe functions, enabling proper cleanup if modules are ever reloaded. |
 
 ---
 
@@ -104,6 +115,6 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 ---
 
-*Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19).*
+*Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23).*
 
 *Last updated: 2026-03-23*

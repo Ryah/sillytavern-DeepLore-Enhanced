@@ -191,7 +191,7 @@ export function onIndexUpdated(callback) {
 
 /** Invoke all registered index-updated callbacks. Called by vault.js after index changes. */
 export function notifyIndexUpdated() {
-    for (const cb of indexUpdatedCallbacks) {
+    for (const cb of [...indexUpdatedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Index update callback error:', err.message); }
     }
 }
@@ -210,7 +210,7 @@ export function onAiStatsUpdated(callback) {
 
 /** Invoke all registered AI stats callbacks. Called by ai.js after stats change. */
 export function notifyAiStatsUpdated() {
-    for (const cb of aiStatsCallbacks) {
+    for (const cb of [...aiStatsCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] AI stats callback error:', err.message); }
     }
 }
@@ -229,7 +229,7 @@ export function onCircuitStateChanged(callback) {
 
 /** Invoke all registered circuit state callbacks. Called by recordAiFailure/recordAiSuccess on state transitions. */
 export function notifyCircuitStateChanged() {
-    for (const cb of circuitStateCallbacks) {
+    for (const cb of [...circuitStateCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Circuit state callback error:', err.message); }
     }
 }
@@ -247,7 +247,7 @@ export function onPipelineComplete(callback) {
 export function clearPipelineCompleteCallbacks() { pipelineCompleteCallbacks.length = 0; }
 
 export function notifyPipelineComplete() {
-    for (const cb of pipelineCompleteCallbacks) {
+    for (const cb of [...pipelineCompleteCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Pipeline complete callback error:', err.message); }
     }
 }
@@ -265,7 +265,7 @@ export function onGatingChanged(callback) {
 export function clearGatingCallbacks() { gatingChangedCallbacks.length = 0; }
 
 export function notifyGatingChanged() {
-    for (const cb of gatingChangedCallbacks) {
+    for (const cb of [...gatingChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Gating changed callback error:', err.message); }
     }
 }
@@ -283,7 +283,7 @@ export function onPinBlockChanged(callback) {
 export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.length = 0; }
 
 export function notifyPinBlockChanged() {
-    for (const cb of pinBlockChangedCallbacks) {
+    for (const cb of [...pinBlockChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Pin/block changed callback error:', err.message); }
     }
 }
@@ -301,7 +301,7 @@ export function onGenerationLockChanged(callback) {
 export function clearGenerationLockCallbacks() { generationLockCallbacks.length = 0; }
 
 function notifyGenerationLockChanged() {
-    for (const cb of generationLockCallbacks) {
+    for (const cb of [...generationLockCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Generation lock callback error:', err.message); }
     }
 }
@@ -317,7 +317,7 @@ export function onIndexingChanged(callback) {
 }
 
 function notifyIndexingChanged() {
-    for (const cb of indexingChangedCallbacks) {
+    for (const cb of [...indexingChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Indexing changed callback error:', err.message); }
     }
 }

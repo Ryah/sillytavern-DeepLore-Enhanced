@@ -305,7 +305,7 @@ export async function buildIndex() {
         const raw = String(err.message || err);
         let userMsg = raw;
         if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
-            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin enabled, (3) Port is correct. (${raw})`;
+            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin is enabled, (3) port is correct. (${raw})`;
         } else if (/No enabled vaults/i.test(raw)) {
             userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
         } else if (/401|403|auth/i.test(raw)) {

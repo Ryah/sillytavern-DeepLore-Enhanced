@@ -62,7 +62,7 @@ export function extractAiResponseClient(text) {
         if (isValidResultArray(parsed)) return parsed;
     } catch { /* noop */ }
     // Try markdown code fence
-    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const fenceMatch = text.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/);
     if (fenceMatch) {
         try {
             const parsed = JSON.parse(fenceMatch[1]);

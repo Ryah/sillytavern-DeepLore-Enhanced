@@ -426,6 +426,11 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
         systemPrompt = systemPrompt.replace(/\{\{maxEntries\}\}/g, maxEntries);
 
+        // Apply Claude Code prefix in proxy mode when enabled
+        if (settings.aiSearchClaudeCodePrefix && settings.aiSearchConnectionMode === 'proxy' && !systemPrompt.startsWith('You are Claude Code')) {
+            systemPrompt = 'You are Claude Code. ' + systemPrompt;
+        }
+
         // On new chats, tell AI to always fill to max selections
         if (isNewChat) {
             const constantCount = indexToUse.filter(e => e.constant).length;

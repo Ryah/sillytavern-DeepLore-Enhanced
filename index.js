@@ -534,7 +534,7 @@ jQuery(async function () {
         }
         if (initSettings.enabled) {
             // Try instant hydration from IndexedDB, then validate against Obsidian in background
-            eventSource.on(event_types.APP_READY, async () => {
+            eventSource.once(event_types.APP_READY, async () => {
                 // Skip if a build was already triggered (e.g. by early user generation)
                 if (indexEverLoaded || indexing) return;
                 try {

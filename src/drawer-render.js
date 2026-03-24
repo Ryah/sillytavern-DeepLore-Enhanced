@@ -330,6 +330,8 @@ export function renderBrowseTab() {
         ds.browseTagFilter = '';
     }
 
+    const settings = getSettings();
+
     // Get filters
     const query = ds.browseQuery.toLowerCase();
     const statusFilter = ds.browseStatusFilter;

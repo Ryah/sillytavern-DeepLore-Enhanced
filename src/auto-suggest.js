@@ -65,11 +65,16 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
     throw new Error(`Unknown auto-suggest connection mode: ${mode}`);
 }
 
+let autoSuggestInProgress = false;
+
 /**
  * Run auto-suggest: analyze chat for entities not in lorebook, return suggestions.
  * BUG 3 FIX: Uses aiSearchScanDepth instead of autoSuggestInterval for chat context depth.
  */
 export async function runAutoSuggest() {
+    if (autoSuggestInProgress) return [];
+    autoSuggestInProgress = true;
+    try {
     const settings = getSettings();
     await ensureIndexFresh();
 
@@ -91,6 +96,9 @@ export async function runAutoSuggest() {
         s && typeof s === 'object' && s.title &&
         !existingLower.has(s.title.toLowerCase())
     );
+    } finally {
+        autoSuggestInProgress = false;
+    }
 }
 
 /**

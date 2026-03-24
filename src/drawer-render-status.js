@@ -46,7 +46,7 @@ export function renderStatusZone() {
             const banner = `<div class="dle-setup-banner" role="alert" style="padding: var(--dle-space-2) var(--dle-space-3); background: color-mix(in srgb, var(--dle-info) 15%, transparent); border-radius: 4px; margin: var(--dle-space-2) 0; display: flex; align-items: center; gap: var(--dle-space-2); font-size: var(--dle-text-sm);">
                 <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--dle-info);"></i>
                 <span>New to DeepLore?</span>
-                <button class="dle-setup-banner-btn menu_button" style="padding: 2px 8px; font-size: var(--dle-text-xs);" title="Run the setup wizard">Run Setup</button>
+                <button class="dle-setup-banner-btn menu_button" style="padding: 4px 12px; min-height: 28px; font-size: var(--dle-text-xs);" title="Run the setup wizard">Run Setup</button>
                 <button class="dle-setup-banner-dismiss" style="margin-left: auto; background: none; border: none; cursor: pointer; opacity: 0.5; padding: 2px;" title="Dismiss" aria-label="Dismiss setup banner"><i class="fa-solid fa-xmark"></i></button>
             </div>`;
             $drawer.find('.dle-zone-status').after(banner);
@@ -89,6 +89,9 @@ export function renderStatusZone() {
     const pct = budget ? Math.min(100, Math.round((used / max) * 100)) : 0;
     const $barContainer = $drawer.find('.dle-token-bar-container');
     $barContainer.attr('aria-valuenow', used).attr('aria-valuemax', budget);
+    $barContainer.removeClass('dle-budget-high dle-budget-critical');
+    if (pct >= 95) $barContainer.addClass('dle-budget-critical');
+    else if (pct >= 80) $barContainer.addClass('dle-budget-high');
     $drawer.find('.dle-token-bar').css('width', `${pct}%`);
     const budgetLabel = budget
         ? `Lore | ${used.toLocaleString()} / ${budget.toLocaleString()}`
@@ -109,6 +112,9 @@ export function renderStatusZone() {
     const entriesPct = maxEntries ? Math.min(100, Math.round((injectedNum / maxEntries) * 100)) : 0;
     const $entriesBarContainer = $drawer.find('.dle-entries-bar-container');
     $entriesBarContainer.attr('aria-valuenow', injectedNum).attr('aria-valuemax', maxEntries);
+    $entriesBarContainer.removeClass('dle-budget-high dle-budget-critical');
+    if (entriesPct >= 95) $entriesBarContainer.addClass('dle-budget-critical');
+    else if (entriesPct >= 80) $entriesBarContainer.addClass('dle-budget-high');
     $drawer.find('.dle-entries-bar').css('width', `${entriesPct}%`);
     const entriesLabel = maxEntries
         ? `Entries | ${injectedNum} / ${maxEntries}`

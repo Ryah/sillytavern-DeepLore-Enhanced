@@ -209,8 +209,8 @@
 .dle-card {
     border: 1px solid var(--dle-border);
     border-radius: 4px;
-    padding: var(--dle-space-2);
-    margin-bottom: 6px;
+    padding: var(--dle-space-1) var(--dle-space-2);
+    margin-bottom: 4px;
 }
 
 /* --- Card header (clickable flex row) --- */
@@ -469,6 +469,51 @@
     transition: border-color 150ms ease;
 }
 
+/* --- Browse popup table --- */
+.dle-browse-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    table-layout: fixed;
+}
+.dle-browse-table thead th {
+    font-size: 11px;
+    color: var(--dle-text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--dle-border);
+    position: sticky;
+    top: 0;
+    background: var(--SmartThemeBlurTintColor, #1a1a1a);
+    z-index: 1;
+}
+.dle-browse-table-row {
+    cursor: pointer;
+    transition: background 120ms;
+}
+.dle-browse-table-row:hover {
+    background: var(--dle-bg-hover);
+}
+.dle-browse-table-row td {
+    padding: 4px 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 40%, transparent);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.dle-browse-table-keys {
+    color: var(--dle-text-muted);
+    font-size: 11px;
+}
+.dle-browse-table-detail {
+    padding: 8px 12px !important;
+    border-bottom: 1px solid var(--dle-border);
+    background: color-mix(in srgb, var(--dle-bg-hover) 50%, transparent);
+}
+
 /* Focus-visible transition */
 .dle_settings [tabindex="0"] {
     transition: outline-color 100ms ease;
@@ -582,11 +627,6 @@
     display: flex;
     align-items: center;
     gap: 3px;
-}
-
-.dle-stat-icon {
-    font-size: 10px;
-    opacity: 0.7;
 }
 
 /* Active filters (compact chips in status zone) */
@@ -1044,10 +1084,10 @@ button.dle-chip-x:hover {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 4px var(--dle-space-2);
+    padding: 2px var(--dle-space-2);
     border-radius: 3px;
     overflow: hidden;
-    height: 32px; /* must match BROWSE_ROW_HEIGHT in drawer.js */
+    height: 32px; /* must match BROWSE_ROW_HEIGHT in drawer-state.js */
     box-sizing: border-box;
 }
 
@@ -1066,20 +1106,24 @@ button.dle-chip-x:hover {
 .dle-browse-info {
     display: flex;
     flex-direction: column;
+    gap: 0;
     min-width: 0;
 }
 
 .dle-browse-title {
-    font-size: var(--dle-text-sm);
+    font-size: 11px;
     font-weight: 500;
+    line-height: 1.1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .dle-browse-keys {
-    font-size: var(--dle-text-xs);
+    font-size: 9px;
     color: var(--dle-text-muted);
+    line-height: 1;
+    margin-top: -1px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1088,7 +1132,7 @@ button.dle-chip-x:hover {
 .dle-browse-controls {
     display: flex;
     align-items: center;
-    gap: var(--dle-space-2);
+    gap: var(--dle-space-1);
     flex-shrink: 0;
 }
 
@@ -1285,7 +1329,7 @@ button.dle-browse-block.dle-block-active {
 
 /* --- Tools tab --- */
 .dle-tools-group {
-    margin-bottom: var(--dle-space-3);
+    margin-bottom: var(--dle-space-2);
 }
 
 .dle-tools-group:last-child {
@@ -1298,26 +1342,26 @@ button.dle-browse-block.dle-block-active {
     color: var(--dle-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin-bottom: var(--dle-space-1);
+    margin-bottom: 4px;
     padding-bottom: 2px;
     border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 50%, transparent);
 }
 
 .dle-tools-grid {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: var(--dle-space-1);
 }
 
 .dle-tool-btn {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     font-size: var(--dle-text-sm);
-    padding: 8px 10px;
+    padding: 6px 8px;
     justify-content: flex-start;
     white-space: nowrap;
-    min-height: 36px;
+    min-height: 32px;
 }
 
 .dle-tool-btn i {

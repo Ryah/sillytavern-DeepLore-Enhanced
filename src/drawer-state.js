@@ -50,6 +50,21 @@ export const MODE_LABELS = {
     'keywords-only': 'Keywords',
 };
 
+/** AI search mode descriptions for tooltips */
+export const MODE_DESCRIPTIONS = {
+    'two-stage': 'keywords narrow the field, then AI picks the best matches',
+    'ai-only': 'AI evaluates the full vault directly (slower, more thorough)',
+    'keywords-only': 'matching by keywords only (AI disabled)',
+};
+
+/** Status dot descriptions for tooltips */
+export const STATUS_DESCRIPTIONS = {
+    'ok': 'all vaults connected and responding',
+    'degraded': 'some vaults unreachable or slow',
+    'limited': 'running with limited functionality',
+    'offline': 'unable to reach Obsidian',
+};
+
 /** Status dot CSS classes */
 export const STATUS_CLASSES = {
     'ok': 'dle-status-ok',

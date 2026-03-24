@@ -173,7 +173,7 @@ export function registerSlashCommands() {
             // Apply contextual gating (era/location/scene/character) — matches onGenerate order
             const gatingContext = chat_metadata?.deeplore_context;
             if (gatingContext) {
-                filtered = applyContextualGating(filtered, gatingContext, settings.debugMode);
+                filtered = applyContextualGating(filtered, gatingContext, { forceInject: new Set() }, settings.debugMode, settings);
             }
 
             const cmdPins = chat_metadata.deeplore_pins || [];
@@ -1158,11 +1158,11 @@ export function registerSlashCommands() {
             html += `<p style="margin-bottom:8px;">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
         }
         html += '<div style="display:flex;flex-direction:column;gap:4px;">';
-        html += `<button class="menu_button dle-field-select dle-popup" data-value="">Clear filter</button>`;
+        html += `<button class="menu_button dle-field-select" data-value="" style="display:flex;justify-content:space-between;align-items:center;width:100%;">Clear filter</button>`;
         for (const [, { display, count }] of sorted) {
             const isActive = currentValue.toLowerCase() === display.toLowerCase();
             const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid var(--dle-success, #4caf50);padding-left:8px;' : '';
-            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="text-align:left;${activeStyle}">${escapeHtml(display)} <span class="dle-faint">(${count} ${count === 1 ? 'entry' : 'entries'})</span></button>`;
+            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="display:flex;justify-content:space-between;align-items:center;width:100%;${activeStyle}">${escapeHtml(display)}<span style="font-size:11px;opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
         }
         html += '</div></div>';
 

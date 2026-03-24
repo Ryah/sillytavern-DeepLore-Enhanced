@@ -233,18 +233,26 @@ export async function showBrowsePopup() {
         }
         countEl.textContent = `Showing ${filtered.length} of ${vaultIndex.length} entries`;
 
-        let html = '';
+        let html = '<table class="dle-browse-table"><thead><tr>';
+        html += '<th style="text-align:left;width:28%;">Title</th>';
+        html += '<th style="text-align:left;width:40%;">Keywords</th>';
+        html += '<th style="text-align:center;width:10%;">Pri</th>';
+        html += '<th style="text-align:right;width:11%;">Tokens</th>';
+        html += '<th style="text-align:right;width:11%;">Usage</th>';
+        html += '</tr></thead><tbody>';
         for (const entry of filtered) {
             const statusBadges = [];
             if (pins.has(entry.title.toLowerCase())) statusBadges.push('<span class="dle-badge dle-success">[pinned]</span>');
             if (blocks.has(entry.title.toLowerCase())) statusBadges.push('<span class="dle-badge dle-error">[blocked]</span>');
-            if (entry.constant) statusBadges.push('<span class="dle-text-xs dle-success">[constant]</span>');
+            if (entry.constant) statusBadges.push('<span class="dle-text-xs dle-success">[const]</span>');
             if (entry.seed) statusBadges.push('<span class="dle-text-xs dle-info">[seed]</span>');
-            if (entry.bootstrap) statusBadges.push('<span class="dle-text-xs dle-warning">[bootstrap]</span>');
+            if (entry.bootstrap) statusBadges.push('<span class="dle-text-xs dle-warning">[boot]</span>');
 
             const keysDisplay = entry.keys.slice(0, 5).map(k => escapeHtml(k)).join(', ') + (entry.keys.length > 5 ? '...' : '');
             const a = analytics[trackerKey(entry)];
-            const usageStr = a ? `matched: ${a.matched || 0}, injected: ${a.injected || 0}` : 'never used';
+            const matchedNum = a?.matched || 0;
+            const injectedNum = a?.injected || 0;
+            const usageStr = a ? `${matchedNum}m / ${injectedNum}i` : '—';
             const entryId = simpleHash(entry.filename);
 
             const entryVaultName = entry.vaultSource
@@ -255,13 +263,14 @@ export async function showBrowsePopup() {
                 ? ` <a href="${escapeHtml(obsidianUri)}" target="_blank" class="dle-text-xs dle-muted">Open in Obsidian</a>`
                 : '';
 
-            html += `<div class="dle-card">`;
-            html += `<div class="dle_entry_toggle dle-card-header" data-target="dle_entry_${entryId}">`;
-            html += `<span><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</span>`;
-            html += `<span class="dle-faint dle-text-sm">pri ${entry.priority} · ~${entry.tokenEstimate}tok · ${usageStr}</span>`;
-            html += `</div>`;
-            html += `<div class="dle-text-xs dle-muted">${keysDisplay || '<em>no keywords</em>'}</div>`;
-            html += `<div id="dle_entry_${entryId}" style="display: none; margin-top: var(--dle-space-2); padding-top: var(--dle-space-2); border-top: 1px solid var(--dle-border);">`;
+            html += `<tr class="dle_entry_toggle dle-browse-table-row" data-target="dle_entry_${entryId}">`;
+            html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</td>`;
+            html += `<td class="dle-browse-table-keys">${keysDisplay || '<em class="dle-muted">none</em>'}</td>`;
+            html += `<td style="text-align:center;">P${entry.priority}</td>`;
+            html += `<td style="text-align:right;">~${entry.tokenEstimate}</td>`;
+            html += `<td style="text-align:right;" title="matched / injected">${usageStr}</td>`;
+            html += `</tr>`;
+            html += `<tr id="dle_entry_${entryId}" style="display: none;"><td colspan="5" class="dle-browse-table-detail">`;
             const truncated = entry.content.length > 500 ? entry.content.substring(0, 500) + '…' : entry.content;
             html += `<div class="dle-preview">${escapeHtml(truncated)}</div>`;
             html += `<div class="dle-text-xs dle-muted" style="margin-top: var(--dle-space-1);">`;
@@ -273,12 +282,12 @@ export async function showBrowsePopup() {
             if (entry.vaultSource && (settings.vaults || []).length > 1) html += ` · Vault: ${escapeHtml(entry.vaultSource)}`;
             html += obsidianLink;
             html += `</div>`;
-            // "Why not?" diagnostic button
             if (chat && chat.length > 0 && !entry.constant) {
                 html += `<div id="dle_whynot_${entryId}" style="margin-top: var(--dle-space-1);"><button class="menu_button dle_whynot_btn dle-text-xs" data-title="${escapeHtml(entry.title)}" style="padding: 2px 8px;">Why not injected?</button></div>`;
             }
-            html += `</div></div>`;
+            html += `</td></tr>`;
         }
+        html += '</tbody></table>';
         listEl.innerHTML = html || '<p class="dle-dimmed">No entries match filters.</p>';
     }
 
@@ -288,7 +297,7 @@ export async function showBrowsePopup() {
         if (!toggle) return;
         const targetId = toggle.dataset.target;
         const targetEl = document.getElementById(targetId);
-        if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+        if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'table-row' : 'none';
     });
 
     // Event delegation for "Why not?" buttons — registered once on container, not per render

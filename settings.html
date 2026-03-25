@@ -609,11 +609,11 @@
                                 </label>
                                 <input id="dle_scribe_max_tokens" type="number" class="text_pole" min="256" max="4096" />
                             </div>
-                            <div class="flex1" title="Timeout in milliseconds for the summary request. Summaries take longer than search — 30 seconds recommended. Default: 30000">
+                            <div class="flex1" title="Timeout in milliseconds for the summary request. Summaries take longer than search — 60 seconds recommended. Increase if you see timeout errors. Default: 60000">
                                 <label for="dle_scribe_timeout">
                                     <small>Timeout (ms)</small>
                                 </label>
-                                <input id="dle_scribe_timeout" type="number" class="text_pole" min="5000" max="60000" />
+                                <input id="dle_scribe_timeout" type="number" class="text_pole" min="5000" max="120000" />
                             </div>
                         </div>
                         <div class="flex-container">

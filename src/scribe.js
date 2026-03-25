@@ -76,9 +76,8 @@ export async function runScribe(customPrompt) {
     if (scribeInProgress) return;
     setScribeInProgress(true);
 
-    // Capture epoch and chat length to detect changes during async scribe work
+    // Capture epoch to detect chat changes during async scribe work
     const epoch = chatEpoch;
-    const chatLengthAtStart = chat?.length || 0;
 
     try {
         const settings = getSettings();
@@ -163,6 +162,9 @@ export async function runScribe(customPrompt) {
         console.error('[DLE] Session Scribe error:', err);
         dedupError(`Scribe error: ${err.message}`, 'scribe');
     } finally {
-        setScribeInProgress(false);
+        // Only reset if we're still the active scribe (CHAT_CHANGED may have already reset it)
+        if (epoch === chatEpoch) {
+            setScribeInProgress(false);
+        }
     }
 }

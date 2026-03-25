@@ -34,6 +34,19 @@ BM25 (Best Matching 25) is a term-frequency/inverse-document-frequency algorithm
 
 ---
 
+## Keyword Occurrence Weighting
+
+When enabled (off by default), entries with more keyword occurrences in the scan text are weighted higher during matching. This helps distinguish between entries mentioned once in passing versus entries whose keywords appear repeatedly in the recent conversation.
+
+**Use case:** Prioritize entries whose keywords dominate the recent conversation. For example, if "magic" appears 5 times in the last 4 messages, a magic-related entry is weighted higher than one where "magic" appears once.
+
+**Notes:**
+- Experimental setting — test with your vault to see if it improves or hurts selection quality
+- Only affects keyword matching (not AI search)
+- Enable in [[Settings Reference|Matching & Budget settings]] under Show Advanced
+
+---
+
 ## Cooldown
 
 Per-entry `cooldown: N` in frontmatter. After an entry triggers, it's skipped for the next N generations before becoming eligible again.

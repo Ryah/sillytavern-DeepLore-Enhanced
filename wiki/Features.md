@@ -6,6 +6,21 @@ For the core matching pipeline, see [[Pipeline]]. For AI Search specifics, see [
 
 ---
 
+## Live Drawer Panel
+
+A persistent side panel showing real-time pipeline feedback. See [[Drawer]] for full details.
+
+| Feature | What it does |
+|---------|-------------|
+| **Why? Tab** | Shows which entries were injected and why, with generation-to-generation diff |
+| **Browse Tab** | Searchable, filterable entry list with temperature heatmap, pin/block controls, and virtual scroll |
+| **Gating Tab** | View and edit contextual gating filters (era, location, scene, characters) with live impact counts |
+| **Tools Tab** | Quick-access buttons for all slash commands |
+| **Status Zone** | Connection status, token/entry budget bars, active gating filters, quick actions |
+| **Footer** | Context window bar, health indicators, AI session statistics |
+
+---
+
 ## Inspection & Diagnostics
 
 Tools for understanding what DLE is doing and why. See [[Inspection and Diagnostics]] for full details.

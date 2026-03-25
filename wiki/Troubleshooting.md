@@ -68,6 +68,22 @@ Common issues and how to fix them. Run `/dle-health` first — it catches most p
 - **Fix:** Reduce `aiSearchManifestSummaryLength` to send less text per entry
 - **Fix:** Check `/dle-status` for cache hit rate — high cache hits mean fewer API calls
 
+### "AI Search Throttled"
+- AI calls are rate-limited to a minimum of 2 seconds between requests. If you're regenerating rapidly, the AI call is skipped and keywords are used instead.
+- **Not a bug.** The throttle prevents request flooding and protects your API budget.
+- The throttle does not count as a failure — it won't trip the AI circuit breaker.
+
+### AI circuit breaker tripped
+- After 2 consecutive AI failures (timeouts, errors), the circuit breaker trips and AI search is disabled for 30 seconds.
+- During this period, the pipeline falls back to keyword-only matching.
+- After 30 seconds, a single "half-open" probe is allowed. If it succeeds, the circuit breaker resets and AI search resumes normally.
+- **Fix:** Check your connection profile or proxy URL. Run `/dle-status` to see circuit breaker state.
+
+### Per-vault circuit breaker
+- In multi-vault setups, each vault (identified by host:port) has its own independent circuit breaker with exponential backoff (2s → 4s → 8s → 15s max).
+- One vault being unreachable does not block the others — entries from healthy vaults are still indexed.
+- **Fix:** Check that the Obsidian REST API plugin is running on the affected vault's port.
+
 ## Lore Not Injecting
 
 ### Extension enabled but nothing happens
@@ -110,7 +126,7 @@ Common issues and how to fix them. Run `/dle-health` first — it catches most p
 ### Extension freezes SillyTavern
 - This can happen if the generation lock gets stuck
 - **Quick fix:** Run `/dle-refresh` in chat to reset the lock
-- If chat input is frozen, refresh the page — the lock auto-recovers after 120 seconds
+- If chat input is frozen, refresh the page — the lock auto-recovers after 90 seconds
 
 ### Conflicts with other extensions
 - DeepLore uses `setExtensionPrompt()` for injection, which is standard ST API

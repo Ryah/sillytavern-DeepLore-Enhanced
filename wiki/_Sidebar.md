@@ -8,6 +8,7 @@
 
 **Reference**
 - [[Features]]
+  - [[Drawer]]
   - [[Inspection and Diagnostics]]
   - [[AI-Powered Tools]]
   - [[Entry Matching and Behavior]]

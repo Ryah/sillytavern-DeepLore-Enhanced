@@ -26,6 +26,9 @@ import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normali
 let _lastAiCallTimestamp = 0;
 const AI_CALL_MIN_INTERVAL_MS = 2000;
 
+/** Reset AI call throttle — call on chat change to avoid cross-chat penalty. */
+export function resetAiThrottle() { _lastAiCallTimestamp = 0; }
+
 /**
  * Get the model name from the selected Connection Manager profile.
  * @returns {string} Model name or empty string

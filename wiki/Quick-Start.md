@@ -53,7 +53,7 @@ The key parts:
 1. Start or continue a chat
 2. Send a message mentioning "magic" or "spellcasting"
 3. Type `/dle-inspect` in chat — you should see your entry in the pipeline trace
-4. Click the **Map** button in settings to see what was injected
+4. Click the **book icon** on the AI message to see which entries were injected (Context Cartographer)
 
 ## What's Next?
 

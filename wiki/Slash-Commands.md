@@ -29,10 +29,14 @@ Show connection info, entry counts, AI search stats, and cache status in a popup
 
 ---
 
-### `/dle-context`
+### `/dle-why` (alias: `/dle-context`)
 Run the full pipeline without generating a message and show what would be injected right now.
 
 **When to use:** Preview which entries would match the current chat state. Runs keyword matching, AI search (if enabled), gating, and budget filtering — the full pipeline — and displays the results in a Context Cartographer popup.
+
+**Notes:**
+- If AI search is enabled, this command will make a real API call and use tokens. A confirmation dialog is shown first.
+- `/dle-context` is a backwards-compatible alias.
 
 ---
 
@@ -258,7 +262,7 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-help` | Quick reference of all commands |
 | `/dle-refresh` | Force re-index vault |
 | `/dle-status` | Show connection and index status |
-| `/dle-context` | Preview what would be injected now |
+| `/dle-why` (`/dle-context`) | Preview what would be injected now |
 | `/dle-browse` | Browse all indexed entries |
 | `/dle-notebook` | Open Author's Notebook editor |
 | `/dle-review [question]` | Send vault to AI for review |

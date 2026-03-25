@@ -76,11 +76,13 @@ Pin entries to always inject or block entries from injecting, on a per-chat basi
 - Blocked entries are removed from the pipeline before injection, regardless of matches
 - Pins/blocks apply after the main pipeline runs but before formatting
 
+**UI access:** The [[Drawer]] Browse tab has inline pin/block buttons on each entry — no slash commands needed. Per-chat injection counts are displayed as badges on each entry.
+
 ---
 
 ## Contextual Gating
 
-Filter entries based on the current story context using frontmatter fields: `era`, `location`, `scene_type`, and `character_present`. Set the active context with slash commands, and entries that don't match the current context are filtered out.
+Filter entries based on the current story context using frontmatter fields: `era`, `location`, `scene_type`, and `character_present`. Set the active context with slash commands or the [[Drawer]] Gating tab, and entries that don't match the current context are filtered out.
 
 **Frontmatter fields:**
 | Field | Type | Description |

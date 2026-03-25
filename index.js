@@ -14,6 +14,7 @@ import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { promptManager } from '../../../openai.js';
 import { formatAndGroup } from './core/matching.js';
+import { simpleHash } from './core/utils.js';
 import {
     buildExemptionPolicy, applyPinBlock, applyContextualGating,
     applyReinjectionCooldown, applyRequiresExcludesGating,
@@ -27,8 +28,8 @@ import {
     cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
     chatInjectionCounts, setChatInjectionCounts, trackerKey,
     lastWarningRatio, decayTracker, chatEpoch,
-    lastGenerationChatLength, lastGenerationInjectedKeys,
-    setLastGenerationChatLength, setLastGenerationInjectedKeys,
+    lastGenerationChatHash, lastGenerationInjectedKeys,
+    setLastGenerationChatHash, setLastGenerationInjectedKeys,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch,
@@ -37,6 +38,7 @@ import {
     notifyPipelineComplete, notifyGatingChanged,
 } from './src/state.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault.js';
+import { resetAiThrottle } from './src/ai.js';
 import { runPipeline } from './src/pipeline.js';
 import { setupSyncPolling } from './src/sync.js';
 import { runScribe } from './src/scribe.js';
@@ -353,8 +355,10 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // Stage 9: Per-chat injection counts (epoch-guarded, swipe-aware)
         if (epoch === chatEpoch) {
-            // Detect swipe: same chat length as last generation → undo previous round's counts
-            if (chat.length === lastGenerationChatLength && lastGenerationInjectedKeys.size > 0) {
+            // Detect swipe/regen: hash last message — same hash means content unchanged (swipe, not edit)
+            const lastMsg = chat.length > 0 ? (chat[chat.length - 1]?.mes || '') : '';
+            const chatHash = simpleHash(lastMsg + '|' + chat.length);
+            if (chatHash === lastGenerationChatHash && lastGenerationInjectedKeys.size > 0) {
                 for (const key of lastGenerationInjectedKeys) {
                     const cur = chatInjectionCounts.get(key) || 0;
                     if (cur > 0) chatInjectionCounts.set(key, cur - 1);
@@ -368,7 +372,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 chatInjectionCounts.set(key, (chatInjectionCounts.get(key) || 0) + 1);
                 thisRoundKeys.add(key);
             }
-            setLastGenerationChatLength(chat.length);
+            setLastGenerationChatHash(chatHash);
             setLastGenerationInjectedKeys(thisRoundKeys);
 
             // Persist to chat_metadata every generation (counts are lost on chat switch otherwise)
@@ -632,6 +636,7 @@ jQuery(async function () {
             setGenerationCount(0);
             setLastWarningRatio(0);
             setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
+            resetAiThrottle();
             setAutoSuggestMessageCount(0);
             setLastPipelineTrace(null);
             setLastInjectionSources(null);

@@ -19,6 +19,8 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **API Key** | (none) | Bearer token from Obsidian's Local REST API settings. |
 | **Enabled** | On | Toggle this vault on/off without deleting the connection. |
 
+| **Multi-Vault Conflict Resolution** | `all` | Dropdown | How to handle entries with the same title across vaults. `all`: keep all (disambiguated by vault source). `first`: keep the first vault's version. `last`: keep the last vault's version. `merge`: merge content from all vaults. |
+
 **Add Vault** button adds a new vault connection. **Test All** button verifies all enabled vault connections.
 
 ## Vault Tags
@@ -47,16 +49,19 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **Match Whole Words** | Off | Toggle | When on, keywords use word boundaries (`war` won't match `warning`). |
 | **Active Character Boost** | Off | Toggle | Auto-match the active character's vault entry by name or keyword, even if not mentioned in chat. See [[Features#Active Character Boost]]. |
 | **Fuzzy Search (BM25)** | Off | Toggle | Supplement keyword matching with BM25/TF-IDF scoring. Helps find entries with partial or approximate keyword matches. Built during index build. |
+| **Fuzzy Min Score** | `0.5` | 0.1-2.0 | (Shown when Fuzzy Search is on.) Minimum BM25 score for a fuzzy match to count. Lower = more permissive, higher = stricter. |
 | **Recursive Scanning** | Off | Toggle | After initial matches, scan matched entries' content for keywords that trigger more entries. |
 | **Max Recursion Steps** | `3` | 1-10 | Maximum recursive scan passes. Each pass scans newly matched entries for more triggers. |
 | **Re-injection Cooldown** | `0` | 0-50 | Skip re-injecting an entry for N generations after last injection. 0 = disabled. Constants are exempt. |
 | **Optimize Keys Mode** | `keyword-only` | Dropdown | Controls keyword optimization strategy. `keyword-only` uses only the entry's defined keys; `two-stage` uses keys plus content analysis for better matching. |
-| **Strip Duplicate Injections** | Off | Toggle | Skip re-injecting entries that were already injected in recent generations. Tracked per-chat. Constants are exempt. |
+| **Strip Duplicate Injections** | On | Toggle | Skip re-injecting entries that were already injected in recent generations. Tracked per-chat. Constants are exempt. |
 | **Lookback Depth** | `2` | 1-10 | Number of previous generations to check for already-injected entries (when Strip Duplicate Injections is on). Higher = more aggressive deduplication. |
 | **Unlimited Entries** | Off | Toggle | Remove the cap on how many entries can be injected per generation. |
 | **Max Entries** | `10` | 1-100 | Maximum entries to inject (when Unlimited Entries is off). Sorted by priority. |
 | **Unlimited Token Budget** | Off | Toggle | Remove the token budget cap. A warning toast appears if injected lore exceeds 20% of context. |
 | **Token Budget** | `3072` | 100-100000 | Maximum total tokens to inject (when Unlimited Token Budget is off). Entries added in priority order until budget is reached. |
+| **Keyword Occurrence Weighting** | Off | Toggle | When on, entries with more keyword occurrences in the scan text are weighted higher during matching. Experimental. |
+| **Contextual Gating Tolerance** | `strict` | Dropdown | How strictly contextual gating filters entries. `strict`: entry must match all set filters exactly. `moderate`: partial matches allowed. `lenient`: only blocks on direct conflicts. |
 
 ## Injection
 
@@ -109,6 +114,11 @@ Visible when Search Mode is Two-Stage or AI Only.
 | **System Prompt Override** | (none) | Text | Custom system prompt for AI selection. Leave empty for default. Supports `{{maxEntries}}` placeholder. |
 | **Prepend "You are Claude Code"** | On | Toggle | (Proxy mode only, under Show Advanced) Prepend `You are Claude Code.` to the AI system prompt. Disable if using a non-Claude model via proxy. |
 | **Use Session Notes as AI Context** | Off | Toggle | Feed the Session Scribe's latest summary into the AI search context for better entry selection. See [[Features#Use Session Notes as AI Context]]. |
+| **AI Confidence Threshold** | `low` | Dropdown | Minimum confidence level for AI selections. `low`: accept all (high+medium+low). `medium`: accept medium and high only. `high`: accept high confidence only. |
+| **Hierarchical Pre-filter Aggressiveness** | `0.8` | 0.0-0.8 | How aggressively the hierarchical category pre-filter culls entries. 0.0 = keep all categories. 0.8 = aggressive filtering. The safety valve kicks in when filtering would remove more than this fraction of entries. |
+| **Manifest Summary Mode** | `prefer_summary` | Dropdown | How entry descriptions are built for the AI manifest. `prefer_summary`: use `summary` field if present, fall back to truncated content. `summary_only`: only include entries with summaries. `content_only`: always use truncated content, ignore summaries. |
+| **AI Error Fallback** | `keyword` | Dropdown | What happens when the AI returns an error or times out. `keyword`: fall back to keyword-matched results. `constants_only`: inject only constants. `bootstrap_only`: inject constants and bootstrap entries. `none`: inject nothing. |
+| **AI Empty Result Fallback** | `constants` | Dropdown | What happens when the AI intentionally returns `[]`. `constants`: inject only constants. `constants_bootstrap`: inject constants and bootstrap entries. `keyword`: fall back to keyword results. `none`: inject nothing. |
 
 **Test AI Search** button tests the AI connection. **Preview AI Prompt** button shows the full prompt that would be sent.
 
@@ -146,6 +156,7 @@ Session Scribe and Auto Lorebook are grouped under one collapsible drawer in set
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy server URL. Only shown in Proxy mode. |
 | **Model** | (none) | Text | Model override for suggestions. |
 | **Max Tokens** | `2048` | 256-4096 | Maximum tokens for the suggestion response. |
+| **Timeout (ms)** | `30000` | 5000-60000 | Request timeout for auto-suggest generation. |
 
 Use `/dle-newlore` to trigger on-demand at any time.
 
@@ -164,10 +175,12 @@ Use `/dle-newlore` to trigger on-demand at any time.
 | **Cache Duration (seconds)** | `300` | 0-86400 | How long to cache the vault index before re-fetching. 0 = always fetch fresh (slower). |
 | **Auto-Sync Interval** | `0` | 0-3600 | Seconds between automatic vault re-checks. 0 = disabled. See [[Features#Vault Change Detection & Auto-Sync]]. |
 | **Show Sync Change Toasts** | On | Toggle | Show toast notifications when vault changes are detected during index refresh. |
+| **Index Rebuild Trigger** | `ttl` | Dropdown | When to rebuild the vault index. `ttl`: rebuild when cache duration expires (default). `generation`: rebuild every N generations. `manual`: only rebuild on explicit refresh. |
+| **Rebuild Every N Generations** | `10` | 1-100 | (Shown when trigger is `generation`.) How many generations between automatic index rebuilds. |
 
 **Refresh Index** button clears the cache and re-fetches all entries. **Test Match** button simulates a generation to show which entries would match.
 
-> **Show Advanced toggles:** Several sections have "Show Advanced" toggles that reveal power-user settings. These toggles persist across sessions. Settings behind advanced toggles include: seed/bootstrap tags, case sensitivity, whole word matching, fuzzy search (BM25), recursive scanning, re-injection cooldown, optimize keys mode, deduplication, injection template, WI scan, AI manifest summary length, system prompt override, Claude Code prefix, cache TTL, sync interval, and sync toasts.
+> **Show Advanced toggles:** Several sections have "Show Advanced" toggles that reveal power-user settings. These toggles persist across sessions. Settings behind advanced toggles include: seed/bootstrap tags, case sensitivity, whole word matching, fuzzy search (BM25), fuzzy min score, recursive scanning, re-injection cooldown, optimize keys mode, deduplication, keyword occurrence weighting, contextual gating tolerance, injection template, WI scan, AI confidence threshold, hierarchical aggressiveness, manifest summary mode, AI error/empty fallbacks, system prompt override, Claude Code prefix, cache TTL, sync interval, sync toasts, index rebuild trigger, and rebuild generation interval.
 
 ## Advanced
 
@@ -180,7 +193,8 @@ Use `/dle-newlore` to trigger on-demand at any time.
 
 These features work automatically with no configuration:
 
-- **Circuit Breaker:** Obsidian connection uses a circuit breaker pattern (closed/open/half-open) with exponential backoff (2s-15s). Prevents hammering a down server. Resets automatically when a call succeeds.
+- **Obsidian Circuit Breaker:** Obsidian connection uses a per-vault circuit breaker (closed/open/half-open) with exponential backoff (2s-15s). Keyed by `host:port` — each vault has independent failure tracking. Prevents hammering a down server. Resets automatically when a call succeeds.
+- **AI Circuit Breaker:** AI search has its own circuit breaker (2 consecutive failures to trip, 30s cooldown). Prevents repeated full-timeout waits when the AI service is down. The AI throttle (2s minimum between calls) does NOT trip the circuit breaker.
 - **IndexedDB Persistent Cache:** Parsed vault index is saved to IndexedDB after every successful build. On page load, hydrates instantly from cache, then validates in background. No settings to configure.
 - **Reuse Sync:** Auto-sync fetches all file contents but skips re-parsing/tokenizing unchanged entries (detected by content hash). Falls back to full rebuild automatically.
 - **Hierarchical Manifest Clustering:** For vaults with 40+ entries and 4+ categories, automatically uses two-call AI approach for better scaling.

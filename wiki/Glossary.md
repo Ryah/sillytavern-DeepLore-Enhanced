@@ -99,10 +99,24 @@ An AI feature that analyzes the chat and suggests new lorebook entries to create
 **Context Cartographer**
 A UI feature that shows which entries were injected into each AI response. Appears as a "Lore Sources" button on chat messages. See [[Features#Context Cartographer]].
 
+## UI
+
+**Drawer**
+A persistent side panel showing live pipeline feedback during chat. Displays which entries were injected, why they matched, token usage, and vault statistics in real-time. Contains four tabs: Why?, Browse, Gating, and Tools. See [[Drawer]].
+
+**Temperature Heatmap**
+Color-coded visual indicator in the Browse tab showing entry injection frequency relative to the vault average. Hot entries (red tint) are injected more often than average; cold entries (blue tint) are injected less often or never.
+
+**Virtual Scroll**
+A rendering optimization in the Browse tab that only displays visible rows in a long list, enabling smooth handling of vaults with 100+ entries.
+
+**Overlay Mode**
+A responsive layout mode where the Drawer converts to a dismissible overlay on narrow screens (when chat width exceeds 60% of the viewport).
+
 ## Infrastructure
 
 **Circuit Breaker**
-An automatic protection that stops making requests to an Obsidian vault after repeated failures, preventing request floods. Auto-recovers after a backoff period.
+An automatic protection that stops making requests to a service after repeated failures, preventing request floods. DLE uses two circuit breakers: one per Obsidian vault (keyed by host:port, 2s-15s exponential backoff) and one for the AI service (2 failures to trip, 30s cooldown).
 
 **IndexedDB Cache**
 Browser-side persistent storage used to cache the vault index. Enables instant page load without waiting for Obsidian — the index is hydrated from cache, then validated in the background.
@@ -115,6 +129,18 @@ Time-to-live for the vault index cache, in seconds. After this period, the index
 
 **Chat Epoch**
 An internal counter that increments on every chat switch. Prevents stale data from one chat from being written to another.
+
+**Generation Lock**
+An exclusive lock acquired before each pipeline run, preventing concurrent pipelines from executing. Has a 90-second stale timeout for auto-recovery if a pipeline crashes.
+
+**Epoch Guard**
+A race condition prevention mechanism using two epoch counters (`chatEpoch` and `generationLockEpoch`). If either epoch changes mid-pipeline, the pipeline discards its results — they belong to a stale context.
+
+**AI Throttle**
+A rate limiter enforcing a 2-second minimum delay between consecutive AI search API calls. Prevents request flooding during rapid regenerations. Throttled calls fall back to keyword results without tripping the circuit breaker.
+
+**Sliding Window Cache**
+A caching strategy for AI search results. Reuses cached results when the vault manifest is unchanged and new chat messages don't mention any vault entity names or keys. Regenerations and swipes always reuse cached results.
 
 ## Entry Metadata
 

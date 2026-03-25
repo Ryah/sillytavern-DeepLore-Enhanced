@@ -85,7 +85,7 @@ Start with **scan depth 4** and **budget 3000**, then adjust based on `/dle-insp
 When you're ready for smarter matching:
 
 1. Go to **Search Mode** → select **Two-Stage**
-2. In the **AI Search Settings** drawer, pick a connection mode:
+2. In the **AI Search** section of settings, pick a connection mode:
    - **Profile**: Uses a SillyTavern Connection Manager profile (recommended)
    - **Proxy**: Routes through a CORS proxy (for advanced setups)
 3. Select or create a connection profile with a fast, cheap model (Claude Haiku, GPT-4o-mini, etc.)
@@ -110,7 +110,7 @@ Aim for grade **A** or **A+**.
 Three tools help you see what's happening:
 
 1. **`/dle-inspect`** — Shows the last pipeline trace: what matched, why, and what was injected
-2. **Context Cartographer** (Map button) — Shows sources from the last generation with token counts
+2. **Context Cartographer** (book icon on AI messages) — Shows sources from the last generation with token counts
 3. **`/dle-simulate`** — Replays the entire chat showing which entries activate at each message
 
 ## Common Early Mistakes

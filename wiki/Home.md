@@ -28,7 +28,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 ## Prerequisites
 
-- [SillyTavern](https://github.com/SillyTavern/SillyTavern) 1.12.0+
+- [SillyTavern](https://github.com/SillyTavern/SillyTavern) 1.12.6+
 - [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin
 - For AI search: a saved Connection Manager profile in SillyTavern (any provider), or [claude-code-proxy](https://github.com/horselock/claude-code-proxy) with `enableCorsProxy: true`
 
@@ -43,6 +43,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 | [[Features]] | Linked catalog of all features |
 | | |
 | **Feature Detail Pages** | |
+| [[Drawer]] | Live side panel: Why? tab, Browse tab, Gating tab, Tools, temperature heatmap |
 | [[Inspection and Diagnostics]] | Context Cartographer, "Why Not?" diagnostics, health checks, simulation |
 | [[AI-Powered Tools]] | Session Scribe, Auto Lorebook, Optimize Keys, Auto-Summary |
 | [[Entry Matching and Behavior]] | Cooldown, warmup, gating, fuzzy search, decay, cascade links |

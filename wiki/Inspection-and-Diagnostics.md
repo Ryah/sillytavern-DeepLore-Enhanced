@@ -51,17 +51,21 @@ See [[Slash Commands]] for the `/dle-inspect` command reference.
 
 ## Entry Browser
 
-Browse all indexed entries in a searchable, filterable popup with `/dle-browse` or the "Browse" button in the Quick Actions bar.
+Browse all indexed entries via the **Browse tab** in the [[Drawer]] panel, `/dle-browse` popup, or the "Browse" button in the Quick Actions bar.
 
 **Features:**
-- Search by title or keyword
-- Filter by status (all, constants, seeds, bootstrap)
-- Filter by tag
-- Sort by title, priority, or token size
-- Expandable detail view for each entry showing content preview, keywords, and metadata
-- "Why not injected?" button on unmatched entries (see below)
+- Search by title or keyword (300ms debounce)
+- Filter by status: all, injected, pinned, blocked, constant, seed, bootstrap, never injected
+- Filter by tag (dynamic dropdown from vault tags)
+- Sort by priority (asc/desc), alphabetical (A-Z/Z-A), token count (asc/desc), or injection count (desc)
+- Temperature heatmap coloring — entries tinted hot (red) or cold (blue) based on injection frequency relative to vault average
+- Per-chat injection count badges (e.g., "3x")
+- Expandable detail view with content preview, keywords, metadata, and Obsidian deep link
+- Inline pin/block buttons per entry (per-chat overrides)
+- Virtual scrolling for large vaults (100+ entries)
+- "Why not injected?" diagnostics on unmatched entries (see below)
 
-**When to use:** Quickly review your vault without switching to Obsidian. Good for checking keywords, priorities, and token sizes at a glance.
+**When to use:** Quickly review your vault without switching to Obsidian. Good for checking keywords, priorities, token sizes, and injection patterns at a glance. The [[Drawer]] Browse tab provides the same functionality inline while chatting.
 
 ---
 

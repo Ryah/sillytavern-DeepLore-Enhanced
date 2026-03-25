@@ -88,6 +88,35 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 ---
 
+## Graph Visualization (`/dle-graph`)
+
+| Feature | Size | Description |
+|---------|------|-------------|
+| **Live Pipeline Trace Overlay** | M | During generation, graph nodes light up in real-time showing pipeline stages: keyword-matched = green, AI-selected = bright, budget-cut = red, gated = gray. Hover any node for full diagnosis. The missing link between `/dle-inspect` and real-time understanding. |
+| **Live Generation Sync** | M | If graph popup is open during generation, animate which entries are being considered/selected/rejected. After generation, state persists for inspection. |
+| **Generation Timeline Scrubber** | L | Slider at bottom scrubs through chat history generation-by-generation. Shows which entries were active at each step. Like git blame for lore injection. |
+| **Sketch & Auto-Create Mode** | L | Draw connections directly on the graph. Click empty space to create a new entry skeleton. Drag between nodes to create requires/excludes edges. Writes back to Obsidian via `writeNote()`. Turns the graph into a worldbuilding tool. |
+| **Interactive HTML Export** | M | Export graph as a standalone .html file with bundled renderer, zero dependencies. Collaborators open in browser, explore vault structure without SillyTavern. |
+| **AI Auto-Suggest Connections** | M | AI analyzes the manifest and suggests "these entries should be linked." One-click "Create Link" writes wikilinks to Obsidian. Surfaces hidden relationships. |
+| **Dead Entry Detection Cluster** | S | Orphaned nodes (0 edges) float to the edge as a "dead entries" cluster. Click any for "Why not injected?" diagnostics. Makes unused entries tangible and actionable. |
+| **Budget Allocation Simulator** | M | Sidebar showing projected token cost: "If these N entries inject, tokens = X, budget remaining = Y." Drag entries into a "likely" list to plan budget before vault changes. |
+| **"What If" Sandbox** | M | Toggle entries on/off and simulate what would inject. Test dependency chains before running `/dle-simulate` on a full chat. |
+| **Alternative Layouts** | M | Layout dropdown: force-directed (current), family tree (character hierarchies), org chart (factions), timeline (by era field), dependency DAG (requires chains as tree). Animate transitions between layouts. |
+| **Path Finding** | M | Select two nodes, highlight shortest path (BFS). Show edge types along the path. Optional: K-shortest-paths for alternatives. Answers "how does this entry unlock that entry?" |
+| **Neighborhood Isolation** | M | Double-click a node to show only its N-hop neighbors (1-3 slider). Breadcrumb trail: [Full Graph] > [Eris, 2-hop]. Camera animates to fit. |
+| **Multi-Select & Bulk Actions** | M | Shift+click to multi-select, lasso draw. Bulk pin/block, export subset, compare properties, health check selected. |
+| **Node Detail Panel** | M | Click a node to open a side panel with 4 tabs: Metadata, Links (incoming/outgoing with types), Content preview, Actions (pin/block/open in Obsidian/health check). Pattern from Context Cartographer popup. |
+| **Comparison / Diff Mode** | L | Side-by-side graph view after index rebuild. Nodes colored by change type: green = added, red = removed, yellow = modified. Summary: "Added: 3, Removed: 1, Modified: 5." Uses `detectChanges()` from core/sync.js. |
+| **Per-Era Graph Views** | M | Filter graph by era (frontmatter field). Show only entries for a specific era. Cross-era edges highlighted to show historical continuity. |
+| **Coverage Analysis** | M | Click an entry to show its transitive closure — which entries become reachable through cascade and require chains. Helps identify orphaned subtrees and over-connected clusters. |
+| **Injection Heatmap Animation** | M | Radar sweep or pulse animation highlighting recently-injected entries. Node colors shift blue→red based on per-chat injection counts. Surfaces overused and dead entries at a glance. |
+| **Graph Description Generator** | S | Generate a natural-language summary of graph structure for screen readers and documentation. "The vault contains 47 entries: 3 major hubs, 12 isolated characters, 4 dead entries..." |
+| **Lens Mode** | M | Magnifying glass cursor for exploring dense regions without zooming. Circle shows zoomed detail; everything outside fades. |
+| **Drag-to-Create Edges** | L | Alt+drag from node to node → dropdown to pick edge type (link/requires/excludes/cascade) → writes to Obsidian frontmatter. Right-click edge to delete. |
+| **Minimap** | S | 150x150px corner minimap showing full graph with viewport rectangle. Click to navigate. |
+
+---
+
 ## Infrastructure & Connectivity
 
 | Feature | Size | Description |
@@ -116,6 +145,6 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 ---
 
-*Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23), 5-perspective review + fixes (2026-03-23).*
+*Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23), 5-perspective review + fixes (2026-03-23), 6-agent graph popup audit (2026-03-24).*
 
-*Last updated: 2026-03-23*
+*Last updated: 2026-03-24*

@@ -106,7 +106,7 @@ export const defaultSettings = {
     scribeProxyUrl: 'http://localhost:42069',
     scribeModel: '',
     scribeMaxTokens: 1024,
-    scribeTimeout: 30000,
+    scribeTimeout: 60000,
     scribeScanDepth: 20,
     // Vault Sync settings
     syncPollingInterval: 0,
@@ -197,7 +197,7 @@ export const settingsConstraints = {
     aiSearchManifestSummaryLength: { min: 100, max: 1000 },
     scribeInterval: { min: 1, max: 50 },
     scribeMaxTokens: { min: 256, max: 4096 },
-    scribeTimeout: { min: 5000, max: 60000 },
+    scribeTimeout: { min: 5000, max: 120000 },
     scribeScanDepth: { min: 5, max: 100 },
     newChatThreshold: { min: 1, max: 20 },
     syncPollingInterval: { min: 0, max: 3600 },

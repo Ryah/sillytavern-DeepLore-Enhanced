@@ -716,6 +716,67 @@
                 </div>
             </div>
             </div>
+
+            <div class="dle-settings-section">
+            <h4>Graph</h4>
+            <p class="dle_section_desc">Settings for the <code>/dle-graph</code> entry relationship graph.</p>
+
+            <div class="flex-container flexFlowColumn">
+                <div class="flex-container">
+                    <div class="flex1" title="Default node coloring mode when graph opens.">
+                        <label for="dle_sp_graph_color_mode"><small>Default Color Mode</small></label>
+                        <select id="dle_sp_graph_color_mode" class="text_pole">
+                            <option value="type">By Type</option>
+                            <option value="priority">By Priority</option>
+                            <option value="centrality">By Connections</option>
+                            <option value="frequency">By Frequency</option>
+                        </select>
+                    </div>
+                    <div class="flex1" title="How many hops from the hovered node stay vivid. Everything beyond dims. Default: 2.">
+                        <label for="dle_sp_graph_hover_dim_distance"><small>Hover Dim Distance (hops)</small></label>
+                        <input id="dle_sp_graph_hover_dim_distance" type="number" class="text_pole" min="1" max="5" />
+                    </div>
+                    <div class="flex1" title="How many hops to show in Focus Tree mode (double-click a node). Default: 3.">
+                        <label for="dle_sp_graph_focus_tree_depth"><small>Focus Tree Depth (hops)</small></label>
+                        <input id="dle_sp_graph_focus_tree_depth" type="number" class="text_pole" min="1" max="5" />
+                    </div>
+                </div>
+                <label class="checkbox_label" for="dle_sp_graph_show_labels" title="Show node title labels on the graph.">
+                    <input id="dle_sp_graph_show_labels" type="checkbox" class="checkbox">
+                    <span>Show Labels</span>
+                </label>
+
+                <div class="dle_advanced_toggle" data-section="sp_graph" tabindex="0" role="button" aria-expanded="false">
+                    <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced (Physics)
+                </div>
+                <div class="dle_advanced_section" data-section="sp_graph" style="display: none;">
+                    <div class="flex-container">
+                        <div class="flex1" title="Repulsion force between nodes. Higher = more spread. Default: 2000.">
+                            <label for="dle_sp_graph_repulsion"><small>Repulsion</small></label>
+                            <input id="dle_sp_graph_repulsion" type="number" class="text_pole" min="500" max="5000" step="100" />
+                        </div>
+                        <div class="flex1" title="Target edge length in pixels. Default: 120.">
+                            <label for="dle_sp_graph_spring_length"><small>Spring Length</small></label>
+                            <input id="dle_sp_graph_spring_length" type="number" class="text_pole" min="50" max="300" step="10" />
+                        </div>
+                    </div>
+                    <div class="flex-container">
+                        <div class="flex1" title="Pull toward center. Higher = tighter cluster. Default: 0.03.">
+                            <label for="dle_sp_graph_gravity"><small>Gravity</small></label>
+                            <input id="dle_sp_graph_gravity" type="number" class="text_pole" min="0.01" max="0.2" step="0.01" />
+                        </div>
+                        <div class="flex1" title="Velocity damping. Higher = slower settling. Default: 0.7.">
+                            <label for="dle_sp_graph_damping"><small>Damping</small></label>
+                            <input id="dle_sp_graph_damping" type="number" class="text_pole" min="0.5" max="0.99" step="0.05" />
+                        </div>
+                        <div class="flex1" title="Opacity of dimmed nodes/edges on hover. Default: 0.1.">
+                            <label for="dle_sp_graph_hover_dim_opacity"><small>Dim Opacity</small></label>
+                            <input id="dle_sp_graph_hover_dim_opacity" type="number" class="text_pole" min="0.05" max="0.3" step="0.05" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════

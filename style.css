@@ -2213,3 +2213,112 @@ button.dle-browse-block.dle-block-active {
     margin: 2px 0;
 }
 
+/* -- Draggable settings panel (inside graph popup) -- */
+.dle-graph-settings-panel {
+    position: absolute;
+    z-index: 30;
+    top: 8px;
+    right: 8px;
+    width: 260px;
+    background: rgba(20, 20, 35, 0.97);
+    border: 1px solid var(--dle-border, #555);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+    font-size: 11px;
+    color: #ddd;
+    user-select: none;
+}
+
+.dle-graph-settings-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    cursor: grab;
+    border-bottom: 1px solid var(--dle-border, #444);
+    border-radius: 8px 8px 0 0;
+    background: rgba(255,255,255,0.04);
+}
+
+.dle-graph-settings-titlebar:active {
+    cursor: grabbing;
+}
+
+.dle-graph-settings-titlebar span {
+    font-weight: 600;
+    font-size: 11px;
+    color: #fff;
+}
+
+.dle-graph-settings-close {
+    cursor: pointer;
+    color: #888;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    transition: color 100ms;
+}
+
+.dle-graph-settings-close:hover {
+    color: #fff;
+}
+
+.dle-graph-settings-body {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.dle-graph-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dle-graph-settings-row label {
+    flex: 1;
+    font-size: 10px;
+    color: #aaa;
+    white-space: nowrap;
+}
+
+.dle-graph-settings-row input[type="number"],
+.dle-graph-settings-row input[type="range"] {
+    width: 70px;
+    flex-shrink: 0;
+}
+
+.dle-graph-settings-row input[type="range"] {
+    width: 90px;
+    accent-color: var(--dle-info, #2196f3);
+}
+
+.dle-graph-settings-row .dle-gs-value {
+    font-size: 10px;
+    color: #888;
+    min-width: 32px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.dle-graph-settings-row input[type="checkbox"] {
+    margin: 0;
+}
+
+.dle-graph-settings-sep {
+    height: 1px;
+    background: var(--dle-border, #444);
+    margin: 2px 0;
+}
+
+.dle-graph-settings-section-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #666;
+    margin-top: 2px;
+}
+

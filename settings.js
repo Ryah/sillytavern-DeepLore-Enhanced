@@ -155,6 +155,16 @@ export const defaultSettings = {
     indexRebuildGenerationInterval: 10,    // E9: rebuild every N generations
     // Auto-Suggest
     autoSuggestSkipReview: false,          // E11: skip review popup checkbox
+    // Graph
+    graphRepulsion: 2000,              // Repulsion force between nodes (500-5000)
+    graphSpringLength: 120,            // Target edge length in px (50-300)
+    graphGravity: 0.03,                // Pull toward center (0.01-0.2)
+    graphDamping: 0.7,                 // Velocity damping (0.5-0.99)
+    graphHoverDimDistance: 2,           // BFS hops that stay vivid on hover (1-5)
+    graphHoverDimOpacity: 0.1,         // Opacity of dimmed nodes/edges (0.05-0.3)
+    graphFocusTreeDepth: 2,            // N-hop depth for focus tree mode (1-5)
+    graphDefaultColorMode: 'type',     // type, priority, centrality, frequency
+    graphShowLabels: true,             // Show node labels
     // Entry Decay & Freshness
     decayEnabled: false,
     decayBoostThreshold: 5,    // Generations without injection before freshness boost
@@ -206,6 +216,13 @@ export const settingsConstraints = {
     autoSuggestInterval: { min: 3, max: 50 },
     autoSuggestMaxTokens: { min: 256, max: 4096 },
     autoSuggestTimeout: { min: 5000, max: 60000 },
+    graphRepulsion: { min: -8000, max: 80000 },
+    graphSpringLength: { min: 0, max: 600 },
+    graphGravity: { min: -1.5, max: 1.5 },
+    graphDamping: { min: 0, max: 0.999 },
+    graphHoverDimDistance: { min: 0, max: 15 },
+    graphHoverDimOpacity: { min: 0, max: 0.9 },
+    graphFocusTreeDepth: { min: 0, max: 15 },
     decayBoostThreshold: { min: 2, max: 20 },
     decayPenaltyThreshold: { min: 2, max: 10 },
     fuzzySearchMinScore: { min: 0.1, max: 2.0 },

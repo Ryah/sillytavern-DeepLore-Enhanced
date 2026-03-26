@@ -515,6 +515,17 @@ function loadPopupSettings($container) {
     $c('#dle_sp_decay_controls').toggleClass('dle-dimmed', !settings.decayEnabled);
     $c('#dle_sp_decay_controls input').prop('disabled', !settings.decayEnabled);
 
+    // ── Features — Graph ──
+    $c('#dle_sp_graph_color_mode').val(settings.graphDefaultColorMode);
+    $c('#dle_sp_graph_hover_dim_distance').val(settings.graphHoverDimDistance);
+    $c('#dle_sp_graph_focus_tree_depth').val(settings.graphFocusTreeDepth);
+    $c('#dle_sp_graph_show_labels').prop('checked', settings.graphShowLabels);
+    $c('#dle_sp_graph_repulsion').val(settings.graphRepulsion);
+    $c('#dle_sp_graph_spring_length').val(settings.graphSpringLength);
+    $c('#dle_sp_graph_gravity').val(settings.graphGravity);
+    $c('#dle_sp_graph_damping').val(settings.graphDamping);
+    $c('#dle_sp_graph_hover_dim_opacity').val(settings.graphHoverDimOpacity);
+
     // ── Features — Notebook ──
     $c('#dle_sp_notebook_enabled').prop('checked', settings.notebookEnabled);
     $c(`input[name="dle_sp_notebook_position"][value="${settings.notebookPosition}"]`).prop('checked', true);
@@ -728,6 +739,17 @@ function bindPopupEvents($container) {
     $c('#dle_sp_decay_boost_threshold').on('input', function () { settings.decayBoostThreshold = numVal($(this).val(), 5); saveSettingsDebounced(); });
     $c('#dle_sp_decay_penalty_threshold').on('input', function () { settings.decayPenaltyThreshold = numVal($(this).val(), 2); saveSettingsDebounced(); });
 
+    // ── Graph settings ──
+    $c('#dle_sp_graph_color_mode').on('change', function () { settings.graphDefaultColorMode = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_hover_dim_distance').on('input', function () { settings.graphHoverDimDistance = numVal($(this).val(), 2); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_focus_tree_depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 3); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_show_labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_repulsion').on('input', function () { settings.graphRepulsion = numVal($(this).val(), 2000); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_spring_length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 120); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 0.03; saveSettingsDebounced(); });
+    $c('#dle_sp_graph_damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.7; saveSettingsDebounced(); });
+    $c('#dle_sp_graph_hover_dim_opacity').on('input', function () { settings.graphHoverDimOpacity = parseFloat($(this).val()) || 0.1; saveSettingsDebounced(); });
+
     // Test AI / Preview
     $c('#dle_sp_test_ai').on('click', async function () {
         const $btn = $(this);
@@ -904,6 +926,10 @@ function bindPopupEvents($container) {
         dle_sp_reinjection_cooldown: 'reinjectionCooldown', dle_sp_strip_lookback: 'stripLookbackDepth',
         dle_sp_autosuggest_interval: 'autoSuggestInterval', dle_sp_autosuggest_max_tokens: 'autoSuggestMaxTokens', dle_sp_autosuggest_timeout: 'autoSuggestTimeout',
         dle_sp_decay_boost_threshold: 'decayBoostThreshold', dle_sp_decay_penalty_threshold: 'decayPenaltyThreshold',
+        dle_sp_graph_repulsion: 'graphRepulsion', dle_sp_graph_spring_length: 'graphSpringLength',
+        dle_sp_graph_gravity: 'graphGravity', dle_sp_graph_damping: 'graphDamping',
+        dle_sp_graph_hover_dim_distance: 'graphHoverDimDistance', dle_sp_graph_hover_dim_opacity: 'graphHoverDimOpacity',
+        dle_sp_graph_focus_tree_depth: 'graphFocusTreeDepth',
         dle_sp_fuzzy_min_score: 'fuzzySearchMinScore', dle_sp_rebuild_gen_interval: 'indexRebuildGenerationInterval',
     };
     for (const [inputId, settingName] of Object.entries(clampMap)) {

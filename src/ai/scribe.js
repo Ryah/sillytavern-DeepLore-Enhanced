@@ -17,7 +17,7 @@ import {
     scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
     setScribeInProgress, setLastScribeSummary, setLastScribeChatLength,
 } from '../state.js';
-import { dedupError } from '../toast-dedup.js';
+import { dedupError, dedupWarning } from '../toast-dedup.js';
 
 export const DEFAULT_SCRIBE_PROMPT = `Summarize this roleplay session segment. Write in past tense, third person.
 
@@ -89,7 +89,7 @@ export async function runScribe(customPrompt) {
         // Build context using shared utility with configurable depth
         const context = buildAiChatContext(chat, settings.scribeScanDepth);
         if (!context.trim()) {
-            toastr.warning('No messages to summarize.', 'DeepLore Enhanced');
+            dedupWarning('No messages to summarize.', 'scribe');
             return;
         }
 
@@ -111,7 +111,7 @@ export async function runScribe(customPrompt) {
         const summary = await callScribe(systemPrompt, userMessage, settings);
 
         if (!summary || !summary.trim()) {
-            toastr.warning('Scribe generated an empty summary.', 'DeepLore Enhanced');
+            dedupWarning('Scribe generated an empty summary.', 'scribe');
             return;
         }
 

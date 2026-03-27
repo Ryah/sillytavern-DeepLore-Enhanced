@@ -198,6 +198,16 @@ export function isAiCircuitOpen() {
     return true;
 }
 
+// ── Observer callbacks ──
+// DLE uses a simple observer pattern to break circular dependencies between data
+// and UI layers. Producers (vault.js, ai.js, pipeline.js) call notify*() functions;
+// consumers (drawer, settings-ui) register via on*() during init.
+//
+// The clear*Callbacks() functions exist for completeness but are intentionally never
+// called — the extension initializes once when SillyTavern loads and never tears down.
+// There is no unmount/destroy lifecycle for ST extensions, so callbacks accumulate
+// exactly once and persist for the page lifetime. This is by design, not a leak.
+
 // ── Index lifecycle callbacks ──
 // Registered by the UI layer so the data layer (vault.js) can notify without importing UI modules.
 // This breaks the vault.js → settings-ui.js inverted dependency.

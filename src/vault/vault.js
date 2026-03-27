@@ -28,6 +28,8 @@ import { dedupError, dedupWarning } from '../toast-dedup.js';
 // ============================================================================
 // BM25 Fuzzy Search Index
 // ============================================================================
+const BM25_K1 = 1.5;   // Term frequency saturation
+const BM25_B = 0.75;    // Length normalization
 
 /** Simple tokenizer: lowercase, split on non-word characters, remove short tokens.
  *  Uses Unicode-aware regex to support non-Latin scripts (Cyrillic, Arabic, etc.).
@@ -97,8 +99,8 @@ export function queryBM25(index, queryText, topK = 20, minScore = 0.5) {
         queryTf.set(t, (queryTf.get(t) || 0) + 1);
     }
 
-    const k1 = 1.5;
-    const b = 0.75;
+    const k1 = BM25_K1;
+    const b = BM25_B;
     const scores = [];
 
     for (const [title, doc] of index.docs) {
@@ -307,10 +309,9 @@ export async function buildIndex() {
                 if (data.failed > 0) {
                     const failRate = data.total > 0 ? data.failed / data.total : 0;
                     if (data.failed >= 5 || failRate >= 0.1) {
-                        toastr.warning(
+                        dedupWarning(
                             `Some entries in "${vault.name}" couldn't be loaded (${data.failed} of ${data.total}). They'll be included on the next refresh.`,
-                            'DeepLore Enhanced',
-                            { timeOut: 8000, preventDuplicates: true },
+                            'vault_fetch_partial',
                         );
                     }
                 }

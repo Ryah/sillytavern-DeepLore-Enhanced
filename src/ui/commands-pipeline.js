@@ -1,0 +1,333 @@
+/**
+ * DeepLore Enhanced — Slash Commands: Pipeline Inspection
+ * /dle-simulate, /dle-why, /dle-inspect
+ */
+import { chat, chat_metadata } from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
+import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
+import { NO_ENTRIES_MSG } from '../../core/utils.js';
+import { formatAndGroup } from '../../core/matching.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
+import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
+import {
+    vaultIndex, lastPipelineTrace, injectionHistory, generationCount,
+    generationLock, trackerKey, buildPromise,
+} from '../state.js';
+import { ensureIndexFresh } from '../vault/vault.js';
+import { runPipeline } from '../pipeline/pipeline.js';
+import { showSourcesPopup } from './cartographer.js';
+import { runSimulation, showSimulationPopup, buildCopyButton, attachCopyHandler } from './popups.js';
+
+export function registerPipelineCommands() {
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-simulate',
+        callback: async () => {
+            if (!chat || chat.length === 0) {
+                toastr.info('No active chat.', 'DeepLore Enhanced');
+                return '';
+            }
+            await ensureIndexFresh();
+            if (vaultIndex.length === 0) {
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
+                return '';
+            }
+            toastr.info('Running activation simulation...', 'DeepLore Enhanced', { timeOut: 2000 });
+            const timeline = runSimulation(chat);
+            showSimulationPopup(timeline);
+            return '';
+        },
+        helpString: 'Replay chat history step-by-step, showing which entries activate and deactivate at each message.',
+        returns: 'Simulation timeline popup',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-why',
+        aliases: ['dle-context'],
+        callback: async () => {
+            if (!chat || chat.length === 0) {
+                toastr.info('No active chat.', 'DeepLore Enhanced');
+                return '';
+            }
+            if (generationLock) {
+                toastr.warning('A generation is in progress — wait for it to finish.', 'DeepLore Enhanced');
+                return '';
+            }
+            // Await any in-progress index build to prevent concurrent pipeline execution
+            if (buildPromise) await buildPromise;
+            await ensureIndexFresh();
+            if (vaultIndex.length === 0) {
+                toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
+                return '';
+            }
+
+            const settings = getSettings();
+            // Confirm if AI search is enabled — this command makes real API calls
+            if (settings.aiSearchEnabled) {
+                const proceed = await callGenericPopup('This will make a live AI search call and use API tokens. Continue?', POPUP_TYPE.CONFIRM);
+                if (!proceed) return '';
+            }
+            const { finalEntries, matchedKeys } = await runPipeline(chat);
+
+            // Apply re-injection cooldown (matches onGenerate order)
+            let filtered = finalEntries;
+            if (settings.reinjectionCooldown > 0) {
+                filtered = finalEntries.filter(e => {
+                    if (e.constant) return true;
+                    const lastGen = injectionHistory.get(trackerKey(e));
+                    return lastGen === undefined || (generationCount - lastGen) >= settings.reinjectionCooldown;
+                });
+            }
+
+            // Apply contextual gating (era/location/scene/character) — matches onGenerate order
+            const gatingContext = chat_metadata?.deeplore_context;
+            if (gatingContext) {
+                filtered = applyContextualGating(filtered, gatingContext, { forceInject: new Set() }, settings.debugMode, settings);
+            }
+
+            const cmdPins = chat_metadata.deeplore_pins || [];
+            const cmdBlocks = chat_metadata.deeplore_blocks || [];
+            const cmdPolicy = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
+            const { result: gated } = applyRequiresExcludesGating(filtered, cmdPolicy, settings.debugMode);
+            const { count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
+            const injected = acceptedEntries || gated.slice(0, injectedCount);
+
+            if (injected.length === 0) {
+                toastr.info('No entries would be injected right now.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            const sources = injected.map(e => ({
+                title: e.title,
+                filename: e.filename,
+                matchedBy: matchedKeys.get(e.title) || '?',
+                priority: e.priority,
+                tokens: e.tokenEstimate,
+            }));
+            showSourcesPopup(sources);
+            return '';
+        },
+        helpString: 'Preview which entries would be included in the next message, and why. Alias: /dle-context',
+        returns: 'Context map popup',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-inspect',
+        callback: async () => {
+            if (!lastPipelineTrace) {
+                toastr.info('No trace data yet. Send a message first, then inspect.', 'DeepLore Enhanced');
+                return '';
+            }
+            const t = lastPipelineTrace;
+            const settings = getSettings();
+            const statusIcon = (ok) => ok ? '✓' : '✗';
+
+            // Helper: build a set of keyword-matched titles for cross-referencing gated entries
+            const keywordMatchedTitles = new Set(t.keywordMatched.map(m => m.title.toLowerCase()));
+
+            // Build plain-text version for clipboard
+            const plainLines = [
+                'Entry Inspector',
+                `Mode: ${t.mode} | Indexed: ${t.indexed} | Bootstrap active: ${t.bootstrapActive ? 'yes' : 'no'} | AI fallback: ${t.aiFallback ? 'yes' : 'no'}`,
+                '',
+            ];
+            if (t.keywordMatched.length > 0) {
+                plainLines.push(`Keyword Matched (${t.keywordMatched.length}):`);
+                for (const m of t.keywordMatched) plainLines.push(`  ${m.title} — ${m.matchedBy}`);
+                plainLines.push('');
+            }
+            if (t.aiSelected.length > 0) {
+                plainLines.push(`AI Selected (${t.aiSelected.length}):`);
+                for (const m of t.aiSelected) plainLines.push(`  ${m.title} [${m.confidence}] — ${m.reason}`);
+                plainLines.push('');
+            }
+            if (t.aiFallback) plainLines.push('WARNING: AI search failed — keyword results used as fallback', '');
+            if (t.injected && t.injected.length > 0) {
+                const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
+                plainLines.push(`Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel}):`);
+                for (const e of t.injected) {
+                    const truncLabel = e.truncated ? ` [truncated from ~${e.originalTokens}]` : '';
+                    plainLines.push(`  ${e.title} (~${e.tokens} tokens)${truncLabel}`);
+                }
+                plainLines.push('');
+            }
+            if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
+                plainLines.push(`Contextual Gating Removed (${t.contextualGatingRemoved.length}):`);
+                for (const title of t.contextualGatingRemoved) plainLines.push(`  ${title}`);
+                plainLines.push('');
+            }
+            if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
+                plainLines.push(`Re-injection Cooldown Removed (${t.cooldownRemoved.length}):`);
+                for (const title of t.cooldownRemoved) plainLines.push(`  ${title}`);
+                plainLines.push('');
+            }
+            if (t.gatedOut && t.gatedOut.length > 0) {
+                plainLines.push(`Gated Out (${t.gatedOut.length}):`);
+                for (const e of t.gatedOut) {
+                    const reasons = [];
+                    if (e.requires?.length > 0) reasons.push(`requires: ${e.requires.join(', ')}`);
+                    if (e.excludes?.length > 0) reasons.push(`excludes: ${e.excludes.join(', ')}`);
+                    plainLines.push(`  ${e.title} — ${reasons.join('; ') || 'gating rule'}`);
+                }
+                plainLines.push('');
+            }
+            if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
+                plainLines.push(`Strip Dedup Removed (${t.stripDedupRemoved.length}):`);
+                for (const title of t.stripDedupRemoved) plainLines.push(`  ${title}`);
+                plainLines.push('');
+            }
+            if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
+                plainLines.push(`Probability Skipped (${t.probabilitySkipped.length}):`);
+                for (const e of t.probabilitySkipped) plainLines.push(`  ${e.title} (probability: ${e.probability}, rolled: ${e.roll.toFixed(3)})`);
+                plainLines.push('');
+            }
+            if (t.warmupFailed && t.warmupFailed.length > 0) {
+                plainLines.push(`Warmup Not Met (${t.warmupFailed.length}):`);
+                for (const e of t.warmupFailed) plainLines.push(`  ${e.title} (needed: ${e.needed}, found: ${e.found})`);
+                plainLines.push('');
+            }
+            if (t.budgetCut && t.budgetCut.length > 0) {
+                plainLines.push(`Budget/Max Cut (${t.budgetCut.length}):`);
+                for (const e of t.budgetCut) plainLines.push(`  ${e.title} (pri ${e.priority}, ~${e.tokens} tokens)`);
+                plainLines.push('');
+            }
+            const plainText = plainLines.join('\n');
+
+            let html = `<div class="dle-popup dle-popup--mono">`;
+            html += `<h3>Entry Inspector</h3>`;
+            html += buildCopyButton(plainText);
+            html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
+
+            // Check for completely empty pipeline
+            const nothingMatched = t.keywordMatched.length === 0 && t.aiSelected.length === 0
+                && (!t.injected || t.injected.length === 0);
+
+            if (nothingMatched) {
+                html += `<p style="color: var(--dle-warning);">No entries matched. Check scan depth (currently ${settings.scanDepth}), keyword coverage, or run /dle-health.</p>`;
+            }
+
+            if (t.keywordMatched.length > 0) {
+                html += `<h4>${statusIcon(true)} Keyword Matched (${t.keywordMatched.length})</h4><ul>`;
+                for (const m of t.keywordMatched) {
+                    html += `<li>${escapeHtml(m.title)} — ${escapeHtml(m.matchedBy)}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            if (t.aiSelected.length > 0) {
+                html += `<h4>${statusIcon(true)} AI Selected (${t.aiSelected.length})</h4><ul>`;
+                for (const m of t.aiSelected) {
+                    html += `<li>${escapeHtml(m.title)} [${escapeHtml(m.confidence)}] — ${escapeHtml(m.reason)}</li>`;
+                }
+                html += '</ul>';
+                html += `<p class="dle-text-xs dle-dimmed" style="margin-top: 2px;"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = tangential or speculative</p>`;
+            }
+
+            if (t.aiFallback) {
+                html += `<p style="color: var(--dle-warning);">⚠ AI search failed — keyword results used as fallback</p>`;
+            }
+
+            // Injected entries (post-budget)
+            if (t.injected && t.injected.length > 0) {
+                const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
+                html += `<h4>${statusIcon(true)} Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel})</h4><ul>`;
+                for (const e of t.injected) {
+                    const truncLabel = e.truncated ? ` <span style="color: var(--dle-warning);">[truncated from ~${e.originalTokens}]</span>` : '';
+                    html += `<li>${escapeHtml(e.title)} (~${e.tokens} tokens)${truncLabel}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Contextual gating removals
+            if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
+                for (const title of t.contextualGatingRemoved) {
+                    html += `<li>${escapeHtml(title)} — filtered by era/location/scene/character gate</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Re-injection cooldown removals
+            if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
+                for (const title of t.cooldownRemoved) {
+                    html += `<li>${escapeHtml(title)} — recently injected, on cooldown</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Gated out entries (requires/excludes) with cross-referencing
+            if (t.gatedOut && t.gatedOut.length > 0) {
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
+                for (const e of t.gatedOut) {
+                    const reasons = [];
+                    if (e.requires?.length > 0) {
+                        const missing = e.requires.filter(r => !keywordMatchedTitles.has(r.toLowerCase()));
+                        if (missing.length > 0) {
+                            reasons.push(`requires: ${e.requires.join(', ')} (missing: ${missing.join(', ')})`);
+                        } else {
+                            reasons.push(`requires: ${e.requires.join(', ')} (all present but removed by later stage)`);
+                        }
+                    }
+                    if (e.excludes?.length > 0) {
+                        const blocking = e.excludes.filter(r => keywordMatchedTitles.has(r.toLowerCase()));
+                        if (blocking.length > 0) {
+                            reasons.push(`excludes: ${e.excludes.join(', ')} (blocking: ${blocking.join(', ')})`);
+                        } else {
+                            reasons.push(`excludes: ${e.excludes.join(', ')}`);
+                        }
+                    }
+                    html += `<li>${escapeHtml(e.title)} — ${escapeHtml(reasons.join('; ') || 'gating rule')}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Strip dedup removals
+            if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
+                for (const title of t.stripDedupRemoved) {
+                    html += `<li>${escapeHtml(title)} — already injected in recent generation(s)</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Probability skips
+            if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
+                for (const e of t.probabilitySkipped) {
+                    const rollLabel = e.probability === 0 ? 'probability is 0 (never fires)' : `rolled ${e.roll.toFixed(3)} > ${e.probability}`;
+                    html += `<li>${escapeHtml(e.title)} — ${rollLabel}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Warmup failures
+            if (t.warmupFailed && t.warmupFailed.length > 0) {
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
+                for (const e of t.warmupFailed) {
+                    html += `<li>${escapeHtml(e.title)} — needs ${e.needed} keyword occurrences, found ${e.found}</li>`;
+                }
+                html += '</ul>';
+            }
+
+            // Budget/max cut entries
+            if (t.budgetCut && t.budgetCut.length > 0) {
+                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
+                for (const e of t.budgetCut) {
+                    html += `<li>${escapeHtml(e.title)} (pri ${e.priority}, ~${e.tokens} tokens)</li>`;
+                }
+                html += '</ul>';
+            }
+
+            html += '</div>';
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                wide: true, allowVerticalScrolling: true,
+                onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+            });
+            return '';
+        },
+        helpString: 'Show which entries matched, why, and what the AI selected in the last message.',
+        returns: 'Entry inspector popup',
+    }));
+}

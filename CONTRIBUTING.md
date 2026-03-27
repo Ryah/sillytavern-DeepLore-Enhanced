@@ -11,13 +11,17 @@
 - **`main`** — stable releases
 - **`staging`** — active development (PRs target here)
 
-## The `core/` Subtree
+## The `core/` Directory
 
-`core/` is shared with the base DeepLore extension via git subtree. Changes to `core/` files must be compatible with both repositories. Do not restructure `core/` without coordinating with the base repo.
+`core/` contains shared utility modules (parsing, matching, formatting). It was historically shared with a base DeepLore extension via git subtree, but that project is deprecated. `core/` is now owned entirely by Enhanced.
 
 ## Running Tests
 
 Tests run in Node.js with no dependencies — just `node test/unit.mjs`. The test harness mocks SillyTavern globals (jQuery, toastr, etc.) so pure logic can be tested outside the browser.
+
+## Tests
+
+New code should include tests. Add unit tests in `test/unit.mjs` for any new pure functions or logic changes. All tests must pass before submitting a PR.
 
 ## Code Style
 

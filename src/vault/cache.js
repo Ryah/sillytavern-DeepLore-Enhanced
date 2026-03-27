@@ -5,6 +5,7 @@
  */
 
 import { getSettings } from '../../settings.js';
+import { dedupWarning } from '../toast-dedup.js';
 
 const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;
@@ -76,10 +77,9 @@ export async function saveIndexToCache(entries) {
         if (err.name === 'QuotaExceededError' || (err.message && err.message.includes('quota'))) {
             console.warn('[DLE] IndexedDB storage quota exceeded — vault cache could not be saved. Consider clearing browser data.');
             try {
-                toastr.warning(
+                dedupWarning(
                     'Browser storage quota exceeded. Vault cache could not be saved. Try clearing browser site data.',
-                    'DeepLore Enhanced',
-                    { timeOut: 10000 },
+                    'cache_quota',
                 );
             } catch {
                 // toastr may not be available in all contexts

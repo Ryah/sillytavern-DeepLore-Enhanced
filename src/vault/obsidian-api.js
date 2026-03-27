@@ -4,6 +4,7 @@
  */
 
 const DEFAULT_TIMEOUT = 30000;
+const OBSIDIAN_BATCH_SIZE = 50;
 
 // ── Circuit Breaker (per-vault) ──
 // Prevents hammering Obsidian when it's down. Short backoffs (it's local and free).
@@ -282,7 +283,7 @@ export async function fetchAllMdFiles(host, port, apiKey) {
     const allFiles = await listAllFiles(host, port, apiKey);
     const mdFiles = allFiles.filter(f => f.endsWith('.md'));
 
-    const BATCH_SIZE = 50;
+    const BATCH_SIZE = OBSIDIAN_BATCH_SIZE;
     const results = [];
     let failed = 0;
 
@@ -361,7 +362,7 @@ export async function fetchScribeNotes(host, port, apiKey, folder) {
     try {
         const allFiles = await listAllFiles(host, port, apiKey, folder);
         const mdFiles = allFiles.filter(f => f.endsWith('.md'));
-        const BATCH_SIZE = 50;
+        const BATCH_SIZE = OBSIDIAN_BATCH_SIZE;
         const notes = [];
 
         for (let i = 0; i < mdFiles.length; i += BATCH_SIZE) {

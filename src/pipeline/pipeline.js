@@ -13,6 +13,9 @@ import {
 import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from '../ai/ai.js';
 import { ensureIndexFresh, queryBM25 } from '../vault/vault.js';
 import { name2 } from '../../../../../../script.js';
+import { dedupWarning } from '../toast-dedup.js';
+
+const MAX_RECURSION_TEXT = 50000;
 
 /**
  * Match vault entries against chat messages, with recursive scanning support.
@@ -165,7 +168,6 @@ export function matchEntries(chat, snapshot = null) {
             while (newlyMatched.size > 0 && step < settings.maxRecursionSteps) {
                 step++;
 
-                const MAX_RECURSION_TEXT = 50000;
                 let recursionText = [...newlyMatched]
                     .filter(e => !e.excludeRecursion)
                     .map(e => e.content)
@@ -327,7 +329,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                     if (nonConstant.length === 0 && finalEntries.length > 0) {
                         console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
-                        toastr.warning('AI search failed — only constant entries are active. Check your AI connection.', 'DeepLore Enhanced', { timeOut: 8000, preventDuplicates: true });
+                        dedupWarning('AI search failed — only constant entries are active. Check your AI connection.', 'ai_fallback');
                     }
                 } else if (fallback === 'constants_only') {
                     finalEntries = alwaysInject;

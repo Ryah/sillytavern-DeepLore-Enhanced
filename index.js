@@ -631,7 +631,6 @@ jQuery(async function () {
             // Hydrate per-chat injection counts from saved metadata (survives page reload)
             const savedCounts = chat_metadata?.deeplore_chat_counts;
             setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
-            setLastGenerationChatLength(-1);
             setLastGenerationInjectedKeys(new Set());
             setGenerationCount(0);
             setLastWarningRatio(0);

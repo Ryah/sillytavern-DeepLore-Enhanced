@@ -157,6 +157,12 @@ export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }
 export let fuzzySearchIndex = null;
 export function setFuzzySearchIndex(v) { fuzzySearchIndex = v; }
 
+/** Cross-entry mention weights: Map<"sourceTitle\0targetTitle", count>
+ *  Counts how many times each entry's content mentions another entry's title/keys.
+ *  Built during finalizeIndex(), cached in IndexedDB with the rest of the index. */
+export let mentionWeights = new Map();
+export function setMentionWeights(v) { mentionWeights = v; }
+
 // ── AI service circuit breaker ──
 // Prevents repeated full-timeout waits when AI services are down.
 // Mirrors the per-vault Obsidian circuit breaker pattern.

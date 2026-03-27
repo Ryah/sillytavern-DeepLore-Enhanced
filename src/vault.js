@@ -13,7 +13,7 @@ import {
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
     setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
-    setFuzzySearchIndex,
+    setFuzzySearchIndex, setMentionWeights,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
@@ -164,6 +164,53 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
 
     // Resolve wiki-links to confirmed entry titles
     resolveLinks(vaultIndex);
+
+    // Build cross-entry mention weight table
+    // Counts how many times each entry's content mentions another entry's title/keys.
+    // Piggybacks on the existing pass — content is already in memory.
+    {
+        const weights = new Map();
+        // Build lookup: lowercase name → entry title (for all titles + keys)
+        const nameToTitle = new Map();
+        for (const entry of entries) {
+            const titleLc = entry.title.toLowerCase();
+            nameToTitle.set(titleLc, entry.title);
+            for (const key of entry.keys) {
+                const keyLc = key.toLowerCase();
+                if (keyLc.length >= 2) nameToTitle.set(keyLc, entry.title); // skip single-char keys
+            }
+        }
+        const allNames = [...nameToTitle.keys()].sort((a, b) => b.length - a.length); // longest first to avoid substring matches
+
+        for (const source of entries) {
+            const content = source.content.toLowerCase();
+            const sourceName = source.title;
+            // Count mentions of each OTHER entry's names in this entry's content
+            const counted = new Map(); // targetTitle → count
+            for (const name of allNames) {
+                const targetTitle = nameToTitle.get(name);
+                if (targetTitle === sourceName) continue; // skip self-mentions
+                let count = 0;
+                let pos = 0;
+                while ((pos = content.indexOf(name, pos)) !== -1) {
+                    count++;
+                    pos += name.length;
+                }
+                if (count > 0) {
+                    // Accumulate — multiple keys for same target entry sum up
+                    const existing = counted.get(targetTitle) || 0;
+                    counted.set(targetTitle, existing + count);
+                }
+            }
+            for (const [targetTitle, count] of counted) {
+                weights.set(`${sourceName}\0${targetTitle}`, count);
+            }
+        }
+        setMentionWeights(weights);
+        if (settings.debugMode) {
+            console.debug(`[DLE] Built mention weights: ${weights.size} pairs`);
+        }
+    }
 
     // Pre-compute entity names and short-name regexes for AI cache sliding window
     computeEntityDerivedState(entries);

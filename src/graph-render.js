@@ -1,0 +1,506 @@
+/**
+ * DeepLore Enhanced — Graph rendering module.
+ * Canvas drawing: edges, nodes, labels, tooltip, color legend.
+ */
+import { vaultIndex, lastHealthResult } from './state.js';
+import { COMMUNITY_PALETTE, convexHull } from './graph-analysis.js';
+
+// ============================================================================
+// Pure helpers (no state dependency)
+// ============================================================================
+
+/** Convert a hex color to a lighter version if it's dark (luminance < 0.65). */
+export function toPastel(hex, mix = 0.25) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    if (lum >= 0.65) return hex;
+    const pr = Math.round(r + (255 - r) * mix);
+    const pg = Math.round(g + (255 - g) * mix);
+    const pb = Math.round(b + (255 - b) * mix);
+    return `#${pr.toString(16).padStart(2, '0')}${pg.toString(16).padStart(2, '0')}${pb.toString(16).padStart(2, '0')}`;
+}
+
+/** Priority-based color (lower priority = warmer). */
+function priorityColor(priority) {
+    const p = Math.max(0, Math.min(100, priority || 50));
+    if (p <= 25) return '#e53935';
+    if (p <= 40) return '#ff9800';
+    if (p <= 55) return '#ffeb3b';
+    if (p <= 75) return '#66bb6a';
+    return '#42a5f5';
+}
+
+/** Centrality-based color (more connections = warmer). */
+function centralityColor(edgeCount, maxEdgeCount) {
+    const ratio = maxEdgeCount > 0 ? edgeCount / maxEdgeCount : 0;
+    if (ratio > 0.7) return '#e53935';
+    if (ratio > 0.4) return '#ff9800';
+    if (ratio > 0.2) return '#ffeb3b';
+    if (ratio > 0.05) return '#66bb6a';
+    return '#42a5f5';
+}
+
+/** Injection frequency color (hot red → cold blue). */
+function frequencyColor(count, maxCount) {
+    if (!maxCount) return '#4a6fa5';
+    const ratio = count / maxCount;
+    if (ratio > 0.7) return '#e53935';
+    if (ratio > 0.4) return '#e87040';
+    if (ratio > 0.15) return '#b08a50';
+    if (ratio > 0) return '#6a8db8';
+    return '#4a6fa5';
+}
+
+/** Lighten a hex color by blending toward white. */
+export function lightenColor(hex, amount) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgb(${Math.min(255, Math.round(r + (255 - r) * amount))}, ${Math.min(255, Math.round(g + (255 - g) * amount))}, ${Math.min(255, Math.round(b + (255 - b) * amount))})`;
+}
+
+/** Darken a hex color by blending toward black. */
+export function darkenColor(hex, amount) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgb(${Math.round(r * (1 - amount))}, ${Math.round(g * (1 - amount))}, ${Math.round(b * (1 - amount))})`;
+}
+
+// ============================================================================
+// Public API — call initRender(gs) after graph state is ready
+// ============================================================================
+
+/**
+ * @param {object} gs  Shared graph state
+ * @returns {{ draw, getNodeColor, getNodeRadius, toScreen, toWorld, updateTooltip, buildColorLegend }}
+ */
+export function initRender(gs) {
+
+    function toScreen(x, y) { return { x: x * gs.zoom + gs.panX, y: y * gs.zoom + gs.panY }; }
+    function toWorld(sx, sy) { return { x: (sx - gs.panX) / gs.zoom, y: (sy - gs.panY) / gs.zoom }; }
+
+    function getNodeColor(n) {
+        if (n === gs.hoverNode) return '#ffffff';
+        let color;
+        switch (gs.colorMode) {
+            case 'priority': color = priorityColor(n.priority); break;
+            case 'centrality': color = centralityColor(gs.edgeCountByNode.get(n.id) || 0, gs.maxEdgeCount); break;
+            case 'frequency': color = frequencyColor(gs.injectionCounts.get(n.id) || 0, gs.maxInjectionCount); break;
+            case 'community': color = COMMUNITY_PALETTE[(n.community ?? 0) % COMMUNITY_PALETTE.length]; break;
+            default: color = gs.nodeColors[n.type] || '#4caf50'; break;
+        }
+        return toPastel(color);
+    }
+
+    function getNodeRadius(n) {
+        const connections = gs.edgeCountByNode.get(n.id) || 0;
+        return Math.max(7, Math.min(22, 7 + Math.sqrt(connections / gs.maxEdgeCount) * 15));
+    }
+
+    function buildColorLegend() {
+        switch (gs.colorMode) {
+            case 'type': {
+                const items = [
+                    ['Constant', toPastel(gs.nodeColors.constant)],
+                    ['Seed', toPastel(gs.nodeColors.seed)],
+                    ['Bootstrap', toPastel(gs.nodeColors.bootstrap)],
+                    ['Regular', toPastel(gs.nodeColors.regular)],
+                ];
+                return items.map(([label, color]) =>
+                    `<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};"></span>${label}</span>`
+                ).join('');
+            }
+            case 'priority':
+                return `<span style="display:inline-flex;align-items:center;gap:6px;">Priority:
+                    <span style="display:inline-flex;align-items:center;gap:2px;">High</span>
+                    <span style="display:inline-block;width:120px;height:10px;border-radius:3px;background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#ff9800')},#ffeb3b,${toPastel('#66bb6a')},${toPastel('#42a5f5')});"></span>
+                    <span>Low</span>
+                </span>`;
+            case 'centrality':
+                return `<span style="display:inline-flex;align-items:center;gap:6px;">Connections:
+                    <span>Many</span>
+                    <span style="display:inline-block;width:120px;height:10px;border-radius:3px;background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#ff9800')},#ffeb3b,${toPastel('#66bb6a')},${toPastel('#42a5f5')});"></span>
+                    <span>Few</span>
+                </span>`;
+            case 'frequency':
+                return `<span style="display:inline-flex;align-items:center;gap:6px;">Injections:
+                    <span>Frequent</span>
+                    <span style="display:inline-block;width:120px;height:10px;border-radius:3px;background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#e87040')},${toPastel('#b08a50')},${toPastel('#6a8db8')},${toPastel('#4a6fa5')});"></span>
+                    <span>Never</span>
+                </span>`;
+            case 'community': {
+                if (!gs.communities || gs.communities.size === 0) return '<span>No communities detected</span>';
+                const items = [];
+                for (const [, cm] of gs.communities) {
+                    if (cm.members.length === 0) continue;
+                    items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${toPastel(cm.color)};"></span>${cm.label} (${cm.members.length})</span>`);
+                }
+                return items.slice(0, 8).join('') + (items.length > 8 ? `<span class="dle-dimmed">+${items.length - 8} more</span>` : '');
+            }
+            default: return '';
+        }
+    }
+
+    function updateTooltip() {
+        const tooltipEl = gs.tooltipEl;
+        if (!tooltipEl) return;
+        if (!gs.hoverNode || gs.hoverNode.hidden) {
+            tooltipEl.innerHTML = buildColorLegend() || '&nbsp;';
+            return;
+        }
+        const n = gs.hoverNode;
+        const entry = vaultIndex[n.id];
+        const connections = gs.edgeCountByNode.get(n.id) || 0;
+        const injections = gs.injectionCounts.get(n.id) || 0;
+        const vaultLabel = gs.multiVault && n.vaultSource ? `<span class="dle-dimmed">[${n.vaultSource}]</span>` : '';
+        const typeBadge = `<span class="dle-graph-tooltip-badge dle-graph-tooltip-badge--${n.type}">${n.type}</span>`;
+
+        let healthBadge = '';
+        if (lastHealthResult) {
+            const issues = (lastHealthResult.issues || []).filter(i => i.entry === n.title);
+            if (issues.length > 0) {
+                const worst = issues.some(i => i.severity === 'error') ? 'error' : 'warning';
+                healthBadge = `<span class="dle-graph-tooltip-badge dle-graph-tooltip-badge--${worst}">${issues.length} issue${issues.length > 1 ? 's' : ''}</span>`;
+            }
+        }
+
+        const pinnedLabel = (n.pinned && !n._treePinned) ? '<span class="dle-graph-tooltip-badge dle-graph-tooltip-badge--pinned">pinned</span>' : '';
+        const gatingFields = [];
+        if (entry.era) gatingFields.push(`Era: ${entry.era}`);
+        if (entry.location) gatingFields.push(`Location: ${entry.location}`);
+        if (entry.sceneType) gatingFields.push(`Scene: ${entry.sceneType}`);
+        tooltipEl.innerHTML = `
+            <strong>${n.title}</strong> ${vaultLabel}
+            ${typeBadge}${healthBadge}${pinnedLabel}
+            <span class="dle-graph-tooltip-stats">~${n.tokens} tokens · Priority ${entry.priority} · ${connections} connections · ${injections} injections</span>
+            ${gatingFields.length > 0 ? `<span class="dle-graph-tooltip-gating">${gatingFields.join(' · ')}</span>` : ''}
+        `;
+    }
+
+    function draw() {
+        const { ctx, W, nodes, edges, edgeVisibility, edgeColors, hoverDistances, hoverNode,
+                focusTreeRoot, colorMode, showLabels, searchQuery, typeFilter, tagFilter,
+                zoom, settings, injectionCounts, maxInjectionCount, computedStyle } = gs;
+        ctx.clearRect(0, 0, W, gs.H);
+
+        // Draw community hulls (behind everything)
+        if (colorMode === 'community' && gs.communities && gs.communities.size > 0) {
+            for (const [, cm] of gs.communities) {
+                if (cm.members.length < 3) continue;
+                // Collect screen positions of visible members
+                const pts = [];
+                for (const n of cm.members) {
+                    if (n.hidden || n._revealScale < 0.3) continue;
+                    const s = toScreen(n.x, n.y);
+                    pts.push({ x: s.x, y: s.y });
+                }
+                if (pts.length < 3) continue;
+                const hull = convexHull(pts);
+                if (hull.length < 3) continue;
+
+                // Expand hull by padding for visual breathing room
+                const pad = 20 * zoom;
+                let hcx = 0, hcy = 0;
+                for (const p of hull) { hcx += p.x; hcy += p.y; }
+                hcx /= hull.length; hcy /= hull.length;
+                const expanded = hull.map(p => {
+                    const dx = p.x - hcx, dy = p.y - hcy;
+                    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                    return { x: p.x + (dx / dist) * pad, y: p.y + (dy / dist) * pad };
+                });
+
+                // Draw with quadratic Bezier smoothing
+                ctx.globalAlpha = 0.12;
+                ctx.fillStyle = cm.color;
+                ctx.beginPath();
+                const last = expanded[expanded.length - 1];
+                const first = expanded[0];
+                ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2);
+                for (let i = 0; i < expanded.length; i++) {
+                    const curr = expanded[i];
+                    const next = expanded[(i + 1) % expanded.length];
+                    ctx.quadraticCurveTo(curr.x, curr.y, (curr.x + next.x) / 2, (curr.y + next.y) / 2);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+                // Community label at centroid — scales with zoom for readability
+                const cs = toScreen(cm.cx, cm.cy);
+                const communityFontSize = Math.max(8, Math.min(24, 14 * zoom));
+                ctx.globalAlpha = Math.min(0.6, 0.2 + zoom * 0.4);
+                ctx.fillStyle = cm.color;
+                ctx.font = `bold ${communityFontSize}px system-ui, -apple-system, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillText(cm.label, cs.x, cs.y);
+            }
+            ctx.globalAlpha = 1;
+        }
+
+        // Batch edges by type
+        const edgesByType = { link: [], requires: [], excludes: [], cascade: [] };
+        for (const edge of edges) {
+            if (!edgeVisibility[edge.type]) continue;
+            if (nodes[edge.from].hidden || nodes[edge.to].hidden) continue;
+            if (edge._revealAlpha < 0.01) continue; // entrance animation: skip unrevealed edges
+            (edgesByType[edge.type] || (edgesByType[edge.type] = [])).push(edge);
+        }
+
+        for (const [type, edgeList] of Object.entries(edgesByType)) {
+            if (edgeList.length === 0) continue;
+            ctx.strokeStyle = edgeColors[type] || '#555';
+            if (type === 'excludes') { ctx.setLineDash([7, 5]); } else if (type === 'cascade') { ctx.setLineDash([2, 4]); } else { ctx.setLineDash([]); }
+
+            for (const edge of edgeList) {
+                const fromFiltered = nodes[edge.from].filtered;
+                const toFiltered = nodes[edge.to].filtered;
+
+                // Frequency mode: thicker edges for high-frequency nodes
+                let freqAvg = 0;
+                if (colorMode === 'frequency') {
+                    const fromFreq = (injectionCounts.get(edge.from) || 0) / (maxInjectionCount || 1);
+                    const toFreq = (injectionCounts.get(edge.to) || 0) / (maxInjectionCount || 1);
+                    freqAvg = (fromFreq + toFreq) / 2;
+                    ctx.lineWidth = 1 + freqAvg * 3;
+                } else {
+                    ctx.lineWidth = 2;
+                }
+
+                // Alpha priority: hover dim > focus tree depth > filtered > frequency/standard
+                if (hoverDistances && focusTreeRoot && focusTreeRoot._treeEdgeIdx) {
+                    if (!focusTreeRoot._treeEdgeIdx.has(edge._idx)) continue;
+                    const dm = focusTreeRoot._depthMap;
+                    const hid = hoverNode ? hoverNode.id : -1;
+                    const touchesHover = (edge.from === hid || edge.to === hid);
+                    const otherDepth = edge.from === hid ? (dm.get(edge.to) ?? 0) : (dm.get(edge.from) ?? 0);
+                    const hoverDepth = dm.get(hid) ?? 0;
+                    const isDownward = touchesHover && otherDepth > hoverDepth;
+                    const isUpward = touchesHover && otherDepth < hoverDepth;
+                    const isLeaf = !edges.some(e => {
+                        if (!focusTreeRoot._treeEdgeIdx.has(e._idx)) return false;
+                        const oId = e.from === hid ? e.to : e.to === hid ? e.from : -1;
+                        return oId !== -1 && (dm.get(oId) ?? 0) > hoverDepth;
+                    });
+                    const highlight = isDownward || (isLeaf && isUpward);
+                    ctx.globalAlpha = highlight ? 0.35 : 0.03;
+                    ctx.lineWidth = highlight ? 3 : 1;
+                } else if (hoverDistances) {
+                    const hid = hoverNode ? hoverNode.id : -1;
+                    const touchesHover = (edge.from === hid || edge.to === hid);
+                    // Both endpoints within hover reach? Show connecting edges between neighbors
+                    const fromInReach = hoverDistances.has(edge.from);
+                    const toInReach = hoverDistances.has(edge.to);
+                    const neighborEdge = fromInReach && toInReach && !touchesHover;
+                    if (touchesHover) {
+                        // Attenuate brightness when many edges fan out from hovered node
+                        const hoverEdgeCount = gs.edgeCountByNode.get(hid) || 1;
+                        const attenuation = hoverEdgeCount > 20 ? Math.max(0.35, 1.0 - (hoverEdgeCount - 20) * 0.015) : 1.0;
+                        ctx.globalAlpha = 0.85 * attenuation;
+                        ctx.lineWidth = hoverEdgeCount > 20 ? 2 : 3;
+                        ctx.shadowColor = edgeColors[type] || '#aac8ff';
+                        ctx.shadowBlur = 3;
+                    } else if (neighborEdge) {
+                        ctx.globalAlpha = 0.12;
+                        ctx.lineWidth = 1;
+                        ctx.shadowBlur = 0;
+                    } else {
+                        ctx.globalAlpha = settings.graphHoverDimOpacity || 0.03;
+                        ctx.lineWidth = 1;
+                        ctx.shadowBlur = 0;
+                    }
+                } else if (focusTreeRoot && focusTreeRoot._treeEdgeIdx) {
+                    if (!focusTreeRoot._treeEdgeIdx.has(edge._idx)) continue;
+                    const dm = focusTreeRoot._depthMap;
+                    const maxD = Math.max(dm.get(edge.from) ?? 0, dm.get(edge.to) ?? 0);
+                    if (maxD === 0)      { ctx.globalAlpha = 0.6; ctx.lineWidth = 3; }
+                    else if (maxD === 1) { ctx.globalAlpha = 0.35; ctx.lineWidth = 2; }
+                    else                 { ctx.globalAlpha = 0.15; ctx.lineWidth = 1; }
+                } else if (fromFiltered && toFiltered) {
+                    ctx.globalAlpha = 0.06;
+                } else if (fromFiltered || toFiltered) {
+                    ctx.globalAlpha = 0.12;
+                } else if (colorMode === 'frequency') {
+                    ctx.globalAlpha = 0.2 + freqAvg * 0.6;
+                } else if (edge._backbone === false) {
+                    // Disparity-filtered: barely visible, revealed on hover
+                    ctx.globalAlpha = 0.03;
+                } else {
+                    // Default-dim: backbone edges at low visibility, revealed on hover
+                    ctx.globalAlpha = 0.08;
+                }
+
+                // Entrance animation: fade edges in with reveal progress
+                if (edge._revealAlpha < 1) ctx.globalAlpha *= edge._revealAlpha;
+
+                const a = toScreen(nodes[edge.from].x, nodes[edge.from].y);
+                const b = toScreen(nodes[edge.to].x, nodes[edge.to].y);
+                ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+            }
+        }
+        ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1; ctx.shadowBlur = 0;
+
+        // Draw nodes — flat circles, rendered AFTER edges
+        const bgColor = computedStyle.getPropertyValue('--dle-bg-surface').trim() || '#1a1a2e';
+        // Background mask pass
+        for (const n of nodes) {
+            if (n.hidden || n._revealScale < 0.01) continue;
+            const s = toScreen(n.x, n.y);
+            const r = getNodeRadius(n) * n._revealScale;
+            ctx.globalAlpha = 1;
+            ctx.fillStyle = bgColor;
+            ctx.beginPath(); ctx.arc(s.x, s.y, (r + 1) * zoom, 0, Math.PI * 2); ctx.fill();
+        }
+        // Colored node pass
+        for (const n of nodes) {
+            if (n.hidden || n._revealScale < 0.01) continue;
+            if (hoverDistances && focusTreeRoot && focusTreeRoot._depthMap) {
+                const nd = focusTreeRoot._depthMap.get(n.id) ?? 99;
+                ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.6;
+            } else if (hoverDistances) {
+                const hopDist = hoverDistances.get(n.id);
+                if (hopDist === 0 || hopDist === 1) ctx.globalAlpha = 1.0;       // hovered + 1-hop: full
+                else if (hopDist === 2)              ctx.globalAlpha = 0.6;       // 2-hop: visible but faded
+                else                                 ctx.globalAlpha = 0.15;      // beyond: dim
+            } else if (focusTreeRoot && focusTreeRoot._depthMap) {
+                const nd = focusTreeRoot._depthMap.get(n.id) ?? 99;
+                ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.5;
+            } else if (n.filtered) {
+                ctx.globalAlpha = 0.12;
+            } else {
+                ctx.globalAlpha = 1;
+            }
+            const s = toScreen(n.x, n.y);
+            const r = getNodeRadius(n) * n._revealScale;
+            ctx.fillStyle = getNodeColor(n);
+            ctx.beginPath(); ctx.arc(s.x, s.y, r * zoom, 0, Math.PI * 2); ctx.fill();
+            if (focusTreeRoot === n) {
+                ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.arc(s.x, s.y, (r + 4) * zoom, 0, Math.PI * 2); ctx.stroke();
+                ctx.lineWidth = 1;
+            } else if (n.pinned && !n._treePinned) {
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(s.x, s.y, (r + 3) * zoom, 0, Math.PI * 2); ctx.stroke();
+                ctx.lineWidth = 1;
+            }
+        }
+        ctx.globalAlpha = 1;
+
+        // Gap analysis overlay
+        if (gs.gapAnalysisActive && gs.gapAnalysis) {
+            const ga = gs.gapAnalysis;
+            const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 600); // calm breathing pulse
+
+            // Orphan nodes: pulsing red ring
+            ctx.strokeStyle = '#e53935';
+            ctx.lineWidth = 2.5;
+            for (const id of ga.orphans) {
+                const n = nodes[id];
+                if (n.hidden) continue;
+                const s = toScreen(n.x, n.y);
+                const r = getNodeRadius(n) * (n._revealScale || 1);
+                ctx.globalAlpha = 0.5 + pulse * 0.35;
+                ctx.beginPath(); ctx.arc(s.x, s.y, (r + 6) * zoom, 0, Math.PI * 2); ctx.stroke();
+            }
+
+            // Weak bridges: dashed yellow highlight
+            ctx.strokeStyle = '#ffd600';
+            ctx.lineWidth = 3;
+            ctx.setLineDash([6, 4]);
+            ctx.globalAlpha = 0.7;
+            for (const idx of ga.bridges) {
+                const e = edges[idx];
+                if (nodes[e.from].hidden || nodes[e.to].hidden) continue;
+                const a = toScreen(nodes[e.from].x, nodes[e.from].y);
+                const b = toScreen(nodes[e.to].x, nodes[e.to].y);
+                ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+            }
+
+            // Missing connections: faint dashed cyan lines
+            if (ga.missingConnections.length > 0) {
+                ctx.strokeStyle = '#00bcd4';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([3, 6]);
+                ctx.globalAlpha = 0.25;
+                // Limit to 50 to avoid clutter
+                const shown = ga.missingConnections.slice(0, 50);
+                for (const mc of shown) {
+                    const na = nodes[mc.a], nb = nodes[mc.b];
+                    if (na.hidden || nb.hidden) continue;
+                    const a = toScreen(na.x, na.y);
+                    const b = toScreen(nb.x, nb.y);
+                    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+                }
+            }
+
+            ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1;
+
+            // If pulsing, request redraw for animation
+            gs.needsDraw = true;
+        }
+
+        // Draw labels
+        if (showLabels) {
+            ctx.font = `500 ${Math.max(9, 11 * zoom)}px system-ui, -apple-system, sans-serif`; ctx.textAlign = 'center';
+            ctx.lineJoin = 'round';
+            for (const n of nodes) {
+                if (n.hidden || n._revealScale < 0.5) continue;
+                if (n.filtered && !focusTreeRoot) continue;
+                if (hoverDistances && !focusTreeRoot && !hoverDistances.has(n.id)) continue;
+                const s = toScreen(n.x, n.y);
+                const isHub = (gs.edgeCountByNode.get(n.id) || 0) >= 5;
+                const matchesFilter = (searchQuery || typeFilter || tagFilter) && !n.filtered;
+                if (focusTreeRoot || zoom > 0.7 || (zoom > 0.4 && (isHub || matchesFilter))) {
+                    if (focusTreeRoot) {
+                        const isHovered = n === hoverNode;
+                        const treeEdgeSet = focusTreeRoot._depthMap?._treeEdges;
+                        const isTreeNeighbor = isHovered ? false : (hoverNode && treeEdgeSet &&
+                            treeEdgeSet.has(`${hoverNode.id}:${n.id}`) &&
+                            (focusTreeRoot._depthMap.get(n.id) ?? 0) > (focusTreeRoot._depthMap.get(hoverNode.id) ?? 0));
+                        const bright = isHovered || n === focusTreeRoot || isTreeNeighbor;
+                        ctx.fillStyle = (isHovered || n === focusTreeRoot) ? '#fff' : isTreeNeighbor ? '#ccc' : '#888';
+                        ctx.globalAlpha = bright ? 1.0 : 0.6;
+                    } else {
+                        ctx.fillStyle = '#ddd';
+                        ctx.globalAlpha = 1;
+                    }
+                    const labelOffset = (getNodeRadius(n) + 4) * zoom;
+                    // Dark outline for readability over any background
+                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.lineWidth = 3;
+                    ctx.strokeText(n.title, s.x, s.y - labelOffset);
+                    ctx.fillText(n.title, s.x, s.y - labelOffset);
+                }
+            }
+
+            // Zoomed hover label — only in focus tree mode
+            if (hoverNode && zoom < 0.8 && focusTreeRoot) {
+                const hs = toScreen(hoverNode.x, hoverNode.y);
+                const fontSize = Math.max(13, 14);
+                ctx.save();
+                ctx.font = `bold ${fontSize}px system-ui, -apple-system, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.fillStyle = '#fff';
+                ctx.globalAlpha = 1;
+                const textW = ctx.measureText(hoverNode.title).width;
+                const pad = 4;
+                const hoverLabelOffset = (getNodeRadius(hoverNode) + 6) * zoom;
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                ctx.fillRect(hs.x - textW / 2 - pad, hs.y - hoverLabelOffset - fontSize + 2, textW + pad * 2, fontSize + pad);
+                ctx.fillStyle = '#fff';
+                ctx.fillText(hoverNode.title, hs.x, hs.y - hoverLabelOffset + 2);
+                ctx.restore();
+            }
+        }
+    }
+
+    // Attach to gs for cross-module access
+    gs.toScreen = toScreen;
+    gs.toWorld = toWorld;
+    gs.getNodeColor = getNodeColor;
+    gs.getNodeRadius = getNodeRadius;
+    gs.updateTooltip = updateTooltip;
+
+    return { draw, getNodeColor, getNodeRadius, toScreen, toWorld, updateTooltip, buildColorLegend };
+}

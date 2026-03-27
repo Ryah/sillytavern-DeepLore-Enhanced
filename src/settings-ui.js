@@ -525,6 +525,7 @@ function loadPopupSettings($container) {
     $c('#dle_sp_graph_gravity').val(settings.graphGravity);
     $c('#dle_sp_graph_damping').val(settings.graphDamping);
     $c('#dle_sp_graph_hover_dim_opacity').val(settings.graphHoverDimOpacity);
+    $c('#dle_sp_graph_edge_filter_alpha').val(settings.graphEdgeFilterAlpha);
 
     // ── Features — Notebook ──
     $c('#dle_sp_notebook_enabled').prop('checked', settings.notebookEnabled);
@@ -744,11 +745,12 @@ function bindPopupEvents($container) {
     $c('#dle_sp_graph_hover_dim_distance').on('input', function () { settings.graphHoverDimDistance = numVal($(this).val(), 2); saveSettingsDebounced(); });
     $c('#dle_sp_graph_focus_tree_depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 3); saveSettingsDebounced(); });
     $c('#dle_sp_graph_show_labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_repulsion').on('input', function () { settings.graphRepulsion = numVal($(this).val(), 2000); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_spring_length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 120); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 0.03; saveSettingsDebounced(); });
-    $c('#dle_sp_graph_damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.7; saveSettingsDebounced(); });
+    $c('#dle_sp_graph_repulsion').on('input', function () { settings.graphRepulsion = parseFloat($(this).val()) || 0.5; saveSettingsDebounced(); });
+    $c('#dle_sp_graph_spring_length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 200); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 5.0; saveSettingsDebounced(); });
+    $c('#dle_sp_graph_damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.70; saveSettingsDebounced(); });
     $c('#dle_sp_graph_hover_dim_opacity').on('input', function () { settings.graphHoverDimOpacity = parseFloat($(this).val()) || 0.1; saveSettingsDebounced(); });
+    $c('#dle_sp_graph_edge_filter_alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
 
     // Test AI / Preview
     $c('#dle_sp_test_ai').on('click', async function () {
@@ -929,7 +931,7 @@ function bindPopupEvents($container) {
         dle_sp_graph_repulsion: 'graphRepulsion', dle_sp_graph_spring_length: 'graphSpringLength',
         dle_sp_graph_gravity: 'graphGravity', dle_sp_graph_damping: 'graphDamping',
         dle_sp_graph_hover_dim_distance: 'graphHoverDimDistance', dle_sp_graph_hover_dim_opacity: 'graphHoverDimOpacity',
-        dle_sp_graph_focus_tree_depth: 'graphFocusTreeDepth',
+        dle_sp_graph_focus_tree_depth: 'graphFocusTreeDepth', dle_sp_graph_edge_filter_alpha: 'graphEdgeFilterAlpha',
         dle_sp_fuzzy_min_score: 'fuzzySearchMinScore', dle_sp_rebuild_gen_interval: 'indexRebuildGenerationInterval',
     };
     for (const [inputId, settingName] of Object.entries(clampMap)) {

@@ -1,18 +1,18 @@
 /**
  * DeepLore Enhanced — Context Cartographer
  */
-import { escapeHtml } from '../../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { buildCopyButton, attachCopyHandler } from './popups.js';
-import { chat } from '../../../../../script.js';
-import { simpleHash } from '../core/utils.js';
-import { getSettings } from '../settings.js';
-import { vaultIndex, vaultAvgTokens, previousSources, setPreviousSources, lastPipelineTrace, chatInjectionCounts, trackerKey } from './state.js';
+import { chat } from '../../../../../../script.js';
+import { simpleHash } from '../../core/utils.js';
+import { getSettings } from '../../settings.js';
+import { vaultIndex, vaultAvgTokens, previousSources, setPreviousSources, lastPipelineTrace, chatInjectionCounts, trackerKey } from '../state.js';
 import { diagnoseEntry } from './diagnostics.js';
-import { STAGE_COLORS, computeSourcesDiff, categorizeRejections, resolveEntryVault, parseMatchReason, tokenBarColor, formatRelativeTime } from './helpers.js';
-import { navigateToBrowseEntry } from './drawer.js';
+import { STAGE_COLORS, computeSourcesDiff, categorizeRejections, resolveEntryVault, parseMatchReason, tokenBarColor, formatRelativeTime } from '../helpers.js';
+import { navigateToBrowseEntry } from '../drawer/drawer.js';
 // Re-export from helpers.js (moved there for testability in Node.js)
-export { buildObsidianURI } from './helpers.js';
+export { buildObsidianURI } from '../helpers.js';
 
 /**
  * Reset cartographer state on chat change.

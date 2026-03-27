@@ -7,17 +7,17 @@ import {
     chat,
     chat_metadata,
     name2,
-} from '../../../../../script.js';
-import { getSettings, getPrimaryVault } from '../settings.js';
-import { writeNote } from './obsidian-api.js';
-import { buildAiChatContext } from '../core/utils.js';
+} from '../../../../../../script.js';
+import { getSettings, getPrimaryVault } from '../../settings.js';
+import { writeNote } from '../vault/obsidian-api.js';
+import { buildAiChatContext } from '../../core/utils.js';
 import { callAI } from './ai.js';
-import { stripObsidianSyntax } from './helpers.js';
+import { stripObsidianSyntax } from '../helpers.js';
 import {
     scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
     setScribeInProgress, setLastScribeSummary, setLastScribeChatLength,
-} from './state.js';
-import { dedupError } from './toast-dedup.js';
+} from '../state.js';
+import { dedupError } from '../toast-dedup.js';
 
 export const DEFAULT_SCRIBE_PROMPT = `Summarize this roleplay session segment. Write in past tense, third person.
 

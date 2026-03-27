@@ -2,9 +2,9 @@
  * DeepLore Enhanced — Drawer Shared State & Constants
  * Shared between drawer.js, drawer-render.js, and drawer-events.js.
  */
-import { escapeHtml } from '../../../../utils.js';
-import { parseMatchReason } from './helpers.js';
-import { chatInjectionCounts, consecutiveInjections, vaultIndex, trackerKey } from './state.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { parseMatchReason } from '../helpers.js';
+import { chatInjectionCounts, consecutiveInjections, vaultIndex, trackerKey } from '../state.js';
 
 // ─── Constants ───
 

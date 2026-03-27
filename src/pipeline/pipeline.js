@@ -2,17 +2,17 @@
  * DeepLore Enhanced — Pipeline runner
  * matchEntries, runPipeline, matchTextForExternal
  */
-import { getSettings, PROMPT_TAG_PREFIX } from '../settings.js';
-import { buildScanText } from '../core/utils.js';
-import { testEntryMatch, countKeywordOccurrences, formatAndGroup } from '../core/matching.js';
-import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from './stages.js';
+import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
+import { buildScanText } from '../../core/utils.js';
+import { testEntryMatch, countKeywordOccurrences, formatAndGroup } from '../../core/matching.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
     trackerKey, setLastPipelineTrace, fuzzySearchIndex,
-} from './state.js';
-import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from './ai.js';
-import { ensureIndexFresh, queryBM25 } from './vault.js';
-import { name2 } from '../../../../../script.js';
+} from '../state.js';
+import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from '../ai/ai.js';
+import { ensureIndexFresh, queryBM25 } from '../vault/vault.js';
+import { name2 } from '../../../../../../script.js';
 
 /**
  * Match vault entries against chat messages, with recursive scanning support.

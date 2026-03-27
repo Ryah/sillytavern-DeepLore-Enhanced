@@ -3,20 +3,20 @@
  * aiSearch, callViaProfile, extractAiResponseClient, buildCandidateManifest,
  * hierarchicalPreFilter, getProfileModelHint
  */
-import { ConnectionManagerRequestService } from '../../../shared.js';
-import { truncateToSentence, simpleHash, buildAiChatContext } from '../core/utils.js';
-import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../settings.js';
+import { ConnectionManagerRequestService } from '../../../../shared.js';
+import { truncateToSentence, simpleHash, buildAiChatContext } from '../../core/utils.js';
+import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
     trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
     notifyAiStatsUpdated,
     isAiCircuitOpen, recordAiSuccess, recordAiFailure,
-} from './state.js';
-import { dedupWarning } from './toast-dedup.js';
+} from '../state.js';
+import { dedupWarning } from '../toast-dedup.js';
 // Re-export pure functions from helpers.js (moved there for testability in Node.js)
-export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from './helpers.js';
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from './helpers.js';
+export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from '../helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from '../helpers.js';
 
 // extractAiResponseClient — imported from ./helpers.js
 

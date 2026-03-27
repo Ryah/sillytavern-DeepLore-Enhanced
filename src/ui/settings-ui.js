@@ -4,29 +4,29 @@
 import {
     saveSettingsDebounced,
     chat,
-} from '../../../../../script.js';
-import { ConnectionManagerRequestService } from '../../../shared.js';
-import { escapeHtml } from '../../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
-import { renderExtensionTemplateAsync } from '../../../../extensions.js';
-import { buildAiChatContext } from '../core/utils.js';
-import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache, defaultSettings } from '../settings.js';
-import { testConnection } from './obsidian-api.js';
-import { testProxyConnection } from './proxy-api.js';
+} from '../../../../../../script.js';
+import { ConnectionManagerRequestService } from '../../../../shared.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
+import { buildAiChatContext } from '../../core/utils.js';
+import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache, defaultSettings } from '../../settings.js';
+import { testConnection } from '../vault/obsidian-api.js';
+import { testProxyConnection } from '../ai/proxy-api.js';
 import {
     vaultIndex,
     computeOverallStatus,
     setVaultIndex, setIndexTimestamp, setLastHealthResult,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
-} from './state.js';
-import { ensureIndexFresh } from './vault.js';
+} from '../state.js';
+import { ensureIndexFresh } from '../vault/vault.js';
 import {
     callViaProfile, getProfileModelHint,
     buildCandidateManifest,
-} from './ai.js';
-import { matchEntries } from './pipeline.js';
-import { setupSyncPolling } from './sync.js';
-import { buildIndexWithReuse } from './vault.js';
+} from '../ai/ai.js';
+import { matchEntries } from '../pipeline/pipeline.js';
+import { setupSyncPolling } from '../vault/sync.js';
+import { buildIndexWithReuse } from '../vault/vault.js';
 import { showNotebookPopup, showBrowsePopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
 

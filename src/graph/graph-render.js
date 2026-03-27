@@ -2,7 +2,7 @@
  * DeepLore Enhanced — Graph rendering module.
  * Canvas drawing: edges, nodes, labels, tooltip, color legend.
  */
-import { vaultIndex, lastHealthResult } from './state.js';
+import { vaultIndex, lastHealthResult } from '../state.js';
 import { COMMUNITY_PALETTE, convexHull } from './graph-analysis.js';
 
 // ============================================================================

@@ -8,25 +8,25 @@ import {
     saveChatDebounced,
     chat_metadata,
     chat,
-} from '../../../../../script.js';
-import { escapeHtml } from '../../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
-import { getTokenCountAsync } from '../../../../tokenizers.js';
-import { parseFrontmatter, simpleHash, buildScanText, classifyError, NO_ENTRIES_MSG } from '../core/utils.js';
-import { testEntryMatch } from '../core/matching.js';
-import { getSettings, getVaultByName } from '../settings.js';
-import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
+} from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { getTokenCountAsync } from '../../../../../tokenizers.js';
+import { parseFrontmatter, simpleHash, buildScanText, classifyError, NO_ENTRIES_MSG } from '../../core/utils.js';
+import { testEntryMatch } from '../../core/matching.js';
+import { getSettings, getVaultByName } from '../../settings.js';
+import { writeNote, obsidianFetch, encodeVaultPath } from '../vault/obsidian-api.js';
 import {
     vaultIndex, trackerKey,
     setVaultIndex, setIndexTimestamp,
-} from './state.js';
-import { buildIndex } from './vault.js';
-import { callAutoSuggest } from './auto-suggest.js';
-import { extractAiResponseClient } from './ai.js';
+} from '../state.js';
+import { buildIndex } from '../vault/vault.js';
+import { callAutoSuggest } from '../ai/auto-suggest.js';
+import { extractAiResponseClient } from '../ai/ai.js';
 import { buildObsidianURI } from './cartographer.js';
 import { diagnoseEntry } from './diagnostics.js';
-import { computeEntryTemperatures } from './drawer-state.js';
-import { STAGE_COLORS } from './helpers.js';
+import { computeEntryTemperatures } from '../drawer/drawer-state.js';
+import { STAGE_COLORS } from '../helpers.js';
 
 /**
  * Serialize a value for YAML frontmatter output.

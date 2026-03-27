@@ -4,11 +4,11 @@
  * runs the animation loop. Sub-modules handle physics, rendering,
  * events, settings, and focus tree.
  */
-import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
-import { NO_ENTRIES_MSG } from '../core/utils.js';
-import { getSettings } from '../settings.js';
-import { vaultIndex, chatInjectionCounts, trackerKey, mentionWeights } from './state.js';
-import { ensureIndexFresh } from './vault.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { NO_ENTRIES_MSG } from '../../core/utils.js';
+import { getSettings } from '../../settings.js';
+import { vaultIndex, chatInjectionCounts, trackerKey, mentionWeights } from '../state.js';
+import { ensureIndexFresh } from '../vault/vault.js';
 
 import { initPhysics } from './graph-physics.js';
 import { initRender } from './graph-render.js';

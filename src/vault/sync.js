@@ -1,9 +1,9 @@
 /**
  * DeepLore Enhanced — Vault change detection and sync polling
  */
-import { escapeHtml } from '../../../../utils.js';
-import { getSettings } from '../settings.js';
-import { syncIntervalId, indexing, setSyncIntervalId, setIndexing } from './state.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { getSettings } from '../../settings.js';
+import { syncIntervalId, indexing, setSyncIntervalId, setIndexing } from '../state.js';
 import { getCircuitState } from './obsidian-api.js';
 
 // Track when we first observe indexing=true, to detect stuck builds

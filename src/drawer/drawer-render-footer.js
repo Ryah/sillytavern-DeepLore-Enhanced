@@ -2,13 +2,13 @@
  * DeepLore Enhanced — Drawer Render: Footer Zone
  * Context bar, health icons, and AI stats.
  */
-import { amount_gen } from '../../../../../script.js';
-import { getSettings } from '../settings.js';
+import { amount_gen } from '../../../../../../script.js';
+import { getSettings } from '../../settings.js';
 import {
     vaultIndex, lastPipelineTrace,
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
-} from './state.js';
-import { getCircuitState } from './obsidian-api.js';
+} from '../state.js';
+import { getCircuitState } from '../vault/obsidian-api.js';
 import { ds, formatTokensCompact } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════

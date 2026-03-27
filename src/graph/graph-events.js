@@ -2,9 +2,9 @@
  * DeepLore Enhanced — Graph event handling module.
  * Mouse, keyboard, toolbar, legend, context menu, export.
  */
-import { vaultIndex } from './state.js';
-import { getSettings, getVaultByName } from '../settings.js';
-import { buildObsidianURI } from './helpers.js';
+import { vaultIndex } from '../state.js';
+import { getSettings, getVaultByName } from '../../settings.js';
+import { buildObsidianURI } from '../helpers.js';
 import { computeGapAnalysis } from './graph-analysis.js';
 
 // ============================================================================

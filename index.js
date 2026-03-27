@@ -37,16 +37,16 @@ import {
     setScribeInProgress, setPreviousSources,
     notifyPipelineComplete, notifyGatingChanged,
 } from './src/state.js';
-import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault.js';
-import { resetAiThrottle } from './src/ai.js';
-import { runPipeline } from './src/pipeline.js';
-import { setupSyncPolling } from './src/sync.js';
-import { runScribe } from './src/scribe.js';
-import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/cartographer.js';
-import { loadSettingsUI, bindSettingsEvents } from './src/settings-ui.js';
-import { registerSlashCommands } from './src/commands.js';
+import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
+import { resetAiThrottle } from './src/ai/ai.js';
+import { runPipeline } from './src/pipeline/pipeline.js';
+import { setupSyncPolling } from './src/vault/sync.js';
+import { runScribe } from './src/ai/scribe.js';
+import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/ui/cartographer.js';
+import { loadSettingsUI, bindSettingsEvents } from './src/ui/settings-ui.js';
+import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
-import { createDrawerPanel, resetDrawerState } from './src/drawer.js';
+import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
 
 // ============================================================================
 // Generation Interceptor
@@ -445,7 +445,7 @@ globalThis.deepLoreEnhanced_onGenerate = onGenerate;
 
 // External API: match vault entries against arbitrary text
 // (imported from pipeline.js, re-exported on globalThis)
-import { matchTextForExternal } from './src/pipeline.js';
+import { matchTextForExternal } from './src/pipeline/pipeline.js';
 globalThis.deepLoreEnhanced_matchText = matchTextForExternal;
 
 // ============================================================================

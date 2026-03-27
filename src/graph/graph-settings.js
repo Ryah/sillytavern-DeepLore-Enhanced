@@ -2,8 +2,8 @@
  * DeepLore Enhanced — Graph settings panel module.
  * Normalized slider mapping, presets, settings panel wiring.
  */
-import { invalidateSettingsCache } from '../settings.js';
-import { saveSettingsDebounced } from '../../../../../script.js';
+import { invalidateSettingsCache } from '../../settings.js';
+import { saveSettingsDebounced } from '../../../../../../script.js';
 
 // ============================================================================
 // Public API — call initGraphSettings(gs) after graph state is ready

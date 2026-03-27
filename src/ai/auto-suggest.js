@@ -6,16 +6,16 @@ import {
     generateQuietPrompt,
     chat,
     saveSettingsDebounced,
-} from '../../../../../script.js';
-import { escapeHtml } from '../../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
-import { getSettings, getPrimaryVault } from '../settings.js';
-import { writeNote } from './obsidian-api.js';
-import { buildAiChatContext, yamlEscape, classifyError } from '../core/utils.js';
+} from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { getSettings, getPrimaryVault } from '../../settings.js';
+import { writeNote } from '../vault/obsidian-api.js';
+import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI, extractAiResponseClient } from './ai.js';
-import { vaultIndex } from './state.js';
-import { stripObsidianSyntax } from './helpers.js';
-import { ensureIndexFresh } from './vault.js';
+import { vaultIndex } from '../state.js';
+import { stripObsidianSyntax } from '../helpers.js';
+import { ensureIndexFresh } from '../vault/vault.js';
 
 const DEFAULT_AUTO_SUGGEST_PROMPT = `You are a lore analyst for a roleplay session. Analyze the recent chat and identify characters, locations, items, concepts, or events that are mentioned but do NOT have an existing lorebook entry.
 

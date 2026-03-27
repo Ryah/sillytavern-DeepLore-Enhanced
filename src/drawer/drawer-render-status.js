@@ -2,14 +2,14 @@
  * DeepLore Enhanced — Drawer Render: Status Zone
  * Updates the fixed status bar and tab count badges.
  */
-import { chat_metadata } from '../../../../../script.js';
-import { escapeHtml } from '../../../../utils.js';
-import { getSettings } from '../settings.js';
+import { chat_metadata } from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { getSettings } from '../../settings.js';
 import {
     vaultIndex, lastInjectionSources, lastPipelineTrace,
     generationLock, indexing, indexEverLoaded, computeOverallStatus,
-} from './state.js';
-import { getCircuitState } from './obsidian-api.js';
+} from '../state.js';
+import { getCircuitState } from '../vault/obsidian-api.js';
 import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@
  * Validates against Obsidian in background after hydration.
  */
 
-import { getSettings } from '../settings.js';
+import { getSettings } from '../../settings.js';
 
 const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;

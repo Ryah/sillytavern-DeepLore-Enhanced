@@ -7,34 +7,34 @@ import {
     chat,
     chat_metadata,
     name2,
-} from '../../../../../script.js';
-import { saveSettingsDebounced, saveChatDebounced } from '../../../../../script.js';
-import { escapeHtml } from '../../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../popup.js';
-import { SlashCommandParser } from '../../../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../../../slash-commands/SlashCommand.js';
-import { parseFrontmatter, simpleHash, buildAiChatContext, classifyError, NO_ENTRIES_MSG } from '../core/utils.js';
-import { formatAndGroup } from '../core/matching.js';
-import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from './stages.js';
-import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, invalidateSettingsCache } from '../settings.js';
-import { fetchScribeNotes } from './obsidian-api.js';
+} from '../../../../../../script.js';
+import { saveSettingsDebounced, saveChatDebounced } from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
+import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
+import { parseFrontmatter, simpleHash, buildAiChatContext, classifyError, NO_ENTRIES_MSG } from '../../core/utils.js';
+import { formatAndGroup } from '../../core/matching.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
+import { getSettings, getPrimaryVault, PROMPT_TAG_PREFIX, DEFAULT_AI_SYSTEM_PROMPT, invalidateSettingsCache } from '../../settings.js';
+import { fetchScribeNotes } from '../vault/obsidian-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, scribeInProgress, buildPromise,
     lastPipelineTrace, injectionHistory, generationCount, generationLock,
     trackerKey, setIndexTimestamp,
     notifyGatingChanged, notifyPinBlockChanged,
-} from './state.js';
-import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from './vault.js';
-import { buildCandidateManifest } from './ai.js';
-import { matchEntries, runPipeline } from './pipeline.js';
-import { runScribe } from './scribe.js';
-import { runAutoSuggest, showSuggestionPopup } from './auto-suggest.js';
+} from '../state.js';
+import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from '../vault/vault.js';
+import { buildCandidateManifest } from '../ai/ai.js';
+import { matchEntries, runPipeline } from '../pipeline/pipeline.js';
+import { runScribe } from '../ai/scribe.js';
+import { runAutoSuggest, showSuggestionPopup } from '../ai/auto-suggest.js';
 import { showSourcesPopup } from './cartographer.js';
 import { runSimulation, showSimulationPopup, optimizeEntryKeys, showOptimizePopup, showNotebookPopup, showBrowsePopup, buildCopyButton, attachCopyHandler } from './popups.js';
-import { showGraphPopup } from './graph.js';
+import { showGraphPopup } from '../graph/graph.js';
 import { runHealthCheck } from './diagnostics.js';
-import { parseWorldInfoJson, importEntries } from './import.js';
-import { world_names, loadWorldInfo } from '../../../../world-info.js';
+import { parseWorldInfoJson, importEntries } from '../vault/import.js';
+import { world_names, loadWorldInfo } from '../../../../../world-info.js';
 
 export function registerSlashCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({

@@ -1,11 +1,11 @@
 /**
  * DeepLore Enhanced unit tests
- * Run with: node tests.mjs
+ * Run with: node test/unit.mjs
  *
  * Tests shared core functions (imported from core/) and Enhanced-specific functions.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { Script } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -14,14 +14,14 @@ import {
     parseFrontmatter, extractWikiLinks, cleanContent, extractTitle,
     truncateToSentence, simpleHash, escapeRegex,
     buildScanText, buildAiChatContext, validateSettings, yamlEscape,
-} from './core/utils.js';
-import { testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, formatAndGroup } from './core/matching.js';
-import { parseVaultFile, clearPrompts } from './core/pipeline.js';
-import { takeIndexSnapshot, detectChanges } from './core/sync.js';
+} from '../core/utils.js';
+import { testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, formatAndGroup } from '../core/matching.js';
+import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
+import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime } from './src/helpers.js';
-import { encodeVaultPath, validateVaultPath } from './src/obsidian-api.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime } from '../src/helpers.js';
+import { encodeVaultPath, validateVaultPath } from '../src/vault/obsidian-api.js';
 
 // State module imports for computeOverallStatus tests
 import {
@@ -29,7 +29,7 @@ import {
     setVaultIndex, setIndexEverLoaded, setLastHealthResult,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     recordAiFailure, recordAiSuccess,
-} from './src/state.js';
+} from '../src/state.js';
 
 // normalizeResults is a test-only utility (inlined in aiSearch() in production)
 function normalizeResults(arr) {
@@ -1575,7 +1575,7 @@ import {
     buildExemptionPolicy, applyPinBlock, applyContextualGating,
     applyReinjectionCooldown, applyRequiresExcludesGating,
     applyStripDedup, trackGeneration, decrementTrackers, recordAnalytics,
-} from './src/stages.js';
+} from '../src/stages.js';
 
 // -- buildExemptionPolicy --
 
@@ -2355,7 +2355,7 @@ test('integration: full 4-stage chain with budget truncation', () => {
 // Both failure modes produce ReferenceError/SyntaxError at runtime in the browser
 // but are invisible to tests that only import from helpers.js.
 
-const EXT_DIR = dirname(fileURLToPath(import.meta.url));
+const EXT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * Strip ESM import/export syntax so the file body can be parsed by vm.Script.
@@ -2431,18 +2431,32 @@ function findMissingReExportBindings(src) {
     return issues;
 }
 
+/** Recursively collect all .js files under a directory, returning relative paths. */
+function collectJsFiles(dir, base = dir) {
+    const results = [];
+    for (const entry of readdirSync(dir)) {
+        const full = join(dir, entry);
+        if (statSync(full).isDirectory()) {
+            results.push(...collectJsFiles(full, base));
+        } else if (entry.endsWith('.js')) {
+            results.push({ rel: full.slice(base.length + 1).replace(/\\/g, '/'), abs: full });
+        }
+    }
+    return results;
+}
+
 test('module-graph: all src/ modules parse without SyntaxError', () => {
     const srcDir = join(EXT_DIR, 'src');
-    const files = readdirSync(srcDir).filter(f => f.endsWith('.js'));
+    const files = collectJsFiles(srcDir);
     assert(files.length > 0, 'found src/ JS files to check');
-    for (const file of files) {
-        const src = readFileSync(join(srcDir, file), 'utf8');
+    for (const { rel, abs } of files) {
+        const src = readFileSync(abs, 'utf8');
         const stripped = stripESMForParsing(src);
         try {
-            new Script(stripped, { filename: `src/${file}` });
-            assert(true, `src/${file} parses OK`);
+            new Script(stripped, { filename: `src/${rel}` });
+            assert(true, `src/${rel} parses OK`);
         } catch (e) {
-            assert(false, `src/${file} has SyntaxError: ${e.message}`);
+            assert(false, `src/${rel} has SyntaxError: ${e.message}`);
         }
     }
 });
@@ -2468,14 +2482,14 @@ test('module-graph: re-exported functions have local import when used in body', 
     // export { X } from './helpers.js' does NOT bind X locally — a separate
     // import { X } from './helpers.js' is required for local use.
     const srcDir = join(EXT_DIR, 'src');
-    const files = readdirSync(srcDir).filter(f => f.endsWith('.js'));
-    for (const file of files) {
-        const src = readFileSync(join(srcDir, file), 'utf8');
+    const files = collectJsFiles(srcDir);
+    for (const { rel, abs } of files) {
+        const src = readFileSync(abs, 'utf8');
         const missing = findMissingReExportBindings(src);
         if (missing.length > 0) {
-            assert(false, `src/${file} uses re-exported name(s) without local import: ${missing.join(', ')}`);
+            assert(false, `src/${rel} uses re-exported name(s) without local import: ${missing.join(', ')}`);
         } else {
-            assert(true, `src/${file} re-export bindings OK`);
+            assert(true, `src/${rel} re-export bindings OK`);
         }
     }
 });

@@ -3,7 +3,7 @@
  * Tests state lifecycle, observer wiring, circuit breakers, pipeline stage interactions,
  * race condition guards, cache coherence, and multi-vault isolation.
  *
- * Run with: node integration-tests.mjs
+ * Run with: node test/integration.mjs
  *
  * These tests import directly from modules that have no SillyTavern dependencies
  * (state.js, stages.js, obsidian-api.js, core/*, helpers.js) and simulate event
@@ -57,29 +57,29 @@ import {
 
     // Status
     computeOverallStatus,
-} from './src/state.js';
+} from '../src/state.js';
 
 import {
     buildExemptionPolicy, applyPinBlock, applyContextualGating,
     applyReinjectionCooldown, applyRequiresExcludesGating,
     applyStripDedup, trackGeneration, decrementTrackers, recordAnalytics,
-} from './src/stages.js';
+} from '../src/stages.js';
 
 import {
     encodeVaultPath, validateVaultPath,
-} from './src/obsidian-api.js';
+} from '../src/vault/obsidian-api.js';
 
 import {
     extractAiResponseClient, clusterEntries, buildCategoryManifest,
     normalizeResults as normalizeResultsProd, parseMatchReason,
     computeSourcesDiff, categorizeRejections, resolveEntryVault,
     tokenBarColor, formatRelativeTime, checkHealthPure,
-} from './src/helpers.js';
+} from '../src/helpers.js';
 
-import { formatAndGroup, testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks } from './core/matching.js';
-import { parseVaultFile, clearPrompts } from './core/pipeline.js';
-import { takeIndexSnapshot, detectChanges } from './core/sync.js';
-import { buildScanText, validateSettings, simpleHash } from './core/utils.js';
+import { formatAndGroup, testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks } from '../core/matching.js';
+import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
+import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
+import { buildScanText, validateSettings, simpleHash } from '../core/utils.js';
 
 // ============================================================================
 // Test Runner

@@ -1,11 +1,11 @@
 /**
  * DeepLore Enhanced — Vault index building and cache management
  */
-import { getTokenCountAsync } from '../../../../tokenizers.js';
-import { oai_settings } from '../../../../openai.js';
-import { main_api, amount_gen } from '../../../../../script.js';
-import { getSettings } from '../settings.js';
-import { simpleHash } from '../core/utils.js';
+import { getTokenCountAsync } from '../../../../../tokenizers.js';
+import { oai_settings } from '../../../../../openai.js';
+import { main_api, amount_gen } from '../../../../../../script.js';
+import { getSettings } from '../../settings.js';
+import { simpleHash } from '../../core/utils.js';
 import { fetchAllMdFiles } from './obsidian-api.js';
 import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
@@ -17,13 +17,13 @@ import {
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
-} from './state.js';
-import { resolveLinks } from '../core/matching.js';
-import { parseVaultFile } from '../core/pipeline.js';
-import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
+} from '../state.js';
+import { resolveLinks } from '../../core/matching.js';
+import { parseVaultFile } from '../../core/pipeline.js';
+import { takeIndexSnapshot, detectChanges } from '../../core/sync.js';
 import { showChangesToast } from './sync.js';
 import { saveIndexToCache, loadIndexFromCache } from './cache.js';
-import { dedupError, dedupWarning } from './toast-dedup.js';
+import { dedupError, dedupWarning } from '../toast-dedup.js';
 
 // ============================================================================
 // BM25 Fuzzy Search Index

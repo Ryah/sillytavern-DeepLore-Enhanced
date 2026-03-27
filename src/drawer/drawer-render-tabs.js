@@ -2,15 +2,15 @@
  * DeepLore Enhanced — Drawer Render: Tab Content
  * Renders the Why?, Browse, Gating, and Timers tab panels.
  */
-import { chat_metadata } from '../../../../../script.js';
-import { escapeHtml } from '../../../../utils.js';
-import { getSettings } from '../settings.js';
+import { chat_metadata } from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { getSettings } from '../../settings.js';
 import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
     generationLock, indexing,
     cooldownTracker, decayTracker, chatInjectionCounts, trackerKey,
-} from './state.js';
-import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault } from './helpers.js';
+} from '../state.js';
+import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault } from '../helpers.js';
 import {
     ds, BROWSE_ROW_HEIGHT, BROWSE_OVERSCAN,
     getMatchLabel, computeEntryTemperatures,

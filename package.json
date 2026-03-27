@@ -9,9 +9,10 @@
         "url": "https://github.com/pixelnull/sillytavern-DeepLore-Enhanced"
     },
     "scripts": {
-        "test": "node tests.mjs",
-        "test:integration": "node integration-tests.mjs",
-        "test:all": "node tests.mjs && node integration-tests.mjs"
+        "test": "node test/unit.mjs",
+        "test:integration": "node test/integration.mjs",
+        "test:all": "node test/unit.mjs && node test/integration.mjs",
+        "test:imports": "node test/verify-imports.mjs"
     },
     "keywords": [
         "sillytavern",

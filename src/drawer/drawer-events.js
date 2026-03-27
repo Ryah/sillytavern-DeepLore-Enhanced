@@ -2,17 +2,17 @@
  * DeepLore Enhanced — Drawer Event Wiring
  * All event handlers and interaction wiring for the drawer panel.
  */
-import { chat_metadata, saveChatDebounced, saveSettingsDebounced } from '../../../../../script.js';
-import { escapeHtml } from '../../../../utils.js';
-import { getSettings, invalidateSettingsCache } from '../settings.js';
+import { chat_metadata, saveChatDebounced, saveSettingsDebounced } from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
+import { getSettings, invalidateSettingsCache } from '../../settings.js';
 import {
     vaultIndex, indexTimestamp, indexEverLoaded,
     aiSearchStats,
     notifyGatingChanged, notifyPinBlockChanged,
-} from './state.js';
-import { buildIndex } from './vault.js';
-import { buildObsidianURI } from './helpers.js';
-import { openSettingsPopup } from './settings-ui.js';
+} from '../state.js';
+import { buildIndex } from '../vault/vault.js';
+import { buildObsidianURI } from '../helpers.js';
+import { openSettingsPopup } from '../ui/settings-ui.js';
 import {
     ds, TAB_LABELS, TOOL_ACTIONS, EXPAND_ACTIONS, BROWSE_ROW_HEIGHT,
     scheduleRender,

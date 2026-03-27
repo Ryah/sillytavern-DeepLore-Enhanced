@@ -8,16 +8,16 @@
  *   drawer-events.js — All event wiring and interaction handlers
  *   drawer.js        — This file: creation, lifecycle, observer subscriptions
  */
-import { doNavbarIconClick, saveSettingsDebounced } from '../../../../../script.js';
-import { renderExtensionTemplateAsync, extension_settings } from '../../../../extensions.js';
-import { escapeHtml } from '../../../../utils.js';
+import { doNavbarIconClick, saveSettingsDebounced } from '../../../../../../script.js';
+import { renderExtensionTemplateAsync, extension_settings } from '../../../../../extensions.js';
+import { escapeHtml } from '../../../../../utils.js';
 import {
     vaultIndex,
     lastInjectionSources,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
     onIndexingChanged,
-} from './state.js';
+} from '../state.js';
 
 // ─── Drawer sub-modules ───
 import {

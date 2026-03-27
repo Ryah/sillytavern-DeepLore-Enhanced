@@ -1,13 +1,13 @@
 /**
  * DeepLore Enhanced — Self-Healing Diagnostics & Why Not?
  */
-import { getSettings } from '../settings.js';
-import { buildScanText } from '../core/utils.js';
-import { testEntryMatch, countKeywordOccurrences } from '../core/matching.js';
+import { getSettings } from '../../settings.js';
+import { buildScanText } from '../../core/utils.js';
+import { testEntryMatch, countKeywordOccurrences } from '../../core/matching.js';
 import {
     vaultIndex, indexTimestamp, cooldownTracker, injectionHistory,
     generationCount, lastPipelineTrace, trackerKey,
-} from './state.js';
+} from '../state.js';
 
 /**
  * Run comprehensive health checks on the vault index and settings.

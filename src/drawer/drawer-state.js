@@ -185,6 +185,7 @@ let pendingRenders = new Set();
 /**
  * Schedule a render function to run on the next animation frame.
  * Deduplicates multiple calls to the same function within a frame.
+ * @param {Function} renderFn  Render function to schedule
  */
 export function scheduleRender(renderFn) {
     pendingRenders.add(renderFn);
@@ -203,7 +204,11 @@ export function scheduleRender(renderFn) {
 
 // ─── Shared Utility Functions ───
 
-/** Convert matchedBy reason to a short badge label */
+/**
+ * Convert matchedBy reason to a short badge label (e.g. 'KEY', 'AI', 'CONST').
+ * @param {string|null} matchedBy  Raw match reason string from pipeline
+ * @returns {string} Short label for display
+ */
 export function getMatchLabel(matchedBy) {
     if (!matchedBy) return '?';
     const { type } = parseMatchReason(matchedBy);
@@ -214,7 +219,10 @@ export function getMatchLabel(matchedBy) {
     return labels[type] || (matchedBy.length > 8 ? 'AI' : escapeHtml(matchedBy));
 }
 
-/** Announce a message to screen readers via the aria-live region */
+/**
+ * Announce a message to screen readers via the aria-live region.
+ * @param {string} message  Text to announce
+ */
 export function announceToScreenReader(message) {
     const $live = $('#dle-drawer-live');
     if ($live.length) {
@@ -223,7 +231,11 @@ export function announceToScreenReader(message) {
     }
 }
 
-/** Format a token count compactly: 1234 → "1.2k", 12345 → "12.3k", 123 → "123" */
+/**
+ * Format a token count compactly: 1234 → "1.2k", 12345 → "12.3k", 123 → "123".
+ * @param {number} n  Token count
+ * @returns {string} Compact display string
+ */
 export function formatTokensCompact(n) {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
     return String(n);

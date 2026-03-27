@@ -24,104 +24,9 @@ import { takeIndexSnapshot, detectChanges } from '../../core/sync.js';
 import { showChangesToast } from './sync.js';
 import { saveIndexToCache, loadIndexFromCache } from './cache.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
-
-// ============================================================================
-// BM25 Fuzzy Search Index
-// ============================================================================
-const BM25_K1 = 1.5;   // Term frequency saturation
-const BM25_B = 0.75;    // Length normalization
-
-/** Simple tokenizer: lowercase, split on non-word characters, remove short tokens.
- *  Uses Unicode-aware regex to support non-Latin scripts (Cyrillic, Arabic, etc.).
- *  Note: CJK text without spaces will produce long unsplit tokens — a proper CJK
- *  tokenizer would need n-gram splitting, which is out of scope. */
-function tokenize(text) {
-    return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 2);
-}
-
-/**
- * Build a BM25 index from vault entries.
- * Each "document" is the concatenation of entry title, keys, and content.
- * @param {Array} entries - VaultEntry array
- * @returns {{ idf: Map<string, number>, docs: Map<string, {tf: Map<string, number>, len: number, entry: object}>, avgDl: number }}
- */
-export function buildBM25Index(entries) {
-    const N = entries.length;
-    if (N === 0) return { idf: new Map(), docs: new Map(), avgDl: 0 };
-
-    // Document frequency: how many docs contain each term
-    const df = new Map();
-    const docs = new Map();
-    let totalLen = 0;
-
-    for (const entry of entries) {
-        const text = `${entry.title} ${entry.keys.join(' ')} ${entry.content}`;
-        const tokens = tokenize(text);
-        const tf = new Map();
-        for (const token of tokens) {
-            tf.set(token, (tf.get(token) || 0) + 1);
-        }
-        docs.set(entry.title, { tf, len: tokens.length, entry });
-        totalLen += tokens.length;
-
-        // Count unique terms per document for DF
-        for (const term of tf.keys()) {
-            df.set(term, (df.get(term) || 0) + 1);
-        }
-    }
-
-    // Compute IDF: log((N - df + 0.5) / (df + 0.5) + 1)
-    const idf = new Map();
-    for (const [term, freq] of df) {
-        idf.set(term, Math.log((N - freq + 0.5) / (freq + 0.5) + 1));
-    }
-
-    return { idf, docs, avgDl: totalLen / N };
-}
-
-/**
- * Query the BM25 index with a text string. Returns scored entry titles.
- * @param {{ idf: Map, docs: Map, avgDl: number }} index
- * @param {string} queryText
- * @param {number} [topK=20] - Max results
- * @param {number} [minScore=0.5] - Minimum BM25 score threshold
- * @returns {Array<{title: string, score: number, entry: object}>}
- */
-export function queryBM25(index, queryText, topK = 20, minScore = 0.5) {
-    if (!index || index.docs.size === 0) return [];
-
-    const queryTokens = tokenize(queryText);
-    if (queryTokens.length === 0) return [];
-
-    // Deduplicate query tokens and count frequency
-    const queryTf = new Map();
-    for (const t of queryTokens) {
-        queryTf.set(t, (queryTf.get(t) || 0) + 1);
-    }
-
-    const k1 = BM25_K1;
-    const b = BM25_B;
-    const scores = [];
-
-    for (const [title, doc] of index.docs) {
-        let score = 0;
-        for (const [term, qtf] of queryTf) {
-            const termIdf = index.idf.get(term);
-            if (!termIdf) continue;
-            const tf = doc.tf.get(term) || 0;
-            if (tf === 0) continue;
-            // BM25 scoring formula
-            const tfNorm = (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * doc.len / index.avgDl));
-            score += termIdf * tfNorm;
-        }
-        if (score >= minScore) {
-            scores.push({ title, score, entry: doc.entry });
-        }
-    }
-
-    scores.sort((a, b) => b.score - a.score);
-    return scores.slice(0, topK);
-}
+// BM25 pure functions extracted to bm25.js for testability
+import { buildBM25Index } from './bm25.js';
+export { buildBM25Index, queryBM25 } from './bm25.js';
 
 /**
  * Compute entity name Set and pre-compiled short-name regexes from vault entries.
@@ -147,6 +52,33 @@ function computeEntityDerivedState(entries) {
         nameRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
     }
     setEntityShortNameRegexes(nameRegexes);
+}
+
+/**
+ * BUG-007: Multi-vault conflict resolution dedup pass.
+ * Shared between buildIndex and buildIndexWithReuse to prevent duplicate entries.
+ * @param {Array} entries - VaultEntry array (mutated: may be replaced)
+ * @param {string} mode - Conflict resolution mode ('all'|'first'|'last'|'merge')
+ * @returns {Array} Deduplicated entries
+ */
+function deduplicateMultiVault(entries, mode) {
+    if (!mode || mode === 'all') return entries;
+    const titleMap = new Map();
+    for (const entry of entries) {
+        const key = entry.title.toLowerCase();
+        if (titleMap.has(key)) {
+            if (mode === 'first') continue;
+            if (mode === 'last') {
+                titleMap.set(key, entry);
+            } else if (mode === 'merge') {
+                const existing = titleMap.get(key);
+                existing.keys = [...new Set([...existing.keys, ...entry.keys])];
+            }
+        } else {
+            titleMap.set(key, entry);
+        }
+    }
+    return [...titleMap.values()];
 }
 
 /**
@@ -184,6 +116,16 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
         }
         const allNames = [...nameToTitle.keys()].sort((a, b) => b.length - a.length); // longest first to avoid substring matches
 
+        // BUG-043: Pre-compile word-boundary regexes for short names (≤3 chars)
+        // to avoid false positives like "an" matching inside "want"
+        const shortNameRegexes = new Map();
+        for (const name of allNames) {
+            if (name.length <= 3) {
+                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                shortNameRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'gi'));
+            }
+        }
+
         for (const source of entries) {
             const content = source.content.toLowerCase();
             const sourceName = source.title;
@@ -193,10 +135,18 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
                 const targetTitle = nameToTitle.get(name);
                 if (targetTitle === sourceName) continue; // skip self-mentions
                 let count = 0;
-                let pos = 0;
-                while ((pos = content.indexOf(name, pos)) !== -1) {
-                    count++;
-                    pos += name.length;
+                // BUG-043: Use word-boundary regex for short names to avoid substring false positives
+                const shortRegex = shortNameRegexes.get(name);
+                if (shortRegex) {
+                    shortRegex.lastIndex = 0;
+                    let m;
+                    while ((m = shortRegex.exec(content)) !== null) count++;
+                } else {
+                    let pos = 0;
+                    while ((pos = content.indexOf(name, pos)) !== -1) {
+                        count++;
+                        pos += name.length;
+                    }
                 }
                 if (count > 0) {
                     // Accumulate — multiple keys for same target entry sum up
@@ -244,7 +194,10 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
 
     setIndexEverLoaded(true);
 
-    // Prune analytics data for entries no longer in the vault
+    // BUG-026: Prune analytics data for entries no longer in the vault.
+    // This intentionally mutates the live settings.analyticsData object — the pruned data
+    // is persisted by saveSettingsDebounced() later in the pipeline. Removing stale entries
+    // here prevents unbounded growth when vault entries are renamed or deleted.
     const analytics = settings.analyticsData;
     if (analytics) {
         const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
@@ -333,6 +286,19 @@ export async function buildIndex() {
         }
         setLastVaultFailureCount(vaultFailCount);
 
+        // BUG-001: If ALL enabled vaults failed in multi-vault mode, preserve existing index
+        // instead of replacing it with an empty array (which would destroy valid cached data)
+        if (vaultFailCount > 0 && vaultFailCount === enabledVaults.length && enabledVaults.length > 1) {
+            dedupError(
+                `All ${enabledVaults.length} vaults failed to connect. Preserving existing index (${vaultIndex.length} entries). Check vault connections.`,
+                'obsidian_connect',
+            );
+            // Set short-lived timestamp so ensureIndexFresh retries soon
+            const ttl = settings.cacheTTL * 1000;
+            setIndexTimestamp(Date.now() - ttl + 30_000); // retry in ~30s
+            return;
+        }
+
         // Compute accurate token counts using SillyTavern's tokenizer
         await Promise.all(entries.map(async (entry) => {
             try {
@@ -343,28 +309,8 @@ export async function buildIndex() {
             }
         }));
 
-        // E6: Multi-vault conflict resolution dedup pass
-        if (settings.multiVaultConflictResolution && settings.multiVaultConflictResolution !== 'all') {
-            const mode = settings.multiVaultConflictResolution;
-            const titleMap = new Map();
-            for (const entry of entries) {
-                const key = entry.title.toLowerCase();
-                if (titleMap.has(key)) {
-                    if (mode === 'first') continue; // skip, first wins
-                    if (mode === 'last') {
-                        titleMap.set(key, entry);
-                    } else if (mode === 'merge') {
-                        const existing = titleMap.get(key);
-                        const mergedKeys = [...new Set([...existing.keys, ...entry.keys])];
-                        existing.keys = mergedKeys;
-                        // Keep existing content, just merge keys
-                    }
-                } else {
-                    titleMap.set(key, entry);
-                }
-            }
-            entries = [...titleMap.values()];
-        }
+        // E6: Multi-vault conflict resolution dedup pass (BUG-007: shared with buildIndexWithReuse)
+        entries = deduplicateMultiVault(entries, settings.multiVaultConflictResolution);
 
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
@@ -388,6 +334,7 @@ export async function buildIndex() {
         dedupError(userMsg, 'obsidian_connect');
     } finally {
         setIndexing(false);
+        setBuildPromise(null); // BUG-044: Clear stale buildPromise
     }
     })();
     setBuildPromise(promise);
@@ -580,11 +527,14 @@ export async function buildIndexWithReuse() {
             console.log(`[DLE] Reuse sync: +${newCount} new, ~${modifiedCount} modified, -${removedCount} removed`);
         }
 
+        // BUG-007: Apply multi-vault dedup (was missing from reuse path)
+        const dedupedEntries = deduplicateMultiVault(allEntries, settings.multiVaultConflictResolution);
+
         // Apply changes
-        setVaultIndex(allEntries);
+        setVaultIndex(dedupedEntries);
         setIndexTimestamp(Date.now());
 
-        await finalizeIndex({ entries: allEntries, settings });
+        await finalizeIndex({ entries: dedupedEntries, settings });
 
         if (settings.debugMode) {
             console.log(`[DLE] Reuse sync: ${allEntries.length} entries after reuse rebuild`);
@@ -596,6 +546,7 @@ export async function buildIndexWithReuse() {
         return false;
     } finally {
         setIndexing(false);
+        setBuildPromise(null); // BUG-044: Clear stale buildPromise
     }
     })();
     setBuildPromise(promise);
@@ -643,6 +594,12 @@ export async function ensureIndexFresh() {
         if (vaultIndex.length > 0) {
             const usedReuse = await buildIndexWithReuse();
             if (usedReuse) { setLastIndexGenerationCount(generationCount); return; }
+            // BUG-003: Re-check TTL after reuse — buildIndexWithReuse may have updated the timestamp
+            // (e.g. no-changes path sets indexTimestamp = Date.now()), preventing a redundant full rebuild
+            if (ttlMs > 0 && Date.now() - indexTimestamp <= ttlMs) {
+                setLastIndexGenerationCount(generationCount);
+                return;
+            }
         }
         await buildIndex();
         setLastIndexGenerationCount(generationCount);

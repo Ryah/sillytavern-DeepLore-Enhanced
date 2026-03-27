@@ -9,7 +9,12 @@ import { COMMUNITY_PALETTE, convexHull } from './graph-analysis.js';
 // Pure helpers (no state dependency)
 // ============================================================================
 
-/** Convert a hex color to a lighter version if it's dark (luminance < 0.65). */
+/**
+ * Convert a hex color to a lighter pastel version if it's dark (luminance < 0.65).
+ * @param {string} hex  Hex color string (e.g. '#4e79a7')
+ * @param {number} [mix=0.25]  Blend amount toward white (0 = unchanged, 1 = white)
+ * @returns {string} Hex color string
+ */
 export function toPastel(hex, mix = 0.25) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -53,7 +58,12 @@ function frequencyColor(count, maxCount) {
     return '#4a6fa5';
 }
 
-/** Lighten a hex color by blending toward white. */
+/**
+ * Lighten a hex color by blending toward white.
+ * @param {string} hex  Hex color string
+ * @param {number} amount  Blend amount (0 = unchanged, 1 = white)
+ * @returns {string} CSS rgb() color string
+ */
 export function lightenColor(hex, amount) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -61,7 +71,12 @@ export function lightenColor(hex, amount) {
     return `rgb(${Math.min(255, Math.round(r + (255 - r) * amount))}, ${Math.min(255, Math.round(g + (255 - g) * amount))}, ${Math.min(255, Math.round(b + (255 - b) * amount))})`;
 }
 
-/** Darken a hex color by blending toward black. */
+/**
+ * Darken a hex color by blending toward black.
+ * @param {string} hex  Hex color string
+ * @param {number} amount  Blend amount (0 = unchanged, 1 = black)
+ * @returns {string} CSS rgb() color string
+ */
 export function darkenColor(hex, amount) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);

@@ -73,7 +73,8 @@ export function computeDisparityFilter(gs, alpha) {
 // Louvain community detection
 // ============================================================================
 
-/** 12-color distinguishable palette for communities. */
+/** 12-color distinguishable palette for Louvain community visualization.
+ * @type {string[]} */
 export const COMMUNITY_PALETTE = [
     '#4e79a7', '#f28e2b', '#e15759', '#76b7b2',
     '#59a14f', '#edc948', '#b07aa1', '#ff9da7',

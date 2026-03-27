@@ -83,20 +83,27 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
-        const result = await ConnectionManagerRequestService.sendRequest(
-            resolvedProfileId,
-            messages,
-            maxTokens,
-            {
-                stream: false,
-                signal: controller.signal,
-                extractData: true,
-                includePreset: false,
-                includeInstruct: false,
-            },
-            // Override model if user specified one
-            resolvedModel ? { model: resolvedModel } : {},
-        );
+        // BUG-028: Use Promise.race to enforce timeout even if CMRS ignores AbortSignal
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' })), timeout + 500);
+        });
+        const result = await Promise.race([
+            ConnectionManagerRequestService.sendRequest(
+                resolvedProfileId,
+                messages,
+                maxTokens,
+                {
+                    stream: false,
+                    signal: controller.signal,
+                    extractData: true,
+                    includePreset: false,
+                    includeInstruct: false,
+                },
+                // Override model if user specified one
+                resolvedModel ? { model: resolvedModel } : {},
+            ),
+            timeoutPromise,
+        ]);
 
         return {
             text: result.content || '',
@@ -136,33 +143,41 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
 export async function callAI(systemPrompt, userMessage, connectionConfig) {
-    // Throttle: enforce minimum interval between API calls to prevent rapid-generation spam.
-    // Throws a distinct error type so callers can distinguish throttle from real failure
-    // (throttle should NOT trip the circuit breaker).
-    const now = Date.now();
-    if (now - _lastAiCallTimestamp < AI_CALL_MIN_INTERVAL_MS) {
-        const err = new Error('AI call throttled — minimum 2s between calls');
-        err.throttled = true;
-        throw err;
+    // BUG-006: Allow callers to skip throttle (e.g. hierarchicalPreFilter which chains with aiSearch)
+    if (!connectionConfig.skipThrottle) {
+        // Throttle: enforce minimum interval between API calls to prevent rapid-generation spam.
+        // Throws a distinct error type so callers can distinguish throttle from real failure
+        // (throttle should NOT trip the circuit breaker).
+        const now = Date.now();
+        if (now - _lastAiCallTimestamp < AI_CALL_MIN_INTERVAL_MS) {
+            const err = new Error('AI call throttled — minimum 2s between calls');
+            err.throttled = true;
+            throw err;
+        }
     }
-    _lastAiCallTimestamp = now;
 
     const { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints } = connectionConfig;
 
-    if (mode === 'profile') {
-        return callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model);
-    }
+    // BUG-039: Set throttle timestamp AFTER the call completes (not before)
+    // so failed calls don't consume the throttle window
+    try {
+        if (mode === 'profile') {
+            return await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model);
+        }
 
-    // Proxy mode
-    return callProxyViaCorsBridge(
-        proxyUrl,
-        model || 'claude-haiku-4-5-20251001',
-        systemPrompt,
-        userMessage,
-        maxTokens,
-        timeout,
-        cacheHints,
-    );
+        // Proxy mode
+        return await callProxyViaCorsBridge(
+            proxyUrl,
+            model || 'claude-haiku-4-5-20251001',
+            systemPrompt,
+            userMessage,
+            maxTokens,
+            timeout,
+            cacheHints,
+        );
+    } finally {
+        _lastAiCallTimestamp = Date.now();
+    }
 }
 
 /**
@@ -193,8 +208,9 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                 ? truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen)
                 : (entry.summary || truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen));
             const safeSummary = summaryText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // BUG-002: XML-escape resolvedLinks (same as title and summary)
             const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
-                ? ` → ${entry.resolvedLinks.join(', ')}`
+                ? ` → ${entry.resolvedLinks.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')).join(', ')}`
                 : '';
             // Decay/freshness annotation: hint to AI about stale or frequently-injected entries
             let decayHint = '';
@@ -221,7 +237,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
         })
         .join('\n');
 
-    const totalSelectable = selectable.length;
+    // BUG-047: Use candidates.length (includes force-injected) not selectable.length (tautological)
     const forcedCount = candidates.length - selectable.length;
     let forcedTokens = 0;
     for (const e of candidates) { if (isForceInjected(e)) forcedTokens += e.tokenEstimate; }
@@ -229,7 +245,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
         ? ''
         : `\nToken budget: ~${settings.maxTokensBudget} tokens total.`;
 
-    const header = `Candidate entries: ${selectable.length} (from ${totalSelectable} total).`
+    const header = `Candidate entries: ${selectable.length} (from ${candidates.length} total).`
         + (forcedCount > 0 ? `\n${forcedCount} entries are always included (~${forcedTokens} tokens).` : '')
         + budgetInfo;
 
@@ -276,23 +292,38 @@ export async function hierarchicalPreFilter(candidates, chat) {
             model: settings.aiSearchModel,
             maxTokens: 512,
             timeout: settings.aiSearchTimeout,
+            skipThrottle: true, // BUG-006: Don't throttle hierarchical pre-filter (it chains with aiSearch)
         });
         const responseText = result.text;
         const usage = result.usage;
 
-        aiSearchStats.calls++;
+        // BUG-017: Don't increment aiSearchStats.calls here — only count in aiSearch()
+        // to avoid double-counting when hierarchical + main search both run
         if (usage) {
             aiSearchStats.totalInputTokens += usage.input_tokens || 0;
             aiSearchStats.totalOutputTokens += usage.output_tokens || 0;
         }
         notifyAiStatsUpdated();
 
-        const parsed = extractAiResponseClient(responseText);
-        if (!parsed || parsed.length === 0) return null;
+        let parsed = extractAiResponseClient(responseText);
+        if (!parsed) return null;
+
+        // BUG-027: Handle object format responses (e.g. {"categories": ["cat1", "cat2"]})
+        if (!Array.isArray(parsed) && typeof parsed === 'object') {
+            // Try common wrapper keys
+            const arrayValue = parsed.categories || parsed.labels || parsed.selected || Object.values(parsed).find(Array.isArray);
+            if (Array.isArray(arrayValue)) {
+                parsed = arrayValue;
+            } else {
+                if (settings.debugMode) console.warn('[DLE] Hierarchical response: unexpected object format, skipping');
+                return null;
+            }
+        }
+        if (!Array.isArray(parsed) || parsed.length === 0) return null;
 
         // parsed should be an array of category name strings
         const selectedCategories = new Set(
-            parsed.map(item => (typeof item === 'string' ? item : item.title || item.name || '').toLowerCase()).filter(Boolean),
+            parsed.map(item => (typeof item === 'string' ? item : item.title || item.name || item.category || item.label || '').toLowerCase()).filter(Boolean),
         );
 
         if (selectedCategories.size === 0) return null;
@@ -353,7 +384,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     if (isAiCircuitOpen()) {
         if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
         dedupWarning('AI search temporarily paused after repeated failures. Using keyword matching.', 'ai_circuit', { timeOut: 8000 });
-        return { results: [], error: true };
+        return { results: [], error: true, errorMessage: 'AI circuit breaker open' };
     }
 
     let chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
@@ -387,7 +418,11 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // This avoids redundant AI calls when the user sends messages unrelated to lore.
     // Cache is invalidated on: settings change, vault re-index, entity name mention, or chat switch.
     // Short entity names (<=3 chars) use pre-compiled word-boundary regexes to avoid false matches.
-    const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${settings.aiSearchSystemPrompt?.length || 0}|${settings.aiSearchConnectionMode}|${settings.aiSearchProfileId}|${settings.aiSearchModel}`;
+    // BUG-019: Include aiConfidenceThreshold in cache key (changing threshold must invalidate cache)
+    // BUG-020: Hash the system prompt content (not just length) to detect meaningful changes
+    // BUG-021: Include manifestSummaryMode and summaryLength in cache key
+    const promptHash = simpleHash(settings.aiSearchSystemPrompt || '');
+    const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${promptHash}|${settings.aiSearchConnectionMode}|${settings.aiSearchProfileId}|${settings.aiSearchModel}|${settings.aiConfidenceThreshold || 'low'}|${settings.manifestSummaryMode || 'prefer_summary'}|${settings.aiSearchManifestSummaryLength || 600}`;
     const manifestHash = simpleHash(settingsKey + candidateManifest);
     const chatHash = simpleHash(chatContext);
     // Defer chatLines split until after exact cache hit check (avoid unnecessary work)
@@ -513,7 +548,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         const parsed = extractAiResponseClient(aiResult.text);
         if (!parsed) {
             if (settings.debugMode) console.warn('[DLE] AI search: could not parse response as JSON array');
-            return { results: [], error: true };
+            recordAiFailure(); // BUG-010: Parse failures should trip circuit breaker
+            return { results: [], error: true, errorMessage: 'Failed to parse AI response as JSON' };
         }
         const aiResults = normalizeResults(parsed)
             .filter(r => r.title && r.title.trim() !== '' && r.title !== 'null' && r.title !== 'undefined');
@@ -571,14 +607,18 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         recordAiSuccess();
         return { results: filteredResults, error: false };
     } catch (err) {
-        if (!err.throttled) recordAiFailure();
-        if (err.name === 'AbortError') {
+        // BUG-005: Detect timeouts from both profile mode (AbortError) and proxy mode (message-based)
+        const isTimeout = err.name === 'AbortError' || /timed?\s*out|abort/i.test(err.message);
+        // Don't trip circuit breaker for throttle or timeout (both are transient, not systematic)
+        if (!err.throttled && !isTimeout) recordAiFailure();
+        if (isTimeout) {
             console.warn('[DLE] AI search timed out');
         } else if (err.throttled) {
             if (settings.debugMode) console.debug('[DLE] AI search throttled — using cache/keywords');
         } else {
             console.error('[DLE] AI search error:', err);
         }
-        return { results: [], error: true };
+        // BUG-004: Include error message for pipeline trace enrichment
+        return { results: [], error: true, errorMessage: err.message || String(err) };
     }
 }

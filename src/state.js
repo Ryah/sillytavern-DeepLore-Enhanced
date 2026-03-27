@@ -131,6 +131,11 @@ export function setLastGenerationInjectedKeys(v) { lastGenerationInjectedKeys = 
 export let lastIndexGenerationCount = 0;
 export function setLastIndexGenerationCount(v) { lastIndexGenerationCount = v; }
 
+/** BUG-015: Build epoch — increments on force-release of stuck indexing flag.
+ *  In-progress builds capture epoch at start; if epoch changes mid-build, the build bails. */
+export let buildEpoch = 0;
+export function setBuildEpoch(v) { buildEpoch = v; }
+
 /** Generation lock to prevent concurrent onGenerate runs */
 export let generationLock = false;
 export let generationLockTimestamp = 0;
@@ -169,11 +174,15 @@ export function setMentionWeights(v) { mentionWeights = v; }
 export let aiCircuitOpen = false;
 export let aiCircuitFailures = 0;
 export let aiCircuitOpenedAt = 0;
+/** BUG-025: Half-open probe gate — allows exactly one caller through after cooldown */
+let aiCircuitHalfOpenProbe = false;
 const AI_CIRCUIT_THRESHOLD = 2;      // consecutive failures to trip
 const AI_CIRCUIT_COOLDOWN = 30_000;  // ms before half-open probe
+export function setAiCircuitOpenedAt(v) { aiCircuitOpenedAt = v; }
 
 export function recordAiFailure() {
     const wasClosed = !aiCircuitOpen;
+    aiCircuitHalfOpenProbe = false;
     aiCircuitFailures++;
     if (aiCircuitFailures >= AI_CIRCUIT_THRESHOLD) {
         aiCircuitOpen = true;
@@ -185,6 +194,7 @@ export function recordAiFailure() {
 }
 export function recordAiSuccess() {
     const wasOpen = aiCircuitOpen;
+    aiCircuitHalfOpenProbe = false;
     aiCircuitFailures = 0;
     aiCircuitOpen = false;
     aiCircuitOpenedAt = 0;
@@ -193,8 +203,12 @@ export function recordAiSuccess() {
 }
 export function isAiCircuitOpen() {
     if (!aiCircuitOpen) return false;
-    // Half-open: allow a probe after cooldown
-    if (Date.now() - aiCircuitOpenedAt > AI_CIRCUIT_COOLDOWN) return false;
+    if (Date.now() - aiCircuitOpenedAt > AI_CIRCUIT_COOLDOWN) {
+        // Half-open: allow exactly one probe caller through (BUG-025)
+        if (aiCircuitHalfOpenProbe) return true; // probe already dispatched, block others
+        aiCircuitHalfOpenProbe = true;
+        return false;
+    }
     return true;
 }
 

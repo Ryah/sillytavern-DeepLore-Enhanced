@@ -3,11 +3,15 @@
  */
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
-import { syncIntervalId, indexing, setSyncIntervalId, setIndexing } from '../state.js';
+import { syncIntervalId, indexing, setSyncIntervalId, setIndexing, setBuildPromise, buildEpoch, setBuildEpoch } from '../state.js';
 import { getCircuitState } from './obsidian-api.js';
 
 // Track when we first observe indexing=true, to detect stuck builds
 let _indexingSeenSince = 0;
+
+// BUG-018: Epoch counter to prevent orphaned polling chains
+// Each setupSyncPolling call increments this; stale chains bail when epoch changes
+let _syncEpoch = 0;
 
 /**
  * Show a toast notification summarizing vault changes.
@@ -57,13 +61,20 @@ export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
         setSyncIntervalId(null);
     }
 
+    // BUG-018: Increment sync epoch to orphan any previously running polling chain
+    const myEpoch = ++_syncEpoch;
+
     if (settings.syncPollingInterval > 0 && settings.enabled && buildIndexFn) {
         // Use setTimeout chaining instead of setInterval to prevent overlapping callbacks
         const scheduleNext = () => {
+            // BUG-018: Bail if this chain has been orphaned by a new setupSyncPolling call
+            if (_syncEpoch !== myEpoch) return;
             // Re-read interval each tick so changes take effect without restarting polling
             const currentInterval = getSettings().syncPollingInterval;
             if (currentInterval <= 0) return; // Setting was changed to disabled mid-run
             setSyncIntervalId(setTimeout(async () => {
+                // BUG-018: Re-check epoch after await (another setupSyncPolling may have been called)
+                if (_syncEpoch !== myEpoch) return;
                 const current = getSettings();
                 if (!current.enabled) {
                     scheduleNext();
@@ -75,6 +86,8 @@ export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
                     if (Date.now() - _indexingSeenSince > 120_000) {
                         console.warn('[DLE] Sync: indexing flag stuck for >120s, force-releasing');
                         setIndexing(false);
+                        setBuildPromise(null); // BUG-034: Clear stale buildPromise
+                        setBuildEpoch(buildEpoch + 1); // BUG-015: Invalidate stuck coroutine
                         _indexingSeenSince = 0;
                     } else {
                         scheduleNext();

@@ -175,7 +175,7 @@ export function showSourcesPopup(sources) {
 
                 html += `<div id="dle_ctx_${entryId}" class="dle-ctx-detail">`;
                 if (meta.length > 0) {
-                    html += `<div class="dle-text-xs dle-faint" style="margin-bottom: var(--dle-space-1);">${meta.map(m => escapeHtml(m)).join(' · ')}</div>`;
+                    html += `<div class="dle-text-xs dle-faint dle-mb-1">${meta.map(m => escapeHtml(m)).join(' · ')}</div>`;
                 }
                 html += `<div class="dle-preview">${highlighted}</div>`;
                 html += `</div>`;
@@ -229,8 +229,8 @@ export function showSourcesPopup(sources) {
 
     const anyVaultNamed = settings.vaults && settings.vaults.some(v => v.name);
     html += anyVaultNamed
-        ? '<p class="dle-faint dle-text-xs" style="margin-top: var(--dle-space-2);">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
-        : '<p class="dle-faint dle-text-xs" style="margin-top: var(--dle-space-2);">Set vault names in Vault Connections to enable deep links.</p>';
+        ? '<p class="dle-faint dle-text-xs dle-mt-2">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
+        : '<p class="dle-faint dle-text-xs dle-mt-2">Set vault names in Vault Connections to enable deep links.</p>';
     html += '</div>';
 
     const container = document.createElement('div');

@@ -47,13 +47,14 @@ export function stripObsidianSyntax(text) {
 export function extractAiResponseClient(text) {
     if (!text || typeof text !== 'string') return null;
 
-    /** Validate that a parsed value is a usable results array (strings or objects with title/name). */
+    /** BUG-046: Validate that a parsed value is a usable results array — at least one valid element. */
     function isValidResultArray(val) {
         if (!Array.isArray(val)) return false;
         if (val.length === 0) return true; // valid empty response (AI says nothing relevant)
-        const first = val[0];
-        return typeof first === 'string'
-            || (typeof first === 'object' && first !== null && (first.title || first.name));
+        return val.some(item =>
+            typeof item === 'string'
+            || (typeof item === 'object' && item !== null && (item.title || item.name)),
+        );
     }
 
     // Try direct JSON parse
@@ -120,7 +121,7 @@ export function normalizeResults(arr) {
             };
         }
         return { title: String(item), confidence: 'medium', reason: 'AI search' };
-    });
+    }).filter(r => r.title && r.title.trim() && r.title !== 'null' && r.title !== 'undefined');
 }
 
 // ── Hierarchical Clustering ──
@@ -187,8 +188,11 @@ export function buildObsidianURI(vaultName, filename) {
 export function convertWiEntry(wiEntry, lorebookTag) {
     // Extract title from comment field (ST convention) or first key
     // Strip newlines to prevent H1 heading injection
+    // BUG-008: Handle both array and string key formats (older ST exports use comma-separated string)
+    const keyArray = Array.isArray(wiEntry.key) ? wiEntry.key
+        : (typeof wiEntry.key === 'string' ? wiEntry.key.split(',').map(k => k.trim()).filter(Boolean) : []);
     const title = ((wiEntry.comment || '').trim()
-        || (wiEntry.key || []).join(', ').substring(0, 50)
+        || keyArray.join(', ').substring(0, 50)
         || `Entry_${wiEntry.uid || Date.now()}`).replace(/[\r\n]+/g, ' ');
 
     // Clean title for filename

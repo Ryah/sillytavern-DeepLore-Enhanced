@@ -41,6 +41,7 @@ import {
     setLastHealthResult, setFuzzySearchIndex,
     setBuildPromise, setSyncIntervalId,
     setConsecutiveInjections, setDecayTracker,
+    setAiCircuitOpenedAt,
 
     // Observers
     onIndexUpdated, notifyIndexUpdated,
@@ -54,6 +55,9 @@ import {
 
     // Circuit breaker
     recordAiFailure, recordAiSuccess, isAiCircuitOpen,
+
+    // Build epoch (BUG-015)
+    buildEpoch, setBuildEpoch,
 
     // Status
     computeOverallStatus,
@@ -84,6 +88,8 @@ import { buildScanText, validateSettings, simpleHash } from '../core/utils.js';
 // ============================================================================
 // Test Runner
 // ============================================================================
+
+import { makeEntry, makeSettings } from './helpers.mjs';
 
 let passed = 0;
 let failed = 0;
@@ -139,86 +145,6 @@ async function testAsync(name, fn) {
     currentTest = name;
     console.log(`\n${name}`);
     await fn();
-}
-
-// ============================================================================
-// Helper: entry factory (matches tests.mjs pattern)
-// ============================================================================
-
-function makeEntry(title, opts = {}) {
-    return {
-        title,
-        requires: opts.requires || [],
-        excludes: opts.excludes || [],
-        constant: opts.constant || false,
-        seed: opts.seed || false,
-        bootstrap: opts.bootstrap || false,
-        keys: opts.keys || [],
-        content: opts.content || '',
-        summary: opts.summary || '',
-        priority: opts.priority || 100,
-        tokenEstimate: opts.tokenEstimate || 50,
-        scanDepth: opts.scanDepth ?? null,
-        excludeRecursion: opts.excludeRecursion || false,
-        links: opts.links || [],
-        resolvedLinks: opts.resolvedLinks || [],
-        tags: opts.tags || [],
-        injectionPosition: opts.injectionPosition ?? null,
-        injectionDepth: opts.injectionDepth ?? null,
-        injectionRole: opts.injectionRole ?? null,
-        cooldown: opts.cooldown ?? null,
-        warmup: opts.warmup ?? null,
-        probability: opts.probability ?? null,
-        cascadeLinks: opts.cascadeLinks || [],
-        refineKeys: opts.refineKeys || [],
-        vaultSource: opts.vaultSource || '',
-        filename: opts.filename || `${title}.md`,
-        era: opts.era || null,
-        location: opts.location || null,
-        sceneType: opts.sceneType || null,
-        characterPresent: opts.characterPresent || null,
-        enabled: opts.enabled !== false,
-    };
-}
-
-function makeSettings(overrides = {}) {
-    return {
-        enabled: true,
-        lorebookTag: 'lorebook',
-        constantTag: 'lorebook-always',
-        neverInsertTag: 'lorebook-never',
-        seedTag: 'lorebook-seed',
-        bootstrapTag: 'lorebook-bootstrap',
-        scanDepth: 5,
-        maxEntries: 20,
-        unlimitedEntries: false,
-        maxTokensBudget: 2000,
-        unlimitedBudget: false,
-        injectionPosition: 1,
-        injectionDepth: 4,
-        injectionRole: 'system',
-        injectionTemplate: '<{{title}}>\n{{content}}\n</{{title}}>',
-        injectionMode: 'extension',
-        allowWIScan: false,
-        recursiveScan: false,
-        maxRecursionSteps: 3,
-        matchWholeWords: false,
-        caseSensitive: false,
-        characterContextScan: false,
-        aiSearchEnabled: false,
-        aiSearchMode: 'two-stage',
-        stripDuplicateInjections: false,
-        stripLookbackDepth: 3,
-        reinjectionCooldown: 0,
-        debugMode: false,
-        decayEnabled: false,
-        decayBoostThreshold: 5,
-        decayPenaltyThreshold: 10,
-        analyticsData: {},
-        vaults: [{ name: 'Test', port: 27123, apiKey: 'test', enabled: true }],
-        contextualGatingTolerance: 'strict',
-        ...overrides,
-    };
 }
 
 // ============================================================================
@@ -536,7 +462,7 @@ test('D20: AI empty response — constants still inject', () => {
 
     // Simulate: AI returns empty, keyword matching returns nothing, but constants should still be present
     const policy = buildExemptionPolicy(entries, [], []);
-    assert(policy.forceInject.has('Constant1'), 'constant should be in forceInject');
+    assert(policy.forceInject.has('constant1'), 'constant should be in forceInject (lowercase)');
 
     // applyPinBlock with empty pipeline results but constant in vault
     const matchedKeys = new Map();
@@ -1028,9 +954,9 @@ test('Stage: buildExemptionPolicy identifies constants and pins', () => {
         makeEntry('Pinned'),
     ];
     const policy = buildExemptionPolicy(entries, ['Pinned'], ['Blocked']);
-    assert(policy.forceInject.has('Always'), 'constant should be forceInject');
-    assert(policy.forceInject.has('Pinned'), 'pinned should be forceInject');
-    assert(!policy.forceInject.has('Normal'), 'normal should not be forceInject');
+    assert(policy.forceInject.has('always'), 'constant should be forceInject (lowercase)');
+    assert(policy.forceInject.has('pinned'), 'pinned should be forceInject (lowercase)');
+    assert(!policy.forceInject.has('normal'), 'normal should not be forceInject');
     assert(policy.blocks.has('blocked'), 'blocked should be in blocks (lowercase)');
 });
 
@@ -1301,6 +1227,137 @@ test('formatAndGroup: XML escapes titles in template', () => {
         assert(!text.includes('<script>'), 'title should be XML-escaped');
         assert(text.includes('&lt;script&gt;'), 'should contain escaped version');
     }
+});
+
+// ============================================================================
+// Tests: Audit Bug Regression — Wave 1 (BUG-025)
+// ============================================================================
+
+test('BUG-025: AI circuit breaker probe gate allows exactly one caller', () => {
+    // Reset circuit to closed
+    recordAiSuccess();
+    assert(isAiCircuitOpen() === false, 'circuit should start closed');
+
+    // Trip circuit with 2 failures
+    recordAiFailure();
+    recordAiFailure();
+    assert(isAiCircuitOpen() === true, 'circuit should be open after 2 failures');
+
+    // Backdate openedAt to simulate cooldown elapsed (31s ago, cooldown is 30s)
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+
+    // First call after cooldown: should be allowed (probe)
+    assert(isAiCircuitOpen() === false, 'first call after cooldown should be allowed (probe)');
+
+    // Second call: should be blocked (probe already dispatched)
+    assert(isAiCircuitOpen() === true, 'second call should be blocked (probe in progress)');
+
+    // Third call: still blocked
+    assert(isAiCircuitOpen() === true, 'third call should still be blocked');
+
+    // Success clears everything
+    recordAiSuccess();
+    assert(isAiCircuitOpen() === false, 'circuit should be closed after success');
+});
+
+test('BUG-025: AI circuit breaker probe resets on failure', () => {
+    // Reset and trip
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure();
+
+    // Backdate to simulate cooldown
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+
+    // Allow probe through
+    assert(isAiCircuitOpen() === false, 'probe should be allowed');
+
+    // Probe fails — circuit should re-open with fresh cooldown
+    recordAiFailure();
+    assert(isAiCircuitOpen() === true, 'circuit should be open after probe failure');
+
+    // Clean up
+    recordAiSuccess();
+});
+
+// ============================================================================
+// Wave 4 Regression Tests — Pipeline Stages (BUG-011, BUG-016, BUG-029, BUG-030)
+// ============================================================================
+
+test('BUG-011: buildExemptionPolicy normalizes titles to lowercase', () => {
+    const entries = [makeEntry('Eris', { constant: true })];
+    const policy = buildExemptionPolicy(entries, ['Alice'], []);
+    assert(policy.forceInject.has('eris'), 'constant title should be lowercase in forceInject');
+    assert(policy.forceInject.has('alice'), 'pin title should be lowercase in forceInject');
+    assert(!policy.forceInject.has('Eris'), 'forceInject should not contain original case');
+    assert(!policy.forceInject.has('Alice'), 'forceInject should not contain original case');
+});
+
+test('BUG-011: applyRequiresExcludesGating exempts pinned entries case-insensitively', () => {
+    const eris = makeEntry('Eris', { requires: ['Raven'] });
+    const policy = buildExemptionPolicy([], ['eris'], []);
+    const { result } = applyRequiresExcludesGating([eris], policy, false);
+    assert(result.length === 1, 'pinned entry should bypass requires gating');
+    assertEqual(result[0].title, 'Eris', 'Eris should survive');
+});
+
+test('BUG-016: lenient gating filters entries with mismatched era', () => {
+    const e1 = makeEntry('Medieval Lore', { era: ['medieval'] });
+    const e2 = makeEntry('Spacefaring', { era: ['sci-fi'] });
+    const e3 = makeEntry('No Era', {});
+    const context = { era: 'medieval', location: '', scene_type: '', characters_present: [] };
+    const policy = buildExemptionPolicy([], [], []);
+    const settings = makeSettings({ contextualGatingTolerance: 'lenient' });
+
+    const result = applyContextualGating([e1, e2, e3], context, policy, false, settings);
+    assert(result.some(e => e.title === 'Medieval Lore'), 'matching era should pass');
+    assert(!result.some(e => e.title === 'Spacefaring'), 'mismatched era should be filtered even in lenient');
+    assert(result.some(e => e.title === 'No Era'), 'no-era entry should pass in lenient');
+});
+
+test('BUG-029: symmetric mutual excludes resolve deterministically by priority', () => {
+    const a = makeEntry('Alpha', { priority: 20, excludes: ['Beta'] });
+    const b = makeEntry('Beta', { priority: 50, excludes: ['Alpha'] });
+    const policy = buildExemptionPolicy([], [], []);
+    const { result: r1 } = applyRequiresExcludesGating([a, b], policy, false);
+    const { result: r2 } = applyRequiresExcludesGating([b, a], policy, false);
+    assertEqual(r1.map(e => e.title), r2.map(e => e.title),
+        'mutual excludes should produce same result regardless of input order');
+    assert(r1.some(e => e.title === 'Alpha'), 'higher-priority entry (lower number) should survive');
+});
+
+test('BUG-030: pinned entry arrays are deep copies', () => {
+    const original = makeEntry('Eris', { keys: ['eris', 'goddess'], tags: ['lorebook', 'character'] });
+    setVaultIndex([original]);
+    const policy = buildExemptionPolicy([], ['eris'], []);
+    const matchedKeys = new Map();
+
+    const result = applyPinBlock([], [original], policy, matchedKeys);
+    assert(result.length === 1, 'pinned entry should be added');
+
+    const pinned = result[0];
+    assert(pinned.keys !== original.keys, 'keys array should be a new reference');
+    assert(pinned.tags !== original.tags, 'tags array should be a new reference');
+
+    pinned.keys.push('mutated');
+    assert(!original.keys.includes('mutated'), 'mutating pinned keys should not affect original');
+});
+
+// ============================================================================
+// Wave 2 Regression Tests — Build Epoch (BUG-015)
+// ============================================================================
+
+test('BUG-015: buildEpoch can be incremented to invalidate stuck builds', () => {
+    const before = buildEpoch;
+    setBuildEpoch(buildEpoch + 1);
+    assert(buildEpoch === before + 1, 'buildEpoch should increment');
+    // Reset
+    setBuildEpoch(before);
+});
+
+test('BUG-015: buildEpoch starts at 0', () => {
+    // buildEpoch may have been modified by prior tests, but the type should be number
+    assert(typeof buildEpoch === 'number', 'buildEpoch should be a number');
 });
 
 // ============================================================================

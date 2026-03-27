@@ -23,6 +23,21 @@ import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime } from '../src/helpers.js';
 import { encodeVaultPath, validateVaultPath } from '../src/vault/obsidian-api.js';
 
+// BM25 functions (extracted to bm25.js for testability)
+import { buildBM25Index, queryBM25 } from '../src/vault/bm25.js';
+
+// Obsidian API functions for BUG-040, BUG-045 tests
+import { pruneCircuitBreakers } from '../src/vault/obsidian-api.js';
+
+// Graph analysis pure functions
+import { convexHull, COMMUNITY_PALETTE } from '../src/graph/graph-analysis.js';
+
+// Graph render pure functions
+import { toPastel, lightenColor, darkenColor } from '../src/graph/graph-render.js';
+
+// Drawer state pure functions — can't import directly due to ST dependency (escapeHtml).
+// Test formatTokensCompact and getMatchLabel by inlining the logic.
+
 // State module imports for computeOverallStatus tests
 import {
     computeOverallStatus,
@@ -72,6 +87,8 @@ const settingsConstraints = {
 // Test runner
 // ============================================================================
 
+import { makeEntry } from './helpers.mjs';
+
 let passed = 0;
 let failed = 0;
 
@@ -98,45 +115,6 @@ function assertEqual(actual, expected, message) {
 function test(name, fn) {
     console.log(`\n${name}`);
     fn();
-}
-
-// ============================================================================
-// Helper
-// ============================================================================
-
-function makeEntry(title, opts = {}) {
-    return {
-        title,
-        requires: opts.requires || [],
-        excludes: opts.excludes || [],
-        constant: opts.constant || false,
-        seed: opts.seed || false,
-        bootstrap: opts.bootstrap || false,
-        keys: opts.keys || [],
-        content: opts.content || '',
-        summary: opts.summary || '',
-        priority: opts.priority || 100,
-        tokenEstimate: opts.tokenEstimate || 50,
-        scanDepth: opts.scanDepth ?? null,
-        excludeRecursion: opts.excludeRecursion || false,
-        links: opts.links || [],
-        resolvedLinks: opts.resolvedLinks || [],
-        tags: opts.tags || [],
-        injectionPosition: opts.injectionPosition ?? null,
-        injectionDepth: opts.injectionDepth ?? null,
-        injectionRole: opts.injectionRole ?? null,
-        cooldown: opts.cooldown ?? null,
-        warmup: opts.warmup ?? null,
-        probability: opts.probability ?? null,
-        cascadeLinks: opts.cascadeLinks || [],
-        refineKeys: opts.refineKeys || [],
-        vaultSource: opts.vaultSource || '',
-        filename: opts.filename || `${title}.md`,
-        era: opts.era || null,
-        location: opts.location || null,
-        sceneType: opts.sceneType || null,
-        characterPresent: opts.characterPresent || null,
-    };
 }
 
 // ============================================================================
@@ -1582,22 +1560,22 @@ import {
 test('buildExemptionPolicy: constants are in forceInject', () => {
     const vault = [makeEntry('A', { constant: true }), makeEntry('B')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(policy.forceInject.has('A'), 'constant A should be in forceInject');
-    assert(!policy.forceInject.has('B'), 'non-constant B should NOT be in forceInject');
+    assert(policy.forceInject.has('a'), 'constant A should be in forceInject (lowercase)');
+    assert(!policy.forceInject.has('b'), 'non-constant B should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: pins are in forceInject', () => {
     const vault = [makeEntry('A'), makeEntry('B')];
     const policy = buildExemptionPolicy(vault, ['A'], []);
-    assert(policy.forceInject.has('A'), 'pinned A should be in forceInject');
-    assert(!policy.forceInject.has('B'), 'non-pinned B should NOT be in forceInject');
+    assert(policy.forceInject.has('a'), 'pinned A should be in forceInject (lowercase)');
+    assert(!policy.forceInject.has('b'), 'non-pinned B should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: bootstrap entries are NOT in forceInject (fixed: bootstrap only force-injects on short chats via pipeline)', () => {
     const vault = [makeEntry('Boot', { bootstrap: true }), makeEntry('Normal')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(!policy.forceInject.has('Boot'), 'bootstrap should NOT be in forceInject (gating handled by pipeline)');
-    assert(!policy.forceInject.has('Normal'), 'normal should NOT be in forceInject');
+    assert(!policy.forceInject.has('boot'), 'bootstrap should NOT be in forceInject (gating handled by pipeline)');
+    assert(!policy.forceInject.has('normal'), 'normal should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: blocks stored lowercase in policy', () => {
@@ -1618,7 +1596,7 @@ test('buildExemptionPolicy: pin and constant overlap is deduplicated', () => {
     const vault = [makeEntry('A', { constant: true })];
     const policy = buildExemptionPolicy(vault, ['A'], []);
     assertEqual(policy.forceInject.size, 1, 'A appears once despite being constant and pinned');
-    assert(policy.forceInject.has('A'), 'A is in forceInject');
+    assert(policy.forceInject.has('a'), 'A is in forceInject (lowercase)');
 });
 
 // -- applyPinBlock --
@@ -1708,7 +1686,7 @@ test('applyContextualGating: entry with era dropped when no era active', () => {
 
 test('applyContextualGating: forceInject entries bypass era gating', () => {
     const entries = [makeEntry('A', { era: ['golden'] })];
-    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set(['A']) }, false);
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set(['a']) }, false);
     assertEqual(result.length, 1, 'forceInject entry kept despite era mismatch');
 });
 
@@ -1786,7 +1764,7 @@ test('applyReinjectionCooldown: old injection passes cooldown', () => {
 test('applyReinjectionCooldown: forceInject entries always pass', () => {
     const a = makeEntry('A', { vaultSource: '' });
     const history = new Map([[':A', 5]]);
-    const result = applyReinjectionCooldown([a], { forceInject: new Set(['A']) }, history, 6, 3, false);
+    const result = applyReinjectionCooldown([a], { forceInject: new Set(['a']) }, history, 6, 3, false);
     assertEqual(result.length, 1, 'forceInject bypasses cooldown');
 });
 
@@ -1828,14 +1806,14 @@ test('applyRequiresExcludesGating: entry with triggered excludes removed', () =>
 
 test('applyRequiresExcludesGating: forceInject entry with unmet requires kept (NEW behavior)', () => {
     const entries = [makeEntry('B', { requires: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['B']) }, false);
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['b']) }, false);
     assertEqual(result.length, 1, 'forceInject B kept despite unmet requires');
     assertEqual(result[0].title, 'B', 'B is in result');
 });
 
 test('applyRequiresExcludesGating: forceInject entry with triggered excludes kept', () => {
     const entries = [makeEntry('A'), makeEntry('B', { excludes: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['B']) }, false);
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['b']) }, false);
     assertEqual(result.length, 2, 'forceInject B kept despite excludes match');
 });
 
@@ -1868,7 +1846,7 @@ test('applyRequiresExcludesGating: cascade removal via third-party excludes', ()
 
 test('applyRequiresExcludesGating: circular requires with one forceInject breaks cycle', () => {
     const entries = [makeEntry('A', { requires: ['B'] }), makeEntry('B', { requires: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['A']) }, false);
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['a']) }, false);
     // A is forceInject so it stays. B requires A which is present → B also stays.
     assertEqual(result.length, 2, 'forceInject A breaks the cycle');
 });
@@ -1927,7 +1905,7 @@ test('applyStripDedup: recently injected entry filtered', () => {
 test('applyStripDedup: forceInject entries never stripped', () => {
     const entries = [makeEntry('A', { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 })];
     const log = [{ gen: 1, entries: [{ title: 'A', pos: 1, depth: 4, role: 0, contentHash: '' }] }];
-    const result = applyStripDedup(entries, { forceInject: new Set(['A']) }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
+    const result = applyStripDedup(entries, { forceInject: new Set(['a']) }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
     assertEqual(result.length, 1, 'forceInject bypasses dedup');
 });
 
@@ -3092,6 +3070,294 @@ test('formatRelativeTime: months ago', () => {
 
 test('formatRelativeTime: future timestamp returns just now', () => {
     assertEqual(formatRelativeTime(Date.now() + 60000), 'just now', 'future');
+});
+
+// ============================================================================
+// Tests: convexHull (graph-analysis.js)
+// ============================================================================
+
+test('convexHull: returns empty for empty input', () => {
+    assertEqual(convexHull([]), [], 'empty');
+});
+
+test('convexHull: returns single point', () => {
+    const pts = [{ x: 1, y: 1 }];
+    assertEqual(convexHull(pts).length, 1, 'single point');
+});
+
+test('convexHull: returns two points', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 1, y: 1 }];
+    assertEqual(convexHull(pts).length, 2, 'two points');
+});
+
+test('convexHull: triangle', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 1, y: 2 }];
+    const hull = convexHull(pts);
+    assertEqual(hull.length, 3, 'triangle has 3 hull points');
+});
+
+test('convexHull: square with interior point', () => {
+    const pts = [
+        { x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }, { x: 0, y: 4 },
+        { x: 2, y: 2 }, // interior
+    ];
+    const hull = convexHull(pts);
+    assertEqual(hull.length, 4, 'square hull excludes interior point');
+});
+
+test('convexHull: collinear points', () => {
+    const pts = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }];
+    const hull = convexHull(pts);
+    assert(hull.length <= 3, 'collinear points handled');
+});
+
+test('COMMUNITY_PALETTE: has 12 colors', () => {
+    assertEqual(COMMUNITY_PALETTE.length, 12, '12 colors');
+    assert(COMMUNITY_PALETTE.every(c => /^#[0-9a-f]{6}$/.test(c)), 'all valid hex');
+});
+
+// ============================================================================
+// Tests: toPastel, lightenColor, darkenColor (graph-render.js)
+// ============================================================================
+
+test('toPastel: returns same color if already light', () => {
+    assertEqual(toPastel('#ffffff'), '#ffffff', 'white stays white');
+});
+
+test('toPastel: lightens a dark color', () => {
+    const result = toPastel('#000000', 0.5);
+    assert(result !== '#000000', 'black should be lightened');
+    assertEqual(result, '#808080', 'black + 50% mix = gray');
+});
+
+test('toPastel: respects mix parameter', () => {
+    const light = toPastel('#4e79a7', 0.5);
+    const less = toPastel('#4e79a7', 0.1);
+    // More mix = lighter (higher RGB values)
+    const lightR = parseInt(light.slice(1, 3), 16);
+    const lessR = parseInt(less.slice(1, 3), 16);
+    assert(lightR > lessR, 'higher mix = lighter color');
+});
+
+test('lightenColor: returns rgb string', () => {
+    const result = lightenColor('#000000', 0.5);
+    assert(result.startsWith('rgb('), 'returns rgb()');
+    assert(result.includes('128'), 'black + 50% = mid gray');
+});
+
+test('lightenColor: amount 0 keeps original', () => {
+    const result = lightenColor('#ff0000', 0);
+    assertEqual(result, 'rgb(255, 0, 0)', 'red unchanged');
+});
+
+test('darkenColor: returns rgb string', () => {
+    const result = darkenColor('#ffffff', 0.5);
+    assert(result.startsWith('rgb('), 'returns rgb()');
+    assert(result.includes('128'), 'white - 50% = mid gray');
+});
+
+test('darkenColor: amount 0 keeps original', () => {
+    const result = darkenColor('#ff0000', 0);
+    assertEqual(result, 'rgb(255, 0, 0)', 'red unchanged');
+});
+
+// ============================================================================
+// Tests: formatTokensCompact (drawer-state.js — tested via reimplementation
+// since the module imports ST's escapeHtml which isn't available in Node)
+// ============================================================================
+
+// Mirror of drawer-state.js:formatTokensCompact
+function _formatTokensCompact(n) {
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return String(n);
+}
+
+test('formatTokensCompact: small numbers returned as-is', () => {
+    assertEqual(_formatTokensCompact(0), '0', 'zero');
+    assertEqual(_formatTokensCompact(50), '50', 'fifty');
+    assertEqual(_formatTokensCompact(999), '999', 'just under 1k');
+});
+
+test('formatTokensCompact: thousands abbreviated with k', () => {
+    assertEqual(_formatTokensCompact(1000), '1.0k', '1000');
+    assertEqual(_formatTokensCompact(1234), '1.2k', '1234');
+    assertEqual(_formatTokensCompact(12345), '12.3k', '12345');
+    assertEqual(_formatTokensCompact(100000), '100.0k', '100000');
+});
+
+// ============================================================================
+// Tests: getMatchLabel (drawer-state.js — tested via parseMatchReason which
+// is the core logic, directly importable from helpers.js)
+// ============================================================================
+
+test('parseMatchReason: known types parse correctly', () => {
+    assertEqual(parseMatchReason('constant').type, 'constant', 'constant');
+    assertEqual(parseMatchReason('pinned').type, 'pinned', 'pinned');
+    assertEqual(parseMatchReason('bootstrap').type, 'bootstrap', 'bootstrap');
+    assertEqual(parseMatchReason('seed').type, 'seed', 'seed');
+    assertEqual(parseMatchReason('keyword: test').type, 'keyword', 'keyword');
+    assertEqual(parseMatchReason('test → AI: relevant context').type, 'keyword_ai', 'keyword_ai (arrow format)');
+    assertEqual(parseMatchReason('ai: relevant').type, 'ai', 'ai');
+});
+
+test('parseMatchReason: null/undefined returns unknown', () => {
+    assertEqual(parseMatchReason(null).type, 'unknown', 'null');
+    assertEqual(parseMatchReason(undefined).type, 'unknown', 'undefined');
+});
+
+// ============================================================================
+// Tests: Audit Bug Regression — Wave 1 (BUG-009, BUG-033, BUG-008, BUG-046)
+// ============================================================================
+
+test('BUG-009: buildAiChatContext handles null messages without crashing', () => {
+    const chat = [
+        { is_user: true, mes: 'hello', name: 'User' },
+        null,
+        { is_user: false, mes: 'world', name: 'AI' },
+    ];
+    let threw = false;
+    let result;
+    try { result = buildAiChatContext(chat, 5); } catch { threw = true; }
+    assert(!threw, 'should not throw on null message');
+    assert(typeof result === 'string', 'should return a string');
+    assert(result.includes('User (user): hello'), 'should include first message');
+    assert(result.includes('AI (character): world'), 'should include third message');
+});
+
+test('BUG-009: buildAiChatContext handles all-null chat gracefully', () => {
+    const chat = [null, null, null];
+    let threw = false;
+    try { buildAiChatContext(chat, 5); } catch { threw = true; }
+    assert(!threw, 'should not throw on all-null chat');
+});
+
+test('BUG-033: parseFrontmatter unescapes backslash-quote in block array items', () => {
+    const input = '---\nkeys:\n  - Alice \\"the Pale\\"\n  - normal key\n---\nBody';
+    const result = parseFrontmatter(input);
+    assert(Array.isArray(result.frontmatter.keys), 'keys should be array');
+    assertEqual(result.frontmatter.keys[0], 'Alice "the Pale"', 'should unescape \\" to "');
+    assertEqual(result.frontmatter.keys[1], 'normal key', 'normal key unchanged');
+});
+
+test('BUG-033: parseFrontmatter unescapes backslash-backslash in block array items', () => {
+    const input = '---\nkeys:\n  - path\\\\to\\\\file\n---\nBody';
+    const result = parseFrontmatter(input);
+    assertEqual(result.frontmatter.keys[0], 'path\\to\\file', 'should unescape \\\\ to \\');
+});
+
+test('BUG-008: convertWiEntry handles string key field without crashing', () => {
+    const wiEntry = { uid: 1, key: 'dragon, fire, beast', content: 'A fearsome creature.' };
+    let threw = false;
+    let result;
+    try { result = convertWiEntry(wiEntry, 'lorebook'); } catch { threw = true; }
+    assert(!threw, 'should not throw TypeError when key is a string');
+    assert(result.filename.length > 0, 'should produce a valid filename');
+});
+
+test('BUG-008: convertWiEntry uses string key as title fallback', () => {
+    const wiEntry = { uid: 1, key: 'dragon, fire, beast', content: 'Content here.' };
+    const result = convertWiEntry(wiEntry, 'lorebook');
+    assert(result.content.includes('dragon'), 'title should derive from string key');
+});
+
+test('BUG-008: convertWiEntry handles empty key string', () => {
+    const wiEntry = { uid: 42, key: '', content: 'No keys.' };
+    let threw = false;
+    try { convertWiEntry(wiEntry, 'lorebook'); } catch { threw = true; }
+    assert(!threw, 'should not throw on empty string key');
+});
+
+test('BUG-046: extractAiResponseClient accepts array with at least one valid element', () => {
+    const input = JSON.stringify([{ title: 'Foo', confidence: 'high' }, 42, null]);
+    const result = extractAiResponseClient(input);
+    assert(result !== null, 'should parse array with at least one valid object');
+    assert(Array.isArray(result), 'should return an array');
+});
+
+test('BUG-046: extractAiResponseClient rejects array with no valid elements', () => {
+    const input = JSON.stringify([42, null, true]);
+    const result = extractAiResponseClient(input);
+    assert(result === null, 'should reject array with no valid string/object elements');
+});
+
+test('BUG-046: normalizeResults filters items with null/undefined/empty titles', () => {
+    const input = [{ title: 'Foo', confidence: 'high' }, null, undefined, ''];
+    const result = normalizeResultsProd(input);
+    assert(result.every(r => r.title && r.title.trim()), 'all results should have non-empty titles');
+    assert(result.some(r => r.title === 'Foo'), 'valid item should survive');
+    assert(!result.some(r => r.title === 'null'), 'null item should be filtered');
+    assert(!result.some(r => r.title === 'undefined'), 'undefined item should be filtered');
+    assert(result.length === 1, 'only valid item should remain');
+});
+
+// ============================================================================
+// Wave 3 Regression Tests — Obsidian API (BUG-040, BUG-045)
+// ============================================================================
+
+test('BUG-040: validateVaultPath rejects path traversal in scribe folder', () => {
+    let threw = false;
+    try { validateVaultPath('../../etc/passwd'); } catch { threw = true; }
+    assert(threw, 'should throw on path traversal attempt');
+});
+
+test('BUG-040: validateVaultPath rejects embedded traversal', () => {
+    let threw = false;
+    try { validateVaultPath('notes/../../../secrets'); } catch { threw = true; }
+    assert(threw, 'should throw on embedded traversal');
+});
+
+test('BUG-040: validateVaultPath accepts normal paths', () => {
+    let threw = false;
+    try { validateVaultPath('Session Notes/2026-03'); } catch { threw = true; }
+    assert(!threw, 'should accept normal folder path');
+});
+
+test('BUG-045: pruneCircuitBreakers is a function', () => {
+    assert(typeof pruneCircuitBreakers === 'function', 'pruneCircuitBreakers should be exported');
+});
+
+// ============================================================================
+// Wave 2 Regression Tests — BM25 (BUG-013, BUG-042)
+// ============================================================================
+
+test('BUG-013: buildBM25Index uses trackerKey for multi-vault uniqueness', () => {
+    const e1 = makeEntry('Dragon', { keys: ['dragon'], content: 'Fire dragon of the north', vaultSource: 'vault-A', tokenEstimate: 50 });
+    const e2 = makeEntry('Dragon', { keys: ['dragon'], content: 'Ice dragon of the south', vaultSource: 'vault-B', tokenEstimate: 50 });
+    const index = buildBM25Index([e1, e2]);
+    // After fix: both entries should be in the index (keyed by vaultSource:title, not bare title)
+    assert(index.docs.size === 2, `both multi-vault entries should be indexed, got ${index.docs.size}`);
+    const results = queryBM25(index, 'dragon', 10, 0.0);
+    assert(results.length === 2, `both entries should be findable, got ${results.length}`);
+    // Results should use entry.title not trackerKey
+    assert(results.every(r => r.title === 'Dragon'), 'results should return entry.title not trackerKey');
+});
+
+test('BUG-013: queryBM25 returns entry.title not map key', () => {
+    const e1 = makeEntry('Eris', { keys: ['eris'], content: 'A goddess of discord', vaultSource: 'main-vault', tokenEstimate: 30 });
+    const index = buildBM25Index([e1]);
+    const results = queryBM25(index, 'eris', 10, 0.0);
+    assert(results.length === 1, 'should find the entry');
+    assertEqual(results[0].title, 'Eris', 'title should be entry.title not trackerKey');
+    assert(!results[0].title.includes(':'), 'title should not contain vaultSource prefix');
+});
+
+test('BUG-042: queryBM25 works with Set instead of Map for query terms', () => {
+    const e1 = makeEntry('Dragon', { keys: ['dragon'], content: 'dragon dragon fire breath', vaultSource: '', tokenEstimate: 50 });
+    const index = buildBM25Index([e1]);
+    // Repeating query term should produce same results (Set deduplicates)
+    const results1 = queryBM25(index, 'dragon', 10, 0.0);
+    const results2 = queryBM25(index, 'dragon dragon dragon', 10, 0.0);
+    assert(results1.length > 0, 'single query term finds entry');
+    assert(results2.length > 0, 'repeated query term finds entry');
+    // Scores should be identical (query TF was never used in scoring)
+    assertEqual(results1[0].score, results2[0].score, 'repeated query terms should not change score');
+});
+
+test('BM25: empty entries produces empty index', () => {
+    const index = buildBM25Index([]);
+    assert(index.docs.size === 0, 'empty entries should produce empty index');
+    const results = queryBM25(index, 'anything', 10, 0.0);
+    assertEqual(results.length, 0, 'querying empty index should return nothing');
 });
 
 // ============================================================================

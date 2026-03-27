@@ -54,7 +54,7 @@ export function registerAdminCommands() {
                 `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
             ];
             const msg = lines.join('\n');
-            const html = `<div class="dle-popup">${buildCopyButton(msg)}<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(msg)}</pre></div>`;
+            const html = `<div class="dle-popup">${buildCopyButton(msg)}<pre class="dle-text-pre">${escapeHtml(msg)}</pre></div>`;
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
                 wide: true,
                 onOpen: () => attachCopyHandler(document.querySelector('.popup')),
@@ -104,13 +104,13 @@ export function registerAdminCommands() {
                     const preview = note.body.substring(0, 200).replace(/\n/g, ' ') + (note.body.length > 200 ? '...' : '');
                     const noteId = simpleHash(note.filename);
 
-                    html += `<div class="dle-card" style="padding: 10px; margin-bottom: var(--dle-space-2);">`;
+                    html += `<div class="dle-card dle-popup-section">`;
                     html += `<div class="dle_note_toggle dle-card-header" data-target="dle_note_${noteId}">`;
                     html += `<strong>${escapeHtml(note.character || 'Unknown')}</strong>`;
                     html += `<small class="dle-muted">${escapeHtml(dateDisplay)}</small>`;
                     html += `</div>`;
                     html += `<small class="dle-faint">${escapeHtml(preview)}</small>`;
-                    html += `<div id="dle_note_${noteId}" style="display: none; margin-top: var(--dle-space-2); padding-top: var(--dle-space-2); border-top: 1px solid var(--dle-border); white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(note.body)}</div>`;
+                    html += `<div id="dle_note_${noteId}" class="dle-popup-detail">${escapeHtml(note.body)}</div>`;
                     html += `</div>`;
                 }
                 html += '</div>';
@@ -167,7 +167,7 @@ export function registerAdminCommands() {
             for (const title of titles) {
                 const d = analytics[title];
                 const lastUsed = d.lastTriggered ? new Date(d.lastTriggered).toLocaleString() : 'Never';
-                html += `<tr><td>${escapeHtml(title)}</td><td style="text-align:center;">${d.matched || 0}</td><td style="text-align:center;">${d.injected || 0}</td><td style="text-align:center;">${lastUsed}</td></tr>`;
+                html += `<tr><td>${escapeHtml(title)}</td><td class="dle-text-center">${d.matched || 0}</td><td class="dle-text-center">${d.injected || 0}</td><td class="dle-text-center">${lastUsed}</td></tr>`;
             }
             html += '</table>';
 
@@ -277,19 +277,19 @@ export function registerAdminCommands() {
                 <div class="dle-popup">
                     <h3>DeepLore Enhanced Setup (1/3): Vault Connection</h3>
                     <p>Connect to your Obsidian vault via the Local REST API plugin.</p>
-                    <div style="margin: 10px 0;">
+                    <div class="dle-my-10">
                         <label>Vault Name:</label>
                         <input id="dle_setup_name" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.name || 'Primary')}" />
                     </div>
-                    <div style="margin: 10px 0;">
+                    <div class="dle-my-10">
                         <label>Host (default: 127.0.0.1):</label>
                         <input id="dle_setup_host" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.host || '127.0.0.1')}" />
                     </div>
-                    <div style="margin: 10px 0;">
+                    <div class="dle-my-10">
                         <label>Port (default: 27123):</label>
                         <input id="dle_setup_port" class="text_pole" type="number" value="${settings.vaults?.[0]?.port || 27123}" />
                     </div>
-                    <div style="margin: 10px 0;">
+                    <div class="dle-my-10">
                         <label>API Key:</label>
                         <input id="dle_setup_key" class="text_pole" type="password" value="${escapeHtml(settings.vaults?.[0]?.apiKey || '')}" placeholder="From Obsidian REST API plugin settings" />
                     </div>
@@ -327,11 +327,11 @@ export function registerAdminCommands() {
             const step2Html = `
                 <div class="dle-popup">
                     <h3>DeepLore Enhanced Setup (2/3): Configuration</h3>
-                    <div style="margin: 10px 0;">
+                    <div class="dle-my-10">
                         <label>Lorebook Tag (entries must have this tag):</label>
                         <input id="dle_setup_tag" class="text_pole" type="text" value="${escapeHtml(settings.lorebookTag)}" />
                     </div>
-                    <div style="margin: 10px 0;">
+                    <div class="dle-my-10">
                         <label>Search Mode:</label>
                         <select id="dle_setup_mode" class="text_pole">
                             <option value="keywords" ${!settings.aiSearchEnabled ? 'selected' : ''}>Keywords Only (no AI cost)</option>
@@ -429,7 +429,7 @@ export function registerAdminCommands() {
                     html += `<h4 class="dle-muted" style="margin: var(--dle-space-3) 0 var(--dle-space-1);">${escapeHtml(c.label)}</h4>`;
                     continue;
                 }
-                html += `<div style="margin-bottom: var(--dle-space-1);"><code class="dle-muted">${c.cmd}</code> — ${escapeHtml(c.desc)}</div>`;
+                html += `<div class="dle-mb-1"><code class="dle-muted">${c.cmd}</code> — ${escapeHtml(c.desc)}</div>`;
             }
             html += '</div>';
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });

@@ -2,6 +2,65 @@
 
 ## 0.2.0-BETA
 
+### 47-Bug Audit Fix (2026-03-27)
+Comprehensive code audit resolved 47 confirmed bugs (2 critical, 13 high, 20 medium, 12 low). Extracted `src/vault/bm25.js` for testability. Added 72 unit tests and 25 integration tests (659→731 unit, 165→190 integration).
+
+#### Critical
+- **BUG-001**: Multi-vault all-fail no longer wipes the in-memory index — sets a short retry TTL instead.
+- **BUG-002**: XML-escape `resolvedLinks` in AI manifest to prevent malformed XML from `&`/`<`/`>`/`"` in titles.
+
+#### High
+- **BUG-003**: Re-check TTL after `buildIndexWithReuse` to prevent double full-rebuild.
+- **BUG-004**: Pipeline trace now includes `aiError` message for diagnostics (`/dle-inspect`).
+- **BUG-005**: AI timeout errors (`AbortError`) no longer trip the circuit breaker.
+- **BUG-006**: Hierarchical pre-filter no longer throttled against the main AI call rate limiter.
+- **BUG-007**: Multi-vault dedup applied consistently in both `buildIndex` and `buildIndexWithReuse`.
+- **BUG-010**: AI parse failures now call `recordAiFailure()` so the circuit breaker counts them.
+- **BUG-011**: `forceInject`, `pins`, and `blocks` Sets normalized to lowercase for case-insensitive matching.
+- **BUG-013**: BM25 index uses `trackerKey` (vaultSource:title) for multi-vault uniqueness.
+- **BUG-015**: `buildEpoch` counter invalidates stale build promises after force-release.
+- **BUG-019/020/021**: AI search cache key now includes system prompt hash, confidence threshold, manifest summary mode, and summary length.
+- **BUG-028**: Connection Manager profile calls wrapped with `Promise.race` timeout.
+- **BUG-029**: Symmetric mutual excludes resolve deterministically — higher-priority entry survives.
+
+#### Medium
+- **BUG-008**: `convertWiEntry` handles string `key` field without crashing.
+- **BUG-009**: `parseFrontmatter` filters `null`/`undefined` from array fields.
+- **BUG-012**: IndexedDB `saveIndexToCache` validates `tokenEstimate` to prevent `NaN` propagation.
+- **BUG-014**: `formatAndGroup` called with current settings object, not stale closure.
+- **BUG-016**: Lenient contextual gating tolerance no longer skips all filtering.
+- **BUG-017**: Hierarchical pre-filter no longer increments `aiSearchStats.calls`.
+- **BUG-018**: Sync polling uses epoch counter to prevent orphaned chains.
+- **BUG-022**: Hierarchical pre-filter receives post-recursive-scan entries (preserves wiki-links).
+- **BUG-024**: IndexedDB `tx.onabort` handler added to surface quota/constraint errors.
+- **BUG-025**: AI circuit breaker half-open probe uses atomic gate (prevents thundering herd).
+- **BUG-027**: Hierarchical AI response parser handles object format (`.categories`/`.labels`/`.selected`).
+- **BUG-030**: Pinned entries get deep-copied arrays to prevent cross-mutation.
+- **BUG-032**: Token-to-char truncation ratio changed from 3.5 to 4.0 for better alignment.
+- **BUG-033**: YAML unescape applied after quote stripping (correct order).
+- **BUG-034**: `setBuildPromise(null)` called on force-release of stuck indexing flag.
+- **BUG-035**: Warmup check skipped for cascade-linked entries.
+- **BUG-036**: Dead hostname check removed from proxy URL validation.
+- **BUG-037**: `127.x.x.x` range added to SSRF private IP patterns.
+- **BUG-039**: `_lastAiCallTimestamp` update moved to `finally` block.
+- **BUG-042**: BM25 query uses `Set` instead of `Map` for deduplication (frequency was allocated but unused).
+
+#### Low
+- **BUG-023**: IndexedDB `loadIndexFromCache` validates `tokenEstimate` on read.
+- **BUG-026**: Clarifying comment on analytics pruning intent.
+- **BUG-031**: IndexedDB `saveIndexToCache` clamps `tokenEstimate` floor to 1.
+- **BUG-038**: Obsidian circuit breaker `circuitAllows` dead code simplified.
+- **BUG-040**: `validateVaultPath` check added to `fetchScribeNotes` folder parameter.
+- **BUG-041**: Proxy response parsing separates `response.text()` from `JSON.parse` try-catch.
+- **BUG-043**: Short entity names (≤3 chars) use word-boundary regex in mention-weight.
+- **BUG-044**: `setBuildPromise(null)` in all `buildIndex` finally blocks.
+- **BUG-045**: Exported `pruneCircuitBreakers(activeKeys)` for stale breaker cleanup.
+- **BUG-046**: `extractAiResponseClient` validates array elements have non-empty titles.
+- **BUG-047**: Hierarchical manifest header uses `candidates.length` not `selectable.length`.
+
+#### New File
+- **`src/vault/bm25.js`** — Extracted pure BM25 functions (`tokenize`, `buildBM25Index`, `queryBM25`) from `vault.js` for Node.js testability.
+
 ### Drawer: Phase 2 — Performance & UX Polish
 - **Overlay mode** — When `chat_width >= 60`, drawer switches to a fixed 380px overlay instead of inline fillRight, preventing it from being crushed in narrow remaining space. Reads `power_user.chat_width` directly.
 - **Close button** — Chevron-up icon next to lock icon for easy drawer dismissal. Wrapper div `.dle-drawer-controls` groups lock + close.

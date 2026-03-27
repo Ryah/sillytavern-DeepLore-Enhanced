@@ -46,7 +46,9 @@ export function parseFrontmatter(content) {
         if (/^\s*-\s+/.test(trimmed) && currentKey) {
             let value = trimmed.replace(/^\s*-\s+/, '').trim();
             // Strip surrounding quotes if present (same as scalar values)
-            value = value.replace(/^['"]|['"]$/g, '');
+            value = value.replace(/^(['"])([\s\S]*)\1$/, '$2');
+            // BUG-033: Unescape backslash sequences to match inline array parser behavior
+            value = value.replace(/\\"/g, '"').replace(/\\'/g, "'").replace(/\\\\/g, '\\');
             if (!currentArray) {
                 currentArray = [];
                 frontmatter[currentKey] = currentArray;
@@ -273,6 +275,7 @@ export function buildAiChatContext(chat, depth) {
     if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
+        .filter(m => m != null)
         .map(m => {
             const speaker = m.name || 'Unknown';
             const role = m.is_user ? '(user)' : '(character)';

@@ -149,11 +149,8 @@ export function matchEntries(chat, snapshot = null) {
                     }
                     if (linked.probability === 0) continue;
                     if (linked.probability !== null && linked.probability < 1.0 && Math.random() > linked.probability) continue;
-                    if (linked.warmup !== null) {
-                        const scanText = linked.scanDepth !== null ? getScanText(linked.scanDepth) : globalScanText;
-                        const occurrences = countKeywordOccurrences(linked, scanText, settings);
-                        if (occurrences < linked.warmup) continue;
-                    }
+                    // BUG-035: Skip warmup check for cascade-linked entries — cascade links are
+                    // explicit author-defined relationships, not keyword-triggered matches
                     matchedSet.add(linked);
                     matchedKeys.set(linked.title, `(cascade from: ${entry.title})`);
                 }
@@ -278,6 +275,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         stripDedupRemoved: [],
         bootstrapActive,
         aiFallback: false,
+        aiError: '', // BUG-004: Capture AI error message for toast enrichment
     };
 
     let finalEntries;
@@ -317,6 +315,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates);
             if (aiResult.error) {
                 trace.aiFallback = true;
+                trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details
                 const fallback = settings.aiErrorFallback || 'keyword';
                 if (fallback === 'keyword') {
                     const kwResult = matchEntries(chat, vaultSnapshot);
@@ -391,8 +390,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
         // Hierarchical pre-filter for large keyword match sets
+        // BUG-022: Use expandedMatched (includes wiki-linked candidates), not keywordResult.matched
         let twoStageCandidates = expandedMatched;
-        const preFiltered = await hierarchicalPreFilter(keywordResult.matched, chat);
+        const preFiltered = await hierarchicalPreFilter(expandedMatched, chat);
         if (preFiltered) {
             twoStageCandidates = preFiltered;
             if (settings.debugMode) {
@@ -414,6 +414,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates);
             if (aiResult.error) {
                 trace.aiFallback = true;
+                trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details
                 const fallback = settings.aiErrorFallback || 'keyword';
                 if (fallback === 'keyword') {
                     finalEntries = keywordResult.matched;

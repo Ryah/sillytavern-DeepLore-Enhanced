@@ -120,21 +120,21 @@ export async function showSuggestionPopup(suggestions) {
         const s = suggestions[i];
         cardsHtml += `
             <div id="dle_suggest_${i}" class="dle_suggest_card dle-card" style="padding: 10px; margin-bottom: 10px;">
-                <div class="dle-card-header" style="margin-bottom: var(--dle-space-1);">
+                <div class="dle-card-header dle-mb-1">
                     <strong>${escapeHtml(s.title || 'Untitled')}</strong>
                     <span class="dle-text-xs dle-muted">${escapeHtml(s.type || 'lore')}</span>
                 </div>
-                <div class="dle-text-sm" style="margin-bottom: var(--dle-space-1);">
+                <div class="dle-text-sm dle-mb-1">
                     <strong>Keywords:</strong> ${escapeHtml((s.keys || []).join(', '))}
                 </div>
-                <div class="dle-text-sm" style="margin-bottom: var(--dle-space-1);">
+                <div class="dle-text-sm dle-mb-1">
                     <strong>Summary:</strong> ${escapeHtml(s.summary || '')}
                 </div>
                 <details>
-                    <summary class="dle-text-sm" style="cursor: pointer;">Content preview</summary>
-                    <div class="dle-preview dle-preview--short" style="margin-top: var(--dle-space-1);">${escapeHtml(s.content || '')}</div>
+                    <summary class="dle-text-sm dle-cursor-pointer">Content preview</summary>
+                    <div class="dle-preview dle-preview--short dle-mt-1">${escapeHtml(s.content || '')}</div>
                 </details>
-                <div style="margin-top: var(--dle-space-1); display: flex; gap: var(--dle-space-1);">
+                <div class="dle-flex dle-mt-1 dle-gap-1">
                     <button class="menu_button dle_accept_suggest dle-text-sm" data-index="${i}">Accept</button>
                     <button class="menu_button dle_reject_suggest dle-text-sm dle-muted" data-index="${i}">Reject</button>
                 </div>

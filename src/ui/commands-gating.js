@@ -204,12 +204,12 @@ export function registerGatingCommands() {
         if (currentValue) {
             html += `<p style="margin-bottom:8px;">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
         }
-        html += '<div style="display:flex;flex-direction:column;gap:4px;">';
-        html += `<button class="menu_button dle-field-select" data-value="" style="display:flex;justify-content:space-between;align-items:center;width:100%;">Clear filter</button>`;
+        html += '<div class="dle-flex-col dle-gap-1">';
+        html += `<button class="menu_button dle-field-select dle-flex-between" data-value="" style="width:100%;">Clear filter</button>`;
         for (const [, { display, count }] of sorted) {
             const isActive = currentValue.toLowerCase() === display.toLowerCase();
             const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid var(--dle-success, #4caf50);padding-left:8px;' : '';
-            html += `<button class="menu_button dle-field-select" data-value="${escapeHtml(display)}" style="display:flex;justify-content:space-between;align-items:center;width:100%;${activeStyle}">${escapeHtml(display)}<span style="font-size:11px;opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
+            html += `<button class="menu_button dle-field-select dle-flex-between" data-value="${escapeHtml(display)}" style="width:100%;${activeStyle}">${escapeHtml(display)}<span style="font-size:11px;opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
         }
         html += '</div></div>';
 
@@ -371,7 +371,7 @@ export function registerGatingCommands() {
                 `Scene Type: ${ctx.scene_type || '(not set)'}`,
                 `Characters Present: ${(ctx.characters_present || []).join(', ') || '(not set)'}`,
             ];
-            const html = `<pre style="white-space: pre-wrap; font-size: 0.9em;">${escapeHtml(lines.join('\n'))}</pre>`;
+            const html = `<pre class="dle-text-pre">${escapeHtml(lines.join('\n'))}</pre>`;
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
             return '';
         },

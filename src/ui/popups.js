@@ -97,7 +97,7 @@ export async function showNotebookPopup() {
     container.innerHTML = `
         <h3>Notebook</h3>
         <p class="dle-muted dle-text-sm">Persistent scratchpad for this chat. Contents are injected into every generation when enabled. Use for character notes, plot threads, reminders, or anything the AI should always know.</p>
-        <textarea id="dle_notebook_textarea" class="text_pole" rows="15" style="width: 100%; font-family: monospace; font-size: 0.9em;" placeholder="Write notes here...">${escapeHtml(currentContent)}</textarea>
+        <textarea id="dle_notebook_textarea" class="text_pole dle-text-mono" rows="15" style="width: 100%;" placeholder="Write notes here...">${escapeHtml(currentContent)}</textarea>
         <small id="dle_notebook_token_count" class="dle-faint"></small>
     `;
 
@@ -236,11 +236,11 @@ export async function showBrowsePopup() {
 
         const tempMap = computeEntryTemperatures();
         let html = '<table class="dle-browse-table"><thead><tr>';
-        html += '<th style="text-align:left;width:28%;">Title</th>';
-        html += '<th style="text-align:left;width:40%;">Keywords</th>';
-        html += '<th style="text-align:center;width:10%;">Pri</th>';
-        html += '<th style="text-align:right;width:11%;">Tokens</th>';
-        html += '<th style="text-align:right;width:11%;">Usage</th>';
+        html += '<th class="dle-col-title">Title</th>';
+        html += '<th class="dle-col-keys">Keywords</th>';
+        html += '<th class="dle-col-pri">Pri</th>';
+        html += '<th class="dle-col-tok">Tokens</th>';
+        html += '<th class="dle-col-tok">Usage</th>';
         html += '</tr></thead><tbody>';
         for (const entry of filtered) {
             const statusBadges = [];
@@ -272,14 +272,14 @@ export async function showBrowsePopup() {
             html += `<tr class="dle_entry_toggle dle-browse-table-row" data-target="dle_entry_${entryId}" style="${tempBorder}">`;
             html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</td>`;
             html += `<td class="dle-browse-table-keys">${keysDisplay || '<em class="dle-muted">none</em>'}</td>`;
-            html += `<td style="text-align:center;">P${entry.priority}</td>`;
-            html += `<td style="text-align:right;">~${entry.tokenEstimate}</td>`;
-            html += `<td style="text-align:right;" title="matched / injected">${usageStr}</td>`;
+            html += `<td class="dle-text-center">P${entry.priority}</td>`;
+            html += `<td class="dle-text-right">~${entry.tokenEstimate}</td>`;
+            html += `<td class="dle-text-right" title="matched / injected">${usageStr}</td>`;
             html += `</tr>`;
-            html += `<tr id="dle_entry_${entryId}" style="display: none;"><td colspan="5" class="dle-browse-table-detail">`;
+            html += `<tr id="dle_entry_${entryId}" class="dle-hidden"><td colspan="5" class="dle-browse-table-detail">`;
             const truncated = entry.content.length > 500 ? entry.content.substring(0, 500) + '…' : entry.content;
             html += `<div class="dle-preview">${escapeHtml(truncated)}</div>`;
-            html += `<div class="dle-text-xs dle-muted" style="margin-top: var(--dle-space-1);">`;
+            html += `<div class="dle-text-xs dle-muted dle-mt-1">`;
             html += `Links: ${entry.resolvedLinks.length > 0 ? entry.resolvedLinks.map(l => escapeHtml(l)).join(', ') : 'none'}`;
             html += ` · Tags: ${entry.tags.length > 0 ? entry.tags.map(t => escapeHtml(t)).join(', ') : 'none'}`;
             if (entry.requires.length > 0) html += ` · Requires: ${entry.requires.map(r => escapeHtml(r)).join(', ')}`;
@@ -289,7 +289,7 @@ export async function showBrowsePopup() {
             html += obsidianLink;
             html += `</div>`;
             if (chat && chat.length > 0 && !entry.constant) {
-                html += `<div id="dle_whynot_${entryId}" style="margin-top: var(--dle-space-1);"><button class="menu_button dle_whynot_btn dle-text-xs" data-title="${escapeHtml(entry.title)}" style="padding: 2px 8px;">Why not injected?</button></div>`;
+                html += `<div id="dle_whynot_${entryId}" class="dle-mt-1"><button class="menu_button dle_whynot_btn dle-text-xs" data-title="${escapeHtml(entry.title)}" style="padding: 2px 8px;">Why not injected?</button></div>`;
             }
             html += `</td></tr>`;
         }
@@ -303,7 +303,7 @@ export async function showBrowsePopup() {
         if (!toggle) return;
         const targetId = toggle.dataset.target;
         const targetEl = document.getElementById(targetId);
-        if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'table-row' : 'none';
+        if (targetEl) targetEl.classList.toggle('dle-hidden');
     });
 
     // Event delegation for "Why not?" buttons — registered once on container, not per render

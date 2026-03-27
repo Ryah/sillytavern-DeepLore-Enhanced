@@ -204,7 +204,7 @@ export function registerPipelineCommands() {
                 && (!t.injected || t.injected.length === 0);
 
             if (nothingMatched) {
-                html += `<p style="color: var(--dle-warning);">No entries matched. Check scan depth (currently ${settings.scanDepth}), keyword coverage, or run /dle-health.</p>`;
+                html += `<p class="dle-text-warning">No entries matched. Check scan depth (currently ${settings.scanDepth}), keyword coverage, or run /dle-health.</p>`;
             }
 
             if (t.keywordMatched.length > 0) {
@@ -225,7 +225,7 @@ export function registerPipelineCommands() {
             }
 
             if (t.aiFallback) {
-                html += `<p style="color: var(--dle-warning);">⚠ AI search failed — keyword results used as fallback</p>`;
+                html += `<p class="dle-text-warning">⚠ AI search failed — keyword results used as fallback</p>`;
             }
 
             // Injected entries (post-budget)
@@ -233,7 +233,7 @@ export function registerPipelineCommands() {
                 const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
                 html += `<h4>${statusIcon(true)} Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel})</h4><ul>`;
                 for (const e of t.injected) {
-                    const truncLabel = e.truncated ? ` <span style="color: var(--dle-warning);">[truncated from ~${e.originalTokens}]</span>` : '';
+                    const truncLabel = e.truncated ? ` <span class="dle-text-warning">[truncated from ~${e.originalTokens}]</span>` : '';
                     html += `<li>${escapeHtml(e.title)} (~${e.tokens} tokens)${truncLabel}</li>`;
                 }
                 html += '</ul>';
@@ -241,7 +241,7 @@ export function registerPipelineCommands() {
 
             // Contextual gating removals
             if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
-                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
                 for (const title of t.contextualGatingRemoved) {
                     html += `<li>${escapeHtml(title)} — filtered by era/location/scene/character gate</li>`;
                 }
@@ -250,7 +250,7 @@ export function registerPipelineCommands() {
 
             // Re-injection cooldown removals
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
-                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
                 for (const title of t.cooldownRemoved) {
                     html += `<li>${escapeHtml(title)} — recently injected, on cooldown</li>`;
                 }
@@ -259,7 +259,7 @@ export function registerPipelineCommands() {
 
             // Gated out entries (requires/excludes) with cross-referencing
             if (t.gatedOut && t.gatedOut.length > 0) {
-                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
                 for (const e of t.gatedOut) {
                     const reasons = [];
                     if (e.requires?.length > 0) {
@@ -285,7 +285,7 @@ export function registerPipelineCommands() {
 
             // Strip dedup removals
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
-                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
                 for (const title of t.stripDedupRemoved) {
                     html += `<li>${escapeHtml(title)} — already injected in recent generation(s)</li>`;
                 }
@@ -294,7 +294,7 @@ export function registerPipelineCommands() {
 
             // Probability skips
             if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
-                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
                 for (const e of t.probabilitySkipped) {
                     const rollLabel = e.probability === 0 ? 'probability is 0 (never fires)' : `rolled ${e.roll.toFixed(3)} > ${e.probability}`;
                     html += `<li>${escapeHtml(e.title)} — ${rollLabel}</li>`;
@@ -304,7 +304,7 @@ export function registerPipelineCommands() {
 
             // Warmup failures
             if (t.warmupFailed && t.warmupFailed.length > 0) {
-                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
                 for (const e of t.warmupFailed) {
                     html += `<li>${escapeHtml(e.title)} — needs ${e.needed} keyword occurrences, found ${e.found}</li>`;
                 }
@@ -313,7 +313,7 @@ export function registerPipelineCommands() {
 
             // Budget/max cut entries
             if (t.budgetCut && t.budgetCut.length > 0) {
-                html += `<h4 style="color: var(--dle-warning);">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
                 for (const e of t.budgetCut) {
                     html += `<li>${escapeHtml(e.title)} (pri ${e.priority}, ~${e.tokens} tokens)</li>`;
                 }

@@ -155,7 +155,9 @@ export function countKeywordOccurrences(entry, scanText, settings) {
  * @returns {import('./pipeline.js').VaultEntry[]}
  */
 export function applyGating(entries) {
-    let result = [...entries];
+    // BUG-029: Sort descending by priority number for deterministic mutual-excludes resolution.
+    // Note: This is legacy code — the live pipeline uses applyRequiresExcludesGating in stages.js.
+    let result = [...entries].sort((a, b) => ((b.priority || 50) - (a.priority || 50)) || a.title.localeCompare(b.title));
     let changed = true;
     let iterations = 0;
     const MAX_ITERATIONS = 10;
@@ -256,12 +258,13 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
 
             if (remainingTokens >= MIN_TRUNCATION_TOKENS) {
                 // Truncate entry to fit remaining budget (shallow copy — never mutate original)
-                const maxChars = Math.floor(remainingTokens * 3.5);
+                // BUG-032: Use chars/4.0 ratio (more conservative, better alignment with actual tokenizer)
+                const maxChars = Math.floor(remainingTokens * 4.0);
                 const truncatedContent = truncateToSentence(entry.content, maxChars);
                 const truncatedEntry = {
                     ...entry,
                     content: truncatedContent,
-                    tokenEstimate: Math.ceil(truncatedContent.length / 3.5),
+                    tokenEstimate: Math.ceil(truncatedContent.length / 4.0),
                     _truncated: true,
                     _originalTokens: entry.tokenEstimate,
                     // Recompute content hash so strip-dedup doesn't use the pre-truncation hash

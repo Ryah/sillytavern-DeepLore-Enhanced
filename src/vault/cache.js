@@ -6,6 +6,7 @@
 
 import { getSettings } from '../../settings.js';
 import { dedupWarning } from '../toast-dedup.js';
+import { simpleHash } from '../../core/utils.js';
 
 const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;
@@ -21,7 +22,7 @@ function getCacheKey() {
         const settings = getSettings();
         const fp = (settings.vaults || [])
             .filter(v => v.enabled)
-            .map(v => `${v.name}:${v.port}`)
+            .map(v => `${v.name}:${v.host || '127.0.0.1'}:${v.port}:${simpleHash(v.apiKey || '')}`)
             .sort()
             .join('|');
         return fp ? `index_${fp}` : 'primaryIndex';
@@ -72,6 +73,7 @@ export async function saveIndexToCache(entries) {
         await new Promise((resolve, reject) => {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
         });
     } catch (err) {
         if (err.name === 'QuotaExceededError' || (err.message && err.message.includes('quota'))) {
@@ -99,16 +101,16 @@ export async function saveIndexToCache(entries) {
  * @param {object} entry
  * @returns {boolean}
  */
-function validateCachedEntry(entry) {
+export function validateCachedEntry(entry) {
     if (!entry || typeof entry !== 'object') return false;
     if (typeof entry.title !== 'string' || !entry.title) return false;
     if (!Array.isArray(entry.keys)) return false;
     if (typeof entry.content !== 'string') return false;
-    if (typeof entry.tokenEstimate !== 'number' || entry.tokenEstimate < 0) return false;
+    if (typeof entry.tokenEstimate !== 'number' || entry.tokenEstimate < 0 || Number.isNaN(entry.tokenEstimate)) return false;
     if (entry.links !== undefined && !Array.isArray(entry.links)) return false;
     if (entry.tags !== undefined && !Array.isArray(entry.tags)) return false;
     // Default critical fields that may be missing from partial writes
-    if (typeof entry.priority !== 'number') entry.priority = 50;
+    if (typeof entry.priority !== 'number' || Number.isNaN(entry.priority)) entry.priority = 50;
     if (typeof entry.constant !== 'boolean') entry.constant = false;
     if (entry.requires !== undefined && !Array.isArray(entry.requires)) entry.requires = [];
     if (entry.excludes !== undefined && !Array.isArray(entry.excludes)) entry.excludes = [];

@@ -25,14 +25,15 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
         if (blockedHosts.includes(hostname)) {
             throw new Error(`Proxy URL "${hostname}" is blocked (potential SSRF target)`);
         }
-        // Block localhost variants (except 127.0.0.1 which is required for local proxies)
-        if ((hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1'
-            || hostname === '::ffff:127.0.0.1' || hostname === '[::1]') && hostname !== '127.0.0.1') {
+        // BUG-036: Block localhost variants (except 127.0.0.1 which is required for local proxies)
+        if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1'
+            || hostname === '::ffff:127.0.0.1' || hostname === '[::1]') {
             throw new Error(`Proxy URL "${hostname}" is blocked — use 127.0.0.1 for local proxies`);
         }
         // Block private/reserved IP ranges (RFC 1918, RFC 6598, link-local)
         const privatePatterns = [
             /^10\./, // 10.0.0.0/8
+            /^127\./, // BUG-037: Block 127.0.0.0/8 (127.0.0.2 etc., except 127.0.0.1 below)
             /^172\.(1[6-9]|2\d|3[01])\./, // 172.16.0.0/12
             /^192\.168\./, // 192.168.0.0/16
             /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // 100.64.0.0/10 (CGNAT)
@@ -108,9 +109,10 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
             throw new Error(`Proxy returned HTTP ${response.status}: ${safeText}`);
         }
 
+        // BUG-041: Separate network read (response.text) from JSON parse to get distinct errors
+        const text = await response.text();
         let parsed;
         try {
-            const text = await response.text();
             parsed = JSON.parse(text);
         } catch (e) {
             throw new Error(`Failed to parse proxy response as JSON: ${e.message}`);

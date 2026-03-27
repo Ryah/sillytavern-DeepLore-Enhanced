@@ -2319,3 +2319,68 @@ button.dle-browse-block.dle-block-active {
     margin-top: 2px;
 }
 
+/* --- Utility classes for inline style migration --- */
+
+/* Text utilities */
+.dle-text-warning { color: var(--dle-warning); }
+.dle-text-info { color: var(--dle-info); }
+.dle-text-muted { color: var(--dle-text-muted); }
+.dle-text-pre { white-space: pre-wrap; font-size: 0.9em; }
+.dle-text-center { text-align: center; }
+.dle-text-right { text-align: right; }
+.dle-text-left { text-align: left; }
+.dle-text-mono { font-family: monospace; font-size: 0.9em; }
+
+/* Spacing utilities */
+.dle-mb-1 { margin-bottom: var(--dle-space-1); }
+.dle-mb-2 { margin-bottom: var(--dle-space-2); }
+.dle-mt-1 { margin-top: var(--dle-space-1); }
+.dle-mt-2 { margin-top: var(--dle-space-2); }
+.dle-my-3 { margin: var(--dle-space-3) 0; }
+.dle-my-10 { margin: 10px 0; }
+
+/* Layout utilities */
+.dle-flex { display: flex; }
+.dle-flex-col { display: flex; flex-direction: column; }
+.dle-flex-center { display: flex; align-items: center; }
+.dle-flex-between { display: flex; justify-content: space-between; align-items: center; }
+.dle-gap-1 { gap: var(--dle-space-1); }
+.dle-gap-2 { gap: var(--dle-space-2); }
+.dle-hidden { display: none; }
+.dle-cursor-pointer { cursor: pointer; }
+
+/* Graph toolbar button (repeated ~15x in graph.js) */
+.dle-graph-toolbar-btn {
+    height: 28px;
+    padding: 2px 8px;
+    font-size: 12px;
+}
+.dle-graph-toolbar-btn-wide {
+    height: 28px;
+    padding: 2px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.dle-graph-toolbar-input {
+    flex: 1;
+    min-width: 120px;
+    max-width: 200px;
+    height: 28px;
+    font-size: 12px;
+}
+.dle-graph-toolbar-select {
+    height: 28px;
+    font-size: 12px;
+    min-width: 80px;
+}
+
+/* Popup content containers */
+.dle-popup-section { padding: 10px; margin-bottom: var(--dle-space-2); }
+.dle-popup-detail { display: none; margin-top: var(--dle-space-2); padding-top: var(--dle-space-2); border-top: 1px solid var(--dle-border); white-space: pre-wrap; font-size: 0.9em; }
+
+/* Simulation/browse table columns */
+.dle-col-title { text-align: left; width: 28%; }
+.dle-col-keys { text-align: left; width: 40%; }
+.dle-col-pri { text-align: center; width: 10%; }
+.dle-col-tok { text-align: right; width: 11%; }
+

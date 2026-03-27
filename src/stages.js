@@ -20,15 +20,16 @@ import { trackerKey } from './state.js';
  * @returns {{ forceInject: Set<string>, pins: Set<string>, blocks: Set<string> }}
  */
 export function buildExemptionPolicy(vaultSnapshot, pins, blocks) {
+    // BUG-011: Normalize all titles to lowercase for case-insensitive matching
     const forceInject = new Set();
     for (const entry of vaultSnapshot) {
-        if (entry.constant) forceInject.add(entry.title);
+        if (entry.constant) forceInject.add(entry.title.toLowerCase());
     }
     // Pins are treated as constants with priority 10 — add them to forceInject
-    for (const title of pins) forceInject.add(title);
+    for (const title of pins) forceInject.add(title.toLowerCase());
     return {
         forceInject,
-        pins: new Set(pins),
+        pins: new Set(pins.map(t => t.toLowerCase())),
         blocks: new Set(blocks.map(t => t.toLowerCase())),
     };
 }
@@ -60,15 +61,33 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
         for (const entry of vaultSnapshot) {
             if (pinLower.has(entry.title.toLowerCase())) {
                 if (!resultTitles.has(entry.title.toLowerCase())) {
-                    // Create shallow copy with pin overrides to avoid mutating shared objects
-                    const pinned = { ...entry, constant: true, priority: 10 };
+                    // BUG-030: Deep-clone array fields to prevent shared references with vaultIndex
+                    const pinned = {
+                        ...entry, constant: true, priority: 10,
+                        keys: [...(entry.keys || [])],
+                        tags: [...(entry.tags || [])],
+                        requires: [...(entry.requires || [])],
+                        excludes: [...(entry.excludes || [])],
+                        links: [...(entry.links || [])],
+                        resolvedLinks: [...(entry.resolvedLinks || [])],
+                        characterPresent: entry.characterPresent ? [...entry.characterPresent] : null,
+                    };
                     result.push(pinned);
                     resultTitles.add(entry.title.toLowerCase());
                     matchedKeys.set(entry.title, '(pinned)');
                 } else {
-                    // Entry already matched — replace with pinned copy
+                    // Entry already matched — replace with pinned copy (BUG-030: deep-clone arrays)
                     const idx = result.findIndex(e => e.title.toLowerCase() === entry.title.toLowerCase());
-                    if (idx !== -1) result[idx] = { ...entry, constant: true, priority: 10 };
+                    if (idx !== -1) result[idx] = {
+                        ...entry, constant: true, priority: 10,
+                        keys: [...(entry.keys || [])],
+                        tags: [...(entry.tags || [])],
+                        requires: [...(entry.requires || [])],
+                        excludes: [...(entry.excludes || [])],
+                        links: [...(entry.links || [])],
+                        resolvedLinks: [...(entry.resolvedLinks || [])],
+                        characterPresent: entry.characterPresent ? [...entry.characterPresent] : null,
+                    };
                 }
             }
         }
@@ -109,14 +128,14 @@ export function applyContextualGating(entries, context, policy, debugMode, setti
         return entries;
     }
 
-    // E5: Lenient — if ALL active context dimensions are empty, allow everything through
-    if (tolerance === 'lenient') {
-        return entries;
-    }
+    // BUG-016: Removed lenient early return — it was bypassing ALL gating including
+    // dimension-specific matching. The per-dimension filter logic already handles lenient
+    // correctly: entries with gating set but no active context in that dimension pass through.
+    // In lenient mode, only entries that MISMATCH an active dimension are filtered.
 
     const before = entries.length;
     const result = entries.filter(e => {
-        if (policy.forceInject.has(e.title)) return true;
+        if (policy.forceInject.has(e.title.toLowerCase())) return true;
 
         // Era gating
         if (e.era && e.era.length > 0) {
@@ -185,7 +204,7 @@ export function applyReinjectionCooldown(entries, policy, injectionHistory, gene
 
     const before = entries.length;
     const result = entries.filter(e => {
-        if (policy.forceInject.has(e.title)) return true;
+        if (policy.forceInject.has(e.title.toLowerCase())) return true;
         const lastGen = injectionHistory.get(trackerKey(e));
         if (lastGen !== undefined && (generationCount - lastGen) < reinjectionCooldown) {
             if (debugMode) {
@@ -217,7 +236,10 @@ export function applyReinjectionCooldown(entries, policy, injectionHistory, gene
  * @returns {{ result: Array, removed: Array }}
  */
 export function applyRequiresExcludesGating(entries, policy, debugMode) {
-    let result = [...entries];
+    // BUG-029: Sort descending by priority number (higher number = lower priority, processed first).
+    // This ensures higher-priority entries (lower number) are checked last, so their
+    // excludes targets may already be removed — the higher-priority entry survives.
+    let result = [...entries].sort((a, b) => (b.priority || 50) - (a.priority || 50) || a.title.localeCompare(b.title));
     let changed = true;
     let iterations = 0;
     const MAX_ITERATIONS = 10;
@@ -231,7 +253,7 @@ export function applyRequiresExcludesGating(entries, policy, debugMode) {
         const nextResult = [];
         for (const entry of result) {
             // ForceInject entries skip requires/excludes gating entirely
-            if (policy.forceInject.has(entry.title)) { nextResult.push(entry); continue; }
+            if (policy.forceInject.has(entry.title.toLowerCase())) { nextResult.push(entry); continue; }
 
             if (entry.requires && entry.requires.length > 0) {
                 const allPresent = entry.requires.every(r => activeTitles.has(r.toLowerCase()));
@@ -310,7 +332,7 @@ export function applyStripDedup(entries, policy, injectionLog, lookbackDepth, de
 
     const before = entries.length;
     const result = entries.filter(e => {
-        if (policy.forceInject.has(e.title)) return true;
+        if (policy.forceInject.has(e.title.toLowerCase())) return true;
         const key = `${e.title}|${e.injectionPosition ?? defaultSettings.injectionPosition}|${e.injectionDepth ?? defaultSettings.injectionDepth}|${e.injectionRole ?? defaultSettings.injectionRole}|${e._contentHash || ''}`;
         if (recentEntries.has(key)) {
             if (debugMode) {

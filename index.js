@@ -223,7 +223,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Stage 6: Format with budget, grouped by injection position
-        const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(postDedup, getSettings(), PROMPT_TAG_PREFIX);
+        // BUG-014: Use the captured settings object (line 63) for consistent settings throughout pipeline
+        const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(postDedup, settings, PROMPT_TAG_PREFIX);
 
         injectedEntries = acceptedEntries;
 

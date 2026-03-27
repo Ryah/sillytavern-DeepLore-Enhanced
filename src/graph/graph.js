@@ -254,20 +254,20 @@ export async function showGraphPopup() {
         <h3 class="dle-graph-title">Entry Relationship Graph (${nodes.length} nodes, ${edges.length} edges)</h3>
         ${circularWarning}
         <div class="dle-graph-toolbar">
-            <input type="text" id="dle_graph_search" class="text_pole" placeholder="Search entries..." style="flex: 1; min-width: 120px; max-width: 200px; height: 28px; font-size: 12px;" />
-            <select id="dle_graph_type_filter" class="text_pole" style="height: 28px; font-size: 12px; min-width: 80px;">
+            <input type="text" id="dle_graph_search" class="text_pole dle-graph-toolbar-input" placeholder="Search entries..." />
+            <select id="dle_graph_type_filter" class="text_pole dle-graph-toolbar-select">
                 <option value="">All Types</option>
                 <option value="regular">Regular</option>
                 <option value="constant">Constant</option>
                 <option value="seed">Seed</option>
                 <option value="bootstrap">Bootstrap</option>
             </select>
-            <select id="dle_graph_tag_filter" class="text_pole" style="height: 28px; font-size: 12px; min-width: 80px;">
+            <select id="dle_graph_tag_filter" class="text_pole dle-graph-toolbar-select">
                 <option value="">All Tags</option>
                 ${tagOptions}
             </select>
             <span class="dle-graph-toolbar-sep"></span>
-            <select id="dle_graph_color_mode" class="text_pole" title="Node color mode" style="height: 28px; font-size: 12px; min-width: 100px;">
+            <select id="dle_graph_color_mode" class="text_pole dle-graph-toolbar-select" title="Node color mode">
                 <option value="type">Color: Type</option>
                 <option value="priority">Color: Priority</option>
                 <option value="centrality">Color: Connections</option>
@@ -275,20 +275,20 @@ export async function showGraphPopup() {
                 <option value="community">Color: Community</option>
             </select>
             <span class="dle-graph-toolbar-sep"></span>
-            <button id="dle_graph_settings_btn" class="menu_button" title="Graph settings" style="height: 28px; padding: 2px 8px; font-size: 12px;"><i class="fa-solid fa-gear"></i></button>
+            <button id="dle_graph_settings_btn" class="menu_button dle-graph-toolbar-btn" title="Graph settings"><i class="fa-solid fa-gear"></i></button>
         </div>
-        <div class="dle-graph-toolbar" style="gap: 4px; padding: 2px 6px; flex-wrap: nowrap;">
-            <button id="dle_graph_back" class="menu_button" title="Exit Focus Tree (Esc)" style="height: 28px; padding: 2px 8px; font-size: 12px; display: none; white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis;">← Back</button>
-            <button id="dle_graph_hop_minus" class="menu_button" title="Decrease hop depth" style="height: 28px; padding: 2px 6px; font-size: 12px; display: none; white-space: nowrap;">−</button>
-            <button id="dle_graph_hop_plus" class="menu_button" title="Increase hop depth" style="height: 28px; padding: 2px 6px; font-size: 12px; display: none; white-space: nowrap;">+</button>
-            <button id="dle_graph_fit" class="menu_button" title="Fit to view (0)" style="height: 28px; padding: 2px 8px; font-size: 12px;">Fit</button>
-            <button id="dle_graph_unpin_all" class="menu_button" title="Unpin all nodes" style="height: 28px; padding: 2px 8px; font-size: 12px; white-space: nowrap;">Unpin All</button>
-            <button id="dle_graph_reset" class="menu_button" title="Reset simulation — re-randomize positions and restart physics" style="height: 28px; padding: 2px 8px; font-size: 12px;">Reset</button>
+        <div class="dle-graph-toolbar dle-gap-1" style="padding: 2px 6px; flex-wrap: nowrap;">
+            <button id="dle_graph_back" class="menu_button dle-graph-toolbar-btn-wide dle-hidden" title="Exit Focus Tree (Esc)" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">← Back</button>
+            <button id="dle_graph_hop_minus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden" title="Decrease hop depth" style="padding: 2px 6px;">−</button>
+            <button id="dle_graph_hop_plus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden" title="Increase hop depth" style="padding: 2px 6px;">+</button>
+            <button id="dle_graph_fit" class="menu_button dle-graph-toolbar-btn" title="Fit to view (0)">Fit</button>
+            <button id="dle_graph_unpin_all" class="menu_button dle-graph-toolbar-btn-wide" title="Unpin all nodes">Unpin All</button>
+            <button id="dle_graph_reset" class="menu_button dle-graph-toolbar-btn" title="Reset simulation — re-randomize positions and restart physics">Reset</button>
             <span class="dle-graph-toolbar-sep"></span>
-            <button id="dle_graph_export_png" class="menu_button" title="Export as PNG" style="height: 28px; padding: 2px 8px; font-size: 12px;">PNG</button>
-            <button id="dle_graph_export_json" class="menu_button" title="Export as JSON" style="height: 28px; padding: 2px 8px; font-size: 12px;">JSON</button>
+            <button id="dle_graph_export_png" class="menu_button dle-graph-toolbar-btn" title="Export as PNG">PNG</button>
+            <button id="dle_graph_export_json" class="menu_button dle-graph-toolbar-btn" title="Export as JSON">JSON</button>
             <span class="dle-graph-toolbar-sep"></span>
-            <button id="dle_graph_analyze" class="menu_button" title="Toggle gap analysis overlay — highlights orphans, weak bridges, and missing connections" style="height: 28px; padding: 2px 8px; font-size: 12px;"><i class="fa-solid fa-magnifying-glass-chart"></i> Analyze</button>
+            <button id="dle_graph_analyze" class="menu_button dle-graph-toolbar-btn" title="Toggle gap analysis overlay — highlights orphans, weak bridges, and missing connections"><i class="fa-solid fa-magnifying-glass-chart"></i> Analyze</button>
         </div>
         <div class="dle-graph-legend" id="dle_graph_legend">
             <span class="dle-graph-legend-item" data-edge-type="link"><span style="color: #aac8ff;">—</span> Link</span>
@@ -299,14 +299,14 @@ export async function showGraphPopup() {
         <div style="position: relative; flex: 1; min-height: 0;">
             <canvas id="dle_graph_canvas" width="900" height="550" style="border: 1px solid var(--dle-border); border-radius: 4px; cursor: grab; width: 100%; height: 100%; min-height: 200px; background: var(--dle-bg-surface);" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
             <div id="dle_graph_tooltip" class="dle-graph-tooltip"></div>
-            <div id="dle_graph_context_menu" class="dle-graph-context-menu" style="display: none;"></div>
-            <div id="dle_graph_settings_panel" class="dle-graph-settings-panel" style="display: none;">
+            <div id="dle_graph_context_menu" class="dle-graph-context-menu dle-hidden"></div>
+            <div id="dle_graph_settings_panel" class="dle-graph-settings-panel dle-hidden">
                 <div class="dle-graph-settings-titlebar" id="dle_graph_settings_titlebar">
                     <span><i class="fa-solid fa-gear"></i> Graph Settings</span>
                     <span class="dle-graph-settings-close" id="dle_graph_settings_panel_close">&times;</span>
                 </div>
                 <div class="dle-graph-settings-body">
-                    <div class="dle-graph-settings-row" style="gap: 4px;">
+                    <div class="dle-graph-settings-row dle-gap-1">
                         <button class="menu_button dle-gs-preset" data-preset="compact" style="flex:1;height:22px;font-size:9px;">Compact</button>
                         <button class="menu_button dle-gs-preset" data-preset="balanced" style="flex:1;height:22px;font-size:9px;">Balanced</button>
                         <button class="menu_button dle-gs-preset" data-preset="spacious" style="flex:1;height:22px;font-size:9px;">Spacious</button>

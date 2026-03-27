@@ -85,7 +85,7 @@ export function registerVaultCommands() {
 
                     <!-- File browse button -->
                     <div style="margin-bottom: 8px;">
-                        <input type="file" id="dle_import_file" accept=".json" style="display: none;" />
+                        <input type="file" id="dle_import_file" accept=".json" class="dle-hidden" />
                         <div id="dle_import_browse" class="menu_button menu_button_icon" style="display: inline-flex;">
                             <i class="fa-solid fa-file-import"></i>
                             <span>Browse local JSON file...</span>

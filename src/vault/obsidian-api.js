@@ -49,6 +49,17 @@ export function getCircuitState(port) {
     return worst;
 }
 
+/**
+ * BUG-045: Prune stale circuit breaker entries for hosts no longer in active vault config.
+ * Call this from settings-ui when vault configuration changes.
+ * @param {Set<string>} activeKeys - Set of active "host:port" keys
+ */
+export function pruneCircuitBreakers(activeKeys) {
+    for (const key of circuitBreakers.keys()) {
+        if (!activeKeys.has(key)) circuitBreakers.delete(key);
+    }
+}
+
 function _getCircuitStateForBreaker(cb) {
     if (cb.state === 'open') {
         const elapsed = Date.now() - cb.openedAt;
@@ -85,11 +96,10 @@ function recordFailure(port) {
 function circuitAllows(port) {
     const cb = getCircuitBreaker(port);
     if (cb.state === 'closed') return true;
+    // BUG-038: Removed dead code — half-open with !halfOpenProbe is unreachable
+    // (recordFailure always transitions half-open → open, recordSuccess → closed)
     if (cb.state === 'half-open') {
-        // Only allow one probe request through in half-open state
-        if (cb.halfOpenProbe) return false;
-        cb.halfOpenProbe = true;
-        return true;
+        return !cb.halfOpenProbe ? (cb.halfOpenProbe = true, true) : false;
     }
     const elapsed = Date.now() - cb.openedAt;
     const backoff = Math.min(
@@ -359,6 +369,8 @@ export async function writeNote(host, port, apiKey, filename, content) {
  * @returns {Promise<{ok: boolean, notes?: Array<{filename: string, content: string}>, error?: string}>}
  */
 export async function fetchScribeNotes(host, port, apiKey, folder) {
+    // BUG-040: Validate folder path to prevent directory traversal
+    validateVaultPath(folder);
     try {
         const allFiles = await listAllFiles(host, port, apiKey, folder);
         const mdFiles = allFiles.filter(f => f.endsWith('.md'));

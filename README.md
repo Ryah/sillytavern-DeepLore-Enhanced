@@ -1,6 +1,6 @@
 # DeepLore Enhanced - AI-Powered Obsidian Vault Lorebook for SillyTavern
 
-> **Personal project.** 530 tests, used daily against a 130+ entry vault, in beta. Bug reports welcome but fixes might take time -- I work.
+> **Personal project.** 814 tests (649 unit + 165 integration), used daily against a 130+ entry vault, in beta. Bug reports welcome but fixes might take time -- I work.
 
 
 ### Testimonials (used with permission):

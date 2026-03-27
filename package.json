@@ -8,6 +8,11 @@
         "type": "git",
         "url": "https://github.com/pixelnull/sillytavern-DeepLore-Enhanced"
     },
+    "scripts": {
+        "test": "node tests.mjs",
+        "test:integration": "node integration-tests.mjs",
+        "test:all": "node tests.mjs && node integration-tests.mjs"
+    },
     "keywords": [
         "sillytavern",
         "extension",

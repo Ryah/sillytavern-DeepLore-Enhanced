@@ -12,7 +12,8 @@
         "test": "node test/unit.mjs",
         "test:integration": "node test/integration.mjs",
         "test:all": "node test/unit.mjs && node test/integration.mjs",
-        "test:imports": "node test/verify-imports.mjs"
+        "test:imports": "node test/verify-imports.mjs",
+        "lint": "npx eslint ."
     },
     "keywords": [
         "sillytavern",

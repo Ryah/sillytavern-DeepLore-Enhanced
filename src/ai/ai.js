@@ -397,7 +397,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     if (isAiCircuitOpen()) {
         if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
         dedupWarning('AI search temporarily paused after repeated failures. Using keyword matching.', 'ai_circuit', { timeOut: 8000 });
-        return { results: [], error: true, errorMessage: 'AI circuit breaker open' };
+        return { results: [], error: true, errorMessage: 'AI search temporarily paused' };
     }
 
     let chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);

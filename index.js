@@ -71,11 +71,11 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Auto-recover stale locks after 90 seconds (allows time for large vaults + slow AI)
         const lockAge = Date.now() - generationLockTimestamp;
         if (lockAge > 90_000) {
-            console.warn(`[DLE] Generation lock stale (${Math.round(lockAge / 1000)}s elapsed) — force-releasing`);
+            console.warn(`[DLE] Previous lore selection took too long (${Math.round(lockAge / 1000)}s) — releasing lock`);
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
-            toastr.warning('Still selecting lore from the last message. This response will use existing context.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+            toastr.warning('Still selecting lore from the previous message. This response will reuse the last set of entries.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
             return;
         }
     }
@@ -127,7 +127,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (vaultSnapshot.length === 0) {
             if (!indexEverLoaded) {
                 dedupWarning(
-                    'No vault entries loaded. Run /dle-health for diagnostics.',
+                    'No lorebook entries found. Run /dle-health to check your Obsidian connection and vault settings.',
                     'obsidian_connect', { timeOut: 10000 },
                 );
             }
@@ -166,7 +166,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (/timeout|timed out|abort/i.test(aiErr)) fallbackMsg += ' (timed out — try increasing the timeout in Settings > AI Search)';
             else if (/401|403|auth/i.test(aiErr)) fallbackMsg += ' (auth error — check your API key or connection profile)';
             else if (/not found|no.*profile/i.test(aiErr)) fallbackMsg += ' (connection profile not found — check Settings > AI Search)';
-            else if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch|network/i.test(aiErr)) fallbackMsg += ' (network error — check your proxy URL or connection profile)';
+            else if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch|network/i.test(aiErr)) fallbackMsg += ' (network error — check your AI connection settings)';
             else if (/5\d\d|502|503|server/i.test(aiErr)) fallbackMsg += ' (server error — try again later)';
             else if (aiErr) fallbackMsg += ` (${aiErr.slice(0, 80)})`;
             console.warn('[DLE] AI search error:', aiErr);
@@ -259,7 +259,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
             // Bail if this pipeline was superseded by a force-released stale lock
             if (lockEpoch !== generationLockEpoch) {
-                console.warn('[DLE] Pipeline superseded by newer generation (lock epoch mismatch) — discarding results');
+                console.warn('[DLE] Pipeline superseded by a newer request — discarding stale results');
                 return;
             }
             const usePromptList = settings.injectionMode === 'prompt_list';
@@ -361,8 +361,16 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Stage 9: Per-chat injection counts (epoch-guarded, lock-guarded, swipe-aware)
+        //
+        // Swipe detection: When the user swipes (regenerates), SillyTavern replaces
+        // the last message and fires onGenerate again. Without dedup, the same entries
+        // would be double-counted (once for the original, once for the swipe).
+        //
+        // Solution: Hash the last message content + chat length. If the hash matches
+        // the previous generation, the last message was replaced (swipe), so we subtract
+        // the previous round's counts before adding the new round's counts. This gives
+        // an accurate injection count that survives swipes without inflating.
         if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
-            // Detect swipe/regen: hash last message — same hash means content unchanged (swipe, not edit)
             const lastMsg = chat.length > 0 ? (chat[chat.length - 1]?.mes || '') : '';
             const chatHash = simpleHash(lastMsg + '|' + chat.length);
             if (chatHash === lastGenerationChatHash && lastGenerationInjectedKeys.size > 0) {

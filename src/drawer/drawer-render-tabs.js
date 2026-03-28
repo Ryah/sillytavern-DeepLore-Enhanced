@@ -94,7 +94,7 @@ export function renderInjectionTab() {
             h += `<span class="dle-why-meta">`;
             const tokVal = src.tokens || 0;
             const tokHue = Math.max(0, 120 - (tokVal / 5000) * 120); // 120=green, 0=red
-            h += `<span class="dle-why-tokens" style="color: hsl(${Math.round(tokHue)}, 80%, 50%)" aria-label="${tokVal} tokens">${tokVal} tok</span>`;
+            h += `<span class="dle-why-tokens" style="color: hsl(${Math.round(tokHue)}, 80%, 50%)" aria-label="${tokVal} tokens">${tokVal} tokens</span>`;
             const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
             if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
             h += `<span class="dle-why-match" data-match-type="${matchLabel.toLowerCase()}" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
@@ -288,12 +288,14 @@ export function renderBrowseTab() {
         ds.browseNavigateTarget = null;
     } else {
         ds.browseExpandedEntry = null; // collapse any expanded entry on filter change
+        ds.browseExpandedIdx = null;
+        ds.browseExpandedExtraHeight = 0;
     }
 
     // Set up virtual scroll container — use min-height so flex doesn't collapse it
     const listEl = $list[0];
     if (!listEl) return;
-    const totalHeight = entries.length * BROWSE_ROW_HEIGHT;
+    const totalHeight = entries.length * BROWSE_ROW_HEIGHT + (ds.browseExpandedExtraHeight || 0);
     $list.css({ 'min-height': totalHeight + 'px' });
 
     // Reset scroll to top when filters change (prevents seeing empty results after filtering while scrolled)
@@ -375,7 +377,10 @@ export function renderBrowseWindow() {
         if (e.constant) statusParts.push('constant');
         const browseAriaLabel = `${escapeHtml(e.title)}, ${prioLabel}${statusParts.length ? ', ' + statusParts.join(', ') : ''}`;
 
-        const top = i * BROWSE_ROW_HEIGHT;
+        let top = i * BROWSE_ROW_HEIGHT;
+        if (ds.browseExpandedIdx !== null && i > ds.browseExpandedIdx) {
+            top += ds.browseExpandedExtraHeight;
+        }
         // Temperature indicator: tint entry based on injection frequency
         const tempKey = trackerKey(e);
         const temp = tempMap.get(tempKey);
@@ -390,7 +395,7 @@ export function renderBrowseWindow() {
         html += `<div class="dle-browse-controls">`;
         const browseCount = chatInjectionCounts.get(trackerKey(e)) || 0;
         if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat">${browseCount}×</span>`;
-        html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected' : `Priority ${e.priority || 50}`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
+        html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
         html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(e.title)}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
         html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" aria-label="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(e.title)}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;
         html += `</div>`;
@@ -413,7 +418,11 @@ export function renderBrowseWindow() {
                 const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
                 const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
                 $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div><div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
-                $entry.css({ height: 'auto', position: 'absolute' });
+                $entry.css({ height: 'auto' });
+                // Measure expanded height and store for virtual scroll offset
+                const expandedHeight = $entry[0].scrollHeight;
+                ds.browseExpandedIdx = parseInt($entry.data('idx'), 10);
+                ds.browseExpandedExtraHeight = Math.max(0, expandedHeight - BROWSE_ROW_HEIGHT);
             }
         }
     }

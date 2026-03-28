@@ -56,8 +56,20 @@ function computeEntityDerivedState(entries) {
 }
 
 /**
- * BUG-007: Multi-vault conflict resolution dedup pass.
- * Shared between buildIndex and buildIndexWithReuse to prevent duplicate entries.
+ * Multi-vault conflict resolution dedup pass (BUG-007).
+ * When entries with the same title exist in different vaults, this resolves them:
+ *   'all'   — Keep every copy (no dedup). Entries from each vault appear independently.
+ *   'first' — Keep the first vault's copy, discard later duplicates.
+ *   'last'  — Keep the last vault's copy, replacing earlier ones.
+ *   'merge' — Combine into a single entry:
+ *             Arrays (keys, tags, links, etc.) are unioned (no duplicates).
+ *             Content is concatenated with a separator.
+ *             Summary and scalar fields prefer the first non-empty value.
+ *             Token estimate is recalculated from merged content.
+ *
+ * Shared between buildIndex and buildIndexWithReuse so dedup is consistent
+ * regardless of whether the build is full or incremental.
+ *
  * @param {Array} entries - VaultEntry array (mutated: may be replaced)
  * @param {string} mode - Conflict resolution mode ('all'|'first'|'last'|'merge')
  * @returns {Array} Deduplicated entries
@@ -408,13 +420,13 @@ export async function hydrateFromCache() {
                 // (not Date.now() which would prevent retries until TTL expires)
                 const s = getSettings();
                 setIndexTimestamp(Date.now() - (s.cacheTTL * 1000) + 30_000); // retry in ~30s
-                dedupWarning('Using cached vault data — Obsidian is unreachable. Reconnect and refresh when ready.', 'obsidian_connect', { timeOut: 10000 });
+                dedupWarning('Obsidian is not responding — using previously cached entries. Check that Obsidian is running, then use /dle-refresh to reconnect.', 'obsidian_connect', { timeOut: 10000 });
             }
         });
 
         return true;
     } catch (err) {
-        console.warn('[DLE] Cache hydration failed:', err.message);
+        console.warn('[DLE] Failed to load cached vault data:', err.message);
         return false;
     }
 }

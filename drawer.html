@@ -130,9 +130,9 @@
                 <option value="injected">Injected</option>
                 <option value="pinned">Pinned</option>
                 <option value="blocked">Blocked</option>
-                <option value="constant">Constants</option>
-                <option value="seed">Seeds</option>
-                <option value="bootstrap">Bootstrap</option>
+                <option value="constant">Always Injected</option>
+                <option value="seed">New Chat Seeds</option>
+                <option value="bootstrap">Starter Entries</option>
                 <option value="never_injected">Never Injected</option>
             </select>
             <select class="text_pole dle-browse-filter-select" data-filter="tag" aria-label="Filter by tag">
@@ -217,7 +217,7 @@
         <div class="dle-panel-toolbar">
             <span class="dle-text-sm">Entry Timers</span>
         </div>
-        <div class="dle-timer-list" role="list" aria-label="Active entry timers (cooldowns, decay, warmup)"></div>
+        <div class="dle-timer-list" role="list" aria-label="Active entry timers (cooldown, rotation, and minimum trigger count)"></div>
         <div class="dle-timer-empty dle-text-sm dle-visible" style="opacity: 0.5; padding: 4px 0;">No active timers</div>
     </div>
 
@@ -331,7 +331,7 @@
         <div class="dle-ai-stats" aria-label="AI search session statistics — cumulative for this browser session, not per-chat">
             <span class="dle-ai-stat" data-ai-stat="calls" title="AI search calls made this browser session — resets when you reload">0 calls</span>
             <span class="dle-ai-stat" data-ai-stat="cached" title="Times AI search reused previous results instead of calling the API">0 cached</span>
-            <span class="dle-ai-stat" data-ai-stat="tokens" title="Total tokens used by AI search this session">0 tok</span>
+            <span class="dle-ai-stat" data-ai-stat="tokens" title="Total tokens used by AI search this session">0 tokens</span>
         </div>
     </div>
 </div>

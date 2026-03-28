@@ -89,7 +89,7 @@ export function registerAiCommands() {
         name: 'dle-scribe',
         callback: async (_args, userPrompt) => {
             if (scribeInProgress) {
-                toastr.warning('Session scribe already in progress.', 'DeepLore Enhanced');
+                toastr.warning('A session summary is already being written. Wait for it to finish.', 'DeepLore Enhanced');
                 return '';
             }
             toastr.info('Writing session note...', 'DeepLore Enhanced');

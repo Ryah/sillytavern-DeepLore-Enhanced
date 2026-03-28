@@ -989,14 +989,14 @@ test('takeIndexSnapshot: creates snapshot from vault index', () => {
 // Tests: Enhanced-only functions
 // ============================================================================
 
-test('buildObsidianURI: basic path', () => {
+test('buildObsidianURI: basic path (strips .md)', () => {
     const uri = buildObsidianURI('My Vault', 'Characters/Alice.md');
-    assertEqual(uri, 'obsidian://open?vault=My%20Vault&file=Characters/Alice.md', 'should build URI with encoded vault and path segments');
+    assertEqual(uri, 'obsidian://open?vault=My%20Vault&file=Characters/Alice', 'should build URI with encoded vault, stripped .md extension');
 });
 
 test('buildObsidianURI: spaces in path', () => {
     const uri = buildObsidianURI('TestVault', 'LA World/Main Characters/The Hero.md');
-    assertEqual(uri, 'obsidian://open?vault=TestVault&file=LA%20World/Main%20Characters/The%20Hero.md', 'should encode spaces in each segment');
+    assertEqual(uri, 'obsidian://open?vault=TestVault&file=LA%20World/Main%20Characters/The%20Hero', 'should encode spaces in each segment');
 });
 
 test('buildObsidianURI: no vault name returns null', () => {
@@ -1006,12 +1006,17 @@ test('buildObsidianURI: no vault name returns null', () => {
 
 test('buildObsidianURI: special characters', () => {
     const uri = buildObsidianURI('Vault & Notes', 'Lore/Items/Ring (of Power).md');
-    assertEqual(uri, 'obsidian://open?vault=Vault%20%26%20Notes&file=Lore/Items/Ring%20(of%20Power).md', 'should encode ampersands and parentheses');
+    assertEqual(uri, 'obsidian://open?vault=Vault%20%26%20Notes&file=Lore/Items/Ring%20(of%20Power)', 'should encode ampersands and parentheses');
 });
 
 test('buildObsidianURI: root-level file', () => {
     const uri = buildObsidianURI('MyVault', 'README.md');
-    assertEqual(uri, 'obsidian://open?vault=MyVault&file=README.md', 'should handle root-level files');
+    assertEqual(uri, 'obsidian://open?vault=MyVault&file=README', 'should handle root-level files');
+});
+
+test('buildObsidianURI: non-.md file keeps extension', () => {
+    const uri = buildObsidianURI('MyVault', 'Attachments/image.png');
+    assertEqual(uri, 'obsidian://open?vault=MyVault&file=Attachments/image.png', 'should only strip .md, not other extensions');
 });
 
 test('normalizeResults: legacy flat array', () => {

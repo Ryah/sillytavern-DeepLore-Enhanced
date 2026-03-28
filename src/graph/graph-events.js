@@ -106,8 +106,14 @@ export function initEvents(gs, dbg) {
                 const vault = getVaultByName(settings, entry.vaultSource || '');
                 const uri = vault ? buildObsidianURI(vault.name, entry.filename) : null;
                 dbg(`Open in Obsidian: vault=${vault?.name || 'NONE'}, uri=${uri || 'NULL'}`);
-                if (uri) window.open(uri, '_blank');
-                else dbg('WARNING: No vault found for entry, cannot build Obsidian URI');
+                if (uri) {
+                    // Use temporary anchor click — window.open() with custom protocols is blocked by some browsers
+                    const a = document.createElement('a');
+                    a.href = uri;
+                    a.click();
+                } else {
+                    dbg('WARNING: No vault found for entry, cannot build Obsidian URI');
+                }
                 break;
             }
             case 'focus-tree': {
@@ -117,7 +123,7 @@ export function initEvents(gs, dbg) {
             case 'copy-title':
                 navigator.clipboard.writeText(node.title).then(
                     () => toastr.success(`Copied "${node.title}"`, '', { timeOut: 2000 }),
-                    () => toastr.warning('Clipboard access denied', '', { timeOut: 3000 }),
+                    () => toastr.warning('Clipboard access denied — check your browser permissions.', 'DeepLore Enhanced', { timeOut: 3000 }),
                 );
                 break;
             case 'details': {

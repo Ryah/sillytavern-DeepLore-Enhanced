@@ -204,7 +204,7 @@ export function registerVaultCommands() {
 
                 const renamedNote = result.renamed > 0 ? ` (${result.renamed} renamed to avoid overwrite)` : '';
                 if (result.failed > 0) {
-                    toastr.warning(`Imported ${result.imported}, failed ${result.failed}${renamedNote}. Check console for details.`, 'DeepLore Enhanced');
+                    toastr.warning(`Imported ${result.imported}, failed ${result.failed}${renamedNote}. Run /dle-health for diagnostics.`, 'DeepLore Enhanced');
                     console.warn('[DLE] Import errors:', result.errors);
                 } else {
                     toastr.success(`Imported ${result.imported} entries${renamedNote}.`, 'DeepLore Enhanced');

@@ -117,8 +117,8 @@
                             <label for="dle_sp_seed_tag"><small>Seed Tag</small></label>
                             <input id="dle_sp_seed_tag" type="text" class="text_pole" placeholder="lorebook-seed" />
                         </div>
-                        <div class="flex1" title="Tag for entries that are always included when the chat is short.">
-                            <label for="dle_sp_bootstrap_tag"><small>Bootstrap Tag</small></label>
+                        <div class="flex1" title="Tag for starter entries — always included when the chat is short (below the New Chat Threshold).">
+                            <label for="dle_sp_bootstrap_tag"><small>Starter Entry Tag</small></label>
                             <input id="dle_sp_bootstrap_tag" type="text" class="text_pole" placeholder="lorebook-bootstrap" />
                         </div>
                     </div>
@@ -173,15 +173,21 @@
                 <input id="dle_sp_char_context_scan" type="checkbox" class="checkbox">
                 <span>Auto-match active character</span>
             </label>
-            <label class="checkbox_label" for="dle_sp_fuzzy_search" title="Enable fuzzy text search (BM25 similarity) alongside keyword matching — finds partial and approximate keyword matches.">
+            <label class="checkbox_label" for="dle_sp_fuzzy_search" title="Enable flexible text matching alongside keywords — finds entries even when the exact keyword isn't used.">
                 <input id="dle_sp_fuzzy_search" type="checkbox" class="checkbox">
                 <span>Fuzzy Search</span>
             </label>
-            <div class="flex-container" id="dle_sp_fuzzy_min_score_row" style="margin-left: 20px;">
-                <div class="flex1" title="Minimum BM25 score for fuzzy matches to be included. Lower = more matches (more noise). Higher = stricter (fewer matches). Default: 0.5.">
-                    <label for="dle_sp_fuzzy_min_score"><small>Fuzzy Min Score</small></label>
-                    <input id="dle_sp_fuzzy_min_score" type="number" class="text_pole" min="0.1" max="2.0" step="0.1" />
+            <div id="dle_sp_fuzzy_min_score_row" style="margin-left: 20px;">
+                <div title="How strict fuzzy matching should be. Lower finds more entries (including weaker matches), higher is stricter. Default: 0.5.">
+                    <label for="dle_sp_fuzzy_min_score"><small>Fuzzy Strictness</small></label>
+                    <input id="dle_sp_fuzzy_min_score" type="range" min="0.1" max="2.0" step="0.1" style="width: 100%;" />
+                    <div class="flex-container" style="justify-content: space-between;">
+                        <small class="dle_muted">Loose (more matches)</small>
+                        <small class="dle_muted" id="dle_sp_fuzzy_min_score_value">0.5</small>
+                        <small class="dle_muted">Strict (fewer)</small>
+                    </div>
                 </div>
+                <div id="dle_sp_fuzzy_preview_results" style="margin-top: 6px; max-height: 200px; overflow-y: auto; font-size: 0.85em;"></div>
             </div>
             <div class="flex-container">
                 <div class="flex1">
@@ -508,18 +514,18 @@
             </div>
 
             <div class="dle-settings-section">
-            <h4>Entry Decay &amp; Freshness</h4>
-            <label class="checkbox_label" for="dle_sp_decay_enabled" title="Track how long since each entry was last included. Stale entries get a boost, frequent entries get a penalty.">
+            <h4>Entry Rotation</h4>
+            <label class="checkbox_label" for="dle_sp_decay_enabled" title="Entries that haven't appeared recently become more likely to be picked. Entries appearing too often become less likely. Adds variety to lore injection.">
                 <input id="dle_sp_decay_enabled" type="checkbox" class="checkbox">
-                <span>Enable Entry Decay</span>
+                <span>Enable Entry Rotation</span>
             </label>
             <div class="flex-container" id="dle_sp_decay_controls">
-                <div class="flex1" title="Generations skipped before marked stale. Default: 5.">
-                    <label for="dle_sp_decay_boost_threshold"><small>Mark Stale After N Skips</small></label>
+                <div class="flex1" title="How many turns an entry can be skipped before it's boosted to reappear. Default: 5.">
+                    <label for="dle_sp_decay_boost_threshold"><small>Boost After N Skips</small></label>
                     <input id="dle_sp_decay_boost_threshold" type="number" class="text_pole" min="2" max="20" />
                 </div>
-                <div class="flex1" title="Consecutive injections before marked frequent. Default: 2.">
-                    <label for="dle_sp_decay_penalty_threshold"><small>Mark Frequent After N Injections</small></label>
+                <div class="flex1" title="How many times in a row an entry can be injected before it becomes less likely to appear. Default: 2.">
+                    <label for="dle_sp_decay_penalty_threshold"><small>Penalize After N in a Row</small></label>
                     <input id="dle_sp_decay_penalty_threshold" type="number" class="text_pole" min="2" max="10" />
                 </div>
             </div>
@@ -642,7 +648,7 @@
                         <label for="dle_sp_scribe_max_tokens"><small>Max Response Tokens</small></label>
                         <input id="dle_sp_scribe_max_tokens" type="number" class="text_pole" min="256" max="4096" />
                     </div>
-                    <div class="flex1" title="Timeout in ms. Default: 30000.">
+                    <div class="flex1" title="Timeout in ms. Default: 60000.">
                         <label for="dle_sp_scribe_timeout"><small>Timeout (ms)</small></label>
                         <input id="dle_sp_scribe_timeout" type="number" class="text_pole" min="5000" max="60000" />
                     </div>
@@ -737,7 +743,7 @@
                         <label for="dle_sp_graph_hover_dim_distance"><small>Hover Dim Distance (hops)</small></label>
                         <input id="dle_sp_graph_hover_dim_distance" type="number" class="text_pole" min="0" max="15" />
                     </div>
-                    <div class="flex1" title="How many hops to show in Focus Tree mode (double-click a node). Default: 3.">
+                    <div class="flex1" title="How many hops to show in Focus Tree mode (double-click a node). Default: 2.">
                         <label for="dle_sp_graph_focus_tree_depth"><small>Focus Tree Depth (hops)</small></label>
                         <input id="dle_sp_graph_focus_tree_depth" type="number" class="text_pole" min="0" max="15" />
                     </div>
@@ -752,21 +758,21 @@
                 </div>
                 <div class="dle_advanced_section" data-section="sp_graph" style="display: none;">
                     <div class="flex-container">
-                        <div class="flex1" title="Node repulsion coefficient. Higher = more spread. Default: 0.5.">
+                        <div class="flex1" title="Node repulsion coefficient. Higher = more spread. Default: 0.3.">
                             <label for="dle_sp_graph_repulsion"><small>Repulsion</small></label>
                             <input id="dle_sp_graph_repulsion" type="number" class="text_pole" min="0.1" max="50" step="0.1" />
                         </div>
-                        <div class="flex1" title="Target edge length in pixels. Default: 200.">
+                        <div class="flex1" title="Target edge length in pixels. Default: 80. (Legacy — not used by current physics engine.)">
                             <label for="dle_sp_graph_spring_length"><small>Spring Length</small></label>
                             <input id="dle_sp_graph_spring_length" type="number" class="text_pole" min="30" max="600" step="10" />
                         </div>
                     </div>
                     <div class="flex-container">
-                        <div class="flex1" title="Center pull strength. Higher = tighter cluster. Default: 5.0.">
+                        <div class="flex1" title="Center pull strength. Higher = tighter cluster. Default: 11.0.">
                             <label for="dle_sp_graph_gravity"><small>Gravity</small></label>
                             <input id="dle_sp_graph_gravity" type="number" class="text_pole" min="0.1" max="20" step="0.1" />
                         </div>
-                        <div class="flex1" title="Velocity damping. Higher = calmer settling. Default: 0.70.">
+                        <div class="flex1" title="Velocity damping. Higher = calmer settling. Default: 0.50.">
                             <label for="dle_sp_graph_damping"><small>Damping</small></label>
                             <input id="dle_sp_graph_damping" type="number" class="text_pole" min="0.3" max="0.98" step="0.01" />
                         </div>
@@ -834,7 +840,7 @@
                         <div class="flex1" title="Controls when the vault index is rebuilt.">
                             <label for="dle_sp_index_rebuild_trigger"><small>Index Rebuild Trigger</small></label>
                             <select id="dle_sp_index_rebuild_trigger" class="text_pole">
-                                <option value="ttl">Time-based (Cache TTL)</option>
+                                <option value="ttl">Time-based (recheck after N seconds)</option>
                                 <option value="generation">Generation-based</option>
                                 <option value="manual">Manual only</option>
                             </select>
@@ -909,30 +915,74 @@
 
             <hr>
             <h4>Slash Commands</h4>
-            <small class="dle_muted">
-                <code>/dle-help</code> — Show all commands<br>
-                <code>/dle-refresh</code> — Force re-index vault<br>
-                <code>/dle-status</code> — Connection &amp; index status<br>
-                <code>/dle-browse</code> — Browse indexed entries<br>
-                <code>/dle-context</code> — Preview injections<br>
-                <code>/dle-health</code> — Audit entries (30+ checks)<br>
-                <code>/dle-inspect</code> — Last pipeline trace<br>
-                <code>/dle-analytics</code> — Entry usage statistics<br>
-                <code>/dle-simulate</code> — Replay chat activation<br>
-                <code>/dle-graph</code> — Entry relationships<br>
-                <code>/dle-review [q]</code> — AI vault review<br>
-                <code>/dle-newlore</code> — AI suggests entries<br>
-                <code>/dle-optimize-keys</code> — Optimize keywords<br>
-                <code>/dle-summarize</code> — Generate summaries<br>
-                <code>/dle-import</code> — Import ST World Info<br>
-                <code>/dle-notebook</code> — Notebook<br>
-                <code>/dle-scribe [focus]</code> — Session notes<br>
-            </small>
+            <table style="width: 100%; font-size: 0.85em; border-collapse: collapse;">
+                <colgroup><col style="width:33%"><col style="width:33%"><col style="width:34%"></colgroup>
+                <thead><tr style="text-align: center; border-bottom: 1px solid var(--SmartThemeBorderColor);">
+                    <th style="padding: 4px;">Browse & Diagnose</th>
+                    <th style="padding: 4px;">Create & Manage</th>
+                    <th style="padding: 4px;">Per-Chat Control</th>
+                </tr></thead>
+                <tbody>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-help</code><br><small class="dle_muted">List all commands</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-refresh</code><br><small class="dle_muted">Re-index vault from Obsidian</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-pin</code><br><small class="dle_muted">Force-inject an entry</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-status</code><br><small class="dle_muted">Connection &amp; index info</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-import</code><br><small class="dle_muted">Import ST World Info JSON</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-unpin</code><br><small class="dle_muted">Remove a pin</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-health</code><br><small class="dle_muted">Audit entries (30+ checks)</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-setup</code><br><small class="dle_muted">First-time setup wizard</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-block</code><br><small class="dle_muted">Suppress an entry</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-browse</code><br><small class="dle_muted">Search &amp; filter all entries</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-notebook</code><br><small class="dle_muted">Per-chat AI scratchpad</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-unblock</code><br><small class="dle_muted">Remove a block</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-graph</code><br><small class="dle_muted">Entry relationship map</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-newlore</code><br><small class="dle_muted">AI suggests new entries</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-pins</code><br><small class="dle_muted">Show all pins &amp; blocks</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-analytics</code><br><small class="dle_muted">Entry usage statistics</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-scribe</code><br><small class="dle_muted">Write a session summary</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-set-era</code><br><small class="dle_muted">Set active era filter</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-simulate</code><br><small class="dle_muted">Replay chat activation</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-scribe-history</code><br><small class="dle_muted">View past session notes</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-set-location</code><br><small class="dle_muted">Set active location filter</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-why</code><br><small class="dle_muted">Preview what would inject</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-review</code><br><small class="dle_muted">AI reviews your whole vault</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-set-scene</code><br><small class="dle_muted">Set active scene type</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"><code>/dle-inspect</code><br><small class="dle_muted">Last pipeline trace</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-optimize-keys</code><br><small class="dle_muted">AI keyword suggestions</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-set-characters</code><br><small class="dle_muted">Set present characters</small></td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px;"></td>
+                    <td style="padding: 2px 4px;"><code>/dle-summarize</code><br><small class="dle_muted">Generate entry summaries</small></td>
+                    <td style="padding: 2px 4px;"><code>/dle-context-state</code><br><small class="dle_muted">Show active filters</small></td>
+                </tr>
+                </tbody>
+            </table>
 
             <hr>
             <h4>Danger Zone</h4>
+            <p class="dle_muted" style="text-align: center; font-size: 0.85em; margin-bottom: 8px;">
+                Your vault connections and AI connection profiles will be preserved. Everything else (matching, budget, injection, features) resets to defaults.
+            </p>
             <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 8px 0;">
-                <div id="dle_sp_reset_defaults" class="menu_button menu_button_icon dle-danger-btn" role="button" tabindex="0" title="Reset all DeepLore Enhanced settings to their defaults. Vault connections are optionally preserved.">
+                <div id="dle_sp_reset_defaults" class="menu_button menu_button_icon dle-danger-btn" role="button" tabindex="0" title="Reset all DeepLore Enhanced settings to their defaults. Vault and AI connections are preserved.">
                     <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
                     <span>Reset All Settings to Defaults</span>
                 </div>

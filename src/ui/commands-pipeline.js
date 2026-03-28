@@ -94,7 +94,7 @@ export function registerPipelineCommands() {
             const injected = acceptedEntries || gated.slice(0, injectedCount);
 
             if (injected.length === 0) {
-                toastr.info('No entries would be injected right now.', 'DeepLore Enhanced');
+                toastr.info('No entries would be injected right now — no keywords or fuzzy matches found in the current chat.', 'DeepLore Enhanced');
                 return '';
             }
 
@@ -116,7 +116,7 @@ export function registerPipelineCommands() {
         name: 'dle-inspect',
         callback: async () => {
             if (!lastPipelineTrace) {
-                toastr.info('No trace data yet. Send a message first, then inspect.', 'DeepLore Enhanced');
+                toastr.info('No inspection data available yet. Send a chat message first so DeepLore can process entries.', 'DeepLore Enhanced');
                 return '';
             }
             const t = lastPipelineTrace;

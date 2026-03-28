@@ -80,7 +80,7 @@ export async function saveIndexToCache(entries) {
             console.warn('[DLE] IndexedDB storage quota exceeded — vault cache could not be saved. Consider clearing browser data.');
             try {
                 dedupWarning(
-                    'Browser storage quota exceeded. Vault cache could not be saved. Try clearing browser site data.',
+                    'Browser storage full — vault cache could not be saved. Free space by clearing this site\'s data in your browser settings (Settings > Privacy > Site Data).',
                     'cache_quota',
                 );
             } catch {

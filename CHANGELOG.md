@@ -1,145 +1,102 @@
 # Changelog
 
-## 0.2.1-BETA
-
-### Stabilization Sprint (2026-03-27)
-
-Targeted 13 remaining HIGH-priority bugs and 3 refactors identified by the comprehensive code audit. Focused on multi-vault correctness, AI search reliability, infrastructure cleanup, and documentation sync.
-
-#### Refactoring
-- **R8**: Consolidated 4 inline `isForceInjected` definitions (3 logic variants) into a single shared function in `helpers.js`. Zero behavioral change — each call site passes `{ bootstrapActive }` context.
-- **R5**: Graph module (`graph.js`, ~3140 LOC) is now lazy-loaded via dynamic `import()` only when `/dle-graph` runs. Reduces startup parse cost by ~21%.
-- **R7**: Consolidated 5 inline XML escape implementations into shared `escapeXml()` in `core/utils.js`. Used by `core/matching.js` and `src/ai/ai.js`. Graph modules keep local copies (can't import ST paths in test context).
-
-#### Bug Fixes
-- **H3**: `hydrateFromCache` background rebuild now captures `chatEpoch` before starting. Skips stale retry-timestamp logic if epoch changed during rebuild.
-- **H12**: AI response titles now fuzzy-matched (Dice coefficient, threshold 0.6) against the candidate manifest when exact match fails. Catches typos and minor variations in AI-returned titles.
-- **H13**: Hierarchical pre-filter prompt expanded from one terse sentence to detailed selection criteria with examples. Includes character/place mentions, scene themes, background context guidance.
-- **H14**: Auto-suggest entry titles are now wrapped in escaped double quotes before prompt injection, preventing special characters from breaking the prompt structure.
-- **H15**: Added token budget guidance bullet to AI system prompt: "Respect the token budget shown in the manifest header."
-- **H16**: Switching from `prompt_list` to `extension` injection mode now empties stale Prompt Manager entries (`deeplore_constants`, `deeplore_lore`, `deeplore_notebook`).
-- **H18**: Multi-vault merge mode now handles all fields, not just `keys`. Arrays (keys, tags, links) are unioned; content is concatenated with separator; summary prefers first non-empty; scalars prefer first; tokenEstimate recalculated.
-- **H20**: `finalizeIndex()` now calls `pruneOrphanedCacheKeys()` to clean up stale IndexedDB entries from disabled/removed vaults.
-- **H23**: Pin/block storage migrated from bare title strings to `{ title, vaultSource }` objects. Multi-vault "all" mode no longer cross-matches entries with the same name across different vaults. Legacy bare strings auto-normalize to match any vault (backward compatible).
-
-#### Documentation
-- CHANGELOG: Added this 0.2.1-beta section.
-- Wiki: Fixed 5 HIGH inaccuracies in Settings-Reference.md (scribe timeout default/range, missing host field, missing Skip Review toggle) and Injection-and-Context-Control.md (gating field types).
-- Roadmap: Marked 4 shipped items (Browse List Virtualization, Neighborhood Isolation, Entry Clustering, Dead Entry Detection).
-- CLAUDE.md: Fixed incorrect field types, added missing files/modules/state variables, updated stale export lists.
-
-#### Tests
-- Updated existing test assertions for the `buildExemptionPolicy` return type change (Set → Array of objects).
-
 ## 0.2.0-BETA
 
-### 47-Bug Audit Fix (2026-03-27)
-Comprehensive code audit resolved 47 confirmed bugs (2 critical, 13 high, 20 medium, 12 low). Extracted `src/vault/bm25.js` for testability. Added 72 unit tests and 25 integration tests (659→731 unit, 165→190 integration).
+### Reliability Overhaul (2026-03-27)
 
-#### Critical
-- **BUG-001**: Multi-vault all-fail no longer wipes the in-memory index — sets a short retry TTL instead.
-- **BUG-002**: XML-escape `resolvedLinks` in AI manifest to prevent malformed XML from `&`/`<`/`>`/`"` in titles.
+> **Highlights:** 47 bugs fixed from a comprehensive code audit, 97 new tests, dramatically improved multi-vault and AI search stability, 21% faster startup, and smarter AI entry selection.
 
-#### High
-- **BUG-003**: Re-check TTL after `buildIndexWithReuse` to prevent double full-rebuild.
-- **BUG-004**: Pipeline trace now includes `aiError` message for diagnostics (`/dle-inspect`).
-- **BUG-005**: AI timeout errors (`AbortError`) no longer trip the circuit breaker.
-- **BUG-006**: Hierarchical pre-filter no longer throttled against the main AI call rate limiter.
-- **BUG-007**: Multi-vault dedup applied consistently in both `buildIndex` and `buildIndexWithReuse`.
-- **BUG-010**: AI parse failures now call `recordAiFailure()` so the circuit breaker counts them.
-- **BUG-011**: `forceInject`, `pins`, and `blocks` Sets normalized to lowercase for case-insensitive matching.
-- **BUG-013**: BM25 index uses `trackerKey` (vaultSource:title) for multi-vault uniqueness.
-- **BUG-015**: `buildEpoch` counter invalidates stale build promises after force-release.
-- **BUG-019/020/021**: AI search cache key now includes system prompt hash, confidence threshold, manifest summary mode, and summary length.
-- **BUG-028**: Connection Manager profile calls wrapped with `Promise.race` timeout.
-- **BUG-029**: Symmetric mutual excludes resolve deterministically — higher-priority entry survives.
+A thorough code audit identified and resolved 47 bugs across every major subsystem, followed by a stabilization sprint targeting 13 additional high-priority issues. This is the most significant stability release to date.
 
-#### Medium
-- **BUG-008**: `convertWiEntry` handles string `key` field without crashing.
-- **BUG-009**: `parseFrontmatter` filters `null`/`undefined` from array fields.
-- **BUG-012**: IndexedDB `saveIndexToCache` validates `tokenEstimate` to prevent `NaN` propagation.
-- **BUG-014**: `formatAndGroup` called with current settings object, not stale closure.
-- **BUG-016**: Lenient contextual gating tolerance no longer skips all filtering.
-- **BUG-017**: Hierarchical pre-filter no longer increments `aiSearchStats.calls`.
-- **BUG-018**: Sync polling uses epoch counter to prevent orphaned chains.
-- **BUG-022**: Hierarchical pre-filter receives post-recursive-scan entries (preserves wiki-links).
-- **BUG-024**: IndexedDB `tx.onabort` handler added to surface quota/constraint errors.
-- **BUG-025**: AI circuit breaker half-open probe uses atomic gate (prevents thundering herd).
-- **BUG-027**: Hierarchical AI response parser handles object format (`.categories`/`.labels`/`.selected`).
-- **BUG-030**: Pinned entries get deep-copied arrays to prevent cross-mutation.
-- **BUG-032**: Token-to-char truncation ratio changed from 3.5 to 4.0 for better alignment.
-- **BUG-033**: YAML unescape applied after quote stripping (correct order).
-- **BUG-034**: `setBuildPromise(null)` called on force-release of stuck indexing flag.
-- **BUG-035**: Warmup check skipped for cascade-linked entries.
-- **BUG-036**: Dead hostname check removed from proxy URL validation.
-- **BUG-037**: `127.x.x.x` range added to SSRF private IP patterns.
-- **BUG-039**: `_lastAiCallTimestamp` update moved to `finally` block.
-- **BUG-042**: BM25 query uses `Set` instead of `Map` for deduplication (frequency was allocated but unused).
+#### Critical fixes
+- **Multi-vault resilience** — If all vaults are temporarily unreachable, your entries are preserved in memory instead of being wiped. A short retry ensures quick recovery.
+- **Special characters in entries** — Entry titles containing `&`, `<`, `>`, or `"` no longer corrupt the AI search manifest.
 
-#### Low
-- **BUG-023**: IndexedDB `loadIndexFromCache` validates `tokenEstimate` on read.
-- **BUG-026**: Clarifying comment on analytics pruning intent.
-- **BUG-031**: IndexedDB `saveIndexToCache` clamps `tokenEstimate` floor to 1.
-- **BUG-038**: Obsidian circuit breaker `circuitAllows` dead code simplified.
-- **BUG-040**: `validateVaultPath` check added to `fetchScribeNotes` folder parameter.
-- **BUG-041**: Proxy response parsing separates `response.text()` from `JSON.parse` try-catch.
-- **BUG-043**: Short entity names (≤3 chars) use word-boundary regex in mention-weight.
-- **BUG-044**: `setBuildPromise(null)` in all `buildIndex` finally blocks.
-- **BUG-045**: Exported `pruneCircuitBreakers(activeKeys)` for stale breaker cleanup.
-- **BUG-046**: `extractAiResponseClient` validates array elements have non-empty titles.
-- **BUG-047**: Hierarchical manifest header uses `candidates.length` not `selectable.length`.
+#### AI search & matching
+- **Smarter AI matching** — AI search now fuzzy-matches entry names, catching typos and minor variations in AI responses that previously caused missed entries.
+- **Better AI prompts** — The category pre-filter and token budget guidance are both more detailed, helping the AI make better entry selection decisions.
+- AI timeouts no longer trigger the safety pause — only genuine failures count.
+- AI search cache now invalidates correctly when you change AI settings (prompt, confidence, summary mode).
+- Connection Manager profile calls now have proper timeouts instead of hanging indefinitely.
+- When two entries exclude each other, the higher-priority entry consistently wins.
+- Pins, blocks, and force-inject are now case-insensitive — "The Crown" and "the crown" match correctly.
+- Category pre-filter no longer miscounts AI usage stats or blocks the main AI call.
+- Fuzzy search handles multi-vault entries correctly (no cross-vault collisions).
+- Cascade-linked entries now bypass warmup requirements as intended.
+- Lenient gating tolerance no longer accidentally skips all filtering.
 
-#### New File
-- **`src/vault/bm25.js`** — Extracted pure BM25 functions (`tokenize`, `buildBM25Index`, `queryBM25`) from `vault.js` for Node.js testability.
+#### Vault & storage
+- **Multi-vault merge overhaul** — When merging entries across vaults, all fields are now handled correctly (keywords, tags, links, content, summaries) instead of just keywords.
+- **Multi-vault pin/block fix** — Pins and blocks now track which vault an entry belongs to, so entries with the same name in different vaults are handled correctly. Existing pins/blocks are automatically migrated.
+- **Storage cleanup** — Removing or disabling a vault now cleans up its cached data automatically.
+- **Cache rebuild reliability** — Switching chats during a background rebuild no longer causes stale data issues.
+- Index rebuilds no longer trigger redundant double-rebuilds.
+- Stuck index rebuilds are now detected and automatically released.
+- Sync polling handles chat switches gracefully (no orphaned background tasks).
+- Storage errors (quota exceeded, write failures) are now surfaced clearly.
+- Token estimates are validated on both read and write to prevent calculation errors.
+- YAML frontmatter values are now unescaped in the correct order.
 
-### Drawer: Phase 2 — Performance & UX Polish
-- **Overlay mode** — When `chat_width >= 60`, drawer switches to a fixed 380px overlay instead of inline fillRight, preventing it from being crushed in narrow remaining space. Reads `power_user.chat_width` directly.
-- **Close button** — Chevron-up icon next to lock icon for easy drawer dismissal. Wrapper div `.dle-drawer-controls` groups lock + close.
-- **Tab count badges** — Why? tab shows injected count, Browse shows vault total, Gating shows active filter count. Badge spans with `data-badge` attribute, CSS `:not(:empty)` toggle.
-- **Pre-computed tag cache** — Tag dropdown options rebuilt only on index update (`onIndexUpdated` callback), not every Browse render. Module-level `cachedTagSet`/`cachedTagOptions`.
-- **Gating impact counts** — Each active gating field shows "filtering N" count indicating how many entries have the field set but don't match.
-- **Virtual scroll** — Browse tab renders only visible window (~20 DOM nodes) instead of all 131+. `BROWSE_ROW_HEIGHT=32px`, `BROWSE_OVERSCAN=8`. Uses RAF-throttled scroll handler with `getBoundingClientRect` for offset calculation.
-- **Click-to-expand entry previews** — Click entry name area to see summary + token count + Obsidian link inline. Overlays subsequent entries with z-index. Expanded state persists across virtual scroll re-renders.
-- **Narrow drawer container query** — `@container (max-width: 200px)` hides secondary content when squeezed.
+#### Performance
+- **Faster startup** — The graph visualization module now loads on-demand instead of at startup, cutting initial load time by ~21%.
 
-### Drawer: Phase 2 — Bug Fixes
-- `offsetTop` replaced with `getBoundingClientRect` for robust virtual scroll offset calculation
-- Scroll reset on filter change (prevents empty results when scrolled)
-- Browse tab re-render on tab switch (prevents truncated list after hidden render)
-- Close button open-guard (prevents toggle-reopen)
-- Button CSS reset: margin + font-family
-- Entries bar added to `@container (max-height: 250px)` rule
-- Expanded entry state preserved across virtual scroll re-renders
+#### Diagnostics & quality-of-life
+- **Cleaner injection mode switching** — Switching between injection modes no longer leaves stale entries behind in the Prompt Manager.
+- **Auto-suggest stability** — Entry titles with special characters no longer break the suggestion prompt.
+- `/dle-inspect` now shows AI error messages for easier troubleshooting.
+- Importing lorebook entries with unusual keyword formats no longer causes errors.
+- Entry truncation boundaries are more accurate (better character-to-token ratio).
+- Pinned entries no longer share internal data that could cause unexpected side effects.
+
+#### Documentation
+- Wiki: Fixed 5 inaccuracies in Settings Reference and Injection & Context Control pages.
+- Roadmap: Marked 4 shipped items (Browse List Virtualization, Neighborhood Isolation, Entry Clustering, Dead Entry Detection).
+
+### Live Drawer — Performance & UX Polish
+- **Smart overlay mode** — On wide chat layouts, the drawer floats over the chat instead of squeezing it, so you never lose reading space.
+- **Close button** — Quick-dismiss button next to the lock icon.
+- **Tab count badges** — See at a glance how many entries are injected, how many are in your vault, and how many gating filters are active.
+- **Gating impact counts** — Each active filter shows how many entries it's currently blocking, so you know if your filters are too aggressive.
+- **Smooth scrolling for large vaults** — Browse tab now handles hundreds of entries without slowing down (virtual scroll rendering).
+- **Click-to-expand previews** — Click any entry in Browse to see its summary, token count, and a direct link to open it in Obsidian.
+- **Responsive layout** — Drawer adapts gracefully to narrow and short screen sizes.
 
 ### New Features
-- **AI Notebook** — Persistent per-chat scratchpad injected every turn. Edit via `/dle-notebook`. Stored in chat metadata, survives reloads. Configurable injection position/depth/role.
-- **Probability Frontmatter** — New `probability` field (0.0-1.0) for entries. When matched, random roll determines if entry fires. Constants always fire.
-- **Entry Browser** — `/dle-browse` command opens searchable, filterable popup of all indexed entries with full content preview, analytics, and Obsidian deep links.
-- **Entry Relationship Graph** — `/dle-graph` command visualizes requires/excludes/cascade/wiki-link relationships as an interactive force-directed graph on canvas.
-- **"Why Not?" Diagnostics** — In Test Match popup, click unmatched entries to see exactly why they didn't fire (keyword miss, scan depth, gating, cooldown, budget, AI rejection) with suggestions.
-- **Injection Deduplication** — Opt-in: skip re-injecting entries already in context from recent generations. Tracks injection history per chat via `chat_metadata`.
-- **Auto Lorebook Creation** — `/dle-suggest` or auto-trigger: AI analyzes chat for entities not in lorebook, suggests new entries with human gate (editable popup). Writes accepted entries to Obsidian.
-- **Optimize Keywords** — `/dle-optimize-keys` sends entries to AI for keyword suggestions. Mode-aware: keyword-only (precise) vs two-stage (broad). Single or batch.
-- **Activation Simulation** — `/dle-simulate` replays chat history step-by-step showing which entries activate/deactivate at each message.
-- **Enhanced Context Cartographer** — Token bar chart per entry, injection position grouping, expandable content preview, vault attribution for multi-vault. New `/dle-context` for real-time view without generating.
-- **Scribe Session Timeline** — `/dle-scribe-history` fetches and displays all session notes from Obsidian. Scribe context now persists across page reloads via chat metadata.
-- **Multi-Vault Support** — Connect multiple Obsidian vaults with independent settings. Entries merged with vault attribution shown in Context Cartographer and Entry Browser.
-- **Per-Chat Pin/Block** — Pin entries to always inject or block entries from injecting on a per-chat basis. Managed via `/dle-pin`, `/dle-unpin`, `/dle-block`, `/dle-unblock`, `/dle-pins`. Stored in `chat_metadata`.
-- **Contextual Gating** — Filter entries by `era`, `location`, `scene_type`, and `character_present` frontmatter fields. Set the active context with `/dle-set-era`, `/dle-set-location`, `/dle-set-scene`, `/dle-set-characters`. View state with `/dle-context-state`.
-- **Entry Decay & Freshness** — Tracks how long since each entry was last injected. Stale entries get a boost in the AI manifest; frequently injected entries get a penalty. Configurable thresholds.
-- **ST Lorebook Import Bridge** — `/dle-import` converts SillyTavern World Info JSON exports into Obsidian vault notes with proper frontmatter. Handles WI exports, V2 character cards, and entry arrays.
-- **Auto-Summary Generation** — `/dle-summarize` generates AI summaries for entries that lack a `summary` field. Writes directly to Obsidian frontmatter.
-- **Setup Wizard** — `/dle-setup` walks through first-time configuration: Obsidian connection, AI search, and initial index build.
-- **Quick Actions Bar** — Settings panel includes a toolbar of one-click buttons for common operations: Browse, Map, Health, Refresh, Graph, Simulate, Analytics, Optimize, Inspect, Setup.
-- **Scribe-Informed Retrieval** — When enabled, feeds the Session Scribe's latest summary into the AI search context for better entry selection.
-- **Budget-Aware Entry Truncation** — Entries that exceed the remaining token budget are now truncated to fit (using clean sentence boundaries) instead of being silently dropped. Truncated entries are marked with `_truncated` flag and show original token count in diagnostics. Minimum threshold of 50 tokens prevents uselessly small fragments.
-- **Confidence-Gated Budget** — AI search over-requests entries (2x), then sorts by confidence tier (high → medium → low) before applying the budget cap.
-- **Prompt Cache Optimization** — In proxy mode, manifest is placed first with `cache_control` breakpoints to leverage prompt caching on subsequent calls.
-- **Circuit Breaker** — Obsidian connection uses a circuit breaker pattern (closed/open/half-open) with exponential backoff (2s-15s) to avoid hammering a down server.
-- **Sliding Window AI Cache** — AI search cache tracks manifest and chat hashes separately. When only new chat messages are added (no vault changes), cached results are reused if no new entity names from the vault appear in the new messages.
-- **IndexedDB Persistent Cache** — Parsed vault index is saved to IndexedDB for instant hydration on page load. Background validation against Obsidian ensures freshness.
-- **Incremental Delta Sync** — On auto-sync, fetches only the file listing first, then downloads content only for new files. Removes deleted entries. Falls back to full rebuild.
-- **Hierarchical Manifest Clustering** — For large vaults (40+ entries), groups entries by category and uses a two-call AI approach: first selects relevant categories, then selects entries within those categories. Safety valve prevents over-aggressive filtering.
+
+#### World-Building Tools
+- **AI Notebook** — A persistent per-chat scratchpad that the AI sees every turn. Jot down plot notes, character reminders, or session goals with `/dle-notebook` — they survive reloads and stay with the chat.
+- **Auto Lorebook Creation** — AI analyzes your chat and suggests new entries for characters, locations, and concepts it notices. Review, edit, and accept — entries are written directly to Obsidian. Use `/dle-newlore` or let it run automatically.
+- **Optimize Keywords** — `/dle-optimize-keys` asks AI to suggest better trigger keywords for any entry, so your lore fires when it should.
+- **Auto-Summary Generation** — `/dle-summarize` writes AI search summaries for entries that are missing them, improving how well the AI selects your lore.
+- **Import from SillyTavern** — `/dle-import` converts your existing SillyTavern lorebooks (World Info JSON) into Obsidian vault notes with proper frontmatter.
+- **Entry Relationship Graph** — `/dle-graph` visualizes how your entries connect — requires, excludes, cascade links, and wiki-links — as an interactive force-directed graph.
+
+#### Smarter Lore Selection
+- **Roll the dice** — New `probability` field lets entries randomly appear when matched (0.0-1.0), adding variety to your lore injection.
+- **Per-chat pin & block** — Force specific entries on or off for the current chat without editing your vault. `/dle-pin`, `/dle-block`, and friends.
+- **Contextual gating** — Filter entries by era, location, scene type, or which characters are present. Your Victorian-era lore won't leak into the sci-fi arc.
+- **Entry rotation** — Entries that haven't appeared in a while get a boost; overused entries get a penalty, keeping your lore fresh.
+- **Injection deduplication** — Skip re-injecting entries that are already in the AI's recent context, saving token budget for new lore.
+- **Smarter budget management** — Entries that don't fit the remaining budget are now trimmed to sentence boundaries instead of being dropped entirely. The AI also over-requests and picks the best matches by confidence.
+- **Scribe-informed retrieval** — Feed the Session Scribe's latest summary into AI search, so entry selection reflects what actually happened in the story.
+- **Large vault support** — Vaults with 40+ entries are automatically clustered by category for more efficient AI selection.
+
+#### Visibility & Diagnostics
+- **Entry Browser** — `/dle-browse` opens a searchable, filterable popup of all your entries with content previews, usage stats, and direct Obsidian links.
+- **Activation Simulation** — `/dle-simulate` replays your chat history step-by-step, showing exactly which entries activate or deactivate at each message.
+- **"Why Not?" Diagnostics** — Click any unmatched entry in Test Match to see exactly why it didn't fire and what to fix.
+- **Enhanced Context Cartographer** — See token usage per entry, injection positions, expandable content previews, and vault attribution for multi-vault setups.
+- **Scribe Session Timeline** — `/dle-scribe-history` fetches and displays all your session notes from Obsidian.
+
+#### Infrastructure
+- **Multi-vault support** — Connect multiple Obsidian vaults with independent settings. Entries are merged with clear vault attribution throughout the UI.
+- **Zero loading delays** — Your vault index is saved to browser storage for instant page loads. Obsidian is checked in the background to ensure freshness.
+- **Smart caching** — AI search results are cached and reused when only new chat messages are added (no vault changes), saving API calls.
+- **Automatic error recovery** — If Obsidian goes down, DeepLore automatically backs off and retries with increasing delays instead of hammering your connection.
+- **Incremental sync** — On auto-refresh, only new or changed files are downloaded instead of re-fetching everything.
+- **Proxy cache optimization** — In proxy mode, the manifest is positioned to take advantage of prompt caching on supported providers.
+- **Setup Wizard** — `/dle-setup` walks you through first-time configuration step by step.
+- **Quick Actions Bar** — One-click buttons in settings for Browse, Health, Refresh, Graph, Simulate, Analytics, and more.
 
 ### New Slash Commands
 | Command | Description |
@@ -176,54 +133,21 @@ Comprehensive code audit resolved 47 confirmed bugs (2 critical, 13 high, 20 med
 | `character_present` | string[] | Contextual gating — entry only injects when any listed character is present |
 
 ### Settings Overhaul
-- **Search Mode dropdown** — Unified "Keyword Only / Two-Stage / AI Only" dropdown replaces separate AI enable checkbox and mode radio buttons
-- **AI-Powered Features drawer** — Groups AI Notebook, Session Scribe, and Auto Lorebook into one collapsible section
-- **"Show Advanced" toggles** — Power-user settings hidden behind per-section advanced toggles (persisted across sessions) for vault tags, matching, injection, AI search, and index/cache settings
-- **"You are Claude Code" toggle** — New checkbox in AI Search advanced settings to control the `You are Claude Code` system prompt prefix (proxy mode only)
-- **Vault name deep links** — Removed separate "Obsidian Vault Name" field; vault connection names now serve double duty for Obsidian deep links
-- **Title/tooltip audit** — Every setting input now has a descriptive `title` attribute for discoverability
-- **Auto-connect on load** — Extension automatically builds the vault index on startup when enabled (3s delay)
-
-### New Settings
-- New AI Notebook section: enable, injection position, depth, role
-- New `stripDuplicateInjections` and `stripLookbackDepth` in Matching & Budget
-- New Auto Lorebook section: enable, interval, connection mode, profile, proxy, model, tokens, timeout, folder
-- New `optimizeKeysMode` (keyword-only / two-stage)
-- New `vaults` array replacing single-vault connection fields (auto-migrated)
-- New Entry Decay section: `decayEnabled`, `decayBoostThreshold`, `decayPenaltyThreshold`
-- New `scribeInformedRetrieval` toggle in AI Search
+- **Simplified search mode** — One dropdown to pick your search strategy: Keyword Only, Two-Stage (keywords + AI), or AI Only.
+- **Organized AI features** — AI Notebook, Session Scribe, and Auto Lorebook grouped into one collapsible section.
+- **Cleaner settings** — Power-user options hidden behind "Show Advanced" toggles (your preferences are remembered across sessions).
+- **Auto-connect** — Extension automatically connects to Obsidian on startup when enabled.
+- **Helpful tooltips** — Every setting has a descriptive tooltip explaining what it does.
 
 ### Self-Healing Diagnostics
-- Expanded `/dle-health` from ~7 to 30+ checks: circular requires, duplicate titles, conflicting overrides, orphaned cascade links, AI/Scribe misconfiguration, budget warnings, probability zero, unresolved wiki-links, keyword conflicts, and more.
-- Auto-runs on extension load, surfaces warnings via toast (silent if clean).
+- `/dle-health` now runs 30+ automated checks on your vault: circular dependencies, duplicate titles, conflicting rules, orphaned links, misconfigured AI settings, budget warnings, and more.
+- Runs automatically on startup — you'll see a toast if anything needs attention (silent when clean).
 
-### Refactor: Module Decomposition
-- Decomposed monolithic `index.js` (4619 lines) into 19 focused modules. `index.js` is now ~620 lines (entry point + `onGenerate`).
-- New modules: `settings.js`, `src/state.js`, `src/vault.js`, `src/ai.js`, `src/pipeline.js`, `src/sync.js`, `src/scribe.js`, `src/auto-suggest.js`, `src/cartographer.js`, `src/popups.js`, `src/diagnostics.js`, `src/settings-ui.js`, `src/commands.js`, `src/stages.js`, `src/helpers.js`, `src/cache.js`, `src/import.js`, `src/obsidian-api.js`, `src/proxy-api.js`, `src/toast-dedup.js`.
-
-### Bug Fixes
-- **Critical:** 9 fixes
-- **High:** 67 fixes
-- **Medium:** 74 fixes
-- **Low:** 53 fixes
-
-*(Deferred)* Magic number imports, YAML parser docs, inline styles → CSS, ARIA labels — documented in plan for future work.
-
-### Internal
-- `/dle-inspect` now shows full post-pipeline state: Injected entries (with token counts and truncation markers), Gated Out entries (with requires/excludes reasons), and Budget/Max Cut entries. Previously only showed keyword matches and AI selections.
-- Pipeline trace (`lastPipelineTrace`) now populates the previously-empty `gatedOut`, `budgetCut`, and `injected` arrays, plus `totalTokens` and `budgetLimit`.
-- New `probability`, `vaultSource`, `era`, `location`, `sceneType`, `characterPresent` fields on VaultEntry
-- New modules: `src/cache.js` (IndexedDB persistent cache), `src/import.js` (WI import bridge)
-- Scribe session timeline fetched directly from Obsidian (no server endpoint needed)
-- `chat_metadata` now stores: `deeplore_notebook`, `deeplore_lastScribeSummary`, `deeplore_injection_log`, `deeplore_pins`, `deeplore_blocks`, `deeplore_context`
-- `matchEntries()` now returns `probabilitySkipped` array
-- `onGenerate()` uses `pipelineRan` flag + `finally` block for generation tracking
-- `aiSearchCache` shape: `{hash, manifestHash, chatLineCount, results}` for sliding window cache
-- New state: `decayTracker`, `lastHealthResult`
-- Init hydrates from IndexedDB cache, falls back to full Obsidian fetch
-- Delta sync fetches file listing first, downloads only new files
-- 518 passing tests
-- Bumped version to 0.2.0-BETA
+### Under the Hood
+- Decomposed the codebase from one massive file (4619 lines) into 21 focused modules for better maintainability.
+- 200+ bug fixes across all severity levels.
+- 518 passing tests.
+- Bumped version to 0.2.0-BETA.
 
 ## 0.14.0-ALPHA
 

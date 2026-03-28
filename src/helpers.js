@@ -174,7 +174,9 @@ export function buildCategoryManifest(clusters) {
 export function buildObsidianURI(vaultName, filename) {
     if (!vaultName) return null;
     const encodedVault = encodeURIComponent(vaultName);
-    const encodedFile = filename.split('/').map(s => encodeURIComponent(s)).join('/');
+    // Strip .md extension — Obsidian's URI handler expects paths without it
+    const stripped = filename.replace(/\.md$/i, '');
+    const encodedFile = stripped.split('/').map(s => encodeURIComponent(s)).join('/');
     return `obsidian://open?vault=${encodedVault}&file=${encodedFile}`;
 }
 

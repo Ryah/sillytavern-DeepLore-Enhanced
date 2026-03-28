@@ -224,19 +224,21 @@ export function wireBrowseTab($drawer) {
         const title = $entry.data('title');
         if (!title) return;
 
+        const $list = $drawer.find('.dle-browse-list');
         const $existing = $entry.find('.dle-browse-preview');
         if ($existing.length) {
-            // Animate collapse: set current height explicitly, then transition to row height
-            const currentHeight = $entry[0].scrollHeight;
-            $entry.css('height', currentHeight + 'px');
-            $entry[0].offsetHeight; // force reflow so browser sees start value
+            // Collapse: reset expanded state and force re-render to fix positions
+            $existing.remove();
             $entry.css('height', BROWSE_ROW_HEIGHT + 'px');
-            let cleaned = false;
-            const cleanup = () => { if (!cleaned) { cleaned = true; $existing.remove(); } };
-            $entry.one('transitionend', cleanup);
-            setTimeout(cleanup, 250); // safety timeout
             $(this).attr('aria-expanded', 'false');
             ds.browseExpandedEntry = null;
+            ds.browseExpandedIdx = null;
+            ds.browseExpandedExtraHeight = 0;
+            // Update container min-height and force re-render
+            const totalHeight = ds.browseFilteredEntries.length * BROWSE_ROW_HEIGHT;
+            $list.css({ 'min-height': totalHeight + 'px' });
+            ds.browseLastRangeStart = -1; // invalidate cache
+            renderBrowseWindow();
             return;
         }
 
@@ -249,6 +251,7 @@ export function wireBrowseTab($drawer) {
         const entry = ds.browseFilteredEntries.find(e => e.title === title);
         if (!entry) return;
 
+        const entryIdx = parseInt($entry.data('idx'), 10);
         ds.browseExpandedEntry = title;
         $(this).attr('aria-expanded', 'true');
 
@@ -266,14 +269,20 @@ export function wireBrowseTab($drawer) {
 
         const previewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div><div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
 
-        // Animate expand: lock current height, append preview, measure, transition
-        $entry.css('height', BROWSE_ROW_HEIGHT + 'px');
+        // Expand: append preview, measure, store offset for virtual scroll
         $entry.append(previewHtml);
+        $entry.css('height', 'auto');
         const naturalHeight = $entry[0].scrollHeight;
-        $entry[0].offsetHeight; // force reflow so browser sees 32px start
-        $entry.css({ height: naturalHeight + 'px', position: 'absolute' });
-        // After transition, switch to auto so content isn't clipped
-        $entry.one('transitionend', () => $entry.css('height', 'auto'));
+        const extraHeight = Math.max(0, naturalHeight - BROWSE_ROW_HEIGHT);
+
+        ds.browseExpandedIdx = entryIdx;
+        ds.browseExpandedExtraHeight = extraHeight;
+
+        // Update container min-height and force re-render to shift entries below
+        const totalHeight = ds.browseFilteredEntries.length * BROWSE_ROW_HEIGHT + extraHeight;
+        $list.css({ 'min-height': totalHeight + 'px' });
+        ds.browseLastRangeStart = -1; // invalidate cache
+        renderBrowseWindow();
     });
 }
 

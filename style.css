@@ -1788,9 +1788,9 @@ button.dle-browse-block.dle-block-active {
 .dle-settings-popup {
     display: grid;
     grid-template-columns: 130px 1fr;
-    height: 70vh;
+    /* Fill the ST popup container — popup-content is flex-grow:1 inside the 90vh dialog */
+    height: 100%;
     min-height: 400px;
-    max-height: 80vh;
 }
 
 .dle-settings-popup input:disabled,

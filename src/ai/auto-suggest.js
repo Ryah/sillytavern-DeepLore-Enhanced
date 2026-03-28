@@ -213,7 +213,7 @@ ${safeContent}`;
                             this.textContent = 'Accepted';
                             toastr.success(`Created: ${s.title}`, 'DeepLore Enhanced');
                         } else {
-                            toastr.error(`Failed: ${data.error}`, 'DeepLore Enhanced');
+                            toastr.error(`Could not create entry: ${data.error}`, 'DeepLore Enhanced');
                         }
                     } catch (err) {
                         toastr.error(classifyError(err), 'DeepLore Enhanced');

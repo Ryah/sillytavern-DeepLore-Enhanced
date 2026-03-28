@@ -111,6 +111,10 @@ export const ds = {
     browseLastRangeEnd: -1,
     browseScrollRAF: null,
     browseExpandedEntry: null,
+    /** Index of expanded entry in browseFilteredEntries (for virtual scroll offset) */
+    browseExpandedIdx: null,
+    /** Extra height beyond BROWSE_ROW_HEIGHT for the expanded entry */
+    browseExpandedExtraHeight: 0,
     /** Set by navigateToBrowseEntry() — renderBrowseTab() consumes and clears it */
     browseNavigateTarget: null,
 

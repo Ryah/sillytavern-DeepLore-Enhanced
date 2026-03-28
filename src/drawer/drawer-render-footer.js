@@ -126,7 +126,7 @@ export function renderFooter() {
             $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
         }
     } else if (vaultIndex.length > 0) {
-        const cacheLabel = `Cache: hydrated from IndexedDB (${vaultIndex.length} entries, not yet refreshed)`;
+        const cacheLabel = `Cache: loaded from storage (${vaultIndex.length} entries, not yet refreshed)`;
         $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
         $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
     } else {
@@ -138,7 +138,7 @@ export function renderFooter() {
     const $ai = $footer.find('[data-health="ai"]');
     if (isAiCircuitOpen()) {
         $ai.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
-        $ai.attr('aria-label', 'AI search: circuit breaker tripped — temporarily disabled').attr('title', 'AI search: circuit breaker tripped — temporarily disabled, will retry automatically');
+        $ai.attr('aria-label', 'AI search: temporarily paused after repeated failures').attr('title', 'AI search: temporarily paused after repeated failures — will retry automatically');
     } else if (aiSearchStats.calls > 0) {
         $ai.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
         $ai.attr('aria-label', `AI search: OK (${aiSearchStats.calls} calls this session) — click for details`).attr('title', `AI search: OK (${aiSearchStats.calls} calls this session) — click for details`);
@@ -154,5 +154,5 @@ export function renderFooter() {
     $footer.find('[data-ai-stat="calls"]').text(`${aiSearchStats.calls} calls`);
     $footer.find('[data-ai-stat="cached"]').text(`${aiSearchStats.cachedHits} cached`);
     const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
-    $footer.find('[data-ai-stat="tokens"]').text(`${formatTokensCompact(totalTok)} tok`);
+    $footer.find('[data-ai-stat="tokens"]').text(`${formatTokensCompact(totalTok)} tokens`);
 }

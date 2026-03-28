@@ -53,7 +53,7 @@ function renderVaultList(settings, container = null) {
                 <label class="checkbox_label" style="flex: 0 0 auto;" title="Enable/disable this vault">
                     <input type="checkbox" class="dle_vault_enabled checkbox" ${v.enabled ? 'checked' : ''} />
                 </label>
-                <input type="text" class="dle_vault_name text_pole" placeholder="Name" value="${escapeHtml(v.name)}" style="flex: 1; min-width: 80px;" aria-label="Vault name" />
+                <input type="text" class="dle_vault_name text_pole" placeholder="Obsidian vault name" value="${escapeHtml(v.name)}" title="Must match your Obsidian vault name exactly (used for deep links)" style="flex: 1; min-width: 80px;" aria-label="Vault name" />
                 <input type="text" class="dle_vault_host text_pole" placeholder="Host" value="${escapeHtml(v.host || '127.0.0.1')}" style="flex: 0 0 100px;" aria-label="Vault host" />
                 <input type="number" class="dle_vault_port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" aria-label="Vault port" />
                 <input type="password" class="dle_vault_key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" aria-label="API key" />
@@ -162,7 +162,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
         if (settings.vaults.length <= 1) {
-            toastr.warning('Cannot remove the last vault.', 'DeepLore Enhanced');
+            toastr.warning('At least one vault connection is required. Add another vault before removing this one.', 'DeepLore Enhanced');
             return;
         }
         const vaultName = settings.vaults[idx].name || `Vault ${idx + 1}`;
@@ -205,7 +205,7 @@ function announceToSR(message) {
 const STATUS_DISPLAY = {
     ok:       { dot: '\u{1F7E2}', label: 'OK',       title: 'All systems operational' },
     degraded: { dot: '\u{1F7E1}', label: 'Degraded',  title: 'Some vaults unreachable or health issues detected' },
-    limited:  { dot: '\u{1F7E0}', label: 'Limited',   title: 'AI search paused (circuit breaker) or using stale cache' },
+    limited:  { dot: '\u{1F7E0}', label: 'Limited',   title: 'AI search temporarily paused or using stale cache' },
     offline:  { dot: '\u{1F534}', label: 'Offline',    title: 'No vaults reachable and no cached data' },
 };
 
@@ -427,6 +427,19 @@ export async function openSettingsPopup() {
         large: true,
         wide: true,
         allowVerticalScrolling: true,
+        onOpen: () => {
+            // Click-outside-to-dismiss: clicking the ::backdrop area of the <dialog>
+            // fires a click on the dialog element itself with target === dialog.
+            const dlg = $container[0]?.closest('dialog');
+            if (dlg) {
+                dlg.addEventListener('click', (e) => {
+                    if (e.target === dlg) {
+                        saveSettingsDebounced();
+                        dlg.querySelector('.popup-button-close')?.click();
+                    }
+                });
+            }
+        },
     });
 }
 
@@ -457,7 +470,9 @@ function loadPopupSettings($container) {
     $c('#dle_sp_char_context_scan').prop('checked', settings.characterContextScan);
     $c('#dle_sp_fuzzy_search').prop('checked', settings.fuzzySearchEnabled);
     $c('#dle_sp_fuzzy_min_score').val(settings.fuzzySearchMinScore);
+    $c('#dle_sp_fuzzy_min_score_value').text((settings.fuzzySearchMinScore || 0.5).toFixed(1));
     $c('#dle_sp_fuzzy_min_score_row').toggle(settings.fuzzySearchEnabled);
+    if (settings.fuzzySearchEnabled) runFuzzyPreview();
     $c('#dle_sp_unlimited_entries').prop('checked', settings.unlimitedEntries);
     $c('#dle_sp_max_entries').val(settings.maxEntries).prop('disabled', settings.unlimitedEntries);
     $c('#dle_sp_unlimited_budget').prop('checked', settings.unlimitedBudget);
@@ -634,6 +649,89 @@ function numVal(raw, fallback) {
     return Number.isNaN(n) ? fallback : n;
 }
 
+/**
+ * Pure toy demo for the fuzzy strictness slider — no vault connection needed.
+ * Uses real BM25 scoring (same k1/b/tokenizer as bm25.js) against a hardcoded
+ * mini-corpus so users can see how the threshold controls which entries pass.
+ * Also shows which specific words matched, so the user understands the mechanism.
+ */
+const FUZZY_TOY_CORPUS = [
+    { title: 'Velmira the Blade',    content: 'A retired assassin who once served the shadow court. Now sells guild secrets to the highest bidder from a hidden safehouse.' },
+    { title: 'The Hollow Fang',      content: 'A secretive assassin guild operating from the sewers beneath the capital. Members use shadow magic to vanish after completing a contract.' },
+    { title: 'Nightveil District',   content: 'The shadow quarter of the capital where thieves and smugglers gather. Home to several guild halls and black market dealers.' },
+    { title: 'Merchant Guild Prices', content: 'The official guild price list for trade across the realm. Establishes taxation and merchant protections for all five kingdoms.' },
+    { title: 'Sunforge Cathedral',   content: 'A grand cathedral of golden spires dedicated to the sun goddess. Priests perform healing rituals. A shadow falls across the altar each equinox.' },
+    { title: 'Starfall Academy',     content: 'A prestigious school for young mages perched on a cliffside. Students study elemental magic and arcane theory in ancient towers.' },
+];
+const FUZZY_TOY_QUERY = 'shadow assassin guild';
+let _fuzzyToyScores = null;
+
+/** Compute BM25 scores + matched words for the toy corpus once, reuse on slider changes. */
+function getFuzzyToyScores() {
+    if (_fuzzyToyScores) return _fuzzyToyScores;
+    const k1 = 1.5, b = 0.75;
+    const tokenize = t => t.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length >= 2);
+    const docs = FUZZY_TOY_CORPUS.map(e => {
+        const tokens = tokenize(`${e.title} ${e.content}`);
+        const tf = new Map();
+        for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+        return { title: e.title, tf, len: tokens.length };
+    });
+    const N = docs.length;
+    const avgDl = docs.reduce((s, d) => s + d.len, 0) / N;
+    const df = new Map();
+    for (const d of docs) for (const t of d.tf.keys()) df.set(t, (df.get(t) || 0) + 1);
+    const idf = new Map();
+    for (const [t, f] of df) idf.set(t, Math.log((N - f + 0.5) / (f + 0.5) + 1));
+    const queryTerms = new Set(tokenize(FUZZY_TOY_QUERY));
+    _fuzzyToyScores = docs.map(d => {
+        let score = 0;
+        const matchedWords = [];
+        for (const term of queryTerms) {
+            const termIdf = idf.get(term);
+            if (!termIdf) continue;
+            const tf = d.tf.get(term) || 0;
+            if (tf === 0) continue;
+            score += termIdf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * d.len / avgDl));
+            matchedWords.push(term);
+        }
+        return { title: d.title, score, matchedWords };
+    }).sort((a, b) => b.score - a.score);
+    return _fuzzyToyScores;
+}
+
+function runFuzzyPreview() {
+    const $results = $('#dle_sp_fuzzy_preview_results');
+    if (!$results.length) return;
+
+    const minScore = getSettings().fuzzySearchMinScore || 0.5;
+    const scores = getFuzzyToyScores();
+
+    let html = '<div style="margin-bottom:4px;">';
+    html += '<small><i class="fa-solid fa-flask" style="color:var(--dle-info,#2196f3);"></i> <strong>How this works</strong>';
+    html += ' <span class="dle_muted">— sample data, not your vault</span></small></div>';
+    html += `<div style="margin-bottom:6px;"><small class="dle_muted">If a chat message said </small><small><strong>"${FUZZY_TOY_QUERY}"</strong></small><small class="dle_muted">, these entries would be checked:</small></div>`;
+
+    html += '<table style="width:100%;border-collapse:collapse;">';
+    html += '<tr style="border-bottom:1px solid var(--dle-border,#444);"><th style="text-align:left;padding:2px 4px;"><small>Entry</small></th><th style="text-align:left;padding:2px 4px;"><small>Words matched</small></th><th style="text-align:right;padding:2px 4px;"><small>Score</small></th><th style="text-align:center;padding:2px 4px;"></th></tr>';
+    for (const e of scores) {
+        const passes = e.score >= minScore;
+        const icon = passes ? '✓' : '✗';
+        const iconColor = passes ? 'var(--dle-success,#4caf50)' : 'var(--dle-error,#f44336)';
+        const wordsHtml = e.matchedWords.length > 0
+            ? e.matchedWords.map(w => `<span style="color:var(--dle-info,#2196f3);">${escapeHtml(w)}</span>`).join(', ')
+            : '<span class="dle_muted">—</span>';
+        html += `<tr style="opacity:${passes ? 1 : 0.5};">`;
+        html += `<td style="padding:2px 4px;"><small>${escapeHtml(e.title)}</small></td>`;
+        html += `<td style="padding:2px 4px;"><small>${wordsHtml}</small></td>`;
+        html += `<td style="text-align:right;padding:2px 4px;"><small class="dle_muted">${e.score.toFixed(2)}</small></td>`;
+        html += `<td style="text-align:center;padding:2px 4px;color:${iconColor};font-weight:bold;"><small>${icon}</small></td>`;
+        html += '</tr>';
+    }
+    html += '</table>';
+    $results.html(html);
+}
+
 function bindPopupEvents($container) {
     const settings = getSettings();
     const $c = (sel) => $container.find(sel);
@@ -690,7 +788,13 @@ function bindPopupEvents($container) {
     $c('#dle_sp_scan_depth').on('input', function () { settings.scanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
     $c('#dle_sp_char_context_scan').on('change', function () { settings.characterContextScan = $(this).is(':checked'); saveSettingsDebounced(); });
     $c('#dle_sp_fuzzy_search').on('change', function () { settings.fuzzySearchEnabled = $(this).is(':checked'); $c('#dle_sp_fuzzy_min_score_row').toggle(settings.fuzzySearchEnabled); saveSettingsDebounced(); buildIndexWithReuse(); });
-    $c('#dle_sp_fuzzy_min_score').on('input', function () { settings.fuzzySearchMinScore = numVal($(this).val(), 0.5); saveSettingsDebounced(); });
+    $c('#dle_sp_fuzzy_min_score').on('input', function () {
+        const v = parseFloat($(this).val());
+        settings.fuzzySearchMinScore = v;
+        $c('#dle_sp_fuzzy_min_score_value').text(v.toFixed(1));
+        saveSettingsDebounced();
+        runFuzzyPreview();
+    });
     $c('#dle_sp_unlimited_entries').on('change', function () { settings.unlimitedEntries = $(this).prop('checked'); $c('#dle_sp_max_entries').prop('disabled', settings.unlimitedEntries); saveSettingsDebounced(); });
     $c('#dle_sp_max_entries').on('input', function () { settings.maxEntries = numVal($(this).val(), 10); saveSettingsDebounced(); });
     $c('#dle_sp_unlimited_budget').on('change', function () { settings.unlimitedBudget = $(this).prop('checked'); $c('#dle_sp_token_budget').prop('disabled', settings.unlimitedBudget); saveSettingsDebounced(); });
@@ -791,7 +895,7 @@ function bindPopupEvents($container) {
         if (vaultIndex.length === 0) { toastr.info('No entries indexed.', 'DeepLore Enhanced'); return; }
         let candidateManifest, candidateHeader, modeLabel;
         if (settings.aiSearchMode === 'ai-only') { const r = buildCandidateManifest(vaultIndex); candidateManifest = r.manifest; candidateHeader = r.header; modeLabel = 'AI-only (full vault)'; }
-        else { const kr = matchEntries(chat); const nc = kr.matched.filter(e => !e.constant); if (nc.length === 0) { toastr.warning('No keyword matches.', 'DeepLore Enhanced'); return; } const r = buildCandidateManifest(kr.matched); candidateManifest = r.manifest; candidateHeader = r.header; modeLabel = `Two-stage (${nc.length} candidates)`; }
+        else { const kr = matchEntries(chat); const nc = kr.matched.filter(e => !e.constant); if (nc.length === 0) { toastr.warning('No entries matched the current chat. Try /dle-simulate for details.', 'DeepLore Enhanced'); return; } const r = buildCandidateManifest(kr.matched); candidateManifest = r.manifest; candidateHeader = r.header; modeLabel = `Two-stage (${nc.length} candidates)`; }
         const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
         const maxE = settings.unlimitedEntries ? 'as many as are relevant' : String(settings.maxEntries);
         let sp = (settings.aiSearchSystemPrompt && settings.aiSearchSystemPrompt.trim()) || DEFAULT_AI_SYSTEM_PROMPT;
@@ -815,7 +919,7 @@ function bindPopupEvents($container) {
     $c('input[name="dle_sp_notebook_position"]').on('change', function () { settings.notebookPosition = Number($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_notebook_depth').on('input', function () { settings.notebookDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_notebook_role').on('change', function () { settings.notebookRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
-    $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Notebook first.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
+    $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
 
     // ── Features — Scribe ──
     $c('#dle_sp_scribe_enabled').on('change', function () {
@@ -897,15 +1001,29 @@ function bindPopupEvents($container) {
     // ── Reset All Settings ──
     $c('#dle_sp_reset_defaults').on('click', async function () {
         const confirmed = await callGenericPopup(
-            '<div style="text-align:center;"><p><strong>Reset all DeepLore Enhanced settings to defaults?</strong></p><p>This cannot be undone. Vault connection details (ports, API keys) will be preserved.</p></div>',
+            '<div style="text-align:center;"><p><strong>Reset all DeepLore Enhanced settings to defaults?</strong></p><p>This cannot be undone. Your vault connections and AI connection profiles will be preserved.</p></div>',
             POPUP_TYPE.CONFIRM, '', { okButton: 'Reset', cancelButton: 'Cancel' },
         );
         if (!confirmed) return;
 
-        // Preserve vault connections
+        // Preserve all connection settings (vault + AI profiles/proxies)
         const savedVaults = JSON.parse(JSON.stringify(settings.vaults || []));
         const savedPort = settings.obsidianPort;
         const savedKey = settings.obsidianApiKey;
+        const savedConnections = {
+            aiSearchConnectionMode: settings.aiSearchConnectionMode,
+            aiSearchProfileId: settings.aiSearchProfileId,
+            aiSearchProxyUrl: settings.aiSearchProxyUrl,
+            aiSearchModel: settings.aiSearchModel,
+            scribeConnectionMode: settings.scribeConnectionMode,
+            scribeProfileId: settings.scribeProfileId,
+            scribeProxyUrl: settings.scribeProxyUrl,
+            scribeModel: settings.scribeModel,
+            autoSuggestConnectionMode: settings.autoSuggestConnectionMode,
+            autoSuggestProfileId: settings.autoSuggestProfileId,
+            autoSuggestProxyUrl: settings.autoSuggestProxyUrl,
+            autoSuggestModel: settings.autoSuggestModel,
+        };
 
         // Reset all settings to defaults
         for (const [key, value] of Object.entries(defaultSettings)) {
@@ -914,18 +1032,19 @@ function bindPopupEvents($container) {
                 : value;
         }
 
-        // Restore vault connections
+        // Restore all connection settings
         settings.vaults = savedVaults;
         settings.obsidianPort = savedPort;
         settings.obsidianApiKey = savedKey;
         settings._vaultsMigrated = true;
+        Object.assign(settings, savedConnections);
 
         invalidateSettingsCache();
         saveSettingsDebounced();
 
         // Reload the popup contents
         loadPopupSettings($container);
-        toastr.success('All settings reset to defaults. Vault connections preserved.', 'DeepLore Enhanced');
+        toastr.success('All settings reset to defaults. Connections preserved.', 'DeepLore Enhanced');
     });
 
     // Visual clamping

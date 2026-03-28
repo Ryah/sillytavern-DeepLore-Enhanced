@@ -159,7 +159,7 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, me
     // Circuit breaker: reject immediately if circuit is open
     if (!circuitAllows(circuitKey)) {
         const cs = getCircuitState(circuitKey);
-        throw new Error(`Obsidian circuit breaker open (${cs.failures} failures, retry in ${Math.ceil(cs.backoffRemaining / 1000)}s)`);
+        throw new Error(`Obsidian connection paused after ${cs.failures} failures — retrying in ${Math.ceil(cs.backoffRemaining / 1000)}s. Check that Obsidian is running.`);
     }
 
     const headers = {

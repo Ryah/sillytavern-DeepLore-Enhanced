@@ -201,10 +201,21 @@ export function recordAiSuccess() {
     // Notify observers if state changed (open → closed)
     if (wasOpen) notifyCircuitStateChanged();
 }
+/**
+ * Circuit breaker state machine (3 states):
+ *   CLOSED  — aiCircuitOpen=false, all calls pass through normally.
+ *   OPEN    — aiCircuitOpen=true, cooldown not expired. All calls blocked.
+ *   HALF-OPEN — aiCircuitOpen=true, cooldown expired. Exactly ONE probe call
+ *              is allowed through (via atomic aiCircuitHalfOpenProbe flag).
+ *              If the probe succeeds → resetAiCircuit() → CLOSED.
+ *              If the probe fails → recordAiFailure() → OPEN (timer reset).
+ *
+ * The atomic probe flag (BUG-025) prevents thundering herd: if multiple
+ * callers check simultaneously after cooldown, only the first gets through.
+ */
 export function isAiCircuitOpen() {
     if (!aiCircuitOpen) return false;
     if (Date.now() - aiCircuitOpenedAt > AI_CIRCUIT_COOLDOWN) {
-        // Half-open: allow exactly one probe caller through (BUG-025)
         if (aiCircuitHalfOpenProbe) return true; // probe already dispatched, block others
         aiCircuitHalfOpenProbe = true;
         return false;

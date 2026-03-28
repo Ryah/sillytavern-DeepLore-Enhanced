@@ -328,7 +328,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                     if (nonConstant.length === 0 && finalEntries.length > 0) {
                         console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
-                        dedupWarning('AI search failed — only constant entries are active. Check your AI connection.', 'ai_fallback');
+                        dedupWarning('AI search failed — only always-send entries are active. Check your AI connection in DeepLore settings.', 'ai_fallback');
                     }
                 } else if (fallback === 'constants_only') {
                     finalEntries = alwaysInject;

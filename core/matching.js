@@ -257,6 +257,10 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
             const remainingTokens = settings.maxTokensBudget - totalTokens;
 
             if (remainingTokens >= MIN_TRUNCATION_TOKENS) {
+                // MIN_TRUNCATION_TOKENS (50) prevents uselessly small fragments.
+                // At ~4 chars/token, 50 tokens ≈ 200 chars — enough for a meaningful
+                // paragraph. Below this threshold, the truncated entry would be too
+                // short to provide useful context, so it's better to skip it entirely.
                 // Truncate entry to fit remaining budget (shallow copy — never mutate original)
                 // BUG-032: Use chars/4.0 ratio (more conservative, better alignment with actual tokenizer)
                 const maxChars = Math.floor(remainingTokens * 4.0);

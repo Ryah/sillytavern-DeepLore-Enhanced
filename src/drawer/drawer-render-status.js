@@ -8,6 +8,7 @@ import { getSettings } from '../../settings.js';
 import {
     vaultIndex, lastInjectionSources, lastPipelineTrace,
     generationLock, indexing, indexEverLoaded, computeOverallStatus,
+    vaultAvgTokens,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
 import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS } from './drawer-state.js';
@@ -85,8 +86,13 @@ export function renderStatusZone() {
     const trace = lastPipelineTrace;
     const budget = settings.unlimitedBudget ? 0 : (settings.maxTokensBudget || 0);
     const used = trace?.totalTokens || 0;
-    const max = budget || used || 1; // avoid division by zero
-    const pct = budget ? Math.min(100, Math.round((used / max) * 100)) : 0;
+    // When unlimited: show proportion of total vault being injected (used / total vault tokens)
+    const totalVaultTokens = vaultIndex.length * (vaultAvgTokens || 200);
+    const pct = budget
+        ? Math.min(100, Math.round((used / (budget || 1)) * 100))
+        : (settings.unlimitedBudget && used > 0 && totalVaultTokens > 0)
+            ? Math.min(100, Math.round((used / totalVaultTokens) * 100)) || 1 // minimum 1% so bar is visible
+            : 0;
     const $barContainer = $drawer.find('.dle-token-bar-container');
     $barContainer.attr('aria-valuenow', used).attr('aria-valuemax', budget);
     $barContainer.removeClass('dle-budget-high dle-budget-critical');
@@ -109,7 +115,12 @@ export function renderStatusZone() {
     // Entries bar (same fallback as injected stat above)
     const injectedNum = lastInjectionSources?.length ?? lastPipelineTrace?.injected?.length ?? 0;
     const maxEntries = settings.unlimitedEntries ? 0 : (settings.maxEntries || 0);
-    const entriesPct = maxEntries ? Math.min(100, Math.round((injectedNum / maxEntries) * 100)) : 0;
+    // When unlimited: show proportion of total vault entries being injected
+    const entriesPct = maxEntries
+        ? Math.min(100, Math.round((injectedNum / maxEntries) * 100))
+        : (settings.unlimitedEntries && injectedNum > 0 && vaultIndex.length > 0)
+            ? Math.min(100, Math.round((injectedNum / vaultIndex.length) * 100)) || 1
+            : 0;
     const $entriesBarContainer = $drawer.find('.dle-entries-bar-container');
     $entriesBarContainer.attr('aria-valuenow', injectedNum).attr('aria-valuemax', maxEntries);
     $entriesBarContainer.removeClass('dle-budget-high dle-budget-critical');

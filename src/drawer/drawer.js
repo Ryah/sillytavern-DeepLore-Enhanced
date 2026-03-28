@@ -424,9 +424,9 @@ export async function createDrawerPanel() {
 export function navigateToBrowseEntry(title) {
     if (!ds.$drawer) return;
 
-    // Open drawer if closed
+    // Open drawer if closed — openDrawer class is on #deeplore-panel, not the wrapper
     const toggle = ds.$drawer.find('.drawer-toggle')[0];
-    if (toggle && !ds.$drawer.hasClass('openDrawer')) {
+    if (toggle && !ds.$drawer.find('#deeplore-panel').hasClass('openDrawer')) {
         doNavbarIconClick.call(toggle);
     }
 

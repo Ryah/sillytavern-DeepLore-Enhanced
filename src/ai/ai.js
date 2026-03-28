@@ -150,7 +150,7 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
         // (throttle should NOT trip the circuit breaker).
         const now = Date.now();
         if (now - _lastAiCallTimestamp < AI_CALL_MIN_INTERVAL_MS) {
-            const err = new Error('AI call throttled — minimum 2s between calls');
+            const err = new Error(`AI call throttled — minimum ${AI_CALL_MIN_INTERVAL_MS}ms between calls`);
             err.throttled = true;
             throw err;
         }
@@ -176,7 +176,11 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
             cacheHints,
         );
     } finally {
-        _lastAiCallTimestamp = Date.now();
+        // Only stamp throttle for non-skipped calls — skipThrottle calls (e.g. hierarchicalPreFilter)
+        // must not consume the throttle window, otherwise the chained aiSearch gets blocked
+        if (!connectionConfig.skipThrottle) {
+            _lastAiCallTimestamp = Date.now();
+        }
     }
 }
 

@@ -607,7 +607,7 @@ export function matchesPinBlock(pinBlock, entry) {
  * @param {{ bootstrapActive: boolean }} context
  * @returns {boolean}
  */
-export function isForceInjected(entry, context) {
+export function isForceInjected(entry, context = {}) {
     return entry.constant || (context.bootstrapActive && entry.bootstrap);
 }
 

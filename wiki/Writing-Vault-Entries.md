@@ -39,6 +39,7 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `location` | string \| string[] | *(none)* | Contextual gating: only inject when the active location matches one of these values. |
 | `scene_type` | string \| string[] | *(none)* | Contextual gating: only inject when the active scene type matches one of these values. |
 | `character_present` | array | `[]` | Contextual gating: only inject when any listed character is among the present characters. |
+| `graph` | boolean | `true` | Set to `false` to exclude this entry from the relationship graph. The entry still works normally for matching and injection. Useful for test entries, meta entries, or entries that add noise to the graph without meaningful connections. |
 
 > **Note:** Frontmatter uses underscores (`scene_type`, `character_present`), but internally these are stored as camelCase (`sceneType`, `characterPresent`) on VaultEntry objects. Use underscores in your notes.
 

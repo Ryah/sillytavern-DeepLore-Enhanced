@@ -34,6 +34,7 @@ import { parseFrontmatter, extractWikiLinks, cleanContent, extractTitle } from '
  * @property {string[]} location - Locations where this entry should inject (empty = always)
  * @property {string[]} sceneType - Scene types during which this entry should inject (empty = always)
  * @property {string[]} characterPresent - Characters that must be present for this entry to inject (empty = always)
+ * @property {boolean} graph - Whether this entry should appear in the relationship graph (default true)
  */
 
 /**
@@ -179,6 +180,7 @@ export function parseVaultFile(file, tagConfig) {
         location,
         sceneType,
         characterPresent,
+        graph: frontmatter.graph !== false,
     };
 }
 

@@ -143,10 +143,12 @@ export function parseFrontmatter(content) {
 export function extractWikiLinks(body) {
     const links = new Set();
     const regex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+    // Strip H1 line so wikilinks in headings aren't treated as entry links
+    const bodyWithoutH1 = body.replace(/^#\s+.+$/m, '');
     let match;
-    while ((match = regex.exec(body)) !== null) {
+    while ((match = regex.exec(bodyWithoutH1)) !== null) {
         // Skip image embeds (prefixed with !)
-        if (match.index > 0 && body[match.index - 1] === '!') continue;
+        if (match.index > 0 && bodyWithoutH1[match.index - 1] === '!') continue;
         links.add(match[1].trim().replace(/\\$/, ''));
     }
     return [...links];
@@ -198,7 +200,8 @@ export function cleanContent(content) {
 export function extractTitle(body, filename) {
     const h1Match = body.match(/^#\s+(.+)$/m);
     if (h1Match) {
-        return h1Match[1].trim();
+        // Strip wikilink syntax from title: [[Target|Display]] → Display, [[Target]] → Target
+        return h1Match[1].trim().replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2').replace(/\[\[([^\]]+)\]\]/g, '$1');
     }
     // Fallback: filename without extension and path
     const parts = filename.split('/');

@@ -10,7 +10,7 @@ import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
     trackerKey, setLastPipelineTrace, fuzzySearchIndex,
 } from '../state.js';
-import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from '../ai/ai.js';
+import { buildCandidateManifest, aiSearch, hierarchicalPreFilter, isForceInjected } from '../ai/ai.js';
 import { ensureIndexFresh, queryBM25 } from '../vault/vault.js';
 import { name2 } from '../../../../../../script.js';
 import { dedupWarning } from '../toast-dedup.js';
@@ -347,8 +347,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     finalEntries = [];
                 }
             } else {
-                const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
-                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
+                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e, { bootstrapActive }))];
                 for (const r of aiResult.results) {
                     matchedKeys.set(r.entry.title, `AI: ${r.reason} (${r.confidence})`);
                     trace.aiSelected.push({ title: r.entry.title, reason: r.reason, confidence: r.confidence });
@@ -428,16 +427,16 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
                 if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
-                    finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+                    finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = keywordResult.matched;
                 } else { // 'none'
                     finalEntries = [];
                 }
             } else {
-                const isForceInjected = e => e.constant || (bootstrapActive && e.bootstrap);
-                const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e));
-                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e))];
+                const ctx = { bootstrapActive };
+                const alwaysInject = keywordResult.matched.filter(e => isForceInjected(e, ctx));
+                finalEntries = [...alwaysInject, ...aiResult.results.map(r => r.entry).filter(e => !isForceInjected(e, ctx))];
                 for (const r of aiResult.results) {
                     const existing = matchedKeys.get(r.entry.title);
                     matchedKeys.set(r.entry.title, existing

@@ -11,6 +11,7 @@ import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandPa
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
 import { vaultIndex, notifyGatingChanged, notifyPinBlockChanged } from '../state.js';
 import { ensureIndexFresh } from '../vault/vault.js';
+import { normalizePinBlock, matchesPinBlock } from '../helpers.js';
 
 export function registerGatingCommands() {
     // ── Per-Chat Pin/Block Commands ──
@@ -24,14 +25,14 @@ export function registerGatingCommands() {
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
             if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
-            if (chat_metadata.deeplore_pins.some(t => t.toLowerCase() === entry.title.toLowerCase())) {
+            if (chat_metadata.deeplore_pins.some(p => matchesPinBlock(p, entry))) {
                 toastr.info(`"${entry.title}" is already pinned.`, 'DeepLore Enhanced'); return '';
             }
             // Remove from blocks if present
             if (chat_metadata.deeplore_blocks) {
-                chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(t => t.toLowerCase() !== entry.title.toLowerCase());
+                chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(b => !matchesPinBlock(b, entry));
             }
-            chat_metadata.deeplore_pins.push(entry.title);
+            chat_metadata.deeplore_pins.push({ title: entry.title, vaultSource: entry.vaultSource || null });
             saveChatDebounced();
             notifyPinBlockChanged();
             toastr.success(`Pinned "${entry.title}" for this chat.`, 'DeepLore Enhanced');
@@ -49,9 +50,10 @@ export function registerGatingCommands() {
             if (!chat_metadata.deeplore_pins || chat_metadata.deeplore_pins.length === 0) {
                 toastr.info('No pinned entries.', 'DeepLore Enhanced'); return '';
             }
-            const idx = chat_metadata.deeplore_pins.findIndex(t => t.toLowerCase() === name.toLowerCase());
+            const idx = chat_metadata.deeplore_pins.findIndex(p => normalizePinBlock(p).title.toLowerCase() === name.toLowerCase());
             if (idx === -1) { toastr.info(`"${name}" is not pinned.`, 'DeepLore Enhanced'); return ''; }
-            const removed = chat_metadata.deeplore_pins.splice(idx, 1)[0];
+            const removedItem = chat_metadata.deeplore_pins.splice(idx, 1)[0];
+            const removed = normalizePinBlock(removedItem).title;
             saveChatDebounced();
             notifyPinBlockChanged();
             toastr.success(`Unpinned "${removed}".`, 'DeepLore Enhanced');
@@ -70,14 +72,14 @@ export function registerGatingCommands() {
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
             if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
-            if (chat_metadata.deeplore_blocks.some(t => t.toLowerCase() === entry.title.toLowerCase())) {
+            if (chat_metadata.deeplore_blocks.some(b => matchesPinBlock(b, entry))) {
                 toastr.info(`"${entry.title}" is already blocked.`, 'DeepLore Enhanced'); return '';
             }
             // Remove from pins if present
             if (chat_metadata.deeplore_pins) {
-                chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(t => t.toLowerCase() !== entry.title.toLowerCase());
+                chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => !matchesPinBlock(p, entry));
             }
-            chat_metadata.deeplore_blocks.push(entry.title);
+            chat_metadata.deeplore_blocks.push({ title: entry.title, vaultSource: entry.vaultSource || null });
             saveChatDebounced();
             notifyPinBlockChanged();
             toastr.success(`Blocked "${entry.title}" for this chat.`, 'DeepLore Enhanced');
@@ -95,9 +97,10 @@ export function registerGatingCommands() {
             if (!chat_metadata.deeplore_blocks || chat_metadata.deeplore_blocks.length === 0) {
                 toastr.info('No blocked entries.', 'DeepLore Enhanced'); return '';
             }
-            const idx = chat_metadata.deeplore_blocks.findIndex(t => t.toLowerCase() === name.toLowerCase());
+            const idx = chat_metadata.deeplore_blocks.findIndex(b => normalizePinBlock(b).title.toLowerCase() === name.toLowerCase());
             if (idx === -1) { toastr.info(`"${name}" is not blocked.`, 'DeepLore Enhanced'); return ''; }
-            const removed = chat_metadata.deeplore_blocks.splice(idx, 1)[0];
+            const removedItem = chat_metadata.deeplore_blocks.splice(idx, 1)[0];
+            const removed = normalizePinBlock(removedItem).title;
             saveChatDebounced();
             notifyPinBlockChanged();
             toastr.success(`Unblocked "${removed}".`, 'DeepLore Enhanced');
@@ -119,12 +122,20 @@ export function registerGatingCommands() {
             let html = '<div class="dle-popup">';
             if (pins.length > 0) {
                 html += `<h4>Pinned (${pins.length})</h4><ul>`;
-                for (const p of pins) html += `<li class="dle-success">${escapeHtml(p)}</li>`;
+                for (const p of pins) {
+                    const pb = normalizePinBlock(p);
+                    const vaultLabel = pb.vaultSource ? ` <span class="dle-dimmed">(${escapeHtml(pb.vaultSource)})</span>` : '';
+                    html += `<li class="dle-success">${escapeHtml(pb.title)}${vaultLabel}</li>`;
+                }
                 html += '</ul>';
             }
             if (blocks.length > 0) {
                 html += `<h4>Blocked (${blocks.length})</h4><ul>`;
-                for (const b of blocks) html += `<li class="dle-error">${escapeHtml(b)}</li>`;
+                for (const b of blocks) {
+                    const pb = normalizePinBlock(b);
+                    const vaultLabel = pb.vaultSource ? ` <span class="dle-dimmed">(${escapeHtml(pb.vaultSource)})</span>` : '';
+                    html += `<li class="dle-error">${escapeHtml(pb.title)}${vaultLabel}</li>`;
+                }
                 html += '</ul>';
             }
             html += '</div>';

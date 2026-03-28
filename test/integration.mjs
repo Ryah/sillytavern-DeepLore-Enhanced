@@ -78,6 +78,7 @@ import {
     normalizeResults as normalizeResultsProd, parseMatchReason,
     computeSourcesDiff, categorizeRejections, resolveEntryVault,
     tokenBarColor, formatRelativeTime, checkHealthPure,
+    isForceInjected, normalizePinBlock, matchesPinBlock, fuzzyTitleMatch,
 } from '../src/helpers.js';
 
 import { formatAndGroup, testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks } from '../core/matching.js';
@@ -957,7 +958,7 @@ test('Stage: buildExemptionPolicy identifies constants and pins', () => {
     assert(policy.forceInject.has('always'), 'constant should be forceInject (lowercase)');
     assert(policy.forceInject.has('pinned'), 'pinned should be forceInject (lowercase)');
     assert(!policy.forceInject.has('normal'), 'normal should not be forceInject');
-    assert(policy.blocks.has('blocked'), 'blocked should be in blocks (lowercase)');
+    assert(policy.blocks.some(b => b.title.toLowerCase() === 'blocked'), 'blocked should be in blocks');
 });
 
 test('Stage: applyPinBlock adds pinned entries and removes blocked', () => {
@@ -1358,6 +1359,206 @@ test('BUG-015: buildEpoch can be incremented to invalidate stuck builds', () => 
 test('BUG-015: buildEpoch starts at 0', () => {
     // buildEpoch may have been modified by prior tests, but the type should be number
     assert(typeof buildEpoch === 'number', 'buildEpoch should be a number');
+});
+
+// ============================================================================
+// Sprint 2: Pipeline Orchestration Integration Tests
+// ============================================================================
+
+test('Pipeline: keyword match → pin/block → gating full flow', () => {
+    const e1 = makeEntry('Eris', { keys: ['eris'], priority: 20, era: ['modern'] });
+    const e2 = makeEntry('Boris', { keys: ['boris'], priority: 50, era: ['medieval'] });
+    const e3 = makeEntry('Karl', { keys: ['karl'], priority: 30 });
+    const entries = [e1, e2, e3];
+    const scanText = 'eris boris karl';
+    const settings = { caseSensitive: false, matchWholeWords: false };
+
+    // Step 1: All three match keywords
+    const matched = entries.filter(e => testEntryMatch(e, scanText, settings));
+    assertEqual(matched.length, 3, 'all three should match');
+
+    // Step 2: Block Boris
+    const policy = buildExemptionPolicy(entries, [], [{ title: 'Boris', vaultSource: null }]);
+    const afterBlock = applyPinBlock(matched, entries, policy, new Map());
+    assert(!afterBlock.some(e => e.title === 'Boris'), 'Boris should be blocked');
+    assertEqual(afterBlock.length, 2, 'two entries remain after block');
+
+    // Step 3: Contextual gating (modern era active)
+    const gatingCtx = { era: 'modern', location: null, sceneType: null, characterPresent: [] };
+    const afterGating = applyContextualGating(afterBlock, gatingCtx, policy, false);
+    // Eris has era=['modern'] so she passes; Karl has no era so he passes
+    assertEqual(afterGating.length, 2, 'both remaining entries pass modern era gating');
+});
+
+test('Pipeline: contextual gating filters entries by era', () => {
+    const e1 = makeEntry('Modern Entry', { keys: ['modern'], era: ['modern'] });
+    const e2 = makeEntry('Medieval Entry', { keys: ['medieval'], era: ['medieval'] });
+    const e3 = makeEntry('No Era', { keys: ['noera'] });
+
+    const ctx = { era: 'modern', location: null, sceneType: null, characterPresent: [] };
+    const dummyPolicy = buildExemptionPolicy([], [], []);
+    const result = applyContextualGating([e1, e2, e3], ctx, dummyPolicy, false);
+    assert(result.some(e => e.title === 'Modern Entry'), 'modern entry passes');
+    assert(!result.some(e => e.title === 'Medieval Entry'), 'medieval entry blocked');
+    assert(result.some(e => e.title === 'No Era'), 'entry without era always passes');
+});
+
+test('Pipeline: requires/excludes gating removes dependent entries', () => {
+    const e1 = makeEntry('Base', { keys: ['base'], priority: 50 });
+    const e2 = makeEntry('Dependent', { keys: ['dep'], priority: 50, requires: ['Base'] });
+    const e3 = makeEntry('Orphan Dep', { keys: ['orphan'], priority: 50, requires: ['Missing'] });
+    const policy = buildExemptionPolicy([e1, e2, e3], [], []);
+    const { result } = applyRequiresExcludesGating([e1, e2, e3], policy, false);
+    assert(result.some(e => e.title === 'Base'), 'Base should survive');
+    assert(result.some(e => e.title === 'Dependent'), 'Dependent should survive (Base is present)');
+    assert(!result.some(e => e.title === 'Orphan Dep'), 'Orphan Dep should be removed (Missing not present)');
+});
+
+test('Pipeline: excludes removes entry when excluded entry is present', () => {
+    const e1 = makeEntry('Ally', { keys: ['ally'], priority: 50 });
+    const e2 = makeEntry('Enemy', { keys: ['enemy'], priority: 50, excludes: ['Ally'] });
+    const policy = buildExemptionPolicy([e1, e2], [], []);
+    const { result } = applyRequiresExcludesGating([e1, e2], policy, false);
+    assert(result.some(e => e.title === 'Ally'), 'Ally should survive');
+    assert(!result.some(e => e.title === 'Enemy'), 'Enemy should be excluded (Ally is present)');
+});
+
+test('Pipeline: formatAndGroup respects token budget', () => {
+    const e1 = makeEntry('Small', { keys: ['small'], priority: 10, content: 'Short content.', tokenEstimate: 10 });
+    const e2 = makeEntry('Big', { keys: ['big'], priority: 20, content: 'A'.repeat(1000), tokenEstimate: 250 });
+    const e3 = makeEntry('Medium', { keys: ['med'], priority: 30, content: 'Medium content.', tokenEstimate: 50 });
+    const settings = {
+        injectionTemplate: '<{{title}}>\\n{{content}}\\n</{{title}}>',
+        injectionPosition: 1, injectionDepth: 4, injectionRole: 0,
+        maxEntries: 10, unlimitedEntries: false,
+        maxTokensBudget: 100, unlimitedBudget: false,
+    };
+    const result = formatAndGroup([e1, e2, e3], settings, 'deeplore_');
+    // Budget enforcement is approximate due to char/token ratio — allow small overshoot
+    assert(result.totalTokens <= 110, 'total tokens should approximately respect budget');
+    assert(result.count <= 3, 'should not exceed entry count');
+    assert(result.count < 3, 'should cut some entries to fit budget');
+});
+
+test('Pipeline: strip dedup skips recently injected entries', () => {
+    const e1 = makeEntry('Repeated', { keys: ['repeated'], priority: 50 });
+    const e2 = makeEntry('Fresh', { keys: ['fresh'], priority: 50 });
+    const policy = buildExemptionPolicy([], [], []);
+    const defaultSettings = { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 };
+    // Simulate injection log: Repeated was injected last generation (matching position/depth/role/hash)
+    const injectionLog = [{ entries: [{ title: 'Repeated', pos: 1, depth: 4, role: 0, contentHash: '' }] }];
+    const result = applyStripDedup([e1, e2], policy, injectionLog, 1, defaultSettings, false);
+    assert(!result.some(e => e.title === 'Repeated'), 'recently injected entry should be stripped');
+    assert(result.some(e => e.title === 'Fresh'), 'fresh entry should remain');
+});
+
+test('Pipeline: constants are exempt from strip dedup', () => {
+    const e1 = makeEntry('Always', { keys: ['always'], priority: 50, constant: true });
+    const policy = buildExemptionPolicy([e1], [], []);
+    const defaultSettings = { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 };
+    const injectionLog = [{ entries: [{ title: 'Always', pos: 1, depth: 4, role: 0, contentHash: '' }] }];
+    const result = applyStripDedup([e1], policy, injectionLog, 1, defaultSettings, false);
+    assert(result.some(e => e.title === 'Always'), 'constant entry should survive dedup');
+});
+
+test('Pipeline: reinjection cooldown tracks generations', () => {
+    const e1 = makeEntry('Cooldown', { keys: ['cd'], priority: 50 });
+    const e2 = makeEntry('NoCooldown', { keys: ['nocd'], priority: 50 });
+    const policy = buildExemptionPolicy([], [], []);
+    // e1 was last injected at generation 8, current generation is 9, cooldown is 3
+    const injectionHistory = new Map([[':Cooldown', 8]]);
+    const result = applyReinjectionCooldown([e1, e2], policy, injectionHistory, 9, 3, false);
+    assert(!result.some(e => e.title === 'Cooldown'), 'entry within cooldown window should be removed');
+    assert(result.some(e => e.title === 'NoCooldown'), 'entry without cooldown should remain');
+});
+
+test('Pipeline: resolveLinks connects wiki-link entries', () => {
+    const e1 = makeEntry('Eris', { keys: ['eris'], links: ['Boris'] });
+    const e2 = makeEntry('Boris', { keys: ['boris'], links: ['Eris'] });
+    const e3 = makeEntry('Karl', { keys: ['karl'], links: ['Unknown'] });
+    resolveLinks([e1, e2, e3]);
+    assertEqual(e1.resolvedLinks, ['Boris'], 'Eris should resolve link to Boris');
+    assertEqual(e2.resolvedLinks, ['Eris'], 'Boris should resolve link to Eris');
+    assertEqual(e3.resolvedLinks, [], 'Karl link to Unknown should not resolve');
+});
+
+test('Pipeline: isForceInjected + applyPinBlock integration', () => {
+    const constant = makeEntry('Always On', { keys: ['always'], priority: 10, constant: true });
+    const boot = makeEntry('Bootstrap', { keys: ['boot'], priority: 20, bootstrap: true });
+    const regular = makeEntry('Regular', { keys: ['reg'], priority: 50 });
+
+    // With bootstrapActive, both constant and bootstrap are force-injected
+    assert(isForceInjected(constant, { bootstrapActive: true }), 'constant is force-injected');
+    assert(isForceInjected(boot, { bootstrapActive: true }), 'bootstrap is force-injected during short chat');
+    assert(!isForceInjected(regular, { bootstrapActive: true }), 'regular is not force-injected');
+
+    // Pin the regular entry
+    const vault = [constant, boot, regular];
+    const policy = buildExemptionPolicy(vault, [{ title: 'Regular', vaultSource: null }], []);
+    const result = applyPinBlock([], vault, policy, new Map());
+    assert(result.some(e => e.title === 'Regular'), 'pinned entry should be in results even with empty matched set');
+});
+
+test('Pipeline: fuzzyTitleMatch with real vault-like candidates', () => {
+    const candidates = [
+        'Eris Nightshade', 'The Bloodchain', 'Khal District',
+        'Triumvirate', 'Boris the Enforcer', 'Character X',
+    ];
+    // AI might return slightly wrong title
+    const result1 = fuzzyTitleMatch('Eris Nightshad', candidates);
+    assert(result1 !== null && result1.title === 'Eris Nightshade', 'minor typo should fuzzy match');
+
+    const result2 = fuzzyTitleMatch('The Blood Chain', candidates);
+    assert(result2 !== null && result2.title === 'The Bloodchain', 'space variation should match');
+
+    const result3 = fuzzyTitleMatch('Totally Unrelated Entry', candidates);
+    assertEqual(result3, null, 'completely different title should not match');
+});
+
+test('Pipeline: buildExemptionPolicy with mixed legacy and structured pins', () => {
+    const pins = ['Legacy Pin', { title: 'Structured Pin', vaultSource: 'vault-A' }];
+    const blocks = ['Legacy Block'];
+    const policy = buildExemptionPolicy([], pins, blocks);
+    // Both should be in pins array
+    assertEqual(policy.pins.length, 2, 'two pins');
+    assertEqual(policy.blocks.length, 1, 'one block');
+    // Legacy pin should be normalized
+    const legacyPin = policy.pins.find(p => p.title.toLowerCase() === 'legacy pin');
+    assert(legacyPin !== undefined, 'legacy pin should be found');
+    assertEqual(legacyPin.vaultSource, null, 'legacy pin vaultSource should be null');
+    // Structured pin preserved
+    const structuredPin = policy.pins.find(p => p.vaultSource === 'vault-A');
+    assert(structuredPin !== undefined, 'structured pin should be found');
+});
+
+test('Pipeline: countKeywordOccurrences used for weighting', () => {
+    const e1 = makeEntry('Dragon', { keys: ['dragon'] });
+    const scanText = 'The dragon flew over the dragon lair and met another dragon.';
+    const settings = { caseSensitive: false, matchWholeWords: false };
+    const count = countKeywordOccurrences(e1, scanText, settings);
+    assertEqual(count, 3, 'should count 3 occurrences of dragon');
+});
+
+test('Pipeline: takeIndexSnapshot and detectChanges', () => {
+    const index = [
+        makeEntry('A', { keys: ['a'], content: 'Content A', filename: 'a.md' }),
+        makeEntry('B', { keys: ['b'], content: 'Content B', filename: 'b.md' }),
+    ];
+    const snapshot = takeIndexSnapshot(index);
+    assertEqual(snapshot.contentHashes.size, 2, 'snapshot should have 2 entries');
+
+    // No changes — compare snapshot to itself
+    const changes1 = detectChanges(snapshot, snapshot);
+    assertEqual(changes1.added.length, 0, 'no entries added');
+    assertEqual(changes1.removed.length, 0, 'no entries removed');
+    assertEqual(changes1.modified.length, 0, 'no entries modified');
+
+    // Add an entry
+    const newIndex = [...index, makeEntry('C', { keys: ['c'], content: 'Content C', filename: 'c.md' })];
+    const newSnapshot = takeIndexSnapshot(newIndex);
+    const changes2 = detectChanges(snapshot, newSnapshot);
+    assertEqual(changes2.added.length, 1, 'one entry added');
+    assertEqual(changes2.added[0], 'C', 'added entry should be C');
 });
 
 // ============================================================================

@@ -17,12 +17,13 @@ import {
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
+    chatEpoch,
 } from '../state.js';
 import { resolveLinks } from '../../core/matching.js';
 import { parseVaultFile } from '../../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../../core/sync.js';
 import { showChangesToast } from './sync.js';
-import { saveIndexToCache, loadIndexFromCache } from './cache.js';
+import { saveIndexToCache, loadIndexFromCache, pruneOrphanedCacheKeys } from './cache.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
 // BM25 pure functions extracted to bm25.js for testability
 import { buildBM25Index } from './bm25.js';
@@ -72,7 +73,29 @@ function deduplicateMultiVault(entries, mode) {
                 titleMap.set(key, entry);
             } else if (mode === 'merge') {
                 const existing = titleMap.get(key);
-                existing.keys = [...new Set([...existing.keys, ...entry.keys])];
+                // H18: Merge all relevant fields, not just keys
+                // Arrays: union (deduplicate)
+                for (const field of ['keys', 'tags', 'links', 'resolvedLinks', 'requires', 'excludes']) {
+                    if (Array.isArray(entry[field]) && entry[field].length > 0) {
+                        existing[field] = [...new Set([...(existing[field] || []), ...entry[field]])];
+                    }
+                }
+                // characterPresent: union
+                if (Array.isArray(entry.characterPresent) && entry.characterPresent.length > 0) {
+                    existing.characterPresent = [...new Set([...(existing.characterPresent || []), ...entry.characterPresent])];
+                }
+                // content: concatenate with separator
+                if (entry.content && entry.content.trim()) {
+                    existing.content = (existing.content || '') + '\n\n---\n\n' + entry.content;
+                    // Recalculate token estimate from merged content
+                    existing.tokenEstimate = Math.ceil(existing.content.length / 3.5);
+                }
+                // summary: prefer first non-empty
+                if (!existing.summary && entry.summary) existing.summary = entry.summary;
+                // Scalars: prefer first non-empty for string fields
+                for (const field of ['era', 'location', 'sceneType']) {
+                    if (!existing[field] && entry[field]) existing[field] = entry[field];
+                }
             }
         } else {
             titleMap.set(key, entry);
@@ -209,6 +232,8 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
     // Persist to IndexedDB for instant hydration on next page load
     if (!skipCacheSave) {
         saveIndexToCache(entries).catch(() => {});
+        // H20: Clean up orphaned cache keys from previous vault configurations
+        pruneOrphanedCacheKeys().catch(() => {});
     }
 
     // Notify UI layer (stats display, health check badge, etc.)
@@ -373,8 +398,11 @@ export async function hydrateFromCache() {
         console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
 
         // Background: rebuild from Obsidian to validate cache freshness
+        // H3: Capture epoch so stale background rebuilds don't apply to a different chat
+        const hydrateEpoch = chatEpoch;
         buildIndex().catch(err => {
             console.warn('[DLE] Background rebuild after cache hydration failed:', err.message);
+            if (chatEpoch !== hydrateEpoch) return; // Chat changed — skip stale retry logic
             if (vaultIndex.length > 0) {
                 // Cached data exists — set a short-lived timestamp so ensureIndexFresh() retries after a cooldown
                 // (not Date.now() which would prevent retries until TTL expires)

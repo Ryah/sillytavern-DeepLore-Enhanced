@@ -569,3 +569,78 @@ export function formatRelativeTime(timestamp) {
     const months = Math.floor(days / 30);
     return `${months}mo ago`;
 }
+
+// ── Pin/Block Multi-Vault Helpers ──
+
+/**
+ * Normalize a pin/block item to structured form.
+ * Legacy bare strings (from pre-H23 chat_metadata) get vaultSource=null (match any vault).
+ * @param {string|{title:string, vaultSource?:string}} item
+ * @returns {{ title: string, vaultSource: string|null }}
+ */
+export function normalizePinBlock(item) {
+    if (typeof item === 'string') return { title: item, vaultSource: null };
+    return { title: item.title || '', vaultSource: item.vaultSource || null };
+}
+
+/**
+ * Check whether a pin/block item matches a vault entry.
+ * If the pin/block has no vaultSource (legacy or single-vault), matches any vault.
+ * @param {string|{title:string, vaultSource?:string}} pinBlock
+ * @param {{ title: string, vaultSource?: string }} entry
+ * @returns {boolean}
+ */
+export function matchesPinBlock(pinBlock, entry) {
+    const pb = normalizePinBlock(pinBlock);
+    if (pb.title.toLowerCase() !== entry.title.toLowerCase()) return false;
+    if (pb.vaultSource && entry.vaultSource && pb.vaultSource !== entry.vaultSource) return false;
+    return true;
+}
+
+// ── Force-Injection Predicate ──
+
+/**
+ * Determines whether an entry is force-injected (constant or active bootstrap).
+ * Consolidates 4 call sites with a single predicate — each caller computes
+ * `bootstrapActive` from its own context (chat length, settings, etc.).
+ * @param {object} entry - VaultEntry with .constant and .bootstrap fields
+ * @param {{ bootstrapActive: boolean }} context
+ * @returns {boolean}
+ */
+export function isForceInjected(entry, context) {
+    return entry.constant || (context.bootstrapActive && entry.bootstrap);
+}
+
+// ── Fuzzy Title Matching ──
+
+/**
+ * Find the best fuzzy match for an AI-returned title among candidate entry titles.
+ * Uses bigram similarity (Dice coefficient). Returns the match if similarity >= threshold.
+ * @param {string} aiTitle - Title returned by AI
+ * @param {string[]} candidateTitles - Available entry titles
+ * @param {number} [threshold=0.6] - Minimum similarity (0-1)
+ * @returns {{ title: string, similarity: number } | null}
+ */
+export function fuzzyTitleMatch(aiTitle, candidateTitles, threshold = 0.6) {
+    const aBigrams = bigrams(aiTitle.toLowerCase());
+    if (aBigrams.size === 0) return null;
+
+    let bestTitle = null;
+    let bestScore = 0;
+    for (const candidate of candidateTitles) {
+        const bBigrams = bigrams(candidate.toLowerCase());
+        if (bBigrams.size === 0) continue;
+        let overlap = 0;
+        for (const bg of aBigrams) { if (bBigrams.has(bg)) overlap++; }
+        const score = (2 * overlap) / (aBigrams.size + bBigrams.size);
+        if (score > bestScore) { bestScore = score; bestTitle = candidate; }
+    }
+    return bestScore >= threshold ? { title: bestTitle, similarity: bestScore } : null;
+}
+
+/** @param {string} str @returns {Set<string>} */
+function bigrams(str) {
+    const set = new Set();
+    for (let i = 0; i < str.length - 1; i++) set.add(str.slice(i, i + 2));
+    return set;
+}

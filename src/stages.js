@@ -4,6 +4,7 @@
  * Each stage takes explicit inputs and returns outputs — no implicit global state reads.
  */
 import { trackerKey } from './state.js';
+import { normalizePinBlock, matchesPinBlock } from './helpers.js';
 
 // ============================================================================
 // ExemptionPolicy
@@ -15,9 +16,9 @@ import { trackerKey } from './state.js';
  * Only budget limits can exclude a forceInject entry.
  *
  * @param {Array} vaultSnapshot - All vault entries
- * @param {string[]} pins - Per-chat pinned entry titles
- * @param {string[]} blocks - Per-chat blocked entry titles
- * @returns {{ forceInject: Set<string>, pins: Set<string>, blocks: Set<string> }}
+ * @param {Array} pins - Per-chat pinned entries (strings or {title, vaultSource} objects)
+ * @param {Array} blocks - Per-chat blocked entries (strings or {title, vaultSource} objects)
+ * @returns {{ forceInject: Set<string>, pins: Array<{title:string, vaultSource:string|null}>, blocks: Array<{title:string, vaultSource:string|null}> }}
  */
 export function buildExemptionPolicy(vaultSnapshot, pins, blocks) {
     // BUG-011: Normalize all titles to lowercase for case-insensitive matching
@@ -25,12 +26,15 @@ export function buildExemptionPolicy(vaultSnapshot, pins, blocks) {
     for (const entry of vaultSnapshot) {
         if (entry.constant) forceInject.add(entry.title.toLowerCase());
     }
+    // H23: Normalize pin/block items to structured form (backward compat with bare strings)
+    const normalizedPins = (pins || []).map(normalizePinBlock);
+    const normalizedBlocks = (blocks || []).map(normalizePinBlock);
     // Pins are treated as constants with priority 10 — add them to forceInject
-    for (const title of pins) forceInject.add(title.toLowerCase());
+    for (const pb of normalizedPins) forceInject.add(pb.title.toLowerCase());
     return {
         forceInject,
-        pins: new Set(pins.map(t => t.toLowerCase())),
-        blocks: new Set(blocks.map(t => t.toLowerCase())),
+        pins: normalizedPins,
+        blocks: normalizedBlocks,
     };
 }
 
@@ -55,47 +59,39 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
     let result = [...entries];
 
     // Add pinned entries not already in results
-    if (policy.pins.size > 0) {
-        const pinLower = new Set([...policy.pins].map(t => t.toLowerCase()));
+    // H23: Use matchesPinBlock for vault-aware matching (backward compat with bare strings)
+    if (policy.pins.length > 0) {
         const resultTitles = new Set(result.map(e => e.title.toLowerCase()));
         for (const entry of vaultSnapshot) {
-            if (pinLower.has(entry.title.toLowerCase())) {
+            const isPinned = policy.pins.some(pb => matchesPinBlock(pb, entry));
+            if (isPinned) {
+                // BUG-030: Deep-clone array fields to prevent shared references with vaultIndex
+                const cloneFields = {
+                    keys: [...(entry.keys || [])],
+                    tags: [...(entry.tags || [])],
+                    requires: [...(entry.requires || [])],
+                    excludes: [...(entry.excludes || [])],
+                    links: [...(entry.links || [])],
+                    resolvedLinks: [...(entry.resolvedLinks || [])],
+                    characterPresent: entry.characterPresent ? [...entry.characterPresent] : null,
+                };
                 if (!resultTitles.has(entry.title.toLowerCase())) {
-                    // BUG-030: Deep-clone array fields to prevent shared references with vaultIndex
-                    const pinned = {
-                        ...entry, constant: true, priority: 10,
-                        keys: [...(entry.keys || [])],
-                        tags: [...(entry.tags || [])],
-                        requires: [...(entry.requires || [])],
-                        excludes: [...(entry.excludes || [])],
-                        links: [...(entry.links || [])],
-                        resolvedLinks: [...(entry.resolvedLinks || [])],
-                        characterPresent: entry.characterPresent ? [...entry.characterPresent] : null,
-                    };
-                    result.push(pinned);
+                    result.push({ ...entry, constant: true, priority: 10, ...cloneFields });
                     resultTitles.add(entry.title.toLowerCase());
                     matchedKeys.set(entry.title, '(pinned)');
                 } else {
-                    // Entry already matched — replace with pinned copy (BUG-030: deep-clone arrays)
+                    // Entry already matched — replace with pinned copy
                     const idx = result.findIndex(e => e.title.toLowerCase() === entry.title.toLowerCase());
-                    if (idx !== -1) result[idx] = {
-                        ...entry, constant: true, priority: 10,
-                        keys: [...(entry.keys || [])],
-                        tags: [...(entry.tags || [])],
-                        requires: [...(entry.requires || [])],
-                        excludes: [...(entry.excludes || [])],
-                        links: [...(entry.links || [])],
-                        resolvedLinks: [...(entry.resolvedLinks || [])],
-                        characterPresent: entry.characterPresent ? [...entry.characterPresent] : null,
-                    };
+                    if (idx !== -1) result[idx] = { ...entry, constant: true, priority: 10, ...cloneFields };
                 }
             }
         }
     }
 
     // Remove blocked entries (blocks override constants)
-    if (policy.blocks.size > 0) {
-        result = result.filter(e => !policy.blocks.has(e.title.toLowerCase()));
+    // H23: Use matchesPinBlock for vault-aware matching
+    if (policy.blocks.length > 0) {
+        result = result.filter(e => !policy.blocks.some(pb => matchesPinBlock(pb, e)));
     }
 
     return result;

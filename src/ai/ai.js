@@ -4,7 +4,7 @@
  * hierarchicalPreFilter, getProfileModelHint
  */
 import { ConnectionManagerRequestService } from '../../../../shared.js';
-import { truncateToSentence, simpleHash, buildAiChatContext } from '../../core/utils.js';
+import { truncateToSentence, simpleHash, buildAiChatContext, escapeXml } from '../../core/utils.js';
 import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
@@ -15,8 +15,8 @@ import {
 } from '../state.js';
 import { dedupWarning } from '../toast-dedup.js';
 // Re-export pure functions from helpers.js (moved there for testability in Node.js)
-export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from '../helpers.js';
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults } from '../helpers.js';
+export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
 
 // extractAiResponseClient — imported from ./helpers.js
 
@@ -190,9 +190,8 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
     const settings = getSettings();
     const summaryLen = settings.aiSearchManifestSummaryLength || 600;
 
-    const isForceInjected = e => e.constant || (excludeBootstrap && e.bootstrap);
     const summaryMode = settings.manifestSummaryMode || 'prefer_summary';
-    let selectable = candidates.filter(e => !isForceInjected(e));
+    let selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive: excludeBootstrap }));
 
     // E8: In summary_only mode, exclude entries that have no summary field
     if (summaryMode === 'summary_only') {
@@ -207,10 +206,10 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
             const summaryText = summaryMode === 'content_only'
                 ? truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen)
                 : (entry.summary || truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen));
-            const safeSummary = summaryText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const safeSummary = escapeXml(summaryText);
             // BUG-002: XML-escape resolvedLinks (same as title and summary)
             const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
-                ? ` → ${entry.resolvedLinks.map(l => l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')).join(', ')}`
+                ? ` → ${entry.resolvedLinks.map(l => escapeXml(l)).join(', ')}`
                 : '';
             // Decay/freshness annotation: hint to AI about stale or frequently-injected entries
             let decayHint = '';
@@ -227,8 +226,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                     }
                 }
             }
-            // Escape XML-like characters in title to prevent prompt structure injection
-            const safeTitle = entry.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            const safeTitle = escapeXml(entry.title);
             const header = `${safeTitle} (${entry.tokenEstimate}tok)${links}${decayHint}`;
 
             // Wrap each entry in structural delimiters to prevent summary content
@@ -267,8 +265,8 @@ const HIERARCHICAL_THRESHOLD = 40;
  */
 export async function hierarchicalPreFilter(candidates, chat) {
     const settings = getSettings();
-    const isForceInjected = e => e.constant || (e.bootstrap && chat.length <= settings.newChatThreshold);
-    const selectable = candidates.filter(e => !isForceInjected(e));
+    const bootstrapActive = chat.length <= settings.newChatThreshold;
+    const selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive }));
 
     if (selectable.length < HIERARCHICAL_THRESHOLD) return null; // Too few, skip clustering
 
@@ -278,7 +276,18 @@ export async function hierarchicalPreFilter(candidates, chat) {
     const categoryManifest = buildCategoryManifest(clusters);
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
 
-    const categoryPrompt = 'You are a lore retrieval assistant. Given categories of lore entries and recent chat, select which categories are relevant. Return a JSON array of category names (strings). Be inclusive — select all categories that might be relevant.';
+    const categoryPrompt = `You are a lore retrieval assistant. Given categories of lore entries and recent chat context, identify which categories are relevant to the current conversation.
+
+A category is relevant if:
+1. Characters, places, or concepts from that category are explicitly mentioned in the chat
+2. The category's theme (e.g., combat, politics, magic) matches the current scene
+3. The category could provide useful background context for what is happening
+
+Be inclusive — when in doubt, include the category. A second stage will filter individual entries.
+If no categories are relevant, return an empty array.
+
+Respond with ONLY a JSON array of category name strings.
+Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Systems"]`;
     const categoryUserMessage = `## Categories\n${categoryManifest}\n\n## Recent Chat\n${chatContext}`;
 
     // Skip if AI circuit breaker is tripped — avoid burning timeouts during outages
@@ -563,6 +572,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         /** @type {AiSearchMatch[]} */
         const results = [];
         const indexToSearch = candidateEntries || snapshot || vaultIndex;
+        const matchedAiTitles = new Set();
         for (const entry of indexToSearch) {
             const aiResult = aiResultMap.get(entry.title.toLowerCase());
             if (aiResult) {
@@ -571,6 +581,29 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
                     confidence: aiResult.confidence || 'medium',
                     reason: aiResult.reason || 'AI search',
                 });
+                matchedAiTitles.add(aiResult.title.toLowerCase());
+            }
+        }
+
+        // H12: Fuzzy-match any AI titles that didn't get an exact match
+        const candidateTitles = indexToSearch.map(e => e.title);
+        const entryByLower = new Map(indexToSearch.map(e => [e.title.toLowerCase(), e]));
+        for (const [lowerTitle, r] of aiResultMap) {
+            if (matchedAiTitles.has(lowerTitle)) continue;
+            const fuzzy = fuzzyTitleMatch(r.title, candidateTitles);
+            if (fuzzy && !matchedAiTitles.has(fuzzy.title.toLowerCase())) {
+                const entry = entryByLower.get(fuzzy.title.toLowerCase());
+                if (entry) {
+                    results.push({
+                        entry,
+                        confidence: r.confidence || 'medium',
+                        reason: r.reason || 'AI search (fuzzy)',
+                    });
+                    matchedAiTitles.add(fuzzy.title.toLowerCase());
+                    if (settings.debugMode) console.debug(`[DLE] AI fuzzy match: "${r.title}" → "${fuzzy.title}" (${(fuzzy.similarity * 100).toFixed(0)}%)`);
+                }
+            } else if (settings.debugMode) {
+                console.debug(`[DLE] AI title unmatched: "${r.title}" — no entry found in vault`);
             }
         }
 

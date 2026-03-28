@@ -253,6 +253,17 @@ export function escapeRegex(str) {
 }
 
 /**
+ * Escape XML/HTML special characters in a string.
+ * Handles &, <, >, and " — safe for attribute values and element content.
+ * R7: Consolidated from 5 inline implementations across the codebase.
+ * @param {string} str
+ * @returns {string}
+ */
+export function escapeXml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
  * Build scan text from chat messages.
  * @param {object[]} chat - Chat messages array
  * @param {number} depth - Number of recent messages to scan

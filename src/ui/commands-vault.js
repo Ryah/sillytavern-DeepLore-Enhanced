@@ -10,7 +10,7 @@ import { classifyError, NO_ENTRIES_MSG } from '../../core/utils.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { vaultIndex, setIndexTimestamp } from '../state.js';
 import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
-import { showGraphPopup } from '../graph/graph.js';
+// R5: Lazy-loaded — graph.js (~3140 LOC) only imported when /dle-graph runs
 import { showBrowsePopup } from './popups.js';
 import { parseWorldInfoJson, importEntries } from '../vault/import.js';
 import { world_names, loadWorldInfo } from '../../../../../world-info.js';
@@ -19,6 +19,7 @@ export function registerVaultCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-graph',
         callback: async () => {
+            const { showGraphPopup } = await import('../graph/graph.js');
             await showGraphPopup();
             return '';
         },

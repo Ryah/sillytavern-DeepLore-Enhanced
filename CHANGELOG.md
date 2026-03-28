@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.1-BETA
+
+### Stabilization Sprint (2026-03-27)
+
+Targeted 13 remaining HIGH-priority bugs and 3 refactors identified by the comprehensive code audit. Focused on multi-vault correctness, AI search reliability, infrastructure cleanup, and documentation sync.
+
+#### Refactoring
+- **R8**: Consolidated 4 inline `isForceInjected` definitions (3 logic variants) into a single shared function in `helpers.js`. Zero behavioral change — each call site passes `{ bootstrapActive }` context.
+- **R5**: Graph module (`graph.js`, ~3140 LOC) is now lazy-loaded via dynamic `import()` only when `/dle-graph` runs. Reduces startup parse cost by ~21%.
+- **R7**: Consolidated 5 inline XML escape implementations into shared `escapeXml()` in `core/utils.js`. Used by `core/matching.js` and `src/ai/ai.js`. Graph modules keep local copies (can't import ST paths in test context).
+
+#### Bug Fixes
+- **H3**: `hydrateFromCache` background rebuild now captures `chatEpoch` before starting. Skips stale retry-timestamp logic if epoch changed during rebuild.
+- **H12**: AI response titles now fuzzy-matched (Dice coefficient, threshold 0.6) against the candidate manifest when exact match fails. Catches typos and minor variations in AI-returned titles.
+- **H13**: Hierarchical pre-filter prompt expanded from one terse sentence to detailed selection criteria with examples. Includes character/place mentions, scene themes, background context guidance.
+- **H14**: Auto-suggest entry titles are now wrapped in escaped double quotes before prompt injection, preventing special characters from breaking the prompt structure.
+- **H15**: Added token budget guidance bullet to AI system prompt: "Respect the token budget shown in the manifest header."
+- **H16**: Switching from `prompt_list` to `extension` injection mode now empties stale Prompt Manager entries (`deeplore_constants`, `deeplore_lore`, `deeplore_notebook`).
+- **H18**: Multi-vault merge mode now handles all fields, not just `keys`. Arrays (keys, tags, links) are unioned; content is concatenated with separator; summary prefers first non-empty; scalars prefer first; tokenEstimate recalculated.
+- **H20**: `finalizeIndex()` now calls `pruneOrphanedCacheKeys()` to clean up stale IndexedDB entries from disabled/removed vaults.
+- **H23**: Pin/block storage migrated from bare title strings to `{ title, vaultSource }` objects. Multi-vault "all" mode no longer cross-matches entries with the same name across different vaults. Legacy bare strings auto-normalize to match any vault (backward compatible).
+
+#### Documentation
+- CHANGELOG: Added this 0.2.1-beta section.
+- Wiki: Fixed 5 HIGH inaccuracies in Settings-Reference.md (scribe timeout default/range, missing host field, missing Skip Review toggle) and Injection-and-Context-Control.md (gating field types).
+- Roadmap: Marked 4 shipped items (Browse List Virtualization, Neighborhood Isolation, Entry Clustering, Dead Entry Detection).
+- CLAUDE.md: Fixed incorrect field types, added missing files/modules/state variables, updated stale export lists.
+
+#### Tests
+- Updated existing test assertions for the `buildExemptionPolicy` return type change (Set → Array of objects).
+
 ## 0.2.0-BETA
 
 ### 47-Bug Audit Fix (2026-03-27)

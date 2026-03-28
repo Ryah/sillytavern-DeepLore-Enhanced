@@ -10,7 +10,8 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
 import { buildAiChatContext } from '../../core/utils.js';
-import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, settingsConstraints, invalidateSettingsCache, defaultSettings } from '../../settings.js';
+import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, PROMPT_TAG_PREFIX, settingsConstraints, invalidateSettingsCache, defaultSettings } from '../../settings.js';
+import { promptManager } from '../../../../../openai.js';
 import { testConnection } from '../vault/obsidian-api.js';
 import { testProxyConnection } from '../ai/proxy-api.js';
 import {
@@ -706,7 +707,19 @@ function bindPopupEvents($container) {
     $c('#dle_sp_contextual_gating_tolerance').on('change', function () { settings.contextualGatingTolerance = String($(this).val()); saveSettingsDebounced(); });
 
     // ── Injection ──
-    $c('input[name="dle_sp_injection_mode"]').on('change', function () { settings.injectionMode = String($(this).val()); updatePopupInjectionModeVisibility($container, settings); saveSettingsDebounced(); });
+    $c('input[name="dle_sp_injection_mode"]').on('change', function () {
+        const oldMode = settings.injectionMode;
+        settings.injectionMode = String($(this).val());
+        // H16: Clean up stale PM entries when switching away from prompt_list mode
+        if (oldMode === 'prompt_list' && settings.injectionMode !== 'prompt_list' && promptManager) {
+            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook']) {
+                const pmEntry = promptManager.getPromptById(id);
+                if (pmEntry) pmEntry.content = '';
+            }
+        }
+        updatePopupInjectionModeVisibility($container, settings);
+        saveSettingsDebounced();
+    });
     $c('input[name="dle_sp_position"]').on('change', function () { settings.injectionPosition = Number($(this).val()); const inChat = settings.injectionPosition === 1; $c('#dle_sp_depth, #dle_sp_role').prop('disabled', !inChat).toggleClass('dle-disabled', !inChat); saveSettingsDebounced(); });
     $c('#dle_sp_depth').on('input', function () { settings.injectionDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
     $c('#dle_sp_role').on('change', function () { settings.injectionRole = numVal($(this).val(), 0); saveSettingsDebounced(); });

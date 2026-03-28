@@ -80,7 +80,7 @@ export async function runAutoSuggest() {
     const settings = getSettings();
     await ensureIndexFresh();
 
-    const existingTitles = vaultIndex.map(e => e.title).join(', ');
+    const existingTitles = vaultIndex.map(e => `"${e.title.replace(/"/g, '\\"')}"`).join(', ');
     // BUG 3 FIX: Use a proper scan depth, not the interval frequency
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth || 20);
 

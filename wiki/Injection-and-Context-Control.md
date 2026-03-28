@@ -87,9 +87,9 @@ Filter entries based on the current story context using frontmatter fields: `era
 **Frontmatter fields:**
 | Field | Type | Description |
 |-------|------|-------------|
-| `era` | string | Entry only injects when the active era matches |
-| `location` | string | Entry only injects when the active location matches |
-| `scene_type` | string | Entry only injects when the active scene type matches |
+| `era` | string \| string[] | Entry only injects when the active era matches any value |
+| `location` | string \| string[] | Entry only injects when the active location matches any value |
+| `scene_type` | string \| string[] | Entry only injects when the active scene type matches any value |
 | `character_present` | string[] | Entry only injects when any listed character is present |
 
 **Commands:**

@@ -15,6 +15,7 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Vault Name** | (none) | Display name for this vault connection. Must match your Obsidian vault name exactly for deep links to work. |
+| **Host** | `127.0.0.1` | IP or hostname of the machine running Obsidian. Change for remote vault connections. |
 | **Port** | `27123` | Port for the Obsidian Local REST API plugin. |
 | **API Key** | (none) | Bearer token from Obsidian's Local REST API settings. |
 | **Enabled** | On | Toggle this vault on/off without deleting the connection. |
@@ -140,7 +141,7 @@ Session Scribe and Auto Lorebook are grouped under one collapsible drawer in set
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy server URL. Only shown in Proxy mode. |
 | **Model Override** | (none) | Text | Override the model used for summaries. Only shown in Profile/Proxy modes. |
 | **Max Response Tokens** | `1024` | 256-4096 | Maximum tokens for the summary response. Only shown in Profile/Proxy modes. |
-| **Timeout (ms)** | `30000` | 5000-60000 | Request timeout for summary generation. Only shown in Profile/Proxy modes. |
+| **Timeout (ms)** | `60000` | 5000-120000 | Request timeout for summary generation. Only shown in Profile/Proxy modes. |
 | **Messages to Include** | `20` | 5-100 | Number of recent chat messages included as context for the summary. |
 | **Custom Summary Prompt** | (none) | Text | Override the default summary prompt. Default covers events, character dynamics, revelations, and state changes. |
 
@@ -157,6 +158,7 @@ Session Scribe and Auto Lorebook are grouped under one collapsible drawer in set
 | **Model** | (none) | Text | Model override for suggestions. |
 | **Max Tokens** | `2048` | 256-4096 | Maximum tokens for the suggestion response. |
 | **Timeout (ms)** | `30000` | 5000-60000 | Request timeout for auto-suggest generation. |
+| **Skip Review** | Off | Toggle | When on, auto-suggested entries are written to the vault immediately without showing the review popup. Use with caution. |
 
 Use `/dle-newlore` to trigger on-demand at any time.
 

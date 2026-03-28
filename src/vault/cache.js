@@ -170,6 +170,49 @@ export async function loadIndexFromCache() {
 }
 
 /**
+ * H20: Remove orphaned IndexedDB cache keys that don't match the current vault configuration.
+ * Called after successful index builds to prevent stale cache entries from accumulating.
+ * @returns {Promise<number>} Number of orphaned keys removed
+ */
+export async function pruneOrphanedCacheKeys() {
+    let db;
+    try {
+        db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const currentKey = getCacheKey();
+
+        const allKeys = await new Promise((resolve, reject) => {
+            const request = store.getAllKeys();
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+
+        let pruned = 0;
+        for (const key of allKeys) {
+            if (key !== currentKey) {
+                store.delete(key);
+                pruned++;
+            }
+        }
+
+        if (pruned > 0) {
+            await new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+            console.log(`[DLE] Pruned ${pruned} orphaned cache key(s)`);
+        }
+        return pruned;
+    } catch (err) {
+        console.warn('[DLE] Failed to prune orphaned cache keys:', err.message);
+        return 0;
+    } finally {
+        if (db) db.close();
+    }
+}
+
+/**
  * Clear the IndexedDB vault cache.
  * @returns {Promise<void>}
  */

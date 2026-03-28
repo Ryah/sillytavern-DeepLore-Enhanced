@@ -35,7 +35,7 @@ Selection criteria (in order of importance):
 Guidelines:
 - Focus on what is relevant RIGHT NOW in the conversation, especially the last 1-2 messages. Use older messages for context.
 - Prefer fewer, highly relevant entries over many loosely related ones
-- Consider the token cost (Ntok) shown for each entry when making selections
+- Respect the token budget shown in the manifest header. The (Ntok) after each entry name indicates its size. Prefer high-confidence entries that fit within budget over many marginal ones that would exceed it.
 - Use [Related: ...] and → links to find connected lore
 
 Do NOT select entries merely because they share a keyword with the chat — the entry must be contextually relevant to the current narrative beat. For example, if a character mentions "fire" in passing, do not select every entry that has "fire" as a keyword unless fire is actually important to the scene.

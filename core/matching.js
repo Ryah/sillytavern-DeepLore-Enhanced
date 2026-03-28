@@ -2,7 +2,7 @@
  * DeepLore Enhanced Core — Matching, Gating & Formatting
  */
 
-import { escapeRegex, truncateToSentence } from './utils.js';
+import { escapeRegex, truncateToSentence, escapeXml } from './utils.js';
 
 // ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
 const _regexCache = new WeakMap();
@@ -297,12 +297,11 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         count++;
     }
 
-    const escapeXml = (str) => str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const formatEntry = (entry) => {
         let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
         // Always escape content to prevent injection of structural XML elements
         // (e.g. <system>) regardless of template format
-        text = text.replace(/\{\{content\}\}/g, entry.content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+        text = text.replace(/\{\{content\}\}/g, escapeXml(entry.content));
         return text;
     };
 

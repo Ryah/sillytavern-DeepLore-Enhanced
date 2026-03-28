@@ -57,7 +57,7 @@ A frontmatter field listing entry titles that must ALL be matched for this entry
 A frontmatter field listing entry titles that BLOCK this entry. If any excluded entry is matched, this entry is filtered out.
 
 **Contextual Gating**
-Filtering based on narrative context: era, location, scene type, and present characters. Set via `/dle-set-era`, `/dle-set-location`, etc. See [[Features#Contextual Gating]].
+Filtering based on narrative context using gating fields. Ships with four default fields (era, location, scene type, present characters), but users can define additional custom fields via the "Manage Fields" rule builder. Field definitions are stored in `DeepLore/field-definitions.yaml` in the vault. Set fields via `/dle-set-field <name> [value]` or the built-in aliases (`/dle-set-era`, `/dle-set-location`, etc.). See [[Features#Contextual Gating]].
 
 **Pin**
 A per-chat override that forces an entry to always inject, bypassing keyword matching and gating. Set via `/dle-pin <name>`.

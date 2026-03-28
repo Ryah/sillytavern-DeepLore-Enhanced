@@ -6,7 +6,7 @@ import { oai_settings } from '../../../../../openai.js';
 import { main_api, amount_gen } from '../../../../../../script.js';
 import { getSettings } from '../../settings.js';
 import { simpleHash } from '../../core/utils.js';
-import { fetchAllMdFiles } from './obsidian-api.js';
+import { fetchAllMdFiles, fetchFieldDefinitions } from './obsidian-api.js';
 import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
     aiSearchCache, previousIndexSnapshot, trackerKey,
@@ -18,7 +18,9 @@ import {
     notifyIndexUpdated,
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
     chatEpoch,
+    fieldDefinitions, setFieldDefinitions,
 } from '../state.js';
+import { DEFAULT_FIELD_DEFINITIONS, parseFieldDefinitionYaml } from '../fields.js';
 import { resolveLinks } from '../../core/matching.js';
 import { parseVaultFile } from '../../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../../core/sync.js';
@@ -92,10 +94,6 @@ function deduplicateMultiVault(entries, mode) {
                         existing[field] = [...new Set([...(existing[field] || []), ...entry[field]])];
                     }
                 }
-                // characterPresent: union
-                if (Array.isArray(entry.characterPresent) && entry.characterPresent.length > 0) {
-                    existing.characterPresent = [...new Set([...(existing.characterPresent || []), ...entry.characterPresent])];
-                }
                 // content: concatenate with separator
                 if (entry.content && entry.content.trim()) {
                     existing.content = (existing.content || '') + '\n\n---\n\n' + entry.content;
@@ -104,9 +102,16 @@ function deduplicateMultiVault(entries, mode) {
                 }
                 // summary: prefer first non-empty
                 if (!existing.summary && entry.summary) existing.summary = entry.summary;
-                // Scalars: prefer first non-empty for string fields
-                for (const field of ['era', 'location', 'sceneType']) {
-                    if (!existing[field] && entry[field]) existing[field] = entry[field];
+                // customFields: merge — union arrays, prefer first non-empty for scalars
+                if (entry.customFields) {
+                    if (!existing.customFields) existing.customFields = {};
+                    for (const [key, val] of Object.entries(entry.customFields)) {
+                        if (Array.isArray(val) && val.length > 0) {
+                            existing.customFields[key] = [...new Set([...(existing.customFields[key] || []), ...val])];
+                        } else if (!existing.customFields[key] && val != null) {
+                            existing.customFields[key] = val;
+                        }
+                    }
                 }
             }
         } else {
@@ -272,6 +277,36 @@ export async function buildIndex() {
             throw new Error('No enabled vaults configured');
         }
 
+        // ── Load custom field definitions ──
+        // Fetch from the first enabled vault (field definitions are vault-wide config)
+        const primaryVault = enabledVaults[0];
+        const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
+        try {
+            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath);
+            if (fdResult.ok && fdResult.content) {
+                const { definitions, errors } = parseFieldDefinitionYaml(fdResult.content);
+                if (definitions.length > 0) {
+                    setFieldDefinitions(definitions);
+                    if (settings.debugMode) console.log(`[DLE] Loaded ${definitions.length} custom field definitions from ${fieldDefPath}`);
+                    if (errors.length > 0) console.warn('[DLE] Field definition warnings:', errors);
+                } else {
+                    setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+                    if (settings.debugMode) console.log('[DLE] Field definitions file empty, using defaults');
+                }
+            } else {
+                // File not found or error → use defaults
+                setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+                if (fdResult.error === 'not_found') {
+                    dedupWarning('Custom field definitions file not found — using defaults. Use Manage Fields to create one.', 'field_defs_missing');
+                } else if (settings.debugMode) {
+                    console.warn('[DLE] Could not load field definitions:', fdResult.error, '— using defaults');
+                }
+            }
+        } catch (err) {
+            console.warn('[DLE] Error loading field definitions:', err.message, '— using defaults');
+            setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+        }
+
         let entries = [];
         const tagConfig = {
             lorebookTag: settings.lorebookTag,
@@ -307,7 +342,7 @@ export async function buildIndex() {
                 }
 
                 for (const file of data.files) {
-                    const entry = parseVaultFile(file, tagConfig);
+                    const entry = parseVaultFile(file, tagConfig, fieldDefinitions);
                     if (entry) {
                         entry.vaultSource = vault.name;
                         entry._contentHash = simpleHash(file.content);
@@ -518,7 +553,7 @@ export async function buildIndexWithReuse() {
                     } else {
                         // New or modified — re-parse
                         hasChanges = true;
-                        const entry = parseVaultFile(file, tagConfig);
+                        const entry = parseVaultFile(file, tagConfig, fieldDefinitions);
                         if (entry) {
                             entry.vaultSource = vault.name;
                             entry._contentHash = fileHash;

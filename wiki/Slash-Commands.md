@@ -217,28 +217,38 @@ Show all pinned and blocked entries for the current chat. See [[Features#Per-Cha
 
 ---
 
+### `/dle-set-field <name> [value]`
+Set any custom gating field (e.g., `/dle-set-field weather stormy`). Works with both built-in and user-defined fields. **With no argument for value:** opens a browse-and-select popup showing all values found in the vault for that field.
+
+---
+
+### `/dle-clear-field <name>`
+Clear a custom gating field, removing it from the active context (e.g., `/dle-clear-field weather`). Works with both built-in and user-defined fields.
+
+---
+
 ### `/dle-set-era [era]`
-Set the active era for contextual gating (e.g., `/dle-set-era pre-war`). Entries with a matching `era` frontmatter field are included; others with a non-matching `era` are filtered out. **With no argument:** opens a browse-and-select popup showing all era values found in the vault, with entry counts for each. Select a value or clear the filter from the popup.
+Alias for `/dle-set-field era [value]`. Set the active era for contextual gating (e.g., `/dle-set-era pre-war`). **With no argument:** opens a browse-and-select popup showing all era values found in the vault, with entry counts for each.
 
 ---
 
 ### `/dle-set-location [location]`
-Set the active location for contextual gating (e.g., `/dle-set-location The Docks`). **With no argument:** opens a browse-and-select popup showing all location values in the vault with entry counts.
+Alias for `/dle-set-field location [value]`. Set the active location for contextual gating (e.g., `/dle-set-location The Docks`). **With no argument:** opens a browse-and-select popup showing all location values in the vault with entry counts.
 
 ---
 
 ### `/dle-set-scene [scene type]`
-Set the active scene type for contextual gating (e.g., `/dle-set-scene combat`). **With no argument:** opens a browse-and-select popup showing all scene type values in the vault with entry counts.
+Alias for `/dle-set-field scene_type [value]`. Set the active scene type for contextual gating (e.g., `/dle-set-scene combat`). **With no argument:** opens a browse-and-select popup showing all scene type values in the vault with entry counts.
 
 ---
 
 ### `/dle-set-characters <names>`
-Set the present characters for contextual gating (e.g., `/dle-set-characters Valen, Sera`). Comma-separated list. Clear with no argument.
+Alias for `/dle-set-field character_present [value]`. Set the present characters for contextual gating (e.g., `/dle-set-characters Valen, Sera`). Comma-separated list. Clear with no argument.
 
 ---
 
 ### `/dle-context-state`
-Show the current contextual gating state (active era, location, scene type, present characters). See [[Features#Contextual Gating]].
+Show the current contextual gating state, including all active gating fields (both built-in and custom). See [[Features#Contextual Gating]].
 
 ---
 
@@ -280,11 +290,13 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-block <name>` | Block entry from injecting in this chat |
 | `/dle-unblock <name>` | Remove a block |
 | `/dle-pins` | Show all pins and blocks |
-| `/dle-set-era <era>` | Set active era for contextual gating |
-| `/dle-set-location <loc>` | Set active location |
-| `/dle-set-scene <type>` | Set active scene type |
-| `/dle-set-characters <names>` | Set present characters |
-| `/dle-context-state` | Show contextual gating state |
+| `/dle-set-field <name> [value]` | Set any custom gating field |
+| `/dle-clear-field <name>` | Clear a custom gating field |
+| `/dle-set-era <era>` | Alias: set active era |
+| `/dle-set-location <loc>` | Alias: set active location |
+| `/dle-set-scene <type>` | Alias: set active scene type |
+| `/dle-set-characters <names>` | Alias: set present characters |
+| `/dle-context-state` | Show all active gating fields |
 | `/dle-setup` | Run setup wizard |
 | `/dle-summarize` | Generate AI summaries for entries |
 | `/dle-import` | Import ST World Info JSON |

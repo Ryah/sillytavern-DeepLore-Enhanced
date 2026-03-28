@@ -71,7 +71,7 @@
             <span class="dle-tab-badge" data-badge="browse" aria-hidden="true"></span>
         </button>
         <button class="dle-tab" id="dle-tab-gating" data-tab="gating" role="tab"
-                aria-selected="false" aria-controls="dle-panel-gating" aria-label="Filters — set era, location, scene, and character context" tabindex="-1">
+                aria-selected="false" aria-controls="dle-panel-gating" aria-label="Filters — set contextual gating fields" tabindex="-1">
             <i class="fa-solid fa-filter" aria-hidden="true"></i>
             <span class="dle-tab-badge" data-badge="gating" aria-hidden="true"></span>
         </button>
@@ -138,6 +138,7 @@
             <select class="text_pole dle-browse-filter-select" data-filter="tag" aria-label="Filter by tag">
                 <option value="">Tags</option>
             </select>
+            <span class="dle-browse-custom-filters"></span>
             <select class="text_pole dle-browse-sort-select" data-sort aria-label="Sort entries">
                 <option value="priority_asc">Sort</option>
                 <option value="priority_desc">Priority &#x2193;</option>
@@ -171,45 +172,15 @@
          role="tabpanel" aria-labelledby="dle-tab-gating">
         <div class="dle-panel-toolbar">
             <span class="dle-text-sm">Filters</span>
+            <button class="menu_button menu_button_icon dle-manage-fields-btn" title="Add, remove, or configure custom gating fields" aria-label="Manage field definitions">
+                <i class="fa-solid fa-gear" aria-hidden="true"></i>
+            </button>
             <button class="dle-tab-expand" data-expand="gating" title="Open full Context State popup" aria-label="Open full Context State popup">
                 Full View <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
             </button>
         </div>
-        <div class="dle-gating-group" data-field="era">
-            <span class="dle-gating-label" id="dle-gating-era">Era</span>
-            <div class="dle-gating-value" aria-labelledby="dle-gating-era">
-                <span class="dle-gating-empty">Not set</span>
-                <button class="menu_button menu_button_icon dle-gating-set" title="Set era" aria-label="Set era">
-                    <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
-                </button>
-            </div>
-        </div>
-        <div class="dle-gating-group" data-field="location">
-            <span class="dle-gating-label" id="dle-gating-location">Location</span>
-            <div class="dle-gating-value" aria-labelledby="dle-gating-location">
-                <span class="dle-gating-empty">Not set</span>
-                <button class="menu_button menu_button_icon dle-gating-set" title="Set location" aria-label="Set location">
-                    <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
-                </button>
-            </div>
-        </div>
-        <div class="dle-gating-group" data-field="sceneType">
-            <span class="dle-gating-label" id="dle-gating-scene">Scene</span>
-            <div class="dle-gating-value" aria-labelledby="dle-gating-scene">
-                <span class="dle-gating-empty">Not set</span>
-                <button class="menu_button menu_button_icon dle-gating-set" title="Set scene type" aria-label="Set scene type">
-                    <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i>
-                </button>
-            </div>
-        </div>
-        <div class="dle-gating-group" data-field="characterPresent">
-            <span class="dle-gating-label" id="dle-gating-chars">Characters</span>
-            <div class="dle-gating-value" aria-labelledby="dle-gating-chars">
-                <span class="dle-gating-empty">None set</span>
-                <button class="menu_button menu_button_icon dle-gating-set" title="Add character" aria-label="Add character">
-                    <i class="fa-solid fa-plus" aria-hidden="true"></i>
-                </button>
-            </div>
+        <div class="dle-gating-fields-container" aria-label="Contextual gating fields">
+            <!-- Dynamically populated by renderGatingTab() based on fieldDefinitions -->
         </div>
 
         <!-- Entry Timers (cooldown, decay, warmup) -->

@@ -9,10 +9,13 @@ import {
     vaultIndex, indexTimestamp, indexEverLoaded,
     aiSearchStats,
     notifyGatingChanged, notifyPinBlockChanged,
+    fieldDefinitions,
 } from '../state.js';
+import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { buildIndex } from '../vault/vault.js';
 import { buildObsidianURI } from '../helpers.js';
 import { openSettingsPopup } from '../ui/settings-ui.js';
+import { openRuleBuilder } from '../ui/rule-builder.js';
 import {
     ds, TAB_LABELS, TOOL_ACTIONS, EXPAND_ACTIONS, BROWSE_ROW_HEIGHT,
     scheduleRender,
@@ -171,6 +174,18 @@ export function wireBrowseTab($drawer) {
         scheduleRender(renderBrowseTab);
     });
 
+    // Custom field filter selects (delegated — selects are dynamically created)
+    $drawer.find('.dle-browse-filters').on('change', '.dle-browse-cf-filter', function () {
+        const field = $(this).data('cf');
+        const val = $(this).val();
+        if (val) {
+            ds.browseCustomFieldFilters[field] = val;
+        } else {
+            delete ds.browseCustomFieldFilters[field];
+        }
+        scheduleRender(renderBrowseTab);
+    });
+
     // Pin/block buttons via event delegation
     $drawer.find('.dle-browse-list').on('click', '.dle-browse-pin', function () {
         const title = $(this).data('entry');
@@ -267,7 +282,16 @@ export function wireBrowseTab($drawer) {
         const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
         const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
 
-        const previewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div><div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
+        // Custom fields line
+        let fieldsHtml = '';
+        if (entry.customFields && Object.keys(entry.customFields).length > 0) {
+            const pairs = Object.entries(entry.customFields)
+                .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
+                .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : String(v))}`);
+            if (pairs.length) fieldsHtml = `<div class="dle-browse-fields">${pairs.join(' &middot; ')}</div>`;
+        }
+
+        const previewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
 
         // Expand: append preview, measure, store offset for virtual scroll
         $entry.append(previewHtml);
@@ -304,16 +328,16 @@ export function wireGatingTab($drawer) {
         // Update state after animation starts (don't wait for transitionend to avoid
         // the chip being re-rendered by a concurrent gating render)
         const applyRemoval = () => {
-            if (field === 'characterPresent') {
-                if (ctx.characters_present) {
-                    ctx.characters_present = ctx.characters_present.filter(c => c !== value);
+            // Look up the field definition to find the contextKey
+            const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            const fd = allDefs.find(d => d.name === field);
+            if (fd) {
+                const ctxKey = fd.contextKey;
+                if (fd.multi && Array.isArray(ctx[ctxKey])) {
+                    ctx[ctxKey] = ctx[ctxKey].filter(c => c !== value);
+                } else {
+                    ctx[ctxKey] = null;
                 }
-            } else if (field === 'era') {
-                ctx.era = null;
-            } else if (field === 'location') {
-                ctx.location = null;
-            } else if (field === 'sceneType') {
-                ctx.scene_type = null;
             }
             saveChatDebounced();
             notifyGatingChanged();
@@ -326,22 +350,25 @@ export function wireGatingTab($drawer) {
         setTimeout(once, 200); // safety timeout
     });
 
-    // Set buttons via event delegation
+    // Set buttons via event delegation — uses generic /dle-set-field for custom fields
     $drawer.find('#dle-panel-gating').on('click', '.dle-gating-set', async function () {
         const $group = $(this).closest('.dle-gating-group');
         const field = $group.data('field');
         if (!field) return;
 
-        // Use the slash command which has the full browse-popup experience
+        // Built-in fields have dedicated commands; custom fields use generic command
         const cmdMap = {
             era: '/dle-set-era',
             location: '/dle-set-location',
-            sceneType: '/dle-set-scene',
-            characterPresent: '/dle-set-characters',
+            scene_type: '/dle-set-scene',
+            character_present: '/dle-set-characters',
         };
-        const cmd = cmdMap[field];
-        if (cmd) executeCommand(cmd);
+        const cmd = cmdMap[field] || `/dle-set-field ${field}`;
+        executeCommand(cmd);
     });
+
+    // Manage Fields button — opens the rule builder popup
+    $drawer.find('.dle-manage-fields-btn').on('click', () => openRuleBuilder());
 }
 
 /**

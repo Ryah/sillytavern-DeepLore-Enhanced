@@ -35,10 +35,11 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `warmup` | number | *(none)* | Require the keyword to appear N or more times in the scan text before triggering. |
 | `probability` | number | *(none)* | Chance of triggering when matched (0.0-1.0). Omit or set to 1.0 for always trigger. |
 | `enabled` | boolean | `true` | Set to `false` to completely skip this entry during indexing. The entry won't appear in the vault index at all. Useful for temporarily disabling an entry without removing the `#lorebook` tag. |
-| `era` | string \| string[] | *(none)* | Contextual gating: only inject when the active era matches one of these values. See [[Features#Contextual Gating]]. |
-| `location` | string \| string[] | *(none)* | Contextual gating: only inject when the active location matches one of these values. |
-| `scene_type` | string \| string[] | *(none)* | Contextual gating: only inject when the active scene type matches one of these values. |
-| `character_present` | array | `[]` | Contextual gating: only inject when any listed character is among the present characters. |
+| `era` | string \| string[] | *(none)* | Contextual gating (default custom field): only inject when the active era matches one of these values. See [[Features#Contextual Gating]]. |
+| `location` | string \| string[] | *(none)* | Contextual gating (default custom field): only inject when the active location matches one of these values. |
+| `scene_type` | string \| string[] | *(none)* | Contextual gating (default custom field): only inject when the active scene type matches one of these values. |
+| `character_present` | array | `[]` | Contextual gating (default custom field): only inject when any listed character is among the present characters. |
+| *(custom fields)* | varies | *(none)* | You can define additional custom gating fields beyond the four defaults. Field definitions are stored in `DeepLore/field-definitions.yaml` in your vault and managed via the "Manage Fields" rule builder. See [[Features#Contextual Gating]]. |
 | `graph` | boolean | `true` | Set to `false` to exclude this entry from the relationship graph. The entry still works normally for matching and injection. Useful for test entries, meta entries, or entries that add noise to the graph without meaningful connections. |
 
 > **Note:** Frontmatter uses underscores (`scene_type`, `character_present`), but internally these are stored as camelCase (`sceneType`, `characterPresent`) on VaultEntry objects. Use underscores in your notes.
@@ -773,7 +774,9 @@ Core rules that should always be present in context...
 
 ### 16. Contextual Gating
 
-Use `era`, `location`, `scene_type`, and `character_present` fields to control when an entry injects based on the current story context. Set the active context with `/dle-set-era`, `/dle-set-location`, `/dle-set-scene`, `/dle-set-characters`.
+Use `era`, `location`, `scene_type`, and `character_present` fields to control when an entry injects based on the current story context. Set the active context with `/dle-set-era`, `/dle-set-location`, `/dle-set-scene`, `/dle-set-characters`, or use the generic `/dle-set-field <name> [value]` command.
+
+These four fields are the defaults that ship out of the box. You can add, remove, or modify gating fields via the "Manage Fields" rule builder (accessible from the Gating tab toolbar or Settings popup). Custom field definitions are stored in `DeepLore/field-definitions.yaml` in your vault. Each field has a type (`text`, `number`, `boolean`, `list`), a gating operator (`equals`, `contains`, `any_of`, `none_of`), and a tolerance level (`strict`, `moderate`, `lenient`).
 
 ```markdown
 ---

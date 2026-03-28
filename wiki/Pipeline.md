@@ -45,7 +45,7 @@ onGenerate(chat)
   ├─ [epoch check]                     Bail if chat changed or pipeline superseded
   │
   ├─ Apply pin/block overrides        Per-chat pins force-inject, blocks remove
-  ├─ Contextual gating                Filter by era/location/scene/character
+  ├─ Contextual gating                Filter by era/location/scene/character + custom fields
   ├─ Re-injection cooldown            Skip entries injected within N generations
   ├─ applyRequiresExcludesGating()    Apply requires/excludes rules (iterative cascade)
   ├─ Strip duplicate injections       Skip entries injected in recent generations
@@ -155,7 +155,7 @@ After the main pipeline, per-chat pins and blocks are applied:
 - **Blocked entries** are removed regardless of matches (from `chat_metadata.deeplore_blocks`)
 
 ### Contextual Gating
-Entries with `era`, `location`, `scene_type`, or `character_present` frontmatter fields are filtered against the active context state (stored in `chat_metadata.deeplore_context`). Entries without contextual fields pass through unaffected.
+Entries with gating frontmatter fields (`era`, `location`, `scene_type`, `character_present`, or any user-defined custom field) are filtered against the active context state (stored in `chat_metadata.deeplore_context`). Custom gating fields are defined in `DeepLore/field-definitions.yaml` and support configurable types and operators. Entries without contextual fields pass through unaffected.
 
 ### Gating
 After selection, entries with `requires` and `excludes` fields are evaluated:

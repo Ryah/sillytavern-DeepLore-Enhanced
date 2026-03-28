@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/docs/icon-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/docs/icon-light.svg">
+    <img alt="DeepLore Enhanced" src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/docs/icon-light.svg" width="96">
+  </picture>
+</p>
+
 # DeepLore Enhanced
 
 **AI-Powered Obsidian Vault Lorebook for SillyTavern**
@@ -14,7 +22,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 - **Any AI provider:** Works with Anthropic, OpenAI, OpenRouter, or any provider via SillyTavern's Connection Manager
 - **Multi-vault support:** Connect multiple Obsidian vaults simultaneously
 - **Per-chat pin/block:** Pin entries to always inject or block entries from injecting, per chat
-- **Contextual gating:** Filter entries by era, location, scene type, and present characters
+- **Contextual gating:** Filter entries by era, location, scene type, characters, and user-defined custom fields (configurable via visual rule builder)
 - **Context Cartographer:** See exactly which lore was injected and why on each message
 - **Session Scribe:** Auto-summarize sessions back to your Obsidian vault
 - **Auto Lorebook:** AI analyzes chat and suggests new entries you can accept or reject

@@ -17,6 +17,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Hybrid Vector Pre-Filter** | L | Use ST Vector Storage embeddings for semantic retrieval alongside keyword matching. |
 | **Multi-Query Decomposition** | L | Agentic retrieval: decompose chat into sub-queries by narrative element, merge results. |
 | **Injection History Awareness** | S | Prepend previously-injected entries to AI search context. Deferred due to re-picking bias concern — decay/freshness handles this better for now. |
+| **Custom Fields in AI Manifest** | M | Send custom frontmatter field values to AI in the candidate manifest so the AI can use field metadata (era, mood, faction, etc.) as selection criteria. |
 | **Stale-While-Revalidate Index** | S | Serve the stale vault index while fetching fresh data in background. |
 
 ---
@@ -85,6 +86,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | ~~**Browse List Virtualization**~~ | ~~M~~ | ✅ Shipped in v0.2.0. Virtual scroll with 32px row height, 8-row overscan, absolute positioning. |
 | **Story Timeline View** | M | Scrollable timeline of Session Scribe notes with one-click expansion to full summaries. Replace popup-based `/dle-scribe-history` with a persistent view. |
 | **Debug Mode Lite** | M | In-drawer panel showing live matching traces, pipeline decisions, and cache state — avoiding the need for browser console or `/dle-inspect`. |
+| **Selectable Graph Algorithm** | M | Let users choose between different graph layout algorithms (force-directed, radial, hierarchical, etc.) for different vault structures and visualization needs. |
 
 ---
 

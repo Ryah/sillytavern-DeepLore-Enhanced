@@ -103,12 +103,12 @@ export async function createDrawerPanel() {
         <div id="${DRAWER_ID}" class="drawer">
             <div class="drawer-toggle drawer-header">
                 <div id="deeploreDrawerIcon"
-                     class="drawer-icon fa-solid fa-scroll fa-fw interactable closedIcon"
+                     class="drawer-icon interactable closedIcon dle-drawer-icon-svg"
                      title="DeepLore Enhanced"
                      tabindex="0"
                      role="button"
                      aria-expanded="false"
-                     aria-label="DeepLore Enhanced drawer"></div>
+                     aria-label="DeepLore Enhanced drawer"><i class="fa-solid fa-book-open fa-fw" aria-hidden="true"></i></div>
             </div>
             <div id="deeplore-panel" class="drawer-content closedDrawer fillRight" role="region" aria-label="DeepLore Enhanced panel">
                 <div id="deeplore-panelheader" class="fa-solid fa-grip drag-grabber" aria-hidden="true"></div>
@@ -143,6 +143,16 @@ export async function createDrawerPanel() {
 
     // Add to top-settings-holder (after native drawers)
     $('#top-settings-holder').append($drawer);
+
+    // Load custom SVG icon (async, non-blocking — FA fallback already in place)
+    fetch('/scripts/extensions/third-party/sillytavern-DeepLore-Enhanced/icon.svg')
+        .then(r => r.ok ? r.text() : null)
+        .then(svg => {
+            if (!svg) return;
+            const $icon = $drawer.find('#deeploreDrawerIcon');
+            $icon.empty().append($(svg).attr('aria-hidden', 'true'));
+        })
+        .catch(() => { /* FA fallback stays */ });
 
     // ═══════════════════════════════════════════════════════════════════════
     // Drawer toggle binding

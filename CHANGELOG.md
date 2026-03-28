@@ -2,6 +2,29 @@
 
 ## 0.2.0-BETA
 
+### Custom Frontmatter Fields (2026-03-28)
+
+> **Highlights:** Contextual gating is now fully customizable. Define your own frontmatter fields (mood, faction, time_of_day — anything), configure gating rules, and manage everything from a visual editor. The four built-in fields (era, location, scene_type, character_present) are now just defaults.
+
+#### Custom Field System
+- **Field Definition Editor** — Visual rule builder popup (`Manage Fields` button in Gating tab or Settings) to create, edit, reorder, duplicate, and delete custom gating fields. Supports text, number, boolean, and list types with per-field gating operators (equals, contains, any_of, none_of) and tolerance levels.
+- **YAML-backed definitions** — Field definitions stored in Obsidian vault (`DeepLore/field-definitions.yaml`) and loaded on index build. Editable from the rule builder or by hand.
+- **Generic commands** — `/dle-set-field <name> [value]` and `/dle-clear-field <name>` work for any defined field, with tab-completion for field names. Legacy `/dle-set-era` etc. are now aliases.
+- **Drawer integration** — Gating tab shows status dots (set/unset), multi-value distinction, impact counts ("excluding N entries"), and an empty-state hint for new users. Manage Fields button in toolbar.
+- **Browse tab filters** — Custom field filter dropdowns appear automatically for any field with values in the vault.
+- **Graph coloring** — Color nodes by any custom field value. Legend shows field name header and "No value" swatch. Tooltip shows multi-value overflow.
+- **AI manifest labels** — Field labels (not raw names) shown in AI search manifests.
+- **Inspect details** — `/dle-inspect` shows per-field mismatch reasons for gated entries (e.g. `era: medieval ≠ renaissance`).
+- **Status command** — `/dle-status` shows custom field count and names.
+- **Settings integration** — "Edit Fields" button next to field definitions path in settings popup.
+- **Missing file notification** — Toast warning when field definitions file not found in vault.
+
+#### UI/UX Design Round (94 findings across 8 phases)
+- **Rule builder UX** — Double-click save guard, unsaved changes warning on close, reset confirmation dialog, field reorder (move up/down), duplicate field, scroll-to on add, delete animation, contextKey auto-link toggle, gating-disabled dimming, boolean disables multi, error field highlighting with scroll-to, specific success messages.
+- **CSS foundations** — 10 missing/incomplete CSS definitions fixed: `--dle-bg-2` variable, `.dle-gating-fields-container`, `.dle-rb-header` styling, `.dle-rb-select` theme integration, `.dle-rb-lbl` contrast fix, `.dle-rb-popup` padding, `.dle-manage-fields-btn` toolbar layout, `.dle-gating-group` hover states, chip focus-visible states.
+- **Responsive** — Rule builder adapts at 1024px and 768px breakpoints.
+- **Drawer icon** — Changed from FA scroll to inline Obsidian crystal SVG.
+
 ### Reliability Overhaul (2026-03-27)
 
 > **Highlights:** 47 bugs fixed from a comprehensive code audit, 97 new tests, dramatically improved multi-vault and AI search stability, 21% faster startup, and smarter AI entry selection.

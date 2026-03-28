@@ -9,7 +9,9 @@ import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
     generationLock, indexing,
     cooldownTracker, decayTracker, chatInjectionCounts, trackerKey,
+    fieldDefinitions,
 } from '../state.js';
+import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault } from '../helpers.js';
 import {
     ds, BROWSE_ROW_HEIGHT, BROWSE_OVERSCAN,
@@ -215,6 +217,39 @@ export function renderBrowseTab() {
         ds.browseTagFilter = '';
     }
 
+    // Populate custom field filter dropdowns
+    const browseFieldDefs = (fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS)
+        .filter(fd => fd.gating?.enabled);
+    const $cfContainer = $drawer.find('.dle-browse-custom-filters');
+    if ($cfContainer.length && browseFieldDefs.length > 0) {
+        // Collect unique values per field from vault
+        const fieldValues = {};
+        for (const fd of browseFieldDefs) {
+            const vals = new Set();
+            for (const e of vaultIndex) {
+                const v = e.customFields?.[fd.name];
+                if (v == null) continue;
+                if (Array.isArray(v)) v.forEach(x => { if (x) vals.add(String(x)); });
+                else if (v !== '') vals.add(String(v));
+            }
+            if (vals.size > 0) fieldValues[fd.name] = [...vals].sort();
+        }
+        // Only render selects for fields that have values in the vault
+        let cfHtml = '';
+        for (const fd of browseFieldDefs) {
+            const vals = fieldValues[fd.name];
+            if (!vals || vals.length === 0) continue;
+            const current = ds.browseCustomFieldFilters[fd.name] || '';
+            cfHtml += `<select class="text_pole dle-browse-filter-select dle-browse-cf-filter" data-cf="${escapeHtml(fd.name)}" aria-label="Filter by ${escapeHtml(fd.label)}">`;
+            cfHtml += `<option value="">${escapeHtml(fd.label)}</option>`;
+            for (const v of vals) {
+                cfHtml += `<option value="${escapeHtml(v)}"${current === v ? ' selected' : ''}>${escapeHtml(v)}</option>`;
+            }
+            cfHtml += '</select>';
+        }
+        $cfContainer.html(cfHtml);
+    }
+
     const settings = getSettings();
 
     // Get filters
@@ -261,6 +296,18 @@ export function renderBrowseTab() {
 
         // Tag filter
         if (tagFilter && (!e.tags || !e.tags.includes(tagFilter))) return false;
+
+        // Custom field filters
+        for (const [cfName, cfVal] of Object.entries(ds.browseCustomFieldFilters)) {
+            if (!cfVal) continue;
+            const ev = e.customFields?.[cfName];
+            if (ev == null) return false;
+            if (Array.isArray(ev)) {
+                if (!ev.some(v => String(v).toLowerCase() === cfVal.toLowerCase())) return false;
+            } else {
+                if (String(ev).toLowerCase() !== cfVal.toLowerCase()) return false;
+            }
+        }
 
         return true;
     });
@@ -417,7 +464,15 @@ export function renderBrowseWindow() {
                 const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
                 const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
                 const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
-                $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div><div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
+                // Custom fields line
+                let fieldsHtml = '';
+                if (entry.customFields && Object.keys(entry.customFields).length > 0) {
+                    const pairs = Object.entries(entry.customFields)
+                        .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
+                        .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : String(v))}`);
+                    if (pairs.length) fieldsHtml = `<div class="dle-browse-fields">${pairs.join(' &middot; ')}</div>`;
+                }
+                $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
                 $entry.css({ height: 'auto' });
                 // Measure expanded height and store for virtual scroll offset
                 const expandedHeight = $entry[0].scrollHeight;
@@ -440,52 +495,86 @@ export function renderGatingTab() {
     if (!$drawer) return;
     const ctx = chat_metadata?.deeplore_context;
 
-    const fields = [
-        { field: 'era', ctxKey: 'era', single: true },
-        { field: 'location', ctxKey: 'location', single: true },
-        { field: 'sceneType', ctxKey: 'scene_type', single: true },
-        { field: 'characterPresent', ctxKey: 'characters_present', single: false },
-    ];
+    // Dynamic field definitions from state
+    const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
 
-    for (const { field, ctxKey, single } of fields) {
-        const $group = $drawer.find(`.dle-gating-group[data-field="${field}"]`);
+    // Build dynamic gating group HTML if container exists
+    const $container = $drawer.find('.dle-gating-fields-container');
+    const enabledDefs = fieldDefs.filter(fd => fd.gating?.enabled);
+    if ($container.length) {
+        $container.empty();
+        for (const fd of enabledDefs) {
+            const hasValue = ctx && (fd.multi
+                ? (Array.isArray(ctx[fd.contextKey]) && ctx[fd.contextKey].length > 0)
+                : !!ctx[fd.contextKey]);
+            const dotClass = hasValue ? 'dle-gating-dot-active' : 'dle-gating-dot-empty';
+            const setIcon = fd.multi ? 'fa-plus-circle' : 'fa-pen-to-square';
+            const setLabel = fd.multi ? `Add to ${escapeHtml(fd.label)}` : `Set ${escapeHtml(fd.label)}`;
+            const fieldHtml = `<div class="dle-gating-group" data-field="${escapeHtml(fd.name)}"${fd.multi ? ' data-multi="true"' : ''}>
+                <span class="dle-gating-dot ${dotClass}" aria-hidden="true"></span>
+                <span class="dle-gating-label" id="dle-gating-${escapeHtml(fd.name)}" title="${escapeHtml(fd.label)}">${escapeHtml(fd.label)}</span>
+                <div class="dle-gating-value" aria-labelledby="dle-gating-${escapeHtml(fd.name)}">
+                    <button class="menu_button menu_button_icon dle-gating-set" title="${setLabel}" aria-label="${setLabel}">
+                        <i class="fa-solid ${setIcon}" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>`;
+            $container.append(fieldHtml);
+        }
+        // Empty state hint when all fields are unset
+        const anySet = enabledDefs.some(fd => {
+            if (!ctx) return false;
+            return fd.multi
+                ? (Array.isArray(ctx[fd.contextKey]) && ctx[fd.contextKey].length > 0)
+                : !!ctx[fd.contextKey];
+        });
+        $container.find('.dle-gating-hint').remove();
+        if (!anySet && enabledDefs.length > 0) {
+            $container.append('<div class="dle-gating-hint">Set gating fields to filter which lore entries are included. Use <code>/dle-set-field</code> or click the edit icon on any field.</div>');
+        }
+    }
+
+    // Render values for each field
+    for (const fd of fieldDefs) {
+        if (!fd.gating?.enabled) continue;
+        const $group = $drawer.find(`.dle-gating-group[data-field="${fd.name}"]`);
         const $value = $group.find('.dle-gating-value');
-        const value = ctx ? ctx[ctxKey] : null;
+        const value = ctx ? ctx[fd.contextKey] : null;
         const $setBtn = $value.find('.dle-gating-set');
 
         // Remove everything except the set button
         $value.find('.dle-chip, .dle-gating-empty, .dle-gating-count').remove();
 
-        if (single) {
+        if (!fd.multi) {
             if (value) {
-                $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${field}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
-                // Impact count: how many entries have this field set but DON'T match
-                const entryField = field === 'sceneType' ? 'sceneType' : field;
+                $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
+                // Impact count: entries with this field set but don't match
                 const filtered = vaultIndex.filter(e => {
-                    const val = e[entryField];
+                    const val = e.customFields?.[fd.name];
                     if (!val || (Array.isArray(val) && val.length === 0)) return false;
                     if (Array.isArray(val)) return !val.some(v => v.toLowerCase() === value.toLowerCase());
                     return String(val).toLowerCase() !== value.toLowerCase();
                 }).length;
                 if (filtered > 0) {
-                    $setBtn.before(`<span class="dle-gating-count" aria-label="Filtering ${filtered} entries">filtering ${filtered}</span>`);
+                    $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
             } else {
                 $setBtn.before('<span class="dle-gating-empty">Not set</span>');
             }
         } else {
-            // Array field (characters)
+            // Array field
             if (value && value.length > 0) {
                 for (const c of value) {
-                    $setBtn.before(`<span class="dle-chip">${escapeHtml(c)} <button class="dle-chip-x" data-field="${field}" data-value="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
+                    $setBtn.before(`<span class="dle-chip">${escapeHtml(c)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
                 }
-                // Impact count: entries with character_present set but no overlap with active characters
-                const charSet = new Set(value.map(c => c.toLowerCase()));
-                const filtered = vaultIndex.filter(e =>
-                    e.characterPresent?.length && !e.characterPresent.some(cp => charSet.has(cp.toLowerCase())),
-                ).length;
+                // Impact count: entries with this field set but no overlap
+                const activeSet = new Set(value.map(c => c.toLowerCase()));
+                const filtered = vaultIndex.filter(e => {
+                    const eVal = e.customFields?.[fd.name];
+                    return eVal?.length && !eVal.some(v => activeSet.has(v.toLowerCase()));
+                }).length;
                 if (filtered > 0) {
-                    $setBtn.before(`<span class="dle-gating-count" aria-label="Filtering ${filtered} entries">filtering ${filtered}</span>`);
+                    $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
             } else {
                 $setBtn.before('<span class="dle-gating-empty">None set</span>');

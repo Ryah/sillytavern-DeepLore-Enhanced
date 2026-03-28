@@ -9,7 +9,10 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
-import { vaultIndex, notifyGatingChanged, notifyPinBlockChanged } from '../state.js';
+import { SlashCommandArgument } from '../../../../../slash-commands/SlashCommandArgument.js';
+import { SlashCommandEnumValue } from '../../../../../slash-commands/SlashCommandEnumValue.js';
+import { vaultIndex, fieldDefinitions, notifyGatingChanged, notifyPinBlockChanged } from '../state.js';
+import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 import { normalizePinBlock, matchesPinBlock } from '../helpers.js';
 
@@ -155,21 +158,21 @@ export function registerGatingCommands() {
     };
 
     /**
-     * Helper: collect unique values for a gating field from the vault index.
+     * Helper: collect unique values for a gating field from the vault index (reads from customFields).
      * Returns a Map<normalizedValue, { display: string, count: number }>.
      */
-    const collectFieldValues = (entryField) => {
+    const collectFieldValues = (fieldName) => {
         const valueMap = new Map();
         for (const entry of vaultIndex) {
-            const arr = entry[entryField];
-            if (!Array.isArray(arr)) continue;
+            const val = entry.customFields?.[fieldName];
+            const arr = Array.isArray(val) ? val : (val != null && val !== '' ? [val] : []);
             for (const raw of arr) {
-                const key = raw.toLowerCase().trim();
+                const key = String(raw).toLowerCase().trim();
                 if (!key) continue;
                 if (valueMap.has(key)) {
                     valueMap.get(key).count++;
                 } else {
-                    valueMap.set(key, { display: raw.trim(), count: 1 });
+                    valueMap.set(key, { display: String(raw).trim(), count: 1 });
                 }
             }
         }
@@ -177,15 +180,15 @@ export function registerGatingCommands() {
     };
 
     /**
-     * Helper: count entries matching a value for a gating field (case-insensitive substring).
+     * Helper: count entries matching a value for a gating field (case-insensitive substring, reads from customFields).
      */
-    const countFieldMatches = (entryField, value) => {
+    const countFieldMatches = (fieldName, value) => {
         const lower = value.toLowerCase();
         let count = 0;
         for (const entry of vaultIndex) {
-            const arr = entry[entryField];
-            if (!Array.isArray(arr)) continue;
-            if (arr.some(v => v.toLowerCase().includes(lower) || lower.includes(v.toLowerCase()))) {
+            const val = entry.customFields?.[fieldName];
+            const arr = Array.isArray(val) ? val : (val != null && val !== '' ? [val] : []);
+            if (arr.some(v => String(v).toLowerCase().includes(lower) || lower.includes(String(v).toLowerCase()))) {
                 count++;
             }
         }
@@ -323,7 +326,7 @@ export function registerGatingCommands() {
             const v = (value || '').trim();
 
             if (!v) {
-                await showFieldSelectionPopup('Scene Type', 'sceneType', 'scene_type');
+                await showFieldSelectionPopup('Scene Type', 'scene_type', 'scene_type');
                 return '';
             }
 
@@ -332,9 +335,9 @@ export function registerGatingCommands() {
             saveChatDebounced();
             notifyGatingChanged();
 
-            const matchCount = countFieldMatches('sceneType', v);
+            const matchCount = countFieldMatches('scene_type', v);
             if (matchCount === 0) {
-                const valueMap = collectFieldValues('sceneType');
+                const valueMap = collectFieldValues('scene_type');
                 const available = [...valueMap.values()].map(x => x.display);
                 const listStr = available.length > 0 ? available.join(', ') : 'none';
                 await callGenericPopup(
@@ -376,17 +379,111 @@ export function registerGatingCommands() {
         name: 'dle-context-state',
         callback: async () => {
             const ctx = chat_metadata.deeplore_context || {};
-            const lines = [
-                `Era: ${ctx.era || '(not set)'}`,
-                `Location: ${ctx.location || '(not set)'}`,
-                `Scene Type: ${ctx.scene_type || '(not set)'}`,
-                `Characters Present: ${(ctx.characters_present || []).join(', ') || '(not set)'}`,
-            ];
+            const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            const lines = allDefs.map(fd => {
+                const val = ctx[fd.contextKey];
+                const display = val == null || val === '' ? '(not set)' : (Array.isArray(val) ? (val.join(', ') || '(not set)') : String(val));
+                return `${fd.label}: ${display}`;
+            });
             const html = `<pre class="dle-text-pre">${escapeHtml(lines.join('\n'))}</pre>`;
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
             return '';
         },
-        helpString: 'Show current contextual gating state (era, location, scene type, characters present).',
+        helpString: 'Show current contextual gating state for all defined fields.',
         returns: 'Context state popup',
+    }));
+
+    // ── Generic Field Commands (for custom fields) ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-set-field',
+        callback: async (_args, input) => {
+            const parts = (input || '').trim().split(/\s+/);
+            const fieldName = parts[0] || '';
+            const value = parts.slice(1).join(' ').trim();
+
+            if (!fieldName) {
+                toastr.info('Usage: /dle-set-field <field_name> [value]. Run with just a field name to browse values.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            const fd = allDefs.find(d => d.name === fieldName);
+            if (!fd) {
+                toastr.warning(`Unknown field "${fieldName}". Defined fields: ${allDefs.map(d => d.name).join(', ')}`, 'DeepLore Enhanced');
+                return '';
+            }
+
+            // No value — show selection popup
+            if (!value) {
+                await showFieldSelectionPopup(fd.label, fd.name, fd.contextKey);
+                return '';
+            }
+
+            const ctx = ensureCtx();
+            if (fd.multi) {
+                // For multi fields, add to the array (comma-separated)
+                const newValues = value.split(',').map(v => v.trim()).filter(Boolean);
+                ctx[fd.contextKey] = newValues;
+            } else {
+                ctx[fd.contextKey] = value;
+            }
+            saveChatDebounced();
+            notifyGatingChanged();
+
+            const matchCount = countFieldMatches(fd.name, value);
+            toastr.success(
+                `${fd.label} set to "${value}"${matchCount > 0 ? ` — ${matchCount} ${matchCount === 1 ? 'entry matches' : 'entries match'}` : ' — no entries match'}.`,
+                'DeepLore Enhanced',
+            );
+            return '';
+        },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'field name and optional value',
+            enumProvider: () => {
+                const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+                return allDefs.map(f => new SlashCommandEnumValue(f.name, f.label));
+            },
+        })],
+        helpString: 'Set a custom gating field value. Usage: /dle-set-field <field_name> [value]. Run with just the field name to browse values.',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-clear-field',
+        callback: async (_args, fieldName) => {
+            const name = (fieldName || '').trim();
+            if (!name) {
+                toastr.info('Usage: /dle-clear-field <field_name>', 'DeepLore Enhanced');
+                return '';
+            }
+
+            const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            const fd = allDefs.find(d => d.name === name);
+            if (!fd) {
+                toastr.warning(`Unknown field "${name}". Defined fields: ${allDefs.map(d => d.name).join(', ')}`, 'DeepLore Enhanced');
+                return '';
+            }
+
+            const ctx = ensureCtx();
+            if (fd.multi) {
+                ctx[fd.contextKey] = [];
+            } else {
+                ctx[fd.contextKey] = null;
+            }
+            saveChatDebounced();
+            notifyGatingChanged();
+            toastr.success(`${fd.label} cleared.`, 'DeepLore Enhanced');
+            return '';
+        },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'field name to clear',
+            enumProvider: () => {
+                const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+                return allDefs.map(f => new SlashCommandEnumValue(f.name, f.label));
+            },
+        })],
+        helpString: 'Clear a gating field value. Usage: /dle-clear-field <field_name>.',
+        returns: 'Status message',
     }));
 }

@@ -7,7 +7,8 @@
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { NO_ENTRIES_MSG } from '../../core/utils.js';
 import { getSettings, invalidateSettingsCache } from '../../settings.js';
-import { vaultIndex, chatInjectionCounts, trackerKey, mentionWeights } from '../state.js';
+import { vaultIndex, chatInjectionCounts, trackerKey, mentionWeights, fieldDefinitions } from '../state.js';
+import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 import { saveSettingsDebounced } from '../../../../../../script.js';
 
@@ -277,6 +278,11 @@ export async function showGraphPopup() {
                 <option value="centrality">Color: Connections</option>
                 <option value="frequency">Color: Frequency</option>
                 <option value="community">Color: Community</option>
+                ${(() => {
+                    const fds = (fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS).filter(fd => fd.gating?.enabled);
+                    if (fds.length === 0) return '';
+                    return `<optgroup label="Custom Fields">${fds.map(fd => `<option value="field:${fd.name}">${fd.label}</option>`).join('')}</optgroup>`;
+                })()}
             </select>
             <span class="dle-graph-toolbar-sep"></span>
             <button id="dle_graph_settings_btn" class="menu_button dle-graph-toolbar-btn" title="Graph settings"><i class="fa-solid fa-gear"></i></button>
@@ -348,6 +354,11 @@ export async function showGraphPopup() {
                             <option value="centrality">Connections</option>
                             <option value="frequency">Frequency</option>
                             <option value="community">Community</option>
+                            ${(() => {
+                                const fds = (fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS).filter(fd => fd.gating?.enabled);
+                                if (fds.length === 0) return '';
+                                return `<optgroup label="Fields">${fds.map(fd => `<option value="field:${fd.name}">${fd.label}</option>`).join('')}</optgroup>`;
+                            })()}
                         </select>
                     </div>
                     <div class="dle-graph-settings-row">

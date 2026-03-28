@@ -455,6 +455,7 @@ function loadPopupSettings($container) {
     $c('#dle_sp_enabled').prop('checked', settings.enabled);
     renderVaultList(settings, $c('#dle_sp_vault_list')[0]);
     $c('#dle_sp_multi_vault_conflict').val(settings.multiVaultConflictResolution);
+    $c('#dle_sp_field_definitions_path').val(settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml');
     $c('#dle_sp_tag').val(settings.lorebookTag);
     $c('#dle_sp_constant_tag').val(settings.constantTag);
     $c('#dle_sp_never_insert_tag').val(settings.neverInsertTag);
@@ -752,6 +753,11 @@ function bindPopupEvents($container) {
 
     bindVaultListEvents(settings, $c('#dle_sp_vault_list'), $c('#dle_sp_add_vault'));
     $c('#dle_sp_multi_vault_conflict').on('change', function () { settings.multiVaultConflictResolution = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle_sp_field_definitions_path').on('change', function () { settings.fieldDefinitionsPath = String($(this).val()).trim() || 'DeepLore/field-definitions.yaml'; saveSettingsDebounced(); });
+    $c('#dle_sp_edit_fields_btn').on('click', async () => {
+        const { openRuleBuilder } = await import('./rule-builder.js');
+        openRuleBuilder();
+    });
 
     $c('#dle_sp_test_connection').on('click', async function () {
         const $btn = $(this);

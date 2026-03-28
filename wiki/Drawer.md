@@ -76,6 +76,8 @@ Searchable, filterable list of all indexed entries with virtual scrolling for la
 
 **Tag filter:** Dynamic dropdown populated from all tags found in the vault.
 
+**Custom field filters:** Dropdowns for any custom gating fields defined in `DeepLore/field-definitions.yaml` are automatically added alongside the tag filter.
+
 **Sort options** (7 options):
 - Priority ascending/descending
 - Alphabetical A-Z / Z-A
@@ -98,14 +100,17 @@ Searchable, filterable list of all indexed entries with virtual scrolling for la
 
 ### Gating Tab
 
-View and edit the current contextual gating filters for this chat.
+View and edit the current contextual gating filters for this chat, including both built-in and custom fields.
 
 - **Era** — current era filter (with entry impact count: "filtering N entries")
 - **Location** — current location filter
 - **Scene Type** — current scene type filter
 - **Characters Present** — list of characters currently flagged as present
+- **Custom fields** — any user-defined gating fields also appear here with status dots and impact counts
 
-Each filter has an Edit button that triggers the corresponding `/dle-set-*` command with its browse popup.
+Each filter has an Edit button that triggers the corresponding `/dle-set-field` command with its browse popup.
+
+**Manage Fields** button (in the Gating tab toolbar) opens the rule builder UI where you can add, remove, or modify custom gating fields. Field definitions are stored in `DeepLore/field-definitions.yaml` in your vault. Each field has a type (`text`, `number`, `boolean`, `list`), a gating operator (`equals`, `contains`, `any_of`, `none_of`), and a tolerance level.
 
 **Entry Timers** section shows active per-entry state:
 - Cooldown entries with generations remaining

@@ -1,3 +1,11 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/icon-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/icon-light.svg">
+    <img alt="DeepLore Enhanced" src="docs/icon-light.svg" width="96">
+  </picture>
+</p>
+
 # DeepLore Enhanced - AI-Powered Obsidian Vault Lorebook for SillyTavern
 
 Your AI finally understands your world's lore. DeepLore Enhanced connects your Obsidian vault to SillyTavern and uses AI to inject exactly the right lore at the right time — no keyword guessing required.

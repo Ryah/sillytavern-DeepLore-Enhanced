@@ -100,6 +100,8 @@ export const ds = {
     browseStatusFilter: 'all',
     browseTagFilter: '',
     browseSort: 'priority_asc',
+    /** @type {Object<string, string>} Active custom field filters: { fieldName: selectedValue } */
+    browseCustomFieldFilters: {},
 
     // Pre-computed tag cache (rebuilt on index update)
     cachedTagSet: null,
@@ -147,10 +149,12 @@ export function computeEntryTemperatures() {
     const temps = new Map();
     if (!vaultIndex.length || !chatInjectionCounts.size) return temps;
 
-    // Filter out constants and entries with contextual gating from the calculation
-    const eligible = vaultIndex.filter(e =>
-        !e.constant && !e.era?.length && !e.location?.length && !e.sceneType?.length && !e.characterPresent?.length,
-    );
+    // Filter out constants and entries with any contextual gating custom fields from the calculation
+    const eligible = vaultIndex.filter(e => {
+        if (e.constant) return false;
+        const cf = e.customFields || {};
+        return !Object.values(cf).some(v => v != null && v !== '' && (!Array.isArray(v) || v.length > 0));
+    });
     if (!eligible.length) return temps;
 
     // Compute average injection count across eligible entries

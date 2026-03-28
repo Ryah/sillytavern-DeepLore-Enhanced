@@ -62,7 +62,8 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **Unlimited Token Budget** | Off | Toggle | Remove the token budget cap. A warning toast appears if injected lore exceeds 20% of context. |
 | **Token Budget** | `3072` | 100-100000 | Maximum total tokens to inject (when Unlimited Token Budget is off). Entries added in priority order until budget is reached. |
 | **Keyword Occurrence Weighting** | Off | Toggle | When on, entries with more keyword occurrences in the scan text are weighted higher during matching. Experimental. |
-| **Contextual Gating Tolerance** | `strict` | Dropdown | How strictly contextual gating filters entries. `strict`: entry must match all set filters exactly. `moderate`: partial matches allowed. `lenient`: only blocks on direct conflicts. |
+| **Contextual Gating Tolerance** | `strict` | Dropdown | How strictly contextual gating filters entries. `strict`: entry must match all set filters exactly. `moderate`: partial matches allowed. `lenient`: only blocks on direct conflicts. Applies to all gating fields (built-in and custom). Custom fields can also have per-field tolerance overrides. |
+| **Field Definitions Path** | `DeepLore/field-definitions.yaml` | Text | Vault path to the YAML file containing custom gating field definitions. **Edit Fields** button opens the visual rule builder where you can add, remove, or modify custom gating fields (type, operator, tolerance). The four default fields (era, location, scene_type, character_present) are configurable defaults that can be modified or removed. |
 
 ## Injection
 

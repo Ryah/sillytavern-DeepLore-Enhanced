@@ -14,7 +14,7 @@ A persistent side panel showing real-time pipeline feedback. See [[Drawer]] for 
 |---------|-------------|
 | **Why? Tab** | Shows which entries were injected and why, with generation-to-generation diff |
 | **Browse Tab** | Searchable, filterable entry list with temperature heatmap, pin/block controls, and virtual scroll |
-| **Gating Tab** | View and edit contextual gating filters (era, location, scene, characters) with live impact counts |
+| **Gating Tab** | View and edit contextual gating filters (built-in and custom fields) with live impact counts and Manage Fields button |
 | **Tools Tab** | Quick-access buttons for all slash commands |
 | **Status Zone** | Connection status, token/entry budget bars, active gating filters, quick actions |
 | **Footer** | Context window bar, health indicators, AI session statistics |
@@ -82,7 +82,7 @@ How and where entries are injected, and per-chat overrides. See [[Injection and 
 | **Prompt Manager Integration** | Register DLE injections as draggable Prompt Manager entries |
 | **Author's Notebook** | Persistent per-chat scratchpad injected every generation |
 | **Per-Chat Pin/Block** | Pin entries to always inject or block them, per chat |
-| **Contextual Gating** | Filter entries by era, location, scene type, and characters |
+| **Contextual Gating** | Filter entries by era, location, scene type, characters, and user-defined custom fields (configurable via rule builder) |
 | **Confidence-Gated Budget** | AI over-requests, then prioritizes high-confidence picks |
 
 ---

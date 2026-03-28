@@ -100,9 +100,52 @@ export function initRender(gs) {
     function toScreen(x, y) { return { x: x * gs.zoom + gs.panX, y: y * gs.zoom + gs.panY }; }
     function toWorld(sx, sy) { return { x: (sx - gs.panX) / gs.zoom, y: (sy - gs.panY) / gs.zoom }; }
 
+    // Custom field color palette (deterministic hash-based assignment)
+    const FIELD_COLOR_PALETTE = [
+        '#e53935', '#43a047', '#1e88e5', '#fb8c00', '#8e24aa',
+        '#00acc1', '#d81b60', '#7cb342', '#5e35b1', '#f4511e',
+        '#039be5', '#c0ca33', '#6d4c41', '#00897b', '#3949ab',
+    ];
+    const fieldColorCache = new Map();
+    function fieldValueColor(fieldName, value) {
+        const key = `${fieldName}:${value}`;
+        if (fieldColorCache.has(key)) return fieldColorCache.get(key);
+        // Build a deterministic index from all unique values for this field
+        if (!fieldColorCache.has(`__idx__${fieldName}`)) {
+            const uniqueVals = new Set();
+            for (const node of gs.nodes) {
+                const val = gs._vaultIndex?.[node.id]?.customFields?.[fieldName];
+                if (val != null) {
+                    if (Array.isArray(val)) val.forEach(v => uniqueVals.add(v));
+                    else uniqueVals.add(String(val));
+                }
+            }
+            const sorted = [...uniqueVals].sort();
+            const map = new Map();
+            sorted.forEach((v, i) => map.set(v, FIELD_COLOR_PALETTE[i % FIELD_COLOR_PALETTE.length]));
+            fieldColorCache.set(`__idx__${fieldName}`, map);
+        }
+        const map = fieldColorCache.get(`__idx__${fieldName}`);
+        const c = map.get(value) || '#888888';
+        fieldColorCache.set(key, c);
+        return c;
+    }
+
     function getNodeColor(n) {
         if (n === gs.hoverNode) return '#ffffff';
         let color;
+        // Custom field coloring: "field:era", "field:location", etc.
+        if (gs.colorMode?.startsWith('field:')) {
+            const fieldName = gs.colorMode.slice(6);
+            const val = gs._vaultIndex?.[n.id]?.customFields?.[fieldName];
+            if (val == null || (Array.isArray(val) && val.length === 0)) {
+                color = '#555555'; // no value → grey
+            } else {
+                const displayVal = Array.isArray(val) ? val[0] : String(val);
+                color = fieldValueColor(fieldName, displayVal);
+            }
+            return toPastel(color);
+        }
         switch (gs.colorMode) {
             case 'priority': color = priorityColor(n.priority); break;
             case 'centrality': color = centralityColor(gs.edgeCountByNode.get(n.id) || 0, gs.maxEdgeCount); break;
@@ -158,7 +201,24 @@ export function initRender(gs) {
                 }
                 return items.slice(0, 8).join('') + (items.length > 8 ? `<span class="dle-dimmed">+${items.length - 8} more</span>` : '');
             }
-            default: return '';
+            default: {
+                // Custom field color mode: "field:era", "field:mood", etc.
+                if (gs.colorMode?.startsWith('field:')) {
+                    const fieldName = gs.colorMode.slice(6);
+                    const idx = fieldColorCache.get(`__idx__${fieldName}`);
+                    if (!idx || idx.size === 0) return `<span>No "${escapeHtml(fieldName)}" values found in vault</span>`;
+                    const items = [];
+                    // Field name header
+                    items.push(`<span style="color:#ccc;font-weight:bold;margin-right:8px;">${escapeHtml(fieldName)}</span>`);
+                    for (const [val, c] of idx) {
+                        items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${toPastel(c)};"></span>${escapeHtml(val)}</span>`);
+                    }
+                    // "No value" indicator for grey nodes
+                    items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;opacity:0.6;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#555555;"></span>No value</span>`);
+                    return items.slice(0, 12).join('') + (items.length > 12 ? `<span class="dle-dimmed">+${items.length - 12} more</span>` : '');
+                }
+                return '';
+            }
         }
     }
 
@@ -176,7 +236,7 @@ export function initRender(gs) {
             return;
         }
         const n = gs.hoverNode;
-        const entry = vaultIndex[n.id];
+        const entry = gs._vaultIndex?.[n.id];
         const connections = gs.edgeCountByNode.get(n.id) || 0;
         const injections = gs.injectionCounts.get(n.id) || 0;
         const vaultLabel = gs.multiVault && n.vaultSource ? `<span class="dle-dimmed">[${escapeHtml(n.vaultSource)}]</span>` : '';
@@ -193,14 +253,26 @@ export function initRender(gs) {
 
         const pinnedLabel = (n.pinned && !n._treePinned) ? '<span class="dle-graph-tooltip-badge dle-graph-tooltip-badge--pinned">pinned</span>' : '';
         const gatingFields = [];
-        if (entry.era) gatingFields.push(`Era: ${escapeHtml(entry.era)}`);
-        if (entry.location) gatingFields.push(`Location: ${escapeHtml(entry.location)}`);
-        if (entry.sceneType) gatingFields.push(`Scene: ${escapeHtml(entry.sceneType)}`);
+        if (entry.customFields) {
+            const activeColorField = gs.colorMode?.startsWith('field:') ? gs.colorMode.slice(6) : null;
+            for (const [key, val] of Object.entries(entry.customFields)) {
+                if (val != null && val !== '' && (!Array.isArray(val) || val.length > 0)) {
+                    let display = Array.isArray(val) ? val.join(', ') : String(val);
+                    // Note when multi-value field is colored by first value only
+                    if (key === activeColorField && Array.isArray(val) && val.length > 1) {
+                        display = `${val[0]} (+${val.length - 1} more)`;
+                    }
+                    gatingFields.push(`${escapeHtml(key)}: ${escapeHtml(display)}`);
+                }
+            }
+        }
+        // Use line breaks for 3+ fields, dot separator for fewer
+        const fieldsSeparator = gatingFields.length >= 3 ? '<br>' : ' · ';
         tooltipEl.innerHTML = `
             <strong>${escapeHtml(n.title)}</strong> ${vaultLabel}
             ${typeBadge}${healthBadge}${pinnedLabel}
             <span class="dle-graph-tooltip-stats">~${n.tokens} tokens · Priority ${entry.priority} · ${connections} connections · ${injections} injections</span>
-            ${gatingFields.length > 0 ? `<span class="dle-graph-tooltip-gating">${gatingFields.join(' · ')}</span>` : ''}
+            ${gatingFields.length > 0 ? `<span class="dle-graph-tooltip-gating">${gatingFields.join(fieldsSeparator)}</span>` : ''}
         `;
     }
 

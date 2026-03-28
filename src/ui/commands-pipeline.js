@@ -13,8 +13,9 @@ import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGatin
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
 import {
     vaultIndex, lastPipelineTrace, injectionHistory, generationCount,
-    generationLock, trackerKey, buildPromise,
+    generationLock, trackerKey, buildPromise, fieldDefinitions,
 } from '../state.js';
+import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 import { runPipeline } from '../pipeline/pipeline.js';
 import { showSourcesPopup } from './cartographer.js';
@@ -80,10 +81,11 @@ export function registerPipelineCommands() {
                 });
             }
 
-            // Apply contextual gating (era/location/scene/character) — matches onGenerate order
+            // Apply contextual gating — matches onGenerate order
             const gatingContext = chat_metadata?.deeplore_context;
             if (gatingContext) {
-                filtered = applyContextualGating(filtered, gatingContext, { forceInject: new Set() }, settings.debugMode, settings);
+                const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+                filtered = applyContextualGating(filtered, gatingContext, { forceInject: new Set() }, settings.debugMode, settings, fieldDefs);
             }
 
             const cmdPins = chat_metadata.deeplore_pins || [];
@@ -154,7 +156,24 @@ export function registerPipelineCommands() {
             }
             if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
                 plainLines.push(`Contextual Gating Removed (${t.contextualGatingRemoved.length}):`);
-                for (const title of t.contextualGatingRemoved) plainLines.push(`  ${title}`);
+                const gatingCtx = chat_metadata?.deeplore_context || {};
+                const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+                for (const title of t.contextualGatingRemoved) {
+                    const entry = vaultIndex.find(e => e.title === title);
+                    const reasons = [];
+                    if (entry?.customFields) {
+                        for (const fd of allDefs) {
+                            if (!fd.gating?.enabled) continue;
+                            const ev = entry.customFields[fd.name];
+                            const av = gatingCtx[fd.contextKey];
+                            if (ev == null || ev === '' || (Array.isArray(ev) && !ev.length)) continue;
+                            const evStr = Array.isArray(ev) ? ev.join(',') : String(ev);
+                            const avStr = av == null || av === '' || (Array.isArray(av) && !av.length) ? '(not set)' : (Array.isArray(av) ? av.join(',') : String(av));
+                            if (avStr === '(not set)' || evStr !== avStr) reasons.push(`${fd.name}: ${evStr} ≠ ${avStr}`);
+                        }
+                    }
+                    plainLines.push(`  ${title}${reasons.length ? ' — ' + reasons.join(', ') : ''}`);
+                }
                 plainLines.push('');
             }
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
@@ -239,11 +258,27 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Contextual gating removals
+            // Contextual gating removals (with per-field mismatch details)
             if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
+                const gatingCtx = chat_metadata?.deeplore_context || {};
+                const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
                 for (const title of t.contextualGatingRemoved) {
-                    html += `<li>${escapeHtml(title)} — filtered by era/location/scene/character gate</li>`;
+                    const entry = vaultIndex.find(e => e.title === title);
+                    const reasons = [];
+                    if (entry?.customFields) {
+                        for (const fd of allDefs) {
+                            if (!fd.gating?.enabled) continue;
+                            const ev = entry.customFields[fd.name];
+                            const av = gatingCtx[fd.contextKey];
+                            if (ev == null || ev === '' || (Array.isArray(ev) && !ev.length)) continue;
+                            const evStr = Array.isArray(ev) ? ev.join(',') : String(ev);
+                            const avStr = av == null || av === '' || (Array.isArray(av) && !av.length) ? '(not set)' : (Array.isArray(av) ? av.join(',') : String(av));
+                            if (avStr === '(not set)' || evStr !== avStr) reasons.push(`${escapeHtml(fd.name)}: ${escapeHtml(evStr)} ≠ ${escapeHtml(avStr)}`);
+                        }
+                    }
+                    const detail = reasons.length ? ` — ${reasons.join(', ')}` : ' — filtered by contextual gating';
+                    html += `<li>${escapeHtml(title)}${detail}</li>`;
                 }
                 html += '</ul>';
             }

@@ -82,9 +82,9 @@ Pin entries to always inject or block entries from injecting, on a per-chat basi
 
 ## Contextual Gating
 
-Filter entries based on the current story context using frontmatter fields: `era`, `location`, `scene_type`, and `character_present`. Set the active context with slash commands or the [[Drawer]] Gating tab, and entries that don't match the current context are filtered out.
+Filter entries based on the current story context using gating fields in frontmatter. DLE ships with four default fields (`era`, `location`, `scene_type`, `character_present`), but you can define additional custom fields via the "Manage Fields" rule builder accessible from the [[Drawer]] Gating tab toolbar or the Settings popup.
 
-**Frontmatter fields:**
+**Default frontmatter fields:**
 | Field | Type | Description |
 |-------|------|-------------|
 | `era` | string \| string[] | Entry only injects when the active era matches any value |
@@ -92,17 +92,23 @@ Filter entries based on the current story context using frontmatter fields: `era
 | `scene_type` | string \| string[] | Entry only injects when the active scene type matches any value |
 | `character_present` | string[] | Entry only injects when any listed character is present |
 
+Custom fields work the same way — add the field name to your entry's frontmatter with one or more values, then set the active value via `/dle-set-field`. Field definitions are stored in `DeepLore/field-definitions.yaml` in your vault. Each field definition specifies a type (`text`, `number`, `boolean`, `list`), a gating operator (`equals`, `contains`, `any_of`, `none_of`), and a tolerance level (`strict`, `moderate`, `lenient`).
+
 **Commands:**
-- `/dle-set-era [era]` — Set the active era. With no argument, opens a browse-and-select popup showing all era values in your vault with entry counts
-- `/dle-set-location [location]` — Set the active location. With no argument, shows a browse-and-select popup
-- `/dle-set-scene [type]` — Set the active scene type. With no argument, shows a browse-and-select popup
-- `/dle-set-characters <names>` — Set present characters (comma-separated)
-- `/dle-context-state` — Show the current contextual gating state
+- `/dle-set-field <name> [value]` — Set any gating field (built-in or custom). With no value, opens a browse-and-select popup
+- `/dle-clear-field <name>` — Clear a gating field from the active context
+- `/dle-set-era [era]` — Alias for `/dle-set-field era`. With no argument, opens a browse-and-select popup
+- `/dle-set-location [location]` — Alias for `/dle-set-field location`. With no argument, shows a browse-and-select popup
+- `/dle-set-scene [type]` — Alias for `/dle-set-field scene_type`. With no argument, shows a browse-and-select popup
+- `/dle-set-characters <names>` — Alias for `/dle-set-field character_present`. Comma-separated list
+- `/dle-context-state` — Show all active gating fields (built-in and custom)
 
 **Notes:**
 - Context state is stored per-chat in `chat_metadata.deeplore_context`
 - Entries without contextual fields are unaffected (always pass through)
-- Partial matches work: an entry with only `era` set is filtered only on era, regardless of location/scene/character
+- Partial matches work: an entry with only `era` set is filtered only on era, regardless of other fields
+- Custom fields appear automatically in the [[Drawer]] Browse tab as filter dropdowns and in the Gating tab with status dots and impact counts
+- The relationship graph can color nodes by any custom gating field
 
 ---
 

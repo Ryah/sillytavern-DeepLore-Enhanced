@@ -12,6 +12,7 @@
     --dle-accent: color-mix(in srgb, var(--SmartThemeUnderlineColor, #9c27b0) 60%, purple);
     --dle-border: var(--SmartThemeBorderColor, #444);
     --dle-bg-surface: var(--SmartThemeBlurTintColor, #1a1a2e);
+    --dle-bg-2: color-mix(in srgb, var(--SmartThemeBlurTintColor, #1a1a2e) 80%, var(--SmartThemeBodyColor, #fff));
     --dle-bg-hover: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 8%, transparent);
     --dle-text-muted: var(--SmartThemeEmColor, #888);
 
@@ -1400,17 +1401,44 @@ button.dle-browse-block.dle-block-active {
 }
 
 /* --- Contextual Gating --- */
+.dle-gating-fields-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-1);
+    padding: var(--dle-space-2) 0;
+    max-height: 320px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
 .dle-gating-group {
     display: flex;
     align-items: center;
     gap: var(--dle-space-2);
-    padding: 3px 0;
+    padding: var(--dle-space-2) var(--dle-space-1);
+    border-radius: var(--dle-radius-sm, 4px);
+    transition: background-color 120ms ease;
 }
+.dle-gating-group:hover {
+    background: var(--dle-bg-hover);
+}
+
+.dle-gating-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.dle-gating-dot-active { background: var(--dle-success); }
+.dle-gating-dot-empty { background: var(--dle-text-muted); opacity: 0.4; }
 
 .dle-gating-label {
     font-size: var(--dle-text-sm);
     font-weight: 500;
     min-width: 70px;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     flex-shrink: 0;
 }
 
@@ -2398,4 +2426,146 @@ button.dle-browse-block.dle-block-active {
 .dle-col-keys { text-align: left; width: 40%; }
 .dle-col-pri { text-align: center; width: 10%; }
 .dle-col-tok { text-align: right; width: 11%; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Rule Builder Popup
+   ═══════════════════════════════════════════════════════════════ */
+.dle-rb-popup { padding: var(--dle-space-2); }
+.dle-rb-header {
+    padding-bottom: var(--dle-space-3);
+    border-bottom: 1px solid var(--dle-border);
+    margin-bottom: var(--dle-space-2);
+}
+.dle-rb-header h3 { margin: 0 0 var(--dle-space-1) 0; font-size: var(--dle-text-base); }
+.dle-rb-errors {
+    background: color-mix(in srgb, var(--dle-error) 15%, transparent);
+    border: 1px solid var(--dle-error);
+    border-radius: 4px;
+    padding: var(--dle-space-2);
+    margin-bottom: var(--dle-space-2);
+    font-size: var(--dle-text-sm);
+    color: var(--dle-error);
+}
+.dle-rb-fields { display: flex; flex-direction: column; gap: var(--dle-space-2); margin: var(--dle-space-2) 0; }
+.dle-rb-field {
+    border: 1px solid var(--dle-border);
+    border-radius: 6px;
+    padding: var(--dle-space-2);
+    background: var(--dle-bg-2, var(--SmartThemeBlurTintColor));
+}
+.dle-rb-field-header {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    margin-bottom: var(--dle-space-2);
+}
+.dle-rb-field-num {
+    font-weight: bold;
+    font-size: var(--dle-text-sm);
+    opacity: 0.5;
+    min-width: 24px;
+}
+.dle-rb-field-header .text_pole { flex: 1; min-width: 0; }
+.dle-rb-name { max-width: 180px; font-family: monospace; }
+.dle-rb-label { max-width: 240px; }
+.dle-rb-field-body { display: flex; flex-direction: column; gap: var(--dle-space-1); padding-left: 28px; }
+.dle-rb-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    flex-wrap: wrap;
+}
+.dle-rb-lbl {
+    font-size: var(--dle-text-sm);
+    min-width: 80px;
+    color: var(--dle-text-muted);
+}
+.dle-rb-multi-lbl, .dle-rb-enabled-lbl {
+    min-width: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--dle-text-sm);
+}
+.dle-rb-select {
+    font-size: var(--dle-text-sm);
+    padding: 2px 6px;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 5%, transparent);
+    border: 1px solid var(--dle-border);
+    border-radius: var(--dle-radius-sm, 4px);
+    color: inherit;
+    transition: background-color 120ms ease, border-color 120ms ease;
+}
+.dle-rb-select:hover { border-color: var(--dle-accent); }
+.dle-rb-select:focus { outline: 1px solid var(--dle-accent); outline-offset: -1px; }
+.dle-rb-tolerance { max-width: 280px; }
+.dle-rb-ctx { max-width: 200px; font-family: monospace; font-size: var(--dle-text-sm); }
+.dle-rb-field input[type="text"],
+.dle-rb-field input[type="text"].text_pole {
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.dle-rb-field input[type="text"]:focus {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--dle-accent) 25%, transparent);
+}
+.dle-rb-values { flex: 1; font-size: var(--dle-text-sm); }
+.dle-rb-delete.menu_button,
+.dle-rb-move-up.menu_button,
+.dle-rb-move-down.menu_button,
+.dle-rb-dupe.menu_button { padding: 4px 8px; min-height: 28px; }
+.dle-rb-gating-disabled { opacity: 0.4; pointer-events: none; }
+.dle-rb-link-icon { cursor: pointer; font-size: var(--dle-text-sm); color: var(--dle-accent); padding: 0 4px; }
+@keyframes dle-rb-field-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+.dle-rb-new { animation: dle-rb-field-in 200ms ease-out; }
+.dle-rb-actions {
+    display: flex;
+    gap: var(--dle-space-2);
+    margin: var(--dle-space-2) 0;
+}
+.dle-rb-footer {
+    display: flex;
+    gap: var(--dle-space-2);
+    justify-content: flex-end;
+    margin-top: var(--dle-space-3);
+    padding-top: var(--dle-space-2);
+    border-top: 1px solid var(--dle-border);
+}
+.dle-manage-fields-btn { margin-left: auto; }
+
+/* Rule builder field error marker */
+.dle-rb-field-error { border-left: 3px solid var(--dle-error); }
+
+/* Chip keyboard focus */
+button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-offset: 1px; }
+
+/* Browse tab custom fields */
+.dle-browse-fields { font-size: var(--dle-text-xs); color: var(--dle-text-muted); margin-top: 4px; }
+
+/* Gating empty state hint */
+.dle-gating-hint { font-size: var(--dle-text-xs); color: var(--dle-text-muted); padding: var(--dle-space-2); }
+
+/* Drawer icon — custom SVG (loaded async from icon.svg, FA fallback) */
+.dle-drawer-icon-svg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.dle-drawer-icon-svg svg {
+    width: 1.1em;
+    height: 1.1em;
+}
+
+/* Rule builder field remove animation */
+.dle-rb-removing { opacity: 0; transform: translateY(-4px); transition: opacity 150ms ease, transform 150ms ease; }
+
+/* Rule builder responsive breakpoints */
+@media (max-width: 1024px) {
+    .dle-rb-name { max-width: 140px; }
+    .dle-rb-tolerance { max-width: 220px; }
+    .dle-rb-ctx { max-width: 160px; }
+}
+@media (max-width: 768px) {
+    .dle-rb-row { flex-direction: column; align-items: stretch; }
+    .dle-rb-lbl { min-width: unset; }
+    .dle-rb-name, .dle-rb-tolerance, .dle-rb-ctx { max-width: unset; }
+}
 

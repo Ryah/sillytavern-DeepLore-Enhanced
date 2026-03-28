@@ -12,6 +12,7 @@ import { getSettings, getPrimaryVault, invalidateSettingsCache } from '../../set
 import { fetchScribeNotes } from '../vault/obsidian-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, trackerKey, setIndexTimestamp,
+    fieldDefinitions,
 } from '../state.js';
 import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
 import { runHealthCheck } from './diagnostics.js';
@@ -51,6 +52,7 @@ export function registerAdminCommands() {
                 `Cache: ${indexTimestamp ? Math.round((Date.now() - indexTimestamp) / 1000) + 's old' : 'none'} / TTL ${settings.cacheTTL} seconds`,
                 `AI Search: ${settings.aiSearchEnabled ? 'on' : 'off'}`,
                 `AI Stats: ${aiSearchStats.calls} calls, ${aiSearchStats.cachedHits} cache hits, ~${aiSearchStats.totalInputTokens} in / ~${aiSearchStats.totalOutputTokens} out tokens`,
+                `Custom Fields: ${(() => { const defs = fieldDefinitions.length > 0 ? fieldDefinitions : []; return defs.length > 0 ? `${defs.length} (${defs.map(f => f.name).join(', ')})` : 'defaults'; })()}`,
                 `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
             ];
             const msg = lines.join('\n');
@@ -417,10 +419,12 @@ export function registerAdminCommands() {
                 { cmd: '/dle-unblock &lt;name&gt;', desc: 'Remove a block' },
                 { cmd: '/dle-pins', desc: 'Show all pins and blocks for this chat' },
                 { sep: true, label: 'Contextual Gating' },
-                { cmd: '/dle-set-era [era]', desc: 'Set era filter (no arg = browse values)' },
-                { cmd: '/dle-set-location [loc]', desc: 'Set location filter (no arg = browse values)' },
-                { cmd: '/dle-set-scene [type]', desc: 'Set scene type filter (no arg = browse values)' },
-                { cmd: '/dle-set-characters &lt;names&gt;', desc: 'Set present characters' },
+                { cmd: '/dle-set-field &lt;name&gt; [value]', desc: 'Set a custom gating field' },
+                { cmd: '/dle-clear-field &lt;name&gt;', desc: 'Clear a custom gating field' },
+                { cmd: '/dle-set-era [era]', desc: 'Set era filter (alias for /dle-set-field era)' },
+                { cmd: '/dle-set-location [loc]', desc: 'Set location filter (alias for /dle-set-field location)' },
+                { cmd: '/dle-set-scene [type]', desc: 'Set scene type filter (alias for /dle-set-field scene_type)' },
+                { cmd: '/dle-set-characters &lt;names&gt;', desc: 'Set present characters (alias for /dle-set-field character_present)' },
                 { cmd: '/dle-context-state', desc: 'Show current gating state' },
             ];
             let html = '<div class="dle-popup"><h3>DeepLore Enhanced Commands</h3>';

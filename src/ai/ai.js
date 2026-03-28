@@ -12,6 +12,7 @@ import {
     trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
     notifyAiStatsUpdated,
     isAiCircuitOpen, recordAiSuccess, recordAiFailure,
+    fieldDefinitions,
 } from '../state.js';
 import { dedupWarning } from '../toast-dedup.js';
 // Re-export pure functions from helpers.js (moved there for testability in Node.js)
@@ -230,8 +231,17 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                     }
                 }
             }
+            // Custom field annotations (e.g. [Era: medieval | Location: tavern])
+            let fieldsHint = '';
+            if (entry.customFields) {
+                const labelMap = new Map(fieldDefinitions.map(f => [f.name, f.label]));
+                const pairs = Object.entries(entry.customFields)
+                    .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
+                    .map(([k, v]) => `${labelMap.get(k) || k}: ${Array.isArray(v) ? v.join(', ') : v}`);
+                if (pairs.length > 0) fieldsHint = `\n[${pairs.join(' | ')}]`;
+            }
             const safeTitle = escapeXml(entry.title);
-            const header = `${safeTitle} (${entry.tokenEstimate}tok)${links}${decayHint}`;
+            const header = `${safeTitle} (${entry.tokenEstimate}tok)${links}${decayHint}${fieldsHint}`;
 
             // Wrap each entry in structural delimiters to prevent summary content
             // from being interpreted as manifest-level instructions

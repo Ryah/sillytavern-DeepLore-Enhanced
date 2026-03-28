@@ -5,6 +5,9 @@
 import { vaultIndex, lastHealthResult } from '../state.js';
 import { COMMUNITY_PALETTE, convexHull } from './graph-analysis.js';
 
+// Local escapeHtml — avoids ST import so this module remains Node.js-testable
+const escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 // ============================================================================
 // Pure helpers (no state dependency)
 // ============================================================================
@@ -151,7 +154,7 @@ export function initRender(gs) {
                 const items = [];
                 for (const [, cm] of gs.communities) {
                     if (cm.members.length === 0) continue;
-                    items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${toPastel(cm.color)};"></span>${cm.label} (${cm.members.length})</span>`);
+                    items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${toPastel(cm.color)};"></span>${escapeHtml(cm.label)} (${cm.members.length})</span>`);
                 }
                 return items.slice(0, 8).join('') + (items.length > 8 ? `<span class="dle-dimmed">+${items.length - 8} more</span>` : '');
             }
@@ -170,7 +173,7 @@ export function initRender(gs) {
         const entry = vaultIndex[n.id];
         const connections = gs.edgeCountByNode.get(n.id) || 0;
         const injections = gs.injectionCounts.get(n.id) || 0;
-        const vaultLabel = gs.multiVault && n.vaultSource ? `<span class="dle-dimmed">[${n.vaultSource}]</span>` : '';
+        const vaultLabel = gs.multiVault && n.vaultSource ? `<span class="dle-dimmed">[${escapeHtml(n.vaultSource)}]</span>` : '';
         const typeBadge = `<span class="dle-graph-tooltip-badge dle-graph-tooltip-badge--${n.type}">${n.type}</span>`;
 
         let healthBadge = '';
@@ -184,11 +187,11 @@ export function initRender(gs) {
 
         const pinnedLabel = (n.pinned && !n._treePinned) ? '<span class="dle-graph-tooltip-badge dle-graph-tooltip-badge--pinned">pinned</span>' : '';
         const gatingFields = [];
-        if (entry.era) gatingFields.push(`Era: ${entry.era}`);
-        if (entry.location) gatingFields.push(`Location: ${entry.location}`);
-        if (entry.sceneType) gatingFields.push(`Scene: ${entry.sceneType}`);
+        if (entry.era) gatingFields.push(`Era: ${escapeHtml(entry.era)}`);
+        if (entry.location) gatingFields.push(`Location: ${escapeHtml(entry.location)}`);
+        if (entry.sceneType) gatingFields.push(`Scene: ${escapeHtml(entry.sceneType)}`);
         tooltipEl.innerHTML = `
-            <strong>${n.title}</strong> ${vaultLabel}
+            <strong>${escapeHtml(n.title)}</strong> ${vaultLabel}
             ${typeBadge}${healthBadge}${pinnedLabel}
             <span class="dle-graph-tooltip-stats">~${n.tokens} tokens · Priority ${entry.priority} · ${connections} connections · ${injections} injections</span>
             ${gatingFields.length > 0 ? `<span class="dle-graph-tooltip-gating">${gatingFields.join(' · ')}</span>` : ''}

@@ -17,6 +17,8 @@ import { initEvents } from './graph-events.js';
 import { initGraphSettings } from './graph-settings.js';
 import { computeDisparityFilter, computeLouvainCommunities, updateCommunityCentroids, convexHull, COMMUNITY_PALETTE, computeGapAnalysis } from './graph-analysis.js';
 
+const escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 // ============================================================================
 // Debug logging
 // ============================================================================
@@ -40,22 +42,23 @@ export async function showGraphPopup() {
         return;
     }
 
-    if (vaultIndex.length > 200) {
+    const settings = getSettings();
+    const multiVault = (settings.vaults || []).length > 1;
+
+    // ========================================================================
+    // Build node and edge data — filter out entries with graph: false
+    // ========================================================================
+    const graphEntries = vaultIndex.filter(e => e.graph !== false);
+    dbg(`showGraphPopup: ${vaultIndex.length} vault entries, ${graphEntries.length} graphable, multiVault=${multiVault}`);
+
+    if (graphEntries.length > 500) {
         toastr.warning(
-            `Large vault (${vaultIndex.length} entries). The graph may be slow to render. Consider filtering by tag first.`,
+            `Large graph (${graphEntries.length} entries). The graph may be slow to render. Consider filtering by tag first.`,
             'DeepLore Enhanced',
             { timeOut: 8000, preventDuplicates: true },
         );
     }
-
-    const settings = getSettings();
-    const multiVault = (settings.vaults || []).length > 1;
-    dbg(`showGraphPopup: ${vaultIndex.length} entries, multiVault=${multiVault}`);
-
-    // ========================================================================
-    // Build node and edge data
-    // ========================================================================
-    const nodes = vaultIndex.map((e, i) => ({
+    const nodes = graphEntries.map((e, i) => ({
         id: i,
         title: e.title,
         type: e.constant ? 'constant' : e.seed ? 'seed' : e.bootstrap ? 'bootstrap' : 'regular',
@@ -73,10 +76,10 @@ export async function showGraphPopup() {
     // Detect title collisions (case-insensitive)
     const titleToIdx = new Map();
     const titleCollisions = [];
-    for (let i = 0; i < vaultIndex.length; i++) {
-        const key = vaultIndex[i].title.toLowerCase();
+    for (let i = 0; i < graphEntries.length; i++) {
+        const key = graphEntries[i].title.toLowerCase();
         if (titleToIdx.has(key)) {
-            titleCollisions.push({ existing: titleToIdx.get(key), duplicate: i, title: vaultIndex[i].title });
+            titleCollisions.push({ existing: titleToIdx.get(key), duplicate: i, title: graphEntries[i].title });
         } else {
             titleToIdx.set(key, i);
         }
@@ -97,16 +100,16 @@ export async function showGraphPopup() {
         const key = `${Math.min(from, to)},${Math.max(from, to)},${type}`;
         if (!edgeSet.has(key)) {
             edgeSet.add(key);
-            const srcTitle = vaultIndex[from]?.title || '';
-            const tgtTitle = vaultIndex[to]?.title || '';
+            const srcTitle = graphEntries[from]?.title || '';
+            const tgtTitle = graphEntries[to]?.title || '';
             const mw = (mentionWeights.get(`${srcTitle}\0${tgtTitle}`) || 0)
                       + (mentionWeights.get(`${tgtTitle}\0${srcTitle}`) || 0);
             edges.push({ from, to, type, _idx: edges.length, weight: Math.max(1, mw), _revealAlpha: 0 });
         }
     }
 
-    for (let i = 0; i < vaultIndex.length; i++) {
-        const entry = vaultIndex[i];
+    for (let i = 0; i < graphEntries.length; i++) {
+        const entry = graphEntries[i];
         for (const link of entry.resolvedLinks) {
             const j = titleToIdx.get(link.toLowerCase());
             if (j !== undefined && j !== i) addEdge(i, j, 'link');
@@ -199,7 +202,7 @@ export async function showGraphPopup() {
     let maxInjectionCount = 0;
     const injectionCounts = new Map();
     for (const n of nodes) {
-        const entry = vaultIndex[n.id];
+        const entry = graphEntries[n.id];
         const count = chatInjectionCounts.get(trackerKey(entry)) || 0;
         injectionCounts.set(n.id, count);
         if (count > maxInjectionCount) maxInjectionCount = count;
@@ -221,11 +224,11 @@ export async function showGraphPopup() {
     const topConnected = [...edgeCountByNode.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
-        .map(([idx, count]) => `${nodes[idx].title} (${count} connections)`);
+        .map(([idx, count]) => `${escapeHtml(nodes[idx].title)} (${count} connections)`);
 
     const circularNames = circularPairs.map(key => {
         const [a, b] = key.split(',').map(Number);
-        return `${nodes[a].title} <-> ${nodes[b].title}`;
+        return `${escapeHtml(nodes[a].title)} &lt;-&gt; ${escapeHtml(nodes[b].title)}`;
     });
 
     let summaryHtml = `<p><strong>Totals:</strong> ${nodes.length} nodes, ${edges.length} edges</p>`;
@@ -248,7 +251,7 @@ export async function showGraphPopup() {
         ? `<p class="dle-error dle-text-sm">⚠ ${circularPairs.length} circular require pair(s) detected</p>`
         : '';
 
-    const tagOptions = tagList.map(t => `<option value="${t}">${t}</option>`).join('');
+    const tagOptions = tagList.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
 
     container.innerHTML = `
         <h3 class="dle-graph-title">Entry Relationship Graph (${nodes.length} nodes, ${edges.length} edges)</h3>
@@ -717,7 +720,7 @@ export async function showGraphPopup() {
         enterFocusTree: null, exitFocusTree: null,
         updateTooltip: null,
         // Gap analysis
-        _vaultIndex: vaultIndex,
+        _vaultIndex: graphEntries,
         gapAnalysis: null,
         gapAnalysisActive: false,
     };

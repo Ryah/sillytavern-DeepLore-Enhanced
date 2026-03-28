@@ -196,7 +196,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
  * @param {string} message
  */
 function announceToSR(message) {
-    const el = document.getElementById('dle_sr_live');
+    const el = document.getElementById('dle-drawer-live');
     if (el) el.textContent = message;
 }
 

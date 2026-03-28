@@ -103,6 +103,7 @@ export function registerAiCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-review',
         callback: async (_args, userPrompt) => {
+            try {
             await ensureIndexFresh();
 
             if (vaultIndex.length === 0) {
@@ -141,6 +142,10 @@ export function registerAiCommands() {
             await Generate('normal');
 
             return '';
+            } catch (err) {
+                toastr.error('Review failed: ' + err.message, 'DeepLore Enhanced');
+                return '';
+            }
         },
         helpString: 'Send the entire vault to the AI for review and feedback. Usage: /dle-review <question>. Example: /dle-review What inconsistencies do you see?',
         returns: 'AI review posted to chat',

@@ -119,7 +119,7 @@ export const ds = {
     promptManagerRef: null,
 
     /** Why? tab filter: 'both' | 'injected' | 'filtered' */
-    whyTabFilter: 'both',
+    whyTabFilter: 'injected',
 };
 
 // ─── Entry Temperature Computation ───

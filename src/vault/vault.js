@@ -515,8 +515,10 @@ export async function buildIndexWithReuse() {
                 setIndexTimestamp(Date.now() - (settings.cacheTTL * 1000) + 30_000); // retry in ~30s
             } else {
                 setIndexTimestamp(Date.now());
+                // Only mark as ever-loaded when all vaults confirmed reachable —
+                // finalizeIndex() already sets it after a successful full build.
+                setIndexEverLoaded(true);
             }
-            setIndexEverLoaded(true);
             if (settings.debugMode) {
                 console.debug(`[DLE] Reuse sync: no changes detected${anyVaultFailed ? ' (some vaults failed)' : ''}`);
             }

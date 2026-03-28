@@ -13,7 +13,7 @@ import { getSettings, getPrimaryVault } from '../../settings.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI, extractAiResponseClient } from './ai.js';
-import { vaultIndex } from '../state.js';
+import { vaultIndex, isAiCircuitOpen } from '../state.js';
 import { stripObsidianSyntax } from '../helpers.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 
@@ -54,6 +54,7 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
         ]);
         return { text: response, usage: null };
     } else if (mode === 'profile' || mode === 'proxy') {
+        if (isAiCircuitOpen()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
         return await callAI(systemPrompt, userMessage, {
             mode,
             profileId: settings.autoSuggestProfileId,

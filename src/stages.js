@@ -467,4 +467,14 @@ export function recordAnalytics(matchedEntries, injectedEntries, analyticsData) 
             delete analyticsData[key];
         }
     }
+
+    // Cap total entries at 500 — evict oldest by lastTriggered to prevent unbounded growth
+    const ANALYTICS_MAX = 500;
+    const keys = Object.keys(analyticsData);
+    if (keys.length > ANALYTICS_MAX) {
+        keys.sort((a, b) => (analyticsData[a].lastTriggered || 0) - (analyticsData[b].lastTriggered || 0));
+        for (const key of keys.slice(0, keys.length - ANALYTICS_MAX)) {
+            delete analyticsData[key];
+        }
+    }
 }

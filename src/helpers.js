@@ -75,13 +75,14 @@ export function extractAiResponseClient(text) {
     const candidates = [];
     for (let i = 0; i < text.length; i++) {
         if (text[i] === '[') {
-            let depth = 1, inStr = false, escape = false;
+            let depth = 1, inStr = false, inSingleStr = false, escape = false;
             for (let j = i + 1; j < text.length && depth > 0; j++) {
                 const c = text[j];
                 if (escape) { escape = false; continue; }
                 if (c === '\\') { escape = true; continue; }
-                if (c === '"') { inStr = !inStr; continue; }
-                if (inStr) continue;
+                if (c === '"' && !inSingleStr) { inStr = !inStr; continue; }
+                if (c === "'" && !inStr) { inSingleStr = !inSingleStr; continue; }
+                if (inStr || inSingleStr) continue;
                 if (c === '[') depth++;
                 else if (c === ']') depth--;
                 if (depth === 0) {

@@ -7,6 +7,8 @@ import { getSettings, getVaultByName } from '../../settings.js';
 import { buildObsidianURI } from '../helpers.js';
 import { computeGapAnalysis } from './graph-analysis.js';
 
+const escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
 // ============================================================================
 // Public API — call initEvents(gs) after graph state is ready
 // ============================================================================
@@ -40,7 +42,7 @@ export function initEvents(gs, dbg) {
             : '';
 
         contextMenuEl.innerHTML = `
-            <div class="dle-graph-ctx-header">${node.title}</div>
+            <div class="dle-graph-ctx-header">${escapeHtml(node.title)}</div>
             <div class="dle-graph-ctx-item" data-action="pin">${pinLabel}</div>
             ${obsidianItem}
             <div class="dle-graph-ctx-item" data-action="focus-tree">Focus Tree</div>
@@ -360,6 +362,8 @@ export function initEvents(gs, dbg) {
                 }
                 hideContextMenu();
                 gs.needsDraw = true;
+                e.preventDefault();
+                e.stopPropagation();
                 break;
         }
     }, lOpt);

@@ -95,17 +95,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         // only consumes sources from the correct generation (race condition fix).
         // We do NOT clear lastInjectionSources here — the render handler clears
         // them after reading, and the epoch tag prevents stale consumption.
-
-        // Clear all previous DeepLore prompts
-        clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
-
-        // In prompt_list mode, also clear PM entry content from previous generation
-        if (settings.injectionMode === 'prompt_list' && promptManager) {
-            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook']) {
-                const pmEntry = promptManager.getPromptById(id);
-                if (pmEntry) pmEntry.content = '';
-            }
-        }
+        //
+        // NOTE: clearPrompts is intentionally deferred to the commit phase below.
+        // Clearing here caused silent lore loss when early returns fired (vault timeout,
+        // empty vault, no matches) — the old prompts were destroyed with nothing replacing them.
         // On first generation after hydration, clear stale dedup logs
         // (cached _contentHash values may not match current Obsidian content)
         if (!indexEverLoaded && vaultIndex.length > 0 && chat_metadata?.deeplore_injection_log?.length > 0) {
@@ -247,6 +240,17 @@ async function onGenerate(chat, contextSize, abort, type) {
             setLastPipelineTrace(trace);
         }
 
+        // Commit phase: clear previous prompts only now that we have results to replace them.
+        // This prevents silent lore loss when the pipeline fails or returns early — old prompts
+        // remain in context rather than being wiped to nothing.
+        clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
+        if (settings.injectionMode === 'prompt_list' && promptManager) {
+            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook']) {
+                const pmEntry = promptManager.getPromptById(id);
+                if (pmEntry) pmEntry.content = '';
+            }
+        }
+
         if (groups.length > 0) {
             // Bail if chat changed during pipeline — lore belongs to the old chat
             if (epoch !== chatEpoch) {
@@ -311,8 +315,10 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Stage 7: Track cooldowns and injection history (epoch-guarded)
-        if (epoch === chatEpoch) {
+        // Stage 7: Track cooldowns and injection history (epoch-guarded, lock-guarded)
+        // lockEpoch guard prevents a force-released stale pipeline from corrupting these Maps
+        // concurrently with the active pipeline that superseded it.
+        if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
             trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings);
         }
 
@@ -354,8 +360,8 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Stage 9: Per-chat injection counts (epoch-guarded, swipe-aware)
-        if (epoch === chatEpoch) {
+        // Stage 9: Per-chat injection counts (epoch-guarded, lock-guarded, swipe-aware)
+        if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
             // Detect swipe/regen: hash last message — same hash means content unchanged (swipe, not edit)
             const lastMsg = chat.length > 0 ? (chat[chat.length - 1]?.mes || '') : '';
             const chatHash = simpleHash(lastMsg + '|' + chat.length);

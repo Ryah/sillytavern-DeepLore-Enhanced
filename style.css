@@ -2156,6 +2156,21 @@ button.dle-browse-block.dle-block-active {
     font-style: italic;
 }
 
+.dle-graph-layout-notice {
+    margin-left: auto;
+    font-style: italic;
+    font-size: 14px;
+    color: #fff;
+}
+.dle-graph-layout-notice.dle-fade-out {
+    animation: dle-graph-notice-fade 3s ease forwards;
+}
+@keyframes dle-graph-notice-fade {
+    0%   { opacity: 1; }
+    50%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
 /* -- Context menu (positioned absolute within canvas container) -- */
 .dle-graph-context-menu {
     position: absolute;

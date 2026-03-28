@@ -162,11 +162,17 @@ export function initRender(gs) {
         }
     }
 
+    /** Append layout status notice (Calculating / Layout saved) to legend HTML */
+    function withLayoutNotice(legendHtml) {
+        if (!gs.layoutNotice) return legendHtml;
+        return `${legendHtml}<span class="dle-graph-layout-notice">${gs.layoutNotice}</span>`;
+    }
+
     function updateTooltip() {
         const tooltipEl = gs.tooltipEl;
         if (!tooltipEl) return;
         if (!gs.hoverNode || gs.hoverNode.hidden) {
-            tooltipEl.innerHTML = buildColorLegend() || '&nbsp;';
+            tooltipEl.innerHTML = withLayoutNotice(buildColorLegend()) || '&nbsp;';
             return;
         }
         const n = gs.hoverNode;
@@ -266,6 +272,9 @@ export function initRender(gs) {
             (edgesByType[edge.type] || (edgesByType[edge.type] = [])).push(edge);
         }
 
+        // Track drawn dim pairs to avoid multi-edge alpha stacking on hover
+        const drawnDimPairs = hoverDistances ? new Set() : null;
+
         for (const [type, edgeList] of Object.entries(edgesByType)) {
             if (edgeList.length === 0) continue;
             ctx.strokeStyle = edgeColors[type] || '#555';
@@ -312,6 +321,9 @@ export function initRender(gs) {
                     const toInReach = hoverDistances.has(edge.to);
                     const neighborEdge = fromInReach && toInReach && !touchesHover;
                     if (touchesHover) {
+                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
+                        if (drawnDimPairs.has(pairKey)) continue;
+                        drawnDimPairs.add(pairKey);
                         // Attenuate brightness when many edges fan out from hovered node
                         const hoverEdgeCount = gs.edgeCountByNode.get(hid) || 1;
                         const attenuation = hoverEdgeCount > 20 ? Math.max(0.35, 1.0 - (hoverEdgeCount - 20) * 0.015) : 1.0;
@@ -320,10 +332,24 @@ export function initRender(gs) {
                         ctx.shadowColor = edgeColors[type] || '#aac8ff';
                         ctx.shadowBlur = 3;
                     } else if (neighborEdge) {
-                        ctx.globalAlpha = 0.12;
+                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
+                        if (drawnDimPairs.has(pairKey)) continue;
+                        drawnDimPairs.add(pairKey);
+                        ctx.globalAlpha = 0.35;
+                        ctx.lineWidth = 1.5;
+                        ctx.shadowBlur = 0;
+                    } else if (fromInReach || toInReach) {
+                        // One endpoint in reach, one outside — fringe edge
+                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
+                        if (drawnDimPairs.has(pairKey)) continue;
+                        drawnDimPairs.add(pairKey);
+                        ctx.globalAlpha = 0.15;
                         ctx.lineWidth = 1;
                         ctx.shadowBlur = 0;
                     } else {
+                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
+                        if (drawnDimPairs.has(pairKey)) continue;
+                        drawnDimPairs.add(pairKey);
                         ctx.globalAlpha = settings.graphHoverDimOpacity || 0.03;
                         ctx.lineWidth = 1;
                         ctx.shadowBlur = 0;

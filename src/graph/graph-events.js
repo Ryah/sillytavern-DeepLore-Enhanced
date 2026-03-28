@@ -47,6 +47,7 @@ export function initEvents(gs, dbg) {
             ${obsidianItem}
             <div class="dle-graph-ctx-item" data-action="focus-tree">Focus Tree</div>
             <div class="dle-graph-ctx-item" data-action="details">Show Details</div>
+            <div class="dle-graph-ctx-item" data-action="copy-title">Copy Title</div>
             <div class="dle-graph-ctx-sep"></div>
             <div class="dle-graph-ctx-item dle-dimmed">${connections} connection(s) · ~${node.tokens} tokens</div>
         `;
@@ -113,6 +114,12 @@ export function initEvents(gs, dbg) {
                 gs.enterFocusTree(node);
                 break;
             }
+            case 'copy-title':
+                navigator.clipboard.writeText(node.title).then(
+                    () => toastr.success(`Copied "${node.title}"`, '', { timeOut: 2000 }),
+                    () => toastr.warning('Clipboard access denied', '', { timeOut: 3000 }),
+                );
+                break;
             case 'details': {
                 const connections = edgeCountByNode.get(node.id) || 0;
                 const inj = injectionCounts.get(node.id) || 0;
@@ -201,6 +208,7 @@ export function initEvents(gs, dbg) {
 
     canvas.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
+        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return; // G8: ignore during initial layout
         hideContextMenu();
         const rect = freshRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -224,6 +232,8 @@ export function initEvents(gs, dbg) {
         const rect = freshRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
         gs.debugMouseX = mx; gs.debugMouseY = my; if (gs.focusTreeRoot) gs.needsDraw = true;
+        // G8: During initial settling, only track debug coords — skip all interaction
+        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return;
         if (gs.dragNode) {
             const w = gs.toWorld(mx, my);
             gs.dragNode.x = w.x; gs.dragNode.y = w.y; gs.dragNode.vx = 0; gs.dragNode.vy = 0;
@@ -249,6 +259,10 @@ export function initEvents(gs, dbg) {
     canvas.addEventListener('mouseup', (e) => {
         if (e.button !== 0) return;
         if (gs.dragNode) {
+            // G6: Zero velocity on release and briefly boost damping to prevent snap-back
+            gs.dragNode.vx = 0;
+            gs.dragNode.vy = 0;
+            gs.releaseStabilizeFrames = 15; // physics loop checks this for extra damping
             dbg(`mouseup: released "${gs.dragNode.title}"`);
             gs.dragNode = null;
         }
@@ -292,6 +306,7 @@ export function initEvents(gs, dbg) {
     // Right-click context menu
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
+        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return; // G8: ignore during initial layout
         if (gs.dragNode) {
             const pinTarget = gs.dragNode;
             pinTarget.vx = 0; pinTarget.vy = 0;
@@ -350,20 +365,33 @@ export function initEvents(gs, dbg) {
                 gs.fitToView();
                 break;
             case 'Escape':
-                dbg('Keyboard: Escape — resetting focus tree / isolation and context menu');
+                // Exit focus tree OR reset isolation
                 if (gs.focusTreeRoot) {
+                    dbg('Keyboard: Escape — exiting focus tree');
                     gs.exitFocusTree();
+                    hideContextMenu();
+                    gs.needsDraw = true;
                 } else {
+                    dbg('Keyboard: Escape — resetting isolation and context menu');
                     for (const n of nodes) {
                         const shouldBeHidden = n.orphan || (n.revealBatchIdx != null && n.revealBatchIdx >= gs.revealedBatch && n.revealBatchIdx !== -1);
                         if (n.hidden && !shouldBeHidden) { n.vx = 0; n.vy = 0; }
                         n.hidden = shouldBeHidden;
                     }
+                    hideContextMenu();
+                    gs.needsDraw = true;
                 }
-                hideContextMenu();
-                gs.needsDraw = true;
-                e.preventDefault();
-                e.stopPropagation();
+                // Don't try to prevent popup close — just let focus exit happen
+                break;
+            case 'Backspace':
+                // Alternative: Backspace exits focus tree without closing popup
+                if (gs.focusTreeRoot) {
+                    dbg('Keyboard: Backspace — exiting focus tree');
+                    gs.exitFocusTree();
+                    hideContextMenu();
+                    gs.needsDraw = true;
+                    e.preventDefault();
+                }
                 break;
         }
     }, lOpt);
@@ -476,59 +504,81 @@ export function initEvents(gs, dbg) {
                 n._treePinned = false;
                 n.vx = 0; n.vy = 0;
             }
-            // Re-run BFS layout from hub
-            let hubId = 0, hubEdges = 0;
-            for (const [id, count] of edgeCountByNode) {
-                if (count > hubEdges) { hubId = id; hubEdges = count; }
-            }
-            const fullAdj = new Map();
-            for (const n of nodes) fullAdj.set(n.id, []);
-            for (const edge of edges) {
-                fullAdj.get(edge.from).push(edge.to);
-                fullAdj.get(edge.to).push(edge.from);
-            }
-            const rdepth = new Map();
-            rdepth.set(hubId, 0);
-            const rqueue = [hubId];
-            let rhead = 0;
-            while (rhead < rqueue.length) {
-                const cur = rqueue[rhead++];
-                const d = rdepth.get(cur);
-                for (const nb of (fullAdj.get(cur) || [])) {
-                    if (!rdepth.has(nb)) { rdepth.set(nb, d + 1); rqueue.push(nb); }
+
+            // Try to restore saved positions first
+            const saved = settings.graphSavedLayout;
+            let restored = false;
+            if (saved?.positions) {
+                let matched = 0;
+                for (const n of nodes) {
+                    const p = saved.positions[n.title];
+                    if (p) { n.x = p.x; n.y = p.y; matched++; }
+                }
+                if (matched >= nodes.length * 0.8) {
+                    restored = true;
+                    gs.alpha = 0.3; // Gentle settle, not full reheat
+                    dbg(`Reset: restored saved layout (${matched}/${nodes.length} matched)`);
                 }
             }
-            const rSpacing = (settings.graphSpringLength || 200) * 1.5;
-            const rByDepth = new Map();
-            for (const [id, d] of rdepth) {
-                if (!rByDepth.has(d)) rByDepth.set(d, []);
-                rByDepth.get(d).push(id);
-            }
-            for (const [d, ids] of rByDepth) {
-                if (d === 0) { nodes[ids[0]].x = 0; nodes[ids[0]].y = 0; }
-                else {
-                    const radius = d * rSpacing;
-                    for (let i = 0; i < ids.length; i++) {
-                        const angle = (2 * Math.PI * i / ids.length) + (d * 0.5);
-                        nodes[ids[i]].x = radius * Math.cos(angle) + (Math.random() - 0.5) * rSpacing * 0.2;
-                        nodes[ids[i]].y = radius * Math.sin(angle) + (Math.random() - 0.5) * rSpacing * 0.2;
+
+            if (!restored) {
+                // Fallback: re-run BFS layout from hub
+                let hubId = 0, hubEdges = 0;
+                for (const [id, count] of edgeCountByNode) {
+                    if (count > hubEdges) { hubId = id; hubEdges = count; }
+                }
+                const fullAdj = new Map();
+                for (const n of nodes) fullAdj.set(n.id, []);
+                for (const edge of edges) {
+                    fullAdj.get(edge.from).push(edge.to);
+                    fullAdj.get(edge.to).push(edge.from);
+                }
+                const rdepth = new Map();
+                rdepth.set(hubId, 0);
+                const rqueue = [hubId];
+                let rhead = 0;
+                while (rhead < rqueue.length) {
+                    const cur = rqueue[rhead++];
+                    const d = rdepth.get(cur);
+                    for (const nb of (fullAdj.get(cur) || [])) {
+                        if (!rdepth.has(nb)) { rdepth.set(nb, d + 1); rqueue.push(nb); }
                     }
                 }
+                const rSpacing = (settings.graphSpringLength || 200) * 1.5;
+                const rByDepth = new Map();
+                for (const [id, d] of rdepth) {
+                    if (!rByDepth.has(d)) rByDepth.set(d, []);
+                    rByDepth.get(d).push(id);
+                }
+                for (const [d, ids] of rByDepth) {
+                    if (d === 0) { nodes[ids[0]].x = 0; nodes[ids[0]].y = 0; }
+                    else {
+                        const radius = d * rSpacing;
+                        for (let i = 0; i < ids.length; i++) {
+                            const angle = (2 * Math.PI * i / ids.length) + (d * 0.5);
+                            nodes[ids[i]].x = radius * Math.cos(angle) + (Math.random() - 0.5) * rSpacing * 0.2;
+                            nodes[ids[i]].y = radius * Math.sin(angle) + (Math.random() - 0.5) * rSpacing * 0.2;
+                        }
+                    }
+                }
+                // Orphans
+                const disconnected = nodes.filter(n => !rdepth.has(n.id));
+                for (const n of disconnected) {
+                    const side = Math.floor(Math.random() * 4);
+                    const jitter = (Math.random() - 0.5) * 0.6;
+                    if (side === 0)      { n.x = gs.W * jitter; n.y = -gs.H * 0.2; }
+                    else if (side === 1) { n.x = gs.W * 0.2;    n.y = gs.H * jitter; }
+                    else if (side === 2) { n.x = gs.W * jitter; n.y = gs.H * 0.2; }
+                    else                 { n.x = -gs.W * 0.2;   n.y = gs.H * jitter; }
+                }
+                gs.alpha = 1.0;
+                dbg('Reset: re-initialized BFS layout and restarted physics');
             }
-            // Orphans
-            const disconnected = nodes.filter(n => !rdepth.has(n.id));
-            for (const n of disconnected) {
-                const side = Math.floor(Math.random() * 4);
-                const jitter = (Math.random() - 0.5) * 0.6;
-                if (side === 0)      { n.x = gs.W * jitter; n.y = -gs.H * 0.2; }
-                else if (side === 1) { n.x = gs.W * 0.2;    n.y = gs.H * jitter; }
-                else if (side === 2) { n.x = gs.W * jitter; n.y = gs.H * 0.2; }
-                else                 { n.x = -gs.W * 0.2;   n.y = gs.H * jitter; }
-            }
-            gs.alpha = 1.0; gs.simFrame = 0;
-            gs.panX = gs.W / 2; gs.panY = gs.H / 2; gs.zoom = 1;
+
+            gs.simFrame = 0;
             gs.needsDraw = true;
-            dbg('Reset: re-initialized BFS layout and restarted physics');
+            // Animated fit instead of viewport reset
+            if (gs.fitToView) gs.fitToView(true);
         }, lOpt);
     }
     if (fitBtn) {

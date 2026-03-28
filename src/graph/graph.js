@@ -6,9 +6,10 @@
  */
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { NO_ENTRIES_MSG } from '../../core/utils.js';
-import { getSettings } from '../../settings.js';
+import { getSettings, invalidateSettingsCache } from '../../settings.js';
 import { vaultIndex, chatInjectionCounts, trackerKey, mentionWeights } from '../state.js';
 import { ensureIndexFresh } from '../vault/vault.js';
+import { saveSettingsDebounced } from '../../../../../../script.js';
 
 import { initPhysics } from './graph-physics.js';
 import { initRender } from './graph-render.js';
@@ -300,7 +301,7 @@ export async function showGraphPopup() {
             <span class="dle-graph-legend-item" data-edge-type="cascade"><span class="dle-warning">—</span> Cascade</span>
         </div>
         <div style="position: relative; flex: 1; min-height: 0;">
-            <canvas id="dle_graph_canvas" width="900" height="550" style="border: 1px solid var(--dle-border); border-radius: 4px; cursor: grab; width: 100%; height: 100%; min-height: 200px; background: var(--dle-bg-surface);" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
+            <canvas id="dle_graph_canvas" tabindex="-1" width="900" height="550" style="border: 1px solid var(--dle-border); border-radius: 4px; cursor: grab; width: 100%; height: 100%; min-height: 200px; background: var(--dle-bg-surface); outline: none;" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
             <div id="dle_graph_tooltip" class="dle-graph-tooltip"></div>
             <div id="dle_graph_context_menu" class="dle-graph-context-menu dle-hidden"></div>
             <div id="dle_graph_settings_panel" class="dle-graph-settings-panel dle-hidden">
@@ -318,22 +319,22 @@ export async function showGraphPopup() {
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Layout</div>
                     <div class="dle-graph-settings-row">
-                        <label title="How far apart unconnected nodes push each other">Node Spacing</label>
+                        <label title="Push force between unconnected nodes — higher spreads them further apart">Repulsion</label>
                         <input type="range" id="dle_gs_repulsion" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_repulsion_val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
-                        <label title="Target distance between connected nodes">Link Distance</label>
+                        <label title="Preferred length of edges between connected nodes">Link Length</label>
                         <input type="range" id="dle_gs_spring" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_spring_val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
-                        <label title="How strongly nodes pull toward the center">Centering</label>
+                        <label title="Pull force toward the center of the canvas — prevents nodes from drifting off-screen">Gravity</label>
                         <input type="range" id="dle_gs_gravity" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_gravity_val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
-                        <label title="How quickly movement settles (higher = calmer)">Stability</label>
+                        <label title="Friction applied to node movement — higher values make nodes settle faster">Damping</label>
                         <input type="range" id="dle_gs_damping" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_damping_val"></span>
                     </div>
@@ -356,24 +357,24 @@ export async function showGraphPopup() {
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Interaction</div>
                     <div class="dle-graph-settings-row">
-                        <label title="How many hops from hovered node stay vivid">Hover Reach</label>
+                        <label title="Number of connection hops from the hovered node that remain bright — nodes beyond this distance are dimmed">Hover Depth</label>
                         <input type="range" id="dle_gs_hover_dim" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_hover_dim_val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
-                        <label title="Opacity of dimmed nodes/edges on hover">Dim Opacity</label>
+                        <label title="How visible out-of-reach edges remain when hovering a node — lower makes distant edges nearly invisible">Background Fade</label>
                         <input type="range" id="dle_gs_dim_opacity" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_dim_opacity_val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
-                        <label title="How many hops to show in Focus Tree mode">Focus Depth</label>
+                        <label title="Number of hops shown in Focus Tree mode (double-click a node to enter)">Focus Tree Depth</label>
                         <input type="range" id="dle_gs_tree_depth" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_tree_depth_val"></span>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Filtering</div>
                     <div class="dle-graph-settings-row">
-                        <label title="Edge backbone filter — lower = sparser, showing only the most significant edges">Edge Filter</label>
+                        <label title="Statistical significance threshold for edges — lower values hide weak connections, keeping only the strongest relationships">Edge Pruning</label>
                         <input type="range" id="dle_gs_edge_filter" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_edge_filter_val"></span>
                     </div>
@@ -381,12 +382,15 @@ export async function showGraphPopup() {
                         <small id="dle_gs_edge_count" class="dle-dimmed" style="font-size: 9px;"></small>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
-                    <button id="dle_gs_reset" class="menu_button" style="width: 100%; height: 24px; font-size: 10px; margin-top: 2px;">Reset to Defaults</button>
+                    <div class="dle-graph-settings-row dle-gap-1">
+                        <button id="dle_gs_redraw" class="menu_button" style="flex: 1; height: 24px; font-size: 10px;" title="Clear saved positions and replay the BFS rollout animation">Redraw</button>
+                        <button id="dle_gs_reset" class="menu_button" style="flex: 1; height: 24px; font-size: 10px;">Reset to Defaults</button>
+                    </div>
                 </div>
             </div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-            <small class="dle-dimmed">Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit · Esc to exit focus</small>
+            <small id="dle_graph_hints" class="dle-dimmed">Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit</small>
             <details class="dle-text-sm" style="margin: 0;">
                 <summary style="cursor: pointer; font-size: 11px;">Screen reader summary</summary>
                 <div style="max-height: 100px; overflow-y: auto; font-size: 11px;">${summaryHtml}</div>
@@ -581,6 +585,37 @@ export async function showGraphPopup() {
         revealBatches.push(disconnected.map(n => n.id));
     }
 
+    // ========================================================================
+    // Restore saved layout (skip progressive reveal if positions match)
+    // ========================================================================
+    let restoredLayout = false;
+    const originalRevealBatches = revealBatches.map(b => [...b]); // Keep a copy for replay
+    const saved = settings.graphSavedLayout;
+    if (saved?.positions) {
+        const pos = saved.positions;
+        let matched = 0;
+        for (const n of nodes) {
+            const p = pos[n.title];
+            if (p) { n.x = p.x; n.y = p.y; matched++; }
+        }
+        // Restore if ≥80% of nodes match saved positions
+        if (matched >= nodes.length * 0.8) {
+            restoredLayout = true;
+            for (const n of nodes) {
+                n.hidden = false;
+                n._revealScale = 1;
+                n.vx = 0; n.vy = 0;
+                n.revealBatchIdx = null; // Mark as fully revealed so exitFocusTree doesn't re-hide
+            }
+            for (const e of edges) e._revealAlpha = 1;
+            // Skip progressive reveal entirely
+            revealBatches.length = 0;
+            dbg(`Restored saved layout (${matched}/${nodes.length} nodes matched)`);
+        } else {
+            dbg(`Saved layout stale — only ${matched}/${nodes.length} matched, doing fresh reveal`);
+        }
+    }
+
     // Pre-compute link strength
     const linkStrengths = new Float64Array(edges.length);
     for (let e = 0; e < edges.length; e++) {
@@ -668,6 +703,10 @@ export async function showGraphPopup() {
         observer.observe(popupContainer, { childList: true, subtree: true });
     }
 
+    // Focus tree Escape is handled by:
+    // 1. onClosing callback (returns false to prevent popup close)
+    // 2. capture-phase keydown in graph-events.js (exits focus mode)
+
     // ========================================================================
     // Shared graph state — passed to all sub-modules
     // ========================================================================
@@ -691,8 +730,13 @@ export async function showGraphPopup() {
         isPanning: false, panStartX: 0, panStartY: 0, panOriginX: 0, panOriginY: 0,
         hoverDistances: null,
         contextMenuNode: null, tempPinnedNode: null,
+        settlingUntil: restoredLayout ? 0 : Date.now() + 5000, // G8: ignore mouse interaction for 5s during initial layout
+        releaseStabilizeFrames: 0, // G6: extra damping frames after drag release
+        layoutSaved: restoredLayout, // Whether positions have been saved this session
+        restoredLayout, // Whether we skipped reveal due to saved positions
+        layoutNotice: restoredLayout ? '' : 'Calculating layout…', // Status notice on color legend
         // Simulation
-        isRunning: true, alpha: 1.0,
+        isRunning: true, alpha: restoredLayout ? 0.3 : 1.0,
         hasSpringEnergy: true, maxDelta: 0, simFrame: 0,
         // Graph state
         colorMode: settings.graphDefaultColorMode || 'type',
@@ -755,6 +799,43 @@ export async function showGraphPopup() {
     const events = initEvents(gs, dbg);
     const graphSettings = initGraphSettings(gs, dbg);
 
+    // Wire replayReveal — clears saved layout and replays the BFS rollout animation
+    gs.replayReveal = () => {
+        // Clear saved layout
+        settings.graphSavedLayout = null;
+        gs.layoutSaved = false;
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+        // Reset all nodes
+        if (gs.focusTreeRoot) gs.exitFocusTree();
+        for (const n of nodes) {
+            n.pinned = false;
+            n._treePinned = false;
+            n.hidden = true;
+            n._revealScale = 0;
+            n.vx = 0; n.vy = 0;
+        }
+        for (const e of edges) e._revealAlpha = 0;
+        // Restore reveal batches from original
+        revealBatches.length = 0;
+        for (const batch of originalRevealBatches) revealBatches.push([...batch]);
+        gs.revealedBatch = 0;
+        gs.revealFrameCounter = 0;
+        gs.alpha = 1.0;
+        gs.simFrame = 0;
+        gs.settlingUntil = Date.now() + 5000;
+        gs.panX = gs.W / 2; gs.panY = gs.H / 2; gs.zoom = 1;
+        gs.needsDraw = true;
+        // Show calculating notice on color legend overlay
+        gs.layoutNotice = 'Calculating layout…';
+        if (gs.updateTooltip) gs.updateTooltip();
+        // Auto-fit 1s + 2s + 6s after redraw starts (don't wait for settle)
+        setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 1000);
+        setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 2000);
+        setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 6000);
+        dbg('Redraw: replaying BFS reveal animation');
+    };
+
     // ========================================================================
     // Animation loop
     // ========================================================================
@@ -766,6 +847,11 @@ export async function showGraphPopup() {
             return;
         }
         physics.simulate();
+
+        // --- Animated fit: smooth pan/zoom lerp ---
+        if (gs._fitAnim && focus.stepFitAnimation()) {
+            gs.needsDraw = true;
+        }
 
         // --- Ego-centric focus: smooth position lerp ---
         if (gs._egoLerpActive && focus.lerpEgoPositions()) {
@@ -806,6 +892,15 @@ export async function showGraphPopup() {
     // ========================================================================
     // Start
     // ========================================================================
-    render.updateTooltip(); // Show color legend on load
+    render.updateTooltip(); // Show color legend on load (includes layoutNotice)
     tick();
+
+    // Auto-fit: restored = quick, fresh reveal = 1s + 2s + 6s so nodes have spread out
+    if (restoredLayout) {
+        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 150);
+    } else {
+        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 1000);
+        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 2000);
+        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 6000);
+    }
 }

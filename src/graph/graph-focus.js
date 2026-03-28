@@ -101,14 +101,18 @@ export function initFocus(gs, dbg) {
         }
 
         const maxDepth = Math.max(0, ...levels.keys());
-        const ringSpacing = 150; // distance between rings
+        const baseRingSpacing = 150; // minimum distance between rings
+        const minArcPx = 35; // G4: minimum arc space per node to prevent overlap
 
         for (let d = 1; d <= maxDepth; d++) {
             const nodesAtLevel = levels.get(d) || [];
             if (nodesAtLevel.length === 0) continue;
             // Sort for deterministic layout
             nodesAtLevel.sort((a, b) => gs.nodes[a].title.localeCompare(gs.nodes[b].title));
-            const radius = d * ringSpacing;
+            // G4: Scale ring radius by population density so crowded rings expand
+            const linearRadius = d * baseRingSpacing;
+            const densityRadius = (nodesAtLevel.length * minArcPx) / (2 * Math.PI);
+            const radius = Math.min(Math.max(linearRadius, densityRadius), 1200); // cap at 1200px
             const angleStep = (2 * Math.PI) / nodesAtLevel.length;
             // Offset each ring slightly to avoid alignment
             const angleOffset = d * 0.3;
@@ -186,6 +190,17 @@ export function initFocus(gs, dbg) {
 
         fitToView();
         gs.cachedRect = canvas.getBoundingClientRect();
+        updateHints(true);
+    }
+
+    function updateHints(focusMode) {
+        const el = document.getElementById('dle_graph_hints');
+        if (!el) return;
+        if (focusMode) {
+            el.textContent = 'Double-click node to re-root · +/- to change depth · Backspace or ← to exit focus · Scroll to zoom · 0 to fit';
+        } else {
+            el.textContent = 'Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit';
+        }
     }
 
     function exitFocusTree() {
@@ -245,6 +260,7 @@ export function initFocus(gs, dbg) {
 
         fitToView();
         gs.cachedRect = gs.canvas.getBoundingClientRect();
+        updateHints(false);
     }
 
     /**
@@ -272,18 +288,26 @@ export function initFocus(gs, dbg) {
         return anyMoving;
     }
 
+    // G2: Max nodes illuminated by hover BFS — prevents hub nodes from lighting up the whole graph
+    const HOVER_MAX_NODES = 30;
+
     function computeHoverDistances(startId, maxDepth) {
-        const depth = maxDepth ?? (gs.settings.graphHoverDimDistance || 2);
+        const depth = maxDepth ?? (gs.settings.graphHoverDimDistance ?? 1);
         const dist = new Map();
         dist.set(startId, 0);
         const queue = [startId];
         let head = 0;
         while (head < queue.length) {
+            if (dist.size >= HOVER_MAX_NODES) break; // G2: cap total highlighted nodes
             const current = queue[head++];
             const d = dist.get(current);
             if (d >= depth) continue;
             for (const neighbor of (gs.adjacency.get(current) || [])) {
-                if (!dist.has(neighbor)) { dist.set(neighbor, d + 1); queue.push(neighbor); }
+                if (!dist.has(neighbor)) {
+                    dist.set(neighbor, d + 1);
+                    queue.push(neighbor);
+                    if (dist.size >= HOVER_MAX_NODES) break;
+                }
             }
         }
         return dist;
@@ -324,7 +348,7 @@ export function initFocus(gs, dbg) {
         }
     }
 
-    function fitToView() {
+    function fitToView(animate = false) {
         const { nodes, edgeCountByNode, W, H } = gs;
         const visible = nodes.filter(n => !n.hidden);
         if (visible.length === 0) return;
@@ -339,14 +363,45 @@ export function initFocus(gs, dbg) {
         }
         const dx = maxX - minX || 1;
         const dy = maxY - minY || 1;
-        const padding = 40;
-        gs.zoom = Math.min((W - padding * 2) / dx, (H - padding * 2) / dy, 3);
-        gs.zoom = Math.max(0.2, gs.zoom);
+        const padX = 40;
+        const padTop = 40;
+        const padBottom = 60; // Extra room for color legend overlay at bottom
+        const targetZoom = Math.max(0.2, Math.min((W - padX * 2) / dx, (H - padTop - padBottom) / dy, 3));
         const cx = (minX + maxX) / 2;
         const cy = (minY + maxY) / 2;
-        gs.panX = W / 2 - cx * gs.zoom;
-        gs.panY = H / 2 - cy * gs.zoom;
+        const targetPanX = W / 2 - cx * targetZoom;
+        const targetPanY = (padTop + (H - padBottom - padTop) / 2) - cy * targetZoom;
+
+        if (animate) {
+            // Smooth lerp over ~30 frames
+            gs._fitAnim = { targetPanX, targetPanY, targetZoom, frames: 0 };
+        } else {
+            gs.zoom = targetZoom;
+            gs.panX = targetPanX;
+            gs.panY = targetPanY;
+        }
         gs.needsDraw = true;
+    }
+
+    /** Step the fit animation — called from tick loop. Returns true while active. */
+    function stepFitAnimation() {
+        const a = gs._fitAnim;
+        if (!a) return false;
+        const t = 0.12; // lerp factor — smooth ease-out
+        gs.panX += (a.targetPanX - gs.panX) * t;
+        gs.panY += (a.targetPanY - gs.panY) * t;
+        gs.zoom += (a.targetZoom - gs.zoom) * t;
+        a.frames++;
+        // Done when close enough or max frames
+        if (a.frames > 60 || (Math.abs(gs.panX - a.targetPanX) < 0.5 && Math.abs(gs.panY - a.targetPanY) < 0.5 && Math.abs(gs.zoom - a.targetZoom) < 0.001)) {
+            gs.panX = a.targetPanX;
+            gs.panY = a.targetPanY;
+            gs.zoom = a.targetZoom;
+            gs._fitAnim = null;
+            return false;
+        }
+        gs.needsDraw = true;
+        return true;
     }
 
     // Attach to gs for cross-module access
@@ -360,6 +415,6 @@ export function initFocus(gs, dbg) {
     gs.lerpEgoPositions = lerpEgoPositions;
 
     return { bfsDepth, computeRadialLayout, enterFocusTree, exitFocusTree,
-             computeHoverDistances, applyFilters, fitToView, findNearest, hitRadius,
-             lerpEgoPositions };
+             computeHoverDistances, applyFilters, fitToView, stepFitAnimation,
+             findNearest, hitRadius, lerpEgoPositions };
 }

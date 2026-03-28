@@ -29,13 +29,13 @@ export function initGraphSettings(gs, dbg) {
     // ── Normalized slider mapping ──
     // Each slider is -100..+100. 0 = default. Negative = below default, positive = above.
     const sliderMaps = {
-        dle_gs_repulsion:   { key: 'graphRepulsion',       min: 0.1,   def: 0.5,  max: 50,    round: 1, power: 1.5 },
-        dle_gs_spring:      { key: 'graphSpringLength',    min: 30,    def: 200,  max: 600,   round: 0, power: 1 },
-        dle_gs_gravity:     { key: 'graphGravity',         min: 0.1,   def: 5.0,  max: 20,    round: 1, power: 1.5 },
-        dle_gs_damping:     { key: 'graphDamping',         min: 0.3,   def: 0.70, max: 0.98,  round: 2, power: 1 },
+        dle_gs_repulsion:   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 50,    round: 1, power: 1.5 },
+        dle_gs_spring:      { key: 'graphSpringLength',    min: 30,    def: 80,   max: 600,   round: 0, power: 1 },
+        dle_gs_gravity:     { key: 'graphGravity',         min: 0.1,   def: 11.0, max: 20,    round: 1, power: 1.5 },
+        dle_gs_damping:     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1, invert: true },
         dle_gs_hover_dim:   { key: 'graphHoverDimDistance', min: 0,     def: 2,    max: 15,    round: 0, power: 1 },
-        dle_gs_dim_opacity: { key: 'graphHoverDimOpacity',  min: 0,     def: 0.1,  max: 0.9,   round: 2, power: 1.5 },
-        dle_gs_tree_depth:  { key: 'graphFocusTreeDepth',  min: 0,     def: 2,    max: 15,    round: 0, power: 1 },
+        dle_gs_dim_opacity: { key: 'graphHoverDimOpacity',  min: 0,     def: 0.1,  max: 0.5,   round: 2, power: 1.5 },
+        dle_gs_tree_depth:  { key: 'graphFocusTreeDepth',  min: 1,     def: 2,    max: 15,    round: 0, power: 1 },
         dle_gs_edge_filter: { key: 'graphEdgeFilterAlpha', min: 0.01,  def: 0.05, max: 0.5,   round: 2, power: 1.5 },
     };
 
@@ -104,7 +104,9 @@ export function initGraphSettings(gs, dbg) {
             const el = document.getElementById(id);
             const valEl = document.getElementById(id + '_val');
             const actual = settings[map.key] ?? map.def;
-            if (el) el.value = actualToSlider(map, actual);
+            let sliderPos = actualToSlider(map, actual);
+            if (map.invert) sliderPos = -sliderPos;
+            if (el) el.value = sliderPos;
             if (valEl) valEl.textContent = formatActual(map, actual);
         }
 
@@ -114,7 +116,8 @@ export function initGraphSettings(gs, dbg) {
     if (settingsPanel && settingsBtn) {
         // Toggle panel visibility
         settingsBtn.addEventListener('click', () => {
-            const visible = settingsPanel.style.display !== 'none';
+            const visible = settingsPanel.style.display === 'block';
+            settingsPanel.classList.remove('dle-hidden');
             settingsPanel.style.display = visible ? 'none' : 'block';
             if (!visible) syncSettingsPanel();
         }, lOpt);
@@ -177,7 +180,9 @@ export function initGraphSettings(gs, dbg) {
             const valEl = document.getElementById(id + '_val');
             if (!el) continue;
             el.addEventListener('input', () => {
-                const actual = sliderToActual(map, parseInt(el.value, 10));
+                let rawSlider = parseInt(el.value, 10);
+                if (map.invert) rawSlider = -rawSlider;
+                const actual = sliderToActual(map, rawSlider);
                 if (valEl) valEl.textContent = formatActual(map, actual);
                 updateSetting(map.key, actual);
                 if (physicsKeys.has(map.key)) gs.alpha = Math.max(gs.alpha, 0.5);
@@ -189,6 +194,31 @@ export function initGraphSettings(gs, dbg) {
                 if ((map.key === 'graphHoverDimDistance' || map.key === 'graphHoverDimOpacity') && gs.hoverNode && gs.computeHoverDistances) {
                     gs.hoverDistances = gs.computeHoverDistances(gs.hoverNode.id);
                 }
+                // Live-update focus tree depth when in focus mode
+                if (map.key === 'graphFocusTreeDepth' && gs.focusTreeRoot && gs.enterFocusTree) {
+                    const root = gs.focusTreeRoot;
+                    // Clean up current focus tree
+                    for (const n of gs.nodes) {
+                        if (n._treePinned) { n.pinned = false; n._treePinned = false; }
+                        delete n._targetX; delete n._targetY;
+                    }
+                    if (gs.focusTreeRoot._depthMap) delete gs.focusTreeRoot._depthMap;
+                    if (gs.focusTreeRoot._treeEdgeIdx) delete gs.focusTreeRoot._treeEdgeIdx;
+                    gs.focusTreeRoot.pinned = false;
+                    gs.focusTreeRoot = null;
+                    gs.focusTreePhysics = false;
+                    gs._egoLerpActive = false;
+                    gs.enterFocusTree(root);
+                }
+            }, lOpt);
+        }
+
+        // Redraw — clear saved layout and replay BFS rollout animation
+        const redrawBtn = document.getElementById('dle_gs_redraw');
+        if (redrawBtn) {
+            redrawBtn.addEventListener('click', () => {
+                if (gs.replayReveal) gs.replayReveal();
+                dbg('Redraw: cleared saved layout and replaying reveal');
             }, lOpt);
         }
 
@@ -213,10 +243,10 @@ export function initGraphSettings(gs, dbg) {
 
         // Presets — set all physics params at once
         const presets = {
-            compact:    { graphRepulsion: 0.3, graphSpringLength: 80,  graphGravity: 8.0,  graphDamping: 0.70 },
-            balanced:   { graphRepulsion: 0.5, graphSpringLength: 150, graphGravity: 5.0,  graphDamping: 0.70 },
-            spacious:   { graphRepulsion: 1.0, graphSpringLength: 250, graphGravity: 3.0,  graphDamping: 0.65 },
-            ginormous:  { graphRepulsion: 2.0, graphSpringLength: 400, graphGravity: 1.5,  graphDamping: 0.60 },
+            compact:    { graphRepulsion: 0.2, graphSpringLength: 50,  graphGravity: 13.0, graphDamping: 0.50 },
+            balanced:   { graphRepulsion: 0.3, graphSpringLength: 80,  graphGravity: 11.0, graphDamping: 0.50 },
+            spacious:   { graphRepulsion: 0.6, graphSpringLength: 180, graphGravity: 7.0,  graphDamping: 0.50 },
+            ginormous:  { graphRepulsion: 1.2, graphSpringLength: 300, graphGravity: 3.5,  graphDamping: 0.50 },
         };
         settingsPanel.querySelectorAll('.dle-gs-preset').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -225,7 +255,14 @@ export function initGraphSettings(gs, dbg) {
                 for (const [key, value] of Object.entries(preset)) {
                     updateSetting(key, value);
                 }
-                gs.alpha = Math.max(gs.alpha, 0.5);
+                // G7: Full reheat + random perturbation to escape local minima
+                gs.alpha = 1.0;
+                for (const n of gs.nodes) {
+                    if (!n.pinned && !n.hidden) {
+                        n.x += (Math.random() - 0.5) * 8;
+                        n.y += (Math.random() - 0.5) * 8;
+                    }
+                }
                 syncSettingsPanel();
                 dbg(`Preset applied: ${btn.dataset.preset}`);
             }, lOpt);

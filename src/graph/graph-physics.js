@@ -4,6 +4,8 @@
  * shared-neighbor attraction, community clustering, gravity, collision, progressive reveal.
  */
 import { updateCommunityCentroids } from './graph-analysis.js';
+import { invalidateSettingsCache } from '../../settings.js';
+import { saveSettingsDebounced } from '../../../../../../script.js';
 
 // ============================================================================
 // Public API — call initPhysics(gs) after graph state is ready
@@ -41,17 +43,23 @@ export function initPhysics(gs) {
 
         if (gs.alpha < 0.001 && !frozenNode && !gs.hasSpringEnergy && gs.maxDelta < 0.01) return;
         gs.simFrame++;
-        if (!frozenNode) gs.alpha *= 0.99; // moderate decay — settles in ~7s
+        // G7: Two-phase decay — plateau while hot (~20s above 0.3), then fast cooldown (~6s)
+        if (!frozenNode) gs.alpha *= (gs.alpha > 0.3) ? 0.999 : 0.985;
 
         // -- Force parameters (read from settings each frame so sliders are live) --
         const repulsion = gs.settings.graphRepulsion ?? 0.5;
         const gravity   = gs.settings.graphGravity ?? 5.0;
-        const damping   = gs.settings.graphDamping ?? 0.70;
+        // G6: Temporarily boost damping after drag release to prevent snap-back
+        let damping     = gs.settings.graphDamping ?? 0.50;
+        if (gs.releaseStabilizeFrames > 0) {
+            damping = Math.min(damping + 0.2, 0.95);
+            gs.releaseStabilizeFrames--;
+        }
 
         const CHARGE          = repulsion * 120;             // base for degree-proportional repulsion (sqrt scaling)
         const CHARGE_MAX_DIST = 1500 + repulsion * 200;
         const COLLIDE_PAD     = 8;
-        const VELOCITY_DECAY  = 1 - damping;                // default 0.70 → 0.30
+        const VELOCITY_DECAY  = 1 - damping;                // default 0.50 → 0.50
         const MAX_DISP        = 40 + repulsion * 80;        // default 0.5 → 80
         const GLOBAL_GRAVITY  = gravity * 0.003;             // default 5.0 → 0.015 (stronger pull inward)
 
@@ -210,6 +218,38 @@ export function initPhysics(gs) {
             }
         }
         gs.hasSpringEnergy = totalSpeed > Math.max(0.1, nodes.length * 0.005);
+
+        // --- Auto-save layout once settled ---
+        if (!gs.layoutSaved
+            && gs.revealedBatch >= gs.revealBatches.length
+            && gs.alpha < 0.05
+            && gs.maxDelta < 0.5) {
+            gs.layoutSaved = true;
+            const positions = {};
+            for (const n of nodes) {
+                if (!n.orphan) positions[n.title] = { x: n.x, y: n.y };
+            }
+            gs.settings.graphSavedLayout = { positions, timestamp: Date.now() };
+            invalidateSettingsCache();
+            saveSettingsDebounced();
+            // Show "Layout saved" on color legend, then CSS fade-out
+            gs.layoutNotice = '✓ Layout saved';
+            if (gs.updateTooltip) gs.updateTooltip();
+            // Add fade-out class after a tick so the animation triggers
+            requestAnimationFrame(() => {
+                const el = gs.tooltipEl?.querySelector('.dle-graph-layout-notice');
+                if (el) el.classList.add('dle-fade-out');
+            });
+            // Clear notice text after animation completes
+            setTimeout(() => {
+                if (gs.layoutNotice === '✓ Layout saved') {
+                    gs.layoutNotice = '';
+                    if (gs.updateTooltip) gs.updateTooltip();
+                }
+            }, 4000);
+            // Auto-fit after settling
+            if (gs.fitToView) gs.fitToView(true);
+        }
     }
 
     return { simulate };

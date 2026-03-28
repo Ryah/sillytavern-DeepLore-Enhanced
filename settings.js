@@ -162,16 +162,17 @@ export const defaultSettings = {
     // Auto-Suggest
     autoSuggestSkipReview: false,          // E11: skip review popup checkbox
     // Graph
-    graphRepulsion: 0.5,               // ForceAtlas2 repulsion coefficient (0.1-50)
-    graphSpringLength: 200,            // Legacy — not used in FA2 LinLog
-    graphGravity: 5.0,                 // ForceAtlas2 strong gravity (0.1-20)
-    graphDamping: 0.70,                // Velocity damping (0.3-0.98)
-    graphHoverDimDistance: 2,           // BFS hops that stay vivid on hover (0-15)
-    graphHoverDimOpacity: 0.1,         // Opacity of dimmed nodes/edges (0-0.9)
+    graphRepulsion: 0.3,               // ForceAtlas2 repulsion coefficient (0.1-50)
+    graphSpringLength: 80,             // Legacy — not used in FA2 LinLog
+    graphGravity: 11.0,                // ForceAtlas2 strong gravity (0.1-20)
+    graphDamping: 0.50,                // Velocity damping (0.3-0.98)
+    graphHoverDimDistance: 2,           // G2: BFS hops that stay vivid on hover (0-15)
+    graphHoverDimOpacity: 0.1,         // Opacity of dimmed nodes/edges (0-0.5)
     graphFocusTreeDepth: 2,            // N-hop depth for focus tree mode (0-15)
     graphDefaultColorMode: 'type',     // type, priority, centrality, frequency
     graphShowLabels: true,             // Show node labels
     graphEdgeFilterAlpha: 0.05,        // Disparity filter alpha (0.01-0.5, lower = sparser backbone)
+    graphSavedLayout: null,            // Saved node positions { positions: {title: {x,y}}, timestamp }
     // Entry Decay & Freshness
     decayEnabled: false,
     decayBoostThreshold: 5,    // Generations without injection before freshness boost
@@ -228,8 +229,8 @@ export const settingsConstraints = {
     graphGravity: { min: 0.1, max: 20 },
     graphDamping: { min: 0.3, max: 0.98 },
     graphHoverDimDistance: { min: 0, max: 15 },
-    graphHoverDimOpacity: { min: 0, max: 0.9 },
-    graphFocusTreeDepth: { min: 0, max: 15 },
+    graphHoverDimOpacity: { min: 0, max: 0.5 },
+    graphFocusTreeDepth: { min: 1, max: 15 },
     graphEdgeFilterAlpha: { min: 0.01, max: 0.5 },
     decayBoostThreshold: { min: 2, max: 20 },
     decayPenaltyThreshold: { min: 2, max: 10 },

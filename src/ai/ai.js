@@ -24,7 +24,7 @@ import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normali
 // Minimum 2 seconds between actual AI API calls to prevent rapid-generation spam.
 // Cache hits and circuit breaker skips are not throttled (they don't make API calls).
 let _lastAiCallTimestamp = 0;
-const AI_CALL_MIN_INTERVAL_MS = 2000;
+const AI_CALL_MIN_INTERVAL_MS = 500;
 
 /** Reset AI call throttle — call on chat change to avoid cross-chat penalty. */
 export function resetAiThrottle() { _lastAiCallTimestamp = 0; }

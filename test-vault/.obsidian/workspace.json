@@ -1,0 +1,218 @@
+{
+  "main": {
+    "id": "bea9b457edadf35b",
+    "type": "split",
+    "children": [
+      {
+        "id": "355097b3f638b87c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "594010b6cd34d03e",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "lore/nightwatch-protocol.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "nightwatch-protocol"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ab5f06511a48940b",
+    "type": "split",
+    "children": [
+      {
+        "id": "c81390816b2ab930",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "88ead43b203077dd",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "165079c9b5acbbd6",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "2050e3903945e3fd",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "9150a12bd12f6f5a",
+    "type": "split",
+    "children": [
+      {
+        "id": "ab7e7ce19734de6e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "4bae60cc327739d0",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "items/hells-statue.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for hells-statue"
+            }
+          },
+          {
+            "id": "1cb73cacaf4b1de3",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "items/hells-statue.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from hells-statue"
+            }
+          },
+          {
+            "id": "65844d37e482fda2",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "87ad389ba9a95fdb",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "3e3026c37240e2c6",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "items/hells-statue.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of hells-statue"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "594010b6cd34d03e",
+  "lastOpenFiles": [
+    "lore/ley-line-geography.md",
+    "lore/hollow-roads.md",
+    "lore/phantom-bridge-legend.md",
+    "lore/nightwatch-protocol.md",
+    "lore/mage-dueling-code.md",
+    "lore/calamity-theories.md",
+    "lore/calamity-survivor-adaptations.md",
+    "lore/bolludine-shard-politics.md",
+    "lore/academy-restriction-tiers.md",
+    "lore/academy-charter-amendments.md",
+    "items/speaking-stone.md",
+    "items/hells-statue.md",
+    "items/divine-tiara.md",
+    "items/archive-key.md",
+    "items/angel-crown.md",
+    "items/severance-dagger.md",
+    "items/heartwood-staff.md",
+    "items/echo-lens.md",
+    "_edge-cases/sedKiwXoY",
+    "_edge-cases/sedvuGFc0",
+    "_edge-cases/sedrcgxu0",
+    "_edge-cases/sedvue6Hv",
+    "_edge-cases/sedY1IZTh",
+    "_edge-cases/sed2jWl98",
+    "_edge-cases/sedczfcCK",
+    "_edge-cases/sedvoE0nQ",
+    "_edge-cases/sed9rEVwU",
+    "_edge-cases/sed9BLAu3",
+    "items/canopic-chest-of-serendipity.md"
+  ]
+}

@@ -23,6 +23,23 @@
             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
             <span>Features</span>
         </button>
+        <div class="dle-features-children">
+            <button class="dle-features-subtab active" data-features-subtab="author-notebook">
+                <i class="fa-solid fa-book" aria-hidden="true"></i><span>Author Notebook</span>
+            </button>
+            <button class="dle-features-subtab" data-features-subtab="ai-notebook">
+                <i class="fa-solid fa-robot" aria-hidden="true"></i><span>AI Notebook</span>
+            </button>
+            <button class="dle-features-subtab" data-features-subtab="session-scribe">
+                <i class="fa-solid fa-scroll" aria-hidden="true"></i><span>Session Scribe</span>
+            </button>
+            <button class="dle-features-subtab" data-features-subtab="auto-lorebook">
+                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Auto Lorebook</span>
+            </button>
+            <button class="dle-features-subtab" data-features-subtab="graph">
+                <i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Graph</span>
+            </button>
+        </div>
         <button class="dle-settings-tab" id="dle-sp-tab-system" data-settings-tab="system" role="tab"
                 aria-selected="false" aria-controls="dle-sp-system">
             <i class="fa-solid fa-sliders" aria-hidden="true"></i>
@@ -548,6 +565,9 @@
         <div class="dle-settings-panel" id="dle-sp-features" data-settings-panel="features"
              role="tabpanel" aria-labelledby="dle-sp-tab-features" hidden>
 
+            <!-- Sub-panel: Author Notebook -->
+            <div class="dle-features-subpanel active" id="dle-sp-feat-author-notebook" data-features-subpanel="author-notebook"
+                 role="tabpanel">
             <div class="dle-settings-section">
             <h4>Author Notebook</h4>
             <p class="dle_section_desc">A per-chat scratchpad for notes, scene direction, or writing instructions.</p>
@@ -589,7 +609,11 @@
                 </div>
             </div>
             </div>
+            </div>
 
+            <!-- Sub-panel: AI Notebook -->
+            <div class="dle-features-subpanel" id="dle-sp-feat-ai-notebook" data-features-subpanel="ai-notebook"
+                 role="tabpanel" hidden>
             <div class="dle-settings-section">
             <h4>AI Notebook</h4>
             <p class="dle_section_desc">Automatically capture session notes from AI responses. Notes are stored per-chat and reinjected into future messages so the AI remembers what happened.</p>
@@ -711,7 +735,11 @@
                 </div>
             </div>
             </div>
+            </div>
 
+            <!-- Sub-panel: Session Scribe -->
+            <div class="dle-features-subpanel" id="dle-sp-feat-session-scribe" data-features-subpanel="session-scribe"
+                 role="tabpanel" hidden>
             <div class="dle-settings-section">
             <h4>Session Scribe</h4>
             <p class="dle_section_desc">Automatically summarize the roleplay session and write notes to your Obsidian vault.</p>
@@ -796,7 +824,11 @@
                 </div>
             </div>
             </div>
+            </div>
 
+            <!-- Sub-panel: Auto Lorebook -->
+            <div class="dle-features-subpanel" id="dle-sp-feat-auto-lorebook" data-features-subpanel="auto-lorebook"
+                 role="tabpanel" hidden>
             <div class="dle-settings-section">
             <h4>Auto Lorebook</h4>
             <p class="dle_section_desc">AI analyzes chat for entities not in the lorebook and suggests new entries.</p>
@@ -853,7 +885,11 @@
                 </div>
             </div>
             </div>
+            </div>
 
+            <!-- Sub-panel: Graph -->
+            <div class="dle-features-subpanel" id="dle-sp-feat-graph" data-features-subpanel="graph"
+                 role="tabpanel" hidden>
             <div class="dle-settings-section">
             <h4>Graph</h4>
             <p class="dle_section_desc">Settings for the <code>/dle-graph</code> entry relationship graph.</p>
@@ -919,6 +955,7 @@
                         </div>
                     </div>
                 </div>
+            </div>
             </div>
             </div>
         </div>

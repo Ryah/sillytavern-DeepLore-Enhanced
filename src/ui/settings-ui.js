@@ -364,7 +364,49 @@ export async function openSettingsPopup() {
         if ($lastTab.length) switchSettingsTab($lastTab);
     }
 
-    $container.on('click', '.dle-settings-tab', function () { switchSettingsTab($(this)); });
+    // ── Features sidebar expand/collapse + sub-tab switching ──────
+    const $featuresTab = $container.find('#dle-sp-tab-features');
+    const $featuresChildren = $container.find('.dle-features-children');
+
+    // Features children are always visible — no collapse toggle
+    $featuresChildren.removeAttr('hidden');
+    $featuresTab.attr('aria-expanded', 'true');
+
+    function switchFeaturesSubtab($subtab) {
+        const subtab = $subtab.data('features-subtab');
+        $container.find('.dle-features-subtab').removeClass('active');
+        $subtab.addClass('active');
+        $container.find('.dle-features-subpanel').removeClass('active').attr('hidden', '');
+        $container.find(`[data-features-subpanel="${subtab}"]`).addClass('active').removeAttr('hidden');
+        localStorage.setItem('dle_last_features_subtab', subtab);
+        // Ensure features main panel is active
+        if (!$featuresTab.hasClass('active')) {
+            switchSettingsTab($featuresTab);
+        }
+    }
+
+    // Main tab click handler — Features activates last sub-tab
+    $container.on('click', '.dle-settings-tab', function () {
+        const $tab = $(this);
+        if ($tab.data('settings-tab') === 'features') {
+            switchSettingsTab($tab);
+            // Restore last sub-tab or default to first
+            const stored = localStorage.getItem('dle_last_features_subtab');
+            const $target = stored
+                ? $container.find(`.dle-features-subtab[data-features-subtab="${stored}"]`)
+                : $container.find('.dle-features-subtab').first();
+            if ($target.length) switchFeaturesSubtab($target);
+            return;
+        }
+        switchSettingsTab($tab);
+    });
+
+    // Feature sub-tab click
+    $container.on('click', '.dle-features-subtab', function () {
+        switchFeaturesSubtab($(this));
+    });
+
+    // Keyboard navigation for main sidebar tabs
     $container.on('keydown', '.dle-settings-tab', function (e) {
         const $tabs = $container.find('.dle-settings-tab');
         const idx = $tabs.index(this);
@@ -382,9 +424,35 @@ export async function openSettingsPopup() {
         $newTab.trigger('focus');
     });
 
+    // Keyboard navigation for feature sub-tabs (Up/Down in sidebar)
+    $container.on('keydown', '.dle-features-subtab', function (e) {
+        const $subtabs = $container.find('.dle-features-subtab');
+        const idx = $subtabs.index(this);
+        let newIdx = idx;
+        switch (e.key) {
+            case 'ArrowDown': newIdx = (idx + 1) % $subtabs.length; break;
+            case 'ArrowUp': newIdx = (idx - 1 + $subtabs.length) % $subtabs.length; break;
+            case 'Home': newIdx = 0; break;
+            case 'End': newIdx = $subtabs.length - 1; break;
+            default: return;
+        }
+        e.preventDefault();
+        const $newSubtab = $subtabs.eq(newIdx);
+        switchFeaturesSubtab($newSubtab);
+        $newSubtab.trigger('focus');
+    });
+
     $container.find('.dle-settings-tab').attr('tabindex', '-1');
     $container.find('.dle-settings-tab.active').attr('tabindex', '0');
     $container.find('.dle-settings-panel').not('.active').attr('hidden', '');
+    $container.find('.dle-features-subpanel').not('.active').attr('hidden', '');
+
+    // Restore last viewed features sub-tab on init
+    const lastSubtab = localStorage.getItem('dle_last_features_subtab');
+    if (lastSubtab && lastTab === 'features') {
+        const $lastSubtab = $container.find(`.dle-features-subtab[data-features-subtab="${lastSubtab}"]`);
+        if ($lastSubtab.length) switchFeaturesSubtab($lastSubtab);
+    }
 
     // "Go to Matching tab" link in AI disabled notice
     $container.on('click', '#dle_sp_goto_matching', function (e) {

@@ -88,7 +88,7 @@ export function renderInjectionTab() {
             h += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}" data-title="${escapeHtml(src.title)}">`;
             h += `<span class="dle-why-title">`;
             if (uri) {
-                h += `<a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
+                h += `<a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
             } else {
                 h += escapeHtml(src.title);
             }
@@ -463,7 +463,7 @@ export function renderBrowseWindow() {
                 const srcVault = entry.vaultSource && settings.vaults ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
                 const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
                 const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
-                const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
+                const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
                 // Custom fields line
                 let fieldsHtml = '';
                 if (entry.customFields && Object.keys(entry.customFields).length > 0) {

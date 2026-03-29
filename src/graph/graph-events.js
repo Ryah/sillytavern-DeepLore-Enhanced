@@ -141,8 +141,13 @@ export function initEvents(gs, dbg) {
                     `Links: ${links} · Requires: ${reqs} · Excludes: ${excl}`,
                     `Tags: ${tags}`,
                 ];
-                if (entry.era) details.push(`Era: ${entry.era}`);
-                if (entry.location) details.push(`Location: ${entry.location}`);
+                if (entry.customFields) {
+                    for (const [key, val] of Object.entries(entry.customFields)) {
+                        if (val != null && val !== '' && (!Array.isArray(val) || val.length > 0)) {
+                            details.push(`${key}: ${Array.isArray(val) ? val.join(', ') : val}`);
+                        }
+                    }
+                }
                 if (entry.summary) details.push(`<em>${entry.summary.substring(0, 120)}${entry.summary.length > 120 ? '...' : ''}</em>`);
                 toastr.info(details.join('<br>'), 'Entry Details', { timeOut: 15000, closeButton: true, escapeHtml: false });
                 break;

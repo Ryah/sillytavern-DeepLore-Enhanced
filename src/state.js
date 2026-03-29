@@ -162,6 +162,13 @@ export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }
 export let fuzzySearchIndex = null;
 export function setFuzzySearchIndex(v) { fuzzySearchIndex = v; }
 
+/** Custom field definitions: loaded from Obsidian YAML or defaults */
+/** @type {import('./fields.js').FieldDefinition[]} */
+export let fieldDefinitions = [];
+export let fieldDefinitionsLoaded = false;
+export function setFieldDefinitions(v) { fieldDefinitions = v; fieldDefinitionsLoaded = true; notifyFieldDefinitionsUpdated(); }
+export function setFieldDefinitionsLoaded(v) { fieldDefinitionsLoaded = v; }
+
 /** Cross-entry mention weights: Map<"sourceTitle\0targetTitle", count>
  *  Counts how many times each entry's content mentions another entry's title/keys.
  *  Built during finalizeIndex(), cached in IndexedDB with the rest of the index. */
@@ -360,6 +367,22 @@ export function clearGenerationLockCallbacks() { generationLockCallbacks.length 
 function notifyGenerationLockChanged() {
     for (const cb of [...generationLockCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Generation lock callback error:', err.message); }
+    }
+}
+
+// ── Field definitions changed callbacks ──
+// Fired when setFieldDefinitions() is called (e.g., after loading from Obsidian or rule builder save).
+
+/** @type {Array<() => void>} */
+const fieldDefinitionsCallbacks = [];
+
+export function onFieldDefinitionsUpdated(callback) {
+    fieldDefinitionsCallbacks.push(callback);
+}
+
+function notifyFieldDefinitionsUpdated() {
+    for (const cb of [...fieldDefinitionsCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Field definitions callback error:', err.message); }
     }
 }
 

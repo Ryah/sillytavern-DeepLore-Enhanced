@@ -68,6 +68,7 @@ import {
     applyReinjectionCooldown, applyRequiresExcludesGating,
     applyStripDedup, trackGeneration, decrementTrackers, recordAnalytics,
 } from '../src/stages.js';
+import { DEFAULT_FIELD_DEFINITIONS } from '../src/fields.js';
 
 import {
     encodeVaultPath, validateVaultPath,
@@ -976,14 +977,14 @@ test('Stage: applyPinBlock adds pinned entries and removes blocked', () => {
 
 test('Stage: applyContextualGating removes entries not matching context', () => {
     const entries = [
-        makeEntry('Medieval', { era: ['medieval'] }),
-        makeEntry('Modern', { era: ['modern'] }),
+        makeEntry('Medieval', { customFields: { era: ['medieval'] } }),
+        makeEntry('Modern', { customFields: { era: ['modern'] } }),
         makeEntry('NoEra'),
     ];
     const ctx = { era: 'medieval' };
     const policy = buildExemptionPolicy(entries, [], []);
-    const settings = makeSettings({ contextualGatingTolerance: 'strict' });
-    const result = applyContextualGating(entries, ctx, policy, false, settings);
+    const STRICT_FIELD_DEFS = DEFAULT_FIELD_DEFINITIONS.map(fd => ({ ...fd, gating: { ...fd.gating, tolerance: 'strict' } }));
+    const result = applyContextualGating(entries, ctx, policy, false, {}, STRICT_FIELD_DEFS);
 
     assert(result.some(e => e.title === 'Medieval'), 'matching era should pass');
     assert(result.some(e => e.title === 'NoEra'), 'no era should pass');
@@ -1303,14 +1304,13 @@ test('BUG-011: applyRequiresExcludesGating exempts pinned entries case-insensiti
 });
 
 test('BUG-016: lenient gating filters entries with mismatched era', () => {
-    const e1 = makeEntry('Medieval Lore', { era: ['medieval'] });
-    const e2 = makeEntry('Spacefaring', { era: ['sci-fi'] });
+    const e1 = makeEntry('Medieval Lore', { customFields: { era: ['medieval'] } });
+    const e2 = makeEntry('Spacefaring', { customFields: { era: ['sci-fi'] } });
     const e3 = makeEntry('No Era', {});
     const context = { era: 'medieval', location: '', scene_type: '', characters_present: [] };
     const policy = buildExemptionPolicy([], [], []);
-    const settings = makeSettings({ contextualGatingTolerance: 'lenient' });
 
-    const result = applyContextualGating([e1, e2, e3], context, policy, false, settings);
+    const result = applyContextualGating([e1, e2, e3], context, policy, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assert(result.some(e => e.title === 'Medieval Lore'), 'matching era should pass');
     assert(!result.some(e => e.title === 'Spacefaring'), 'mismatched era should be filtered even in lenient');
     assert(result.some(e => e.title === 'No Era'), 'no-era entry should pass in lenient');
@@ -1366,8 +1366,8 @@ test('BUG-015: buildEpoch starts at 0', () => {
 // ============================================================================
 
 test('Pipeline: keyword match → pin/block → gating full flow', () => {
-    const e1 = makeEntry('Eris', { keys: ['eris'], priority: 20, era: ['modern'] });
-    const e2 = makeEntry('Boris', { keys: ['boris'], priority: 50, era: ['medieval'] });
+    const e1 = makeEntry('Eris', { keys: ['eris'], priority: 20, customFields: { era: ['modern'] } });
+    const e2 = makeEntry('Boris', { keys: ['boris'], priority: 50, customFields: { era: ['medieval'] } });
     const e3 = makeEntry('Karl', { keys: ['karl'], priority: 30 });
     const entries = [e1, e2, e3];
     const scanText = 'eris boris karl';
@@ -1384,20 +1384,20 @@ test('Pipeline: keyword match → pin/block → gating full flow', () => {
     assertEqual(afterBlock.length, 2, 'two entries remain after block');
 
     // Step 3: Contextual gating (modern era active)
-    const gatingCtx = { era: 'modern', location: null, sceneType: null, characterPresent: [] };
-    const afterGating = applyContextualGating(afterBlock, gatingCtx, policy, false);
+    const gatingCtx = { era: 'modern', location: null, scene_type: null, characters_present: [] };
+    const afterGating = applyContextualGating(afterBlock, gatingCtx, policy, false, {}, DEFAULT_FIELD_DEFINITIONS);
     // Eris has era=['modern'] so she passes; Karl has no era so he passes
     assertEqual(afterGating.length, 2, 'both remaining entries pass modern era gating');
 });
 
 test('Pipeline: contextual gating filters entries by era', () => {
-    const e1 = makeEntry('Modern Entry', { keys: ['modern'], era: ['modern'] });
-    const e2 = makeEntry('Medieval Entry', { keys: ['medieval'], era: ['medieval'] });
+    const e1 = makeEntry('Modern Entry', { keys: ['modern'], customFields: { era: ['modern'] } });
+    const e2 = makeEntry('Medieval Entry', { keys: ['medieval'], customFields: { era: ['medieval'] } });
     const e3 = makeEntry('No Era', { keys: ['noera'] });
 
-    const ctx = { era: 'modern', location: null, sceneType: null, characterPresent: [] };
+    const ctx = { era: 'modern', location: null, scene_type: null, characters_present: [] };
     const dummyPolicy = buildExemptionPolicy([], [], []);
-    const result = applyContextualGating([e1, e2, e3], ctx, dummyPolicy, false);
+    const result = applyContextualGating([e1, e2, e3], ctx, dummyPolicy, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assert(result.some(e => e.title === 'Modern Entry'), 'modern entry passes');
     assert(!result.some(e => e.title === 'Medieval Entry'), 'medieval entry blocked');
     assert(result.some(e => e.title === 'No Era'), 'entry without era always passes');

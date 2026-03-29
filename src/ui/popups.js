@@ -308,7 +308,7 @@ export async function showBrowsePopup() {
                 : (settings.vaults?.[0]?.name || '');
             const obsidianUri = buildObsidianURI(entryVaultName, entry.filename);
             const obsidianLink = obsidianUri
-                ? ` <a href="${escapeHtml(obsidianUri)}" target="_blank" class="dle-text-xs dle-muted">Open in Obsidian</a>`
+                ? ` <a href="${escapeHtml(obsidianUri)}" class="dle-text-xs dle-muted">Open in Obsidian</a>`
                 : '';
 
             const temp = tempMap.get(trackerKey(entry));

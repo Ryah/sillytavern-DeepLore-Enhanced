@@ -116,9 +116,11 @@ export function validateCachedEntry(entry) {
     if (entry.excludes !== undefined && !Array.isArray(entry.excludes)) entry.excludes = [];
     if (entry.probability !== undefined && entry.probability !== null && typeof entry.probability !== 'number') entry.probability = null;
     // Default array fields if missing or corrupt (defend against partial IndexedDB writes)
-    for (const field of ['era', 'location', 'sceneType', 'characterPresent', 'links', 'resolvedLinks', 'tags']) {
+    for (const field of ['links', 'resolvedLinks', 'tags']) {
         if (!Array.isArray(entry[field])) entry[field] = [];
     }
+    // Validate customFields object
+    if (!entry.customFields || typeof entry.customFields !== 'object') entry.customFields = {};
     return true;
 }
 

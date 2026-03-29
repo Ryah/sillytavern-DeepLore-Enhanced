@@ -42,7 +42,7 @@ export function renderStatusZone() {
     // First-run setup banner (shown when no vaults configured and setup not dismissed)
     const $setupBanner = $drawer.find('.dle-setup-banner');
     const hasEnabledVaults = (settings.vaults || []).some(v => v.enabled);
-    if (!hasEnabledVaults && !settings._setupDismissed && !indexEverLoaded) {
+    if (!hasEnabledVaults && !settings._wizardCompleted && !indexEverLoaded) {
         if (!$setupBanner.length) {
             const banner = `<div class="dle-setup-banner" role="alert" style="padding: var(--dle-space-2) var(--dle-space-3); background: color-mix(in srgb, var(--dle-info) 15%, transparent); border-radius: 4px; margin: var(--dle-space-2) 0; display: flex; align-items: center; gap: var(--dle-space-2); font-size: var(--dle-text-sm);">
                 <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--dle-info);"></i>
@@ -140,17 +140,21 @@ export function renderStatusZone() {
             : 'Entry limit: waiting for first generation';
     $entriesBarContainer.attr('title', entriesTitle);
 
-    // Active gating filters
+    // Active gating filters (driven by field definitions)
     const ctx = chat_metadata?.deeplore_context;
     const $filters = $drawer.find('.dle-active-filters');
-    if (ctx && (ctx.era || ctx.location || ctx.scene_type || (ctx.characters_present && ctx.characters_present.length))) {
-        const chips = [];
-        if (ctx.era) chips.push(escapeHtml(ctx.era));
-        if (ctx.location) chips.push(escapeHtml(ctx.location));
-        if (ctx.scene_type) chips.push(escapeHtml(ctx.scene_type));
-        if (ctx.characters_present) {
-            for (const c of ctx.characters_present) chips.push(escapeHtml(c));
+    const chips = [];
+    if (ctx) {
+        for (const [key, val] of Object.entries(ctx)) {
+            if (val == null || val === '') continue;
+            if (Array.isArray(val)) {
+                for (const v of val) chips.push(escapeHtml(v));
+            } else {
+                chips.push(escapeHtml(val));
+            }
         }
+    }
+    if (chips.length > 0) {
         $filters.html(chips.map(c => `<span class="dle-chip dle-chip-sm">${c}</span>`).join(''));
         $filters.show();
     } else {
@@ -175,14 +179,15 @@ export function updateTabBadges() {
     const browseCount = vaultIndex?.length || 0;
     $drawer.find('[data-badge="browse"]').text(browseCount || '');
 
-    // Gating tab: count of active gating fields
-    const ctx = chat_metadata?.deeplore_context;
+    // Gating tab: count of active gating fields (dynamic)
+    const gatingCtx = chat_metadata?.deeplore_context;
     let gatingCount = 0;
-    if (ctx) {
-        if (ctx.era) gatingCount++;
-        if (ctx.location) gatingCount++;
-        if (ctx.scene_type) gatingCount++;
-        if (ctx.characters_present?.length) gatingCount += ctx.characters_present.length;
+    if (gatingCtx) {
+        for (const val of Object.values(gatingCtx)) {
+            if (val == null || val === '') continue;
+            if (Array.isArray(val)) gatingCount += val.length;
+            else gatingCount++;
+        }
     }
     $drawer.find('[data-badge="gating"]').text(gatingCount || '');
 }

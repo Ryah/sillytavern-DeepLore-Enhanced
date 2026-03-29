@@ -103,10 +103,7 @@ export function makeEntry(title, opts = {}) {
         refineKeys: opts.refineKeys || [],
         vaultSource: opts.vaultSource || '',
         filename: opts.filename || `${title}.md`,
-        era: opts.era || null,
-        location: opts.location || null,
-        sceneType: opts.sceneType || null,
-        characterPresent: opts.characterPresent || null,
+        customFields: opts.customFields || {},
         enabled: opts.enabled !== false,
     };
 }

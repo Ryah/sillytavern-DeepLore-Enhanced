@@ -8,10 +8,10 @@ import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
 import { parseFrontmatter, simpleHash, classifyError } from '../../core/utils.js';
-import { getSettings, getPrimaryVault, invalidateSettingsCache } from '../../settings.js';
+import { getSettings, getPrimaryVault } from '../../settings.js';
 import { fetchScribeNotes } from '../vault/obsidian-api.js';
 import {
-    vaultIndex, aiSearchStats, indexTimestamp, trackerKey, setIndexTimestamp,
+    vaultIndex, aiSearchStats, indexTimestamp, trackerKey,
     fieldDefinitions,
 } from '../state.js';
 import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
@@ -290,121 +290,11 @@ export function registerAdminCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-setup',
         callback: async () => {
-            const settings = getSettings();
-
-            // Step 1: Vault connection
-            const step1Html = `
-                <div class="dle-popup">
-                    <h3>DeepLore Enhanced Setup (1/3): Vault Connection</h3>
-                    <p>Connect to your Obsidian vault via the Local REST API plugin.</p>
-                    <div class="dle-my-10">
-                        <label>Vault Name:</label>
-                        <input id="dle_setup_name" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.name || 'Primary')}" />
-                    </div>
-                    <div class="dle-my-10">
-                        <label>Host (default: 127.0.0.1):</label>
-                        <input id="dle_setup_host" class="text_pole" type="text" value="${escapeHtml(settings.vaults?.[0]?.host || '127.0.0.1')}" />
-                    </div>
-                    <div class="dle-my-10">
-                        <label>Port (default: 27123):</label>
-                        <input id="dle_setup_port" class="text_pole" type="number" value="${settings.vaults?.[0]?.port || 27123}" />
-                    </div>
-                    <div class="dle-my-10">
-                        <label>API Key:</label>
-                        <input id="dle_setup_key" class="text_pole" type="password" value="${escapeHtml(settings.vaults?.[0]?.apiKey || '')}" placeholder="From Obsidian REST API plugin settings" />
-                    </div>
-                </div>`;
-
-            // Capture input values while popup is still open using onOpen + live binding
-            let vaultName = 'Primary', host = '127.0.0.1', port = 27123, apiKey = '';
-            const step1Ok = await callGenericPopup(step1Html, POPUP_TYPE.CONFIRM, '', {
-                wide: true,
-                onOpen: () => {
-                    // Attach input handlers to capture values in real-time
-                    const nameEl = document.getElementById('dle_setup_name');
-                    const hostEl = document.getElementById('dle_setup_host');
-                    const portEl = document.getElementById('dle_setup_port');
-                    const keyEl = document.getElementById('dle_setup_key');
-                    if (nameEl) { vaultName = nameEl.value.trim() || 'Primary'; nameEl.addEventListener('input', () => { vaultName = nameEl.value.trim() || 'Primary'; }); }
-                    if (hostEl) { host = hostEl.value.trim() || '127.0.0.1'; hostEl.addEventListener('input', () => { host = hostEl.value.trim() || '127.0.0.1'; }); }
-                    if (portEl) { port = parseInt(portEl.value) || 27123; portEl.addEventListener('input', () => { port = parseInt(portEl.value) || 27123; }); }
-                    if (keyEl) { apiKey = keyEl.value.trim() || ''; keyEl.addEventListener('input', () => { apiKey = keyEl.value.trim() || ''; }); }
-                },
-            });
-            if (!step1Ok) return '';
-
-            // Test connection
-            const { testConnection } = await import('../vault/obsidian-api.js');
-            toastr.info('Testing connection...', 'DeepLore Enhanced', { timeOut: 2000 });
-            const testResult = await testConnection(host, port, apiKey);
-            if (!testResult.ok) {
-                toastr.error(`Connection failed: ${testResult.error}. Check Obsidian and REST API plugin.`, 'DeepLore Enhanced');
-                return '';
-            }
-            toastr.success('Connected to Obsidian!', 'DeepLore Enhanced');
-
-            // Step 2: Tags and mode
-            const step2Html = `
-                <div class="dle-popup">
-                    <h3>DeepLore Enhanced Setup (2/3): Configuration</h3>
-                    <div class="dle-my-10">
-                        <label>Lorebook Tag (entries must have this tag):</label>
-                        <input id="dle_setup_tag" class="text_pole" type="text" value="${escapeHtml(settings.lorebookTag)}" />
-                    </div>
-                    <div class="dle-my-10">
-                        <label>Search Mode:</label>
-                        <select id="dle_setup_mode" class="text_pole">
-                            <option value="keywords" ${!settings.aiSearchEnabled ? 'selected' : ''}>Keywords Only (no AI cost)</option>
-                            <option value="two-stage" ${settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage' ? 'selected' : ''}>Two-Stage (keywords + AI refinement)</option>
-                            <option value="ai-only" ${settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only' ? 'selected' : ''}>AI Only (full semantic search)</option>
-                        </select>
-                    </div>
-                </div>`;
-
-            let lorebookTag = settings.lorebookTag, searchMode = 'keywords';
-            const step2Ok = await callGenericPopup(step2Html, POPUP_TYPE.CONFIRM, '', {
-                wide: true,
-                onOpen: () => {
-                    const tagEl = document.getElementById('dle_setup_tag');
-                    const modeEl = document.getElementById('dle_setup_mode');
-                    if (tagEl) { lorebookTag = tagEl.value.trim() || 'lorebook'; tagEl.addEventListener('input', () => { lorebookTag = tagEl.value.trim() || 'lorebook'; }); }
-                    if (modeEl) { searchMode = modeEl.value || 'keywords'; modeEl.addEventListener('change', () => { searchMode = modeEl.value || 'keywords'; }); }
-                },
-            });
-            if (!step2Ok) return '';
-
-            // Apply settings
-            settings.enabled = true;
-            settings.lorebookTag = lorebookTag;
-            settings.vaults = [{ name: vaultName, host, port, apiKey, enabled: true }];
-            settings.aiSearchEnabled = searchMode !== 'keywords';
-            if (searchMode !== 'keywords') settings.aiSearchMode = searchMode;
-            invalidateSettingsCache();
-            saveSettingsDebounced();
-
-            // Step 3: Verify — build index
-            toastr.info('Building index...', 'DeepLore Enhanced', { timeOut: 3000 });
-            setIndexTimestamp(0);
-            await buildIndex();
-
-            const step3Html = `
-                <div class="dle-popup">
-                    <h3>DeepLore Enhanced Setup (3/3): Verification</h3>
-                    <p class="dle-success dle-text-lg">Setup complete!</p>
-                    <ul>
-                        <li>Vault: <b>${escapeHtml(vaultName)}</b> on ${escapeHtml(host)}:${port}</li>
-                        <li>Lorebook tag: <b>#${escapeHtml(lorebookTag)}</b></li>
-                        <li>Entries indexed: <b>${vaultIndex.length}</b></li>
-                        <li>Mode: <b>${searchMode === 'keywords' ? 'Keywords Only' : searchMode === 'two-stage' ? 'Two-Stage' : 'AI Only'}</b></li>
-                    </ul>
-                    ${vaultIndex.length === 0 ? '<p class="dle-warning">No entries found. Make sure your Obsidian notes have the <code>#' + escapeHtml(lorebookTag) + '</code> tag.</p>' : ''}
-                    <p>You can adjust all settings in the Extensions panel.</p>
-                </div>`;
-
-            await callGenericPopup(step3Html, POPUP_TYPE.TEXT, '', { wide: true });
+            const { showSetupWizard } = await import('./setup-wizard.js');
+            await showSetupWizard();
             return '';
         },
-        helpString: 'Walk through initial setup: connect vault, configure tags, verify index.',
+        helpString: 'Open the setup wizard: connect vault, configure tags, matching, AI, and more.',
         returns: 'Setup wizard',
     }));
 

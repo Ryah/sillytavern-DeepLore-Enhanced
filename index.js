@@ -514,40 +514,15 @@ jQuery(async function () {
         registerSlashCommands();
         setupSyncPolling(buildIndex, buildIndexWithReuse);
 
-        // First-run detection: if no vaults configured and setup not dismissed, show toast
+        // First-run detection: if no vaults configured and wizard not completed, show wizard
         const firstRunSettings = getSettings();
         const hasEnabledVaults = (firstRunSettings.vaults || []).some(v => v.enabled);
-        if (!hasEnabledVaults && !firstRunSettings._setupDismissed) {
-            // Delay slightly so the UI is fully loaded before showing the toast
-            setTimeout(() => {
-                let setupLaunched = false;
-                toastr.info(
-                    'Welcome to DeepLore Enhanced! Click here to run the setup wizard, or close this to set up later via /dle-setup.',
-                    'DeepLore Enhanced',
-                    {
-                        timeOut: 0,
-                        extendedTimeOut: 0,
-                        closeButton: true,
-                        tapToDismiss: false,
-                        onclick: () => {
-                            setupLaunched = true;
-                            // Use SillyTavern's executeSlashCommands to trigger /dle-setup
-                            const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
-                            if (ctx?.executeSlashCommands) {
-                                ctx.executeSlashCommands('/dle-setup');
-                            }
-                        },
-                        onHidden: () => {
-                            // Mark setup as dismissed so we don't nag on every reload
-                            if (!setupLaunched) {
-                                firstRunSettings._setupDismissed = true;
-                                invalidateSettingsCache();
-                                saveSettingsDebounced();
-                            }
-                        },
-                    },
-                );
-            }, 2000);
+        if (!hasEnabledVaults && !firstRunSettings._wizardCompleted) {
+            // Delay so ST finishes rendering first
+            setTimeout(async () => {
+                const { showSetupWizard } = await import('./src/ui/setup-wizard.js');
+                showSetupWizard();
+            }, 500);
         }
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.

@@ -2569,3 +2569,449 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     .dle-rb-name, .dle-rb-tolerance, .dle-rb-ctx { max-width: unset; }
 }
 
+/* ============================================================================
+ * Setup Wizard
+ * ============================================================================ */
+
+.dle-wizard {
+    display: flex;
+    flex-direction: column;
+    min-height: 500px;
+    max-height: 80vh;
+    gap: var(--dle-space-3);
+}
+
+/* --- Step Indicator --- */
+.dle-wizard-steps {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: var(--dle-space-2) var(--dle-space-3);
+    border-bottom: 1px solid var(--dle-border);
+    flex-shrink: 0;
+    overflow-x: auto;
+}
+
+.dle-wizard-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    cursor: default;
+    padding: 4px 8px;
+    min-width: 60px;
+    opacity: 0.4;
+    transition: opacity 200ms ease;
+}
+.dle-wizard-step.active {
+    opacity: 1;
+}
+.dle-wizard-step.completed {
+    opacity: 0.85;
+    cursor: pointer;
+}
+.dle-wizard-step.completed:hover {
+    opacity: 1;
+}
+
+.dle-wizard-step-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    border: 2px solid var(--dle-border);
+    transition: all 200ms ease;
+    color: var(--dle-text-muted);
+}
+.dle-wizard-step.active .dle-wizard-step-dot {
+    border-color: var(--dle-info);
+    color: var(--dle-info);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--dle-info) 40%, transparent);
+    animation: dle-wizard-dot-pulse 2s ease-in-out infinite;
+}
+.dle-wizard-step.completed .dle-wizard-step-dot {
+    border-color: var(--dle-success);
+    color: var(--dle-success);
+    background: color-mix(in srgb, var(--dle-success) 15%, transparent);
+}
+
+.dle-wizard-step-label {
+    font-size: 10px;
+    white-space: nowrap;
+    color: inherit;
+}
+
+.dle-wizard-step-line {
+    flex: 1;
+    height: 2px;
+    background: var(--dle-border);
+    min-width: 12px;
+    margin-top: -12px;
+}
+
+@keyframes dle-wizard-dot-pulse {
+    0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--dle-info) 20%, transparent); }
+    50% { box-shadow: 0 0 12px color-mix(in srgb, var(--dle-info) 50%, transparent); }
+}
+
+/* --- Page Body --- */
+.dle-wizard-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--dle-space-2) var(--dle-space-4);
+    overscroll-behavior: contain;
+    text-align: left;
+}
+
+.dle-wizard-page {
+    display: none;
+    animation: dle-wizard-page-in 250ms ease-out;
+}
+.dle-wizard-page.active {
+    display: block;
+}
+
+@keyframes dle-wizard-page-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.dle-wizard-page h2 {
+    margin: 0 0 4px;
+    font-size: var(--dle-text-xl);
+}
+
+.dle-wizard-subtitle {
+    color: var(--dle-text-muted);
+    font-size: var(--dle-text-sm);
+    margin: 0 0 var(--dle-space-4);
+}
+
+.dle-wizard-muted {
+    color: var(--dle-text-muted);
+    font-size: var(--dle-text-sm);
+    font-style: italic;
+    margin-top: var(--dle-space-4);
+}
+
+/* --- Cards --- */
+.dle-wizard-card {
+    background: var(--dle-bg-2);
+    border: 1px solid var(--dle-border);
+    border-radius: var(--dle-radius-md, 8px);
+    padding: var(--dle-space-3) var(--dle-space-4);
+    margin-bottom: var(--dle-space-3);
+}
+.dle-wizard-card h3 {
+    margin: 0 0 var(--dle-space-2);
+    font-size: var(--dle-text-base);
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+}
+.dle-wizard-card h3 i {
+    color: var(--dle-info);
+}
+.dle-wizard-card ol {
+    padding-left: 20px;
+    margin: var(--dle-space-2) 0 0;
+}
+.dle-wizard-card ol li {
+    margin-bottom: var(--dle-space-1);
+}
+
+/* --- Form Fields --- */
+.dle-wizard-field {
+    margin-bottom: var(--dle-space-3);
+}
+.dle-wizard-field > label {
+    display: block;
+    font-weight: 600;
+    font-size: var(--dle-text-sm);
+    margin-bottom: 4px;
+}
+
+.dle-wizard-field-hint {
+    display: block;
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    margin-bottom: 4px;
+}
+
+.dle-wizard-row {
+    display: flex;
+    gap: var(--dle-space-3);
+}
+.dle-wizard-row-3 {
+    display: flex;
+    gap: var(--dle-space-3);
+}
+.dle-wizard-row-3 > .dle-wizard-field {
+    flex: 1;
+}
+
+.dle-wizard-divider {
+    border: none;
+    border-top: 1px solid var(--dle-border);
+    margin: var(--dle-space-3) 0;
+}
+
+.dle-wizard-checkbox {
+    margin: var(--dle-space-2) 0;
+}
+.dle-wizard-checkbox-inline {
+    margin-top: 4px;
+    font-size: var(--dle-text-xs);
+}
+
+/* --- Radio Groups --- */
+.dle-wizard-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-2);
+}
+
+.dle-wizard-radio {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dle-space-2);
+    padding: var(--dle-space-2) var(--dle-space-3);
+    border: 1px solid var(--dle-border);
+    border-radius: var(--dle-radius-md, 8px);
+    cursor: pointer;
+    transition: border-color 150ms ease, background 150ms ease;
+}
+.dle-wizard-radio:hover {
+    background: var(--dle-bg-hover);
+}
+.dle-wizard-radio:has(input:checked) {
+    border-color: var(--dle-info);
+    background: color-mix(in srgb, var(--dle-info) 8%, transparent);
+}
+.dle-wizard-radio input[type="radio"] {
+    margin-top: 3px;
+    flex-shrink: 0;
+}
+.dle-wizard-radio div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.dle-wizard-badge-rec {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dle-success) 20%, transparent);
+    color: var(--dle-success);
+    font-weight: 600;
+    vertical-align: middle;
+    margin-left: 4px;
+}
+
+/* --- Presets --- */
+.dle-wizard-preset-group {
+    display: flex;
+    gap: var(--dle-space-2);
+    margin-bottom: var(--dle-space-2);
+}
+
+.dle-wizard-preset {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: var(--dle-space-3);
+    border: 2px solid var(--dle-border);
+    border-radius: var(--dle-radius-md, 8px);
+    background: var(--dle-bg-2);
+    cursor: pointer;
+    transition: border-color 150ms ease, background 150ms ease, transform 100ms ease;
+}
+.dle-wizard-preset:hover {
+    background: var(--dle-bg-hover);
+    transform: translateY(-1px);
+}
+.dle-wizard-preset.active {
+    border-color: var(--dle-info);
+    background: color-mix(in srgb, var(--dle-info) 10%, transparent);
+}
+.dle-wizard-preset i {
+    font-size: 1.4em;
+    color: var(--dle-info);
+}
+.dle-wizard-preset span {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+}
+
+/* --- Confirm Badge (preset selection, etc.) --- */
+.dle-wizard-confirm-badge {
+    font-size: var(--dle-text-sm);
+    color: var(--dle-success);
+    padding: var(--dle-space-1) 0;
+    opacity: 0;
+    transition: opacity 200ms ease;
+}
+.dle-wizard-confirm-badge.dle-wizard-badge-visible,
+.dle-wizard-confirm-badge:has(i) {
+    opacity: 1;
+}
+
+/* --- Action Buttons --- */
+.dle-wizard-action-btn {
+    margin: var(--dle-space-2) 0;
+}
+.dle-wizard-action-btn.dle-wizard-btn-verified {
+    color: var(--dle-success);
+    border-color: var(--dle-success);
+}
+
+/* --- Result Banners --- */
+.dle-wizard-result-banner {
+    padding: var(--dle-space-2) var(--dle-space-3);
+    border-radius: var(--dle-radius-md, 8px);
+    margin: var(--dle-space-2) 0;
+    font-size: var(--dle-text-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    animation: dle-wizard-page-in 200ms ease-out;
+}
+.dle-wizard-result-success {
+    background: color-mix(in srgb, var(--dle-success) 15%, transparent);
+    color: var(--dle-success);
+    border: 1px solid color-mix(in srgb, var(--dle-success) 30%, transparent);
+}
+.dle-wizard-result-error {
+    background: color-mix(in srgb, var(--dle-error) 15%, transparent);
+    color: var(--dle-error);
+    border: 1px solid color-mix(in srgb, var(--dle-error) 30%, transparent);
+}
+
+/* --- File Creation Status --- */
+.dle-wizard-file-status {
+    font-size: var(--dle-text-sm);
+    padding: var(--dle-space-1) 0;
+    margin-top: var(--dle-space-1);
+}
+.dle-wizard-status-ok { color: var(--dle-success); }
+.dle-wizard-status-err { color: var(--dle-error); }
+.dle-wizard-status-skip { color: var(--dle-text-muted); font-style: italic; }
+
+/* --- Done Page --- */
+.dle-wizard-done-header {
+    text-align: center;
+    margin-bottom: var(--dle-space-4);
+}
+.dle-wizard-done-check {
+    font-size: 3em;
+    color: var(--dle-success);
+    margin-bottom: var(--dle-space-2);
+    animation: dle-wizard-pop 400ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+@keyframes dle-wizard-pop {
+    0% { transform: scale(0); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+.dle-wizard-summary {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-2);
+    margin-bottom: var(--dle-space-4);
+}
+.dle-wizard-summary-item {
+    font-size: var(--dle-text-sm);
+    padding: var(--dle-space-2) var(--dle-space-3);
+    background: color-mix(in srgb, var(--dle-success) 8%, transparent);
+    border-radius: var(--dle-radius-md, 8px);
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    animation: dle-wizard-item-in 300ms ease-out both;
+}
+.dle-wizard-summary-item i {
+    color: var(--dle-success);
+}
+@keyframes dle-wizard-item-in {
+    from { opacity: 0; transform: translateX(-12px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.dle-wizard-actions-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--dle-space-2);
+    margin-bottom: var(--dle-space-3);
+}
+.dle-wizard-done-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--dle-space-2);
+    padding: var(--dle-space-2) var(--dle-space-3);
+}
+
+.dle-wizard-wiki-link {
+    text-align: center;
+    font-size: var(--dle-text-sm);
+}
+.dle-wizard-wiki-link a {
+    color: var(--dle-info);
+    text-decoration: none;
+}
+.dle-wizard-wiki-link a:hover {
+    text-decoration: underline;
+}
+
+/* --- Bottom Nav --- */
+.dle-wizard-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    padding: var(--dle-space-3) var(--dle-space-4);
+    border-top: 1px solid var(--dle-border);
+    flex-shrink: 0;
+}
+.dle-wizard-nav-spacer {
+    flex: 1;
+}
+.dle-wizard-btn-primary {
+    background: color-mix(in srgb, var(--dle-info) 20%, transparent);
+    border-color: var(--dle-info);
+}
+.dle-wizard-btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--dle-info) 30%, transparent);
+}
+.dle-wizard-btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Pulse animation for attention */
+.dle-wizard-pulse {
+    animation: dle-wizard-attention 600ms ease;
+}
+@keyframes dle-wizard-attention {
+    0%, 100% { transform: scale(1); }
+    25% { transform: scale(1.03); }
+    50% { transform: scale(0.97); }
+    75% { transform: scale(1.02); }
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .dle-wizard-row, .dle-wizard-row-3 { flex-direction: column; }
+    .dle-wizard-preset-group { flex-direction: column; }
+    .dle-wizard-actions-grid { grid-template-columns: 1fr; }
+    .dle-wizard-step-label { display: none; }
+}
+

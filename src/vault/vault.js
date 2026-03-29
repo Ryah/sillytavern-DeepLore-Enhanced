@@ -296,7 +296,7 @@ export async function buildIndex() {
                 }
             } else {
                 if (fdResult.error === 'not_found') {
-                    dedupWarning('Custom field definitions file not found — using defaults. Use Manage Fields to create one.', 'field_defs_missing');
+                    if (settings.debugMode) console.log('[DLE] Field definitions file not found — using defaults');
                 } else if (settings.debugMode) {
                     console.warn('[DLE] Could not load field definitions:', fdResult.error, '— using defaults');
                 }

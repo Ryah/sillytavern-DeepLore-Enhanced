@@ -96,8 +96,32 @@ export function wireToolsTab($drawer) {
 
 /** Wire tab expand buttons */
 export function wireTabExpand($drawer) {
-    $drawer.on('click', '[data-expand]', function () {
+    $drawer.on('click', '[data-expand]', async function () {
         const target = $(this).data('expand');
+        // Why tab "Full View" → show Context Cartographer popup (no API call)
+        if (target === 'injection') {
+            const { lastInjectionSources } = await import('../state.js');
+            let sources = lastInjectionSources;
+            // Fallback: lastInjectionSources gets cleared after render — check the last AI message
+            if (!sources || sources.length === 0) {
+                const { chat } = await import('../../../../../../script.js');
+                if (chat) {
+                    for (let i = chat.length - 1; i >= 0; i--) {
+                        if (!chat[i].is_user && chat[i].extra?.deeplore_sources?.length > 0) {
+                            sources = chat[i].extra.deeplore_sources;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (sources && sources.length > 0) {
+                const { showSourcesPopup } = await import('../ui/cartographer.js');
+                showSourcesPopup(sources);
+            } else {
+                toastr.info('No lore sources from the last generation. Send a message first.', 'DeepLore Enhanced', { timeOut: 3000 });
+            }
+            return;
+        }
         const cmd = EXPAND_ACTIONS[target];
         if (cmd) executeCommand(cmd);
     });
@@ -116,13 +140,14 @@ export function wireStatusActions($drawer) {
     });
 
     // First-run setup banner actions
-    $drawer.on('click', '.dle-setup-banner-btn', () => {
-        executeCommand('/dle-setup');
+    $drawer.on('click', '.dle-setup-banner-btn', async () => {
+        const { showSetupWizard } = await import('../ui/setup-wizard.js');
+        showSetupWizard();
     });
     $drawer.on('click', '.dle-setup-banner-dismiss', () => {
         $drawer.find('.dle-setup-banner').remove();
         const s = getSettings();
-        s._setupDismissed = true;
+        s._wizardCompleted = true;
         invalidateSettingsCache();
         saveSettingsDebounced();
     });
@@ -280,7 +305,7 @@ export function wireBrowseTab($drawer) {
             ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
         const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
         const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
-        const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" target="_blank" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
+        const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
 
         // Custom fields line
         let fieldsHtml = '';

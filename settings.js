@@ -187,8 +187,8 @@ export const defaultSettings = {
     decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
     // Analytics
     analyticsData: {},
-    // First-run setup wizard dismissed flag
-    _setupDismissed: false,
+    // First-run setup wizard completed flag
+    _wizardCompleted: false,
     // Settings version — increment to trigger migrations
     settingsVersion: 1,
 };

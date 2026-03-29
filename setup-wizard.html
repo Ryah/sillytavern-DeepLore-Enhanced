@@ -1,0 +1,347 @@
+<!-- DeepLore Enhanced — First-Run Setup Wizard -->
+<div class="dle-wizard">
+
+    <!-- Step indicator -->
+    <nav class="dle-wizard-steps" aria-label="Setup progress">
+        <button class="dle-wizard-step active" data-step="1" aria-current="step">
+            <span class="dle-wizard-step-dot">1</span>
+            <span class="dle-wizard-step-label">Welcome</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="2">
+            <span class="dle-wizard-step-dot">2</span>
+            <span class="dle-wizard-step-label">Connection</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="3">
+            <span class="dle-wizard-step-dot">3</span>
+            <span class="dle-wizard-step-label">Tags</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="4">
+            <span class="dle-wizard-step-dot">4</span>
+            <span class="dle-wizard-step-label">Matching</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="5">
+            <span class="dle-wizard-step-dot">5</span>
+            <span class="dle-wizard-step-label">AI</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="6">
+            <span class="dle-wizard-step-dot">6</span>
+            <span class="dle-wizard-step-label">Vault</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="7">
+            <span class="dle-wizard-step-dot">7</span>
+            <span class="dle-wizard-step-label">Done</span>
+        </button>
+    </nav>
+
+    <!-- Page container -->
+    <div class="dle-wizard-body">
+
+        <!-- ═══ Page 1: Welcome ═══ -->
+        <div class="dle-wizard-page active" data-wizard-page="1">
+            <h2>Welcome to DeepLore Enhanced</h2>
+            <p class="dle-wizard-subtitle">Your Obsidian vault, wired into SillyTavern.</p>
+
+            <div class="dle-wizard-card">
+                <h3><i class="fa-solid fa-book-open"></i> What is this?</h3>
+                <p>DeepLore Enhanced connects your Obsidian lore vault to SillyTavern, automatically injecting relevant worldbuilding entries into your roleplay context. Your characters, locations, lore, and rules — pulled in when they matter.</p>
+            </div>
+
+            <div class="dle-wizard-card">
+                <h3><i class="fa-solid fa-gears"></i> How does it work?</h3>
+                <ol>
+                    <li><strong>Keywords</strong> in chat text match against your vault entries</li>
+                    <li><strong>AI refinement</strong> (optional) picks the most relevant matches</li>
+                    <li><strong>Entries are injected</strong> into the AI's context window automatically</li>
+                </ol>
+            </div>
+
+            <p class="dle-wizard-muted">This wizard will walk you through the full setup. You can change everything later in Settings.</p>
+        </div>
+
+        <!-- ═══ Page 2: Vault Connection ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="2">
+            <h2>Vault Connection</h2>
+            <p class="dle-wizard-subtitle">Connect to your Obsidian vault via the <a href="https://github.com/coddingtonbear/obsidian-local-rest-api" target="_blank">Local REST API</a> plugin.</p>
+
+            <div class="dle-wizard-field">
+                <label for="dle_wiz_vault_name">Vault Name</label>
+                <input id="dle_wiz_vault_name" class="text_pole" type="text" value="Primary" placeholder="A friendly label for this vault" />
+            </div>
+            <div class="dle-wizard-field">
+                <label for="dle_wiz_host">Host</label>
+                <input id="dle_wiz_host" class="text_pole" type="text" value="127.0.0.1" placeholder="127.0.0.1" />
+            </div>
+            <div class="dle-wizard-row">
+                <div class="dle-wizard-field" style="flex: 1;">
+                    <label for="dle_wiz_port">Port</label>
+                    <input id="dle_wiz_port" class="text_pole" type="number" value="27123" />
+                </div>
+                <div class="dle-wizard-field" style="flex: 2;">
+                    <label for="dle_wiz_api_key">API Key</label>
+                    <input id="dle_wiz_api_key" class="text_pole" type="password" placeholder="From Obsidian REST API plugin settings" />
+                </div>
+            </div>
+
+            <button id="dle_wiz_test_conn" class="menu_button dle-wizard-action-btn">
+                <i class="fa-solid fa-plug"></i> Test Connection
+            </button>
+
+            <!-- Connection result banner -->
+            <div id="dle_wiz_conn_result" class="dle-wizard-result-banner" style="display: none;"></div>
+        </div>
+
+        <!-- ═══ Page 3: Tags & Search Mode ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="3">
+            <h2>Tags &amp; Search Mode</h2>
+            <p class="dle-wizard-subtitle">Configure which Obsidian notes become lorebook entries and how they're matched.</p>
+
+            <div class="dle-wizard-field">
+                <label for="dle_wiz_lorebook_tag">Lorebook Tag</label>
+                <span class="dle-wizard-field-hint">Obsidian notes with this tag become lorebook entries</span>
+                <input id="dle_wiz_lorebook_tag" class="text_pole" type="text" value="lorebook" />
+            </div>
+
+            <div class="dle-wizard-field">
+                <label for="dle_wiz_constant_tag">Constant Tag</label>
+                <span class="dle-wizard-field-hint">Always-inject entries (e.g. world rules, system lore)</span>
+                <input id="dle_wiz_constant_tag" class="text_pole" type="text" value="lorebook-always" />
+            </div>
+
+            <div class="dle-wizard-field">
+                <label for="dle_wiz_seed_tag">Seed Tag</label>
+                <span class="dle-wizard-field-hint">Content sent to AI search as story context on new chats</span>
+                <input id="dle_wiz_seed_tag" class="text_pole" type="text" value="lorebook-seed" />
+            </div>
+
+            <div class="dle-wizard-field">
+                <label for="dle_wiz_bootstrap_tag">Bootstrap Tag</label>
+                <span class="dle-wizard-field-hint">Force-inject entries when chat is short (first few messages)</span>
+                <input id="dle_wiz_bootstrap_tag" class="text_pole" type="text" value="lorebook-bootstrap" />
+            </div>
+
+            <hr class="dle-wizard-divider" />
+
+            <div class="dle-wizard-field">
+                <label>Search Mode</label>
+                <div class="dle-wizard-radio-group">
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle_wiz_search_mode" value="keywords" checked />
+                        <div>
+                            <strong>Keywords Only</strong>
+                            <span class="dle-wizard-field-hint">Fast, no AI cost. Matches by keyword triggers in your entries.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle_wiz_search_mode" value="two-stage" />
+                        <div>
+                            <strong>Two-Stage</strong> <span class="dle-wizard-badge-rec">Recommended</span>
+                            <span class="dle-wizard-field-hint">Keywords pre-filter, then AI picks the best matches. Best balance.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle_wiz_search_mode" value="ai-only" />
+                        <div>
+                            <strong>AI Only</strong>
+                            <span class="dle-wizard-field-hint">Full semantic search — AI sees entire vault manifest. Higher cost, no keywords needed.</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ Page 4: Matching Configuration ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="4">
+            <h2>Matching Configuration</h2>
+            <p class="dle-wizard-subtitle">How many entries to scan and inject. Pick a preset or customize.</p>
+
+            <div class="dle-wizard-field">
+                <label>Vault Size Preset</label>
+                <div class="dle-wizard-preset-group">
+                    <button class="dle-wizard-preset" data-preset="small">
+                        <i class="fa-solid fa-seedling"></i>
+                        <strong>Small</strong>
+                        <span>&lt; 50 entries</span>
+                    </button>
+                    <button class="dle-wizard-preset active" data-preset="medium">
+                        <i class="fa-solid fa-tree"></i>
+                        <strong>Medium</strong>
+                        <span>50–200 entries</span>
+                    </button>
+                    <button class="dle-wizard-preset" data-preset="large">
+                        <i class="fa-solid fa-mountain"></i>
+                        <strong>Large</strong>
+                        <span>200+ entries</span>
+                    </button>
+                </div>
+                <div id="dle_wiz_preset_badge" class="dle-wizard-confirm-badge">
+                    <i class="fa-solid fa-check"></i> Configured for Medium vault
+                </div>
+            </div>
+
+            <div class="dle-wizard-row dle-wizard-row-3">
+                <div class="dle-wizard-field">
+                    <label for="dle_wiz_scan_depth">Scan Depth</label>
+                    <span class="dle-wizard-field-hint">Chat messages to scan for keywords</span>
+                    <input id="dle_wiz_scan_depth" class="text_pole" type="number" value="6" min="1" max="100" />
+                </div>
+                <div class="dle-wizard-field">
+                    <label for="dle_wiz_max_entries">Max Entries</label>
+                    <span class="dle-wizard-field-hint">Maximum entries to inject per message</span>
+                    <input id="dle_wiz_max_entries" class="text_pole" type="number" value="15" min="1" max="100" />
+                    <label class="checkbox_label dle-wizard-checkbox-inline">
+                        <input id="dle_wiz_unlimited_entries" type="checkbox" class="checkbox" />
+                        <span>Unlimited</span>
+                    </label>
+                </div>
+                <div class="dle-wizard-field">
+                    <label for="dle_wiz_budget">Token Budget</label>
+                    <span class="dle-wizard-field-hint">Max tokens for injected lore</span>
+                    <input id="dle_wiz_budget" class="text_pole" type="number" value="3072" min="100" max="100000" />
+                    <label class="checkbox_label dle-wizard-checkbox-inline">
+                        <input id="dle_wiz_unlimited_budget" type="checkbox" class="checkbox" />
+                        <span>Unlimited</span>
+                    </label>
+                </div>
+            </div>
+
+            <label class="checkbox_label dle-wizard-checkbox">
+                <input id="dle_wiz_fuzzy" type="checkbox" class="checkbox" />
+                <span>Enable fuzzy search (BM25/TF-IDF)</span>
+            </label>
+            <span class="dle-wizard-field-hint" style="margin-left: 24px;">Supplements keyword matching with ranked relevance scoring. Catches partial matches.</span>
+        </div>
+
+        <!-- ═══ Page 5: AI Search Setup ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="5">
+            <h2>AI Search Setup</h2>
+            <p class="dle-wizard-subtitle">Configure how DLE connects to an AI for entry selection.</p>
+
+            <div class="dle-wizard-field">
+                <label>Connection Mode</label>
+                <div class="dle-wizard-radio-group">
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle_wiz_ai_mode" value="profile" checked />
+                        <div>
+                            <strong>ST Connection Profile</strong>
+                            <span class="dle-wizard-field-hint">Use an existing SillyTavern connection profile (recommended)</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle_wiz_ai_mode" value="proxy" />
+                        <div>
+                            <strong>Custom Proxy</strong>
+                            <span class="dle-wizard-field-hint">Route through a custom API endpoint</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Profile mode fields -->
+            <div id="dle_wiz_ai_profile_fields">
+                <div class="dle-wizard-field">
+                    <label for="dle_wiz_ai_profile">Connection Profile</label>
+                    <select id="dle_wiz_ai_profile" class="text_pole">
+                        <option value="">Loading profiles...</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Proxy mode fields -->
+            <div id="dle_wiz_ai_proxy_fields" style="display: none;">
+                <div class="dle-wizard-field">
+                    <label for="dle_wiz_ai_proxy_url">Proxy URL</label>
+                    <input id="dle_wiz_ai_proxy_url" class="text_pole" type="text" value="http://localhost:42069" />
+                </div>
+                <div class="dle-wizard-field">
+                    <label for="dle_wiz_ai_model">Model</label>
+                    <input id="dle_wiz_ai_model" class="text_pole" type="text" placeholder="e.g. claude-haiku-4-5-20251001" />
+                </div>
+            </div>
+
+            <button id="dle_wiz_test_ai" class="menu_button dle-wizard-action-btn">
+                <i class="fa-solid fa-brain"></i> Test AI Connection
+            </button>
+
+            <div id="dle_wiz_ai_result" class="dle-wizard-result-banner" style="display: none;"></div>
+        </div>
+
+        <!-- ═══ Page 6: Vault Structure ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="6">
+            <h2>Vault Structure</h2>
+            <p class="dle-wizard-subtitle">Create helper files in your Obsidian vault.</p>
+
+            <div class="dle-wizard-card">
+                <h3><i class="fa-solid fa-file-lines"></i> Field Definitions</h3>
+                <p>Contextual gating fields let you filter entries by era, location, scene type, and characters present. This creates a YAML configuration file in your vault.</p>
+                <label class="checkbox_label dle-wizard-checkbox">
+                    <input id="dle_wiz_create_fields" type="checkbox" class="checkbox" checked />
+                    <span>Create <code>DeepLore/field-definitions.yaml</code></span>
+                </label>
+                <div id="dle_wiz_fields_status" class="dle-wizard-file-status" style="display: none;"></div>
+            </div>
+
+            <div class="dle-wizard-card">
+                <h3><i class="fa-solid fa-scroll"></i> Sessions Folder</h3>
+                <p>Session Scribe writes AI-generated summaries of your roleplay sessions to Obsidian. This creates the folder for those notes.</p>
+                <label class="checkbox_label dle-wizard-checkbox">
+                    <input id="dle_wiz_create_sessions" type="checkbox" class="checkbox" checked />
+                    <span>Create <code>Sessions/</code> folder</span>
+                </label>
+                <div id="dle_wiz_sessions_status" class="dle-wizard-file-status" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- ═══ Page 7: All Done ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="7">
+            <div class="dle-wizard-done-header">
+                <div class="dle-wizard-done-check"><i class="fa-solid fa-circle-check"></i></div>
+                <h2>Setup Complete!</h2>
+            </div>
+
+            <div id="dle_wiz_summary" class="dle-wizard-summary"></div>
+
+            <div class="dle-wizard-actions-grid">
+                <button class="menu_button dle-wizard-done-btn" data-action="health">
+                    <i class="fa-solid fa-stethoscope"></i> Run Health Check
+                </button>
+                <button class="menu_button dle-wizard-done-btn" data-action="graph">
+                    <i class="fa-solid fa-project-diagram"></i> Open Graph
+                </button>
+                <button class="menu_button dle-wizard-done-btn" data-action="browse">
+                    <i class="fa-solid fa-book-open"></i> Browse Entries
+                </button>
+                <button class="menu_button dle-wizard-done-btn" data-action="settings">
+                    <i class="fa-solid fa-gear"></i> Open Settings
+                </button>
+            </div>
+
+            <p class="dle-wizard-wiki-link">
+                <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki" target="_blank">
+                    <i class="fa-solid fa-book"></i> Read the full documentation
+                </a>
+            </p>
+        </div>
+
+    </div>
+
+    <!-- Bottom navigation -->
+    <div class="dle-wizard-nav">
+        <button id="dle_wiz_prev" class="menu_button" style="display: none;">
+            <i class="fa-solid fa-arrow-left"></i> Previous
+        </button>
+        <div class="dle-wizard-nav-spacer"></div>
+        <button id="dle_wiz_next" class="menu_button dle-wizard-btn-primary">
+            Next <i class="fa-solid fa-arrow-right"></i>
+        </button>
+        <button id="dle_wiz_finish" class="menu_button dle-wizard-btn-primary" style="display: none;">
+            <i class="fa-solid fa-check"></i> Finish
+        </button>
+    </div>
+
+</div>

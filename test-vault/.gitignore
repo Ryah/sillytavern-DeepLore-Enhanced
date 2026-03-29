@@ -1,0 +1,26 @@
+# Ignore everything by default
+*
+
+# Whitelist this file
+!.gitignore
+!README.md
+
+# Whitelist content folders and all files within
+!_edge-cases/
+!_edge-cases/**
+!characters/
+!characters/**
+!events/
+!events/**
+!items/
+!items/**
+!locations/
+!locations/**
+!lore/
+!lore/**
+!meta/
+!meta/**
+!organizations/
+!organizations/**
+!species/
+!species/**

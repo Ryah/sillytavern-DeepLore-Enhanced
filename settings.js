@@ -86,12 +86,20 @@ export const defaultSettings = {
     notebookPosition: 1,   // in_chat
     notebookDepth: 4,
     notebookRole: 0,        // system
-    // AI Notepad settings (AI-written, extracted from <dle-notes> tags)
+    // AI Notebook settings (AI-written session notes)
     aiNotepadEnabled: false,
-    aiNotepadPosition: 1,   // in_chat
+    aiNotepadMode: 'tag',    // 'tag' = AI uses <dle-notes> tags; 'extract' = post-gen API call extracts notes
+    aiNotepadPosition: 1,    // in_chat
     aiNotepadDepth: 4,
-    aiNotepadRole: 0,        // system
-    aiNotepadPrompt: '',     // custom instruction prompt (empty = default)
+    aiNotepadRole: 0,         // system
+    aiNotepadPrompt: '',      // custom instruction prompt for tag mode (empty = default)
+    aiNotepadExtractPrompt: '', // custom extraction prompt for extract mode (empty = default)
+    aiNotepadConnectionMode: 'profile', // extract mode connection: 'profile' or 'proxy'
+    aiNotepadProfileId: '',
+    aiNotepadProxyUrl: 'http://localhost:42069',
+    aiNotepadModel: '',
+    aiNotepadMaxTokens: 1024,
+    aiNotepadTimeout: 30000,
     // AI Search settings
     aiSearchEnabled: false,
     aiSearchConnectionMode: 'profile',

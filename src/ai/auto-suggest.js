@@ -120,7 +120,7 @@ export async function showSuggestionPopup(suggestions) {
     for (let i = 0; i < suggestions.length; i++) {
         const s = suggestions[i];
         cardsHtml += `
-            <div id="dle_suggest_${i}" class="dle_suggest_card dle-card" style="padding: 10px; margin-bottom: 10px;">
+            <div id="dle_suggest_${i}" class="dle-suggest-card dle-card">
                 <div class="dle-card-header dle-mb-1">
                     <strong>${escapeHtml(s.title || 'Untitled')}</strong>
                     <span class="dle-text-xs dle-muted">${escapeHtml(s.type || 'lore')}</span>
@@ -136,8 +136,8 @@ export async function showSuggestionPopup(suggestions) {
                     <div class="dle-preview dle-preview--short dle-mt-1">${escapeHtml(s.content || '')}</div>
                 </details>
                 <div class="dle-flex dle-mt-1 dle-gap-1">
-                    <button class="menu_button dle_accept_suggest dle-text-sm" data-index="${i}">Accept</button>
-                    <button class="menu_button dle_reject_suggest dle-text-sm dle-muted" data-index="${i}">Reject</button>
+                    <button class="menu_button dle-accept-suggest dle-text-sm" data-index="${i}">Accept</button>
+                    <button class="menu_button dle-reject-suggest dle-text-sm dle-muted" data-index="${i}">Reject</button>
                 </div>
             </div>`;
     }
@@ -145,7 +145,7 @@ export async function showSuggestionPopup(suggestions) {
     container.innerHTML = `
         <h3>Suggested Entries (${suggestions.length})</h3>
         <p class="dle-muted dle-text-sm">Review each suggestion. Accept to write to Obsidian, reject to skip.</p>
-        <label class="checkbox_label dle-text-sm" style="margin-bottom: 8px;">
+        <label class="checkbox_label dle-text-sm dle-checkbox-row">
             <input type="checkbox" class="checkbox" id="dle_suggest_skip_review" ${settings.autoSuggestSkipReview ? 'checked' : ''}>
             <span>Write directly (skip review)</span>
         </label>
@@ -166,7 +166,7 @@ export async function showSuggestionPopup(suggestions) {
                 });
             }
 
-            container.querySelectorAll('.dle_accept_suggest').forEach(btn => {
+            container.querySelectorAll('.dle-accept-suggest').forEach(btn => {
                 btn.addEventListener('click', async function () {
                     if (this.disabled) return; // Double-click guard
                     this.disabled = true;
@@ -207,8 +207,7 @@ ${safeContent}`;
                         const suggestVault = getPrimaryVault(settings);
                         const data = await writeNote(suggestVault.host, suggestVault.port, suggestVault.apiKey, filename, fileContent);
                         if (data.ok) {
-                            card.style.opacity = '0.4';
-                            card.style.borderColor = 'var(--dle-success, #4caf50)';
+                            card.classList.add('dle-suggest-card--accepted');
                             this.disabled = true;
                             this.textContent = 'Accepted';
                             toastr.success(`Created: ${s.title}`, 'DeepLore Enhanced');
@@ -222,13 +221,12 @@ ${safeContent}`;
                 });
             });
 
-            container.querySelectorAll('.dle_reject_suggest').forEach(btn => {
+            container.querySelectorAll('.dle-reject-suggest').forEach(btn => {
                 btn.addEventListener('click', function () {
                     const idx = Number(this.dataset.index);
                     const card = document.getElementById(`dle_suggest_${idx}`);
                     if (card) {
-                        card.style.opacity = '0.3';
-                        card.style.borderColor = 'var(--dle-error, #f44336)';
+                        card.classList.add('dle-suggest-card--rejected');
                         // Disable both buttons and update label
                         card.querySelectorAll('button').forEach(b => b.disabled = true);
                         this.textContent = 'Rejected';

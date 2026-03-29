@@ -25,8 +25,8 @@ export function registerAdminCommands() {
             await showNotebookPopup();
             return '';
         },
-        helpString: 'Open the Notebook editor for the current chat.',
-        returns: 'Opens notebook popup',
+        helpString: 'Open the Author Notebook editor for the current chat.',
+        returns: 'Opens Author Notebook popup',
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -37,14 +37,14 @@ export function registerAdminCommands() {
                 const { chat_metadata, saveChatDebounced } = await import('../../../../../../script.js');
                 chat_metadata.deeplore_ai_notepad = '';
                 saveChatDebounced();
-                toastr.success('AI Notepad cleared for this chat.', 'DeepLore Enhanced');
+                toastr.success('AI Notebook cleared for this chat.', 'DeepLore Enhanced');
                 return '';
             }
             await showAiNotepadPopup();
             return '';
         },
         helpString: 'View or clear AI-written session notes. Usage: /dle-ai-notepad [clear]',
-        returns: 'Opens AI notepad popup or clears notes',
+        returns: 'Opens AI Notebook popup or clears notes',
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -125,11 +125,11 @@ export function registerAdminCommands() {
                     const noteId = simpleHash(note.filename);
 
                     html += `<div class="dle-card dle-popup-section">`;
-                    html += `<div class="dle_note_toggle dle-card-header" data-target="dle_note_${noteId}">`;
+                    html += `<div class="dle-note-toggle dle-card-header" data-target="dle_note_${noteId}" aria-expanded="false">`;
                     html += `<strong>${escapeHtml(note.character || 'Unknown')}</strong>`;
-                    html += `<small class="dle-muted">${escapeHtml(dateDisplay)}</small>`;
+                    html += `<span class="dle-text-xs dle-muted">${escapeHtml(dateDisplay)}</span>`;
                     html += `</div>`;
-                    html += `<small class="dle-faint">${escapeHtml(preview)}</small>`;
+                    html += `<span class="dle-text-xs dle-faint">${escapeHtml(preview)}</span>`;
                     html += `<div id="dle_note_${noteId}" class="dle-popup-detail">${escapeHtml(note.body)}</div>`;
                     html += `</div>`;
                 }
@@ -138,11 +138,14 @@ export function registerAdminCommands() {
                 const container = document.createElement('div');
                 container.innerHTML = html;
                 container.addEventListener('click', (e) => {
-                    const toggle = e.target.closest('.dle_note_toggle');
+                    const toggle = e.target.closest('.dle-note-toggle');
                     if (!toggle) return;
                     const targetId = toggle.dataset.target;
                     const targetEl = document.getElementById(targetId);
-                    if (targetEl) targetEl.style.display = targetEl.style.display === 'none' ? 'block' : 'none';
+                    if (targetEl) {
+                        targetEl.classList.toggle('dle-open');
+                        toggle.setAttribute('aria-expanded', targetEl.classList.contains('dle-open'));
+                    }
                 });
 
                 await callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
@@ -265,8 +268,8 @@ export function registerAdminCommands() {
 
                 for (const [type, items] of Object.entries(grouped2)) {
                     const typeErrors = items.filter(i => i.severity === 'error').length;
-                    html += `<details ${typeErrors > 0 ? 'open' : ''}><summary style="cursor: pointer; margin: 8px 0;"><strong>${escapeHtml(type)}</strong> (${items.length})</summary>`;
-                    html += `<ul style="margin: 4px 0 8px 20px;">`;
+                    html += `<details ${typeErrors > 0 ? 'open' : ''}><summary class="dle-health-summary"><strong>${escapeHtml(type)}</strong> (${items.length})</summary>`;
+                    html += `<ul class="dle-health-list">`;
                     for (const item of items) {
                         html += `<li>${severityBadge(item.severity)} <strong>${escapeHtml(item.entry)}</strong>: ${escapeHtml(item.detail)}</li>`;
                     }
@@ -339,7 +342,7 @@ export function registerAdminCommands() {
             let html = '<div class="dle-popup"><h3>DeepLore Enhanced Commands</h3>';
             for (const c of commands) {
                 if (c.sep) {
-                    html += `<h4 class="dle-muted" style="margin: var(--dle-space-3) 0 var(--dle-space-1);">${escapeHtml(c.label)}</h4>`;
+                    html += `<h4 class="dle-muted dle-health-section-heading">${escapeHtml(c.label)}</h4>`;
                     continue;
                 }
                 html += `<div class="dle-mb-1"><code class="dle-muted">${c.cmd}</code> — ${escapeHtml(c.desc)}</div>`;

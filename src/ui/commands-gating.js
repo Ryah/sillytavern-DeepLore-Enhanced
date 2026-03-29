@@ -216,14 +216,14 @@ export function registerGatingCommands() {
         const currentValue = ctx[ctxField] || '';
         let html = `<div class="dle-popup"><h4>Select ${label}</h4>`;
         if (currentValue) {
-            html += `<p style="margin-bottom:8px;">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
+            html += `<p class="dle-mb-2">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
         }
         html += '<div class="dle-flex-col dle-gap-1">';
-        html += `<button class="menu_button dle-field-select dle-flex-between" data-value="" style="width:100%;">Clear filter</button>`;
+        html += `<button class="menu_button dle-field-select dle-flex-between dle-w-full" data-value="">Clear filter</button>`;
         for (const [, { display, count }] of sorted) {
             const isActive = currentValue.toLowerCase() === display.toLowerCase();
-            const activeStyle = isActive ? 'font-weight:bold;border-left:3px solid var(--dle-success, #4caf50);padding-left:8px;' : '';
-            html += `<button class="menu_button dle-field-select dle-flex-between" data-value="${escapeHtml(display)}" style="width:100%;${activeStyle}">${escapeHtml(display)}<span style="font-size:11px;opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
+            const activeClass = isActive ? ' dle-field-select--active' : '';
+            html += `<button class="menu_button dle-field-select dle-flex-between dle-w-full${activeClass}" data-value="${escapeHtml(display)}">${escapeHtml(display)}<span class="dle-text-xs" style="opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
         }
         html += '</div></div>';
 

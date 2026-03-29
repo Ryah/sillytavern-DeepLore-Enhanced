@@ -171,25 +171,25 @@ export function initRender(gs) {
                     ['Regular', toPastel(gs.nodeColors.regular)],
                 ];
                 return items.map(([label, color]) =>
-                    `<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};"></span>${label}</span>`
+                    `<span class="dle-graph-legend-swatch"><span class="dle-graph-swatch-dot" style="background:${color};"></span>${label}</span>`
                 ).join('');
             }
             case 'priority':
-                return `<span style="display:inline-flex;align-items:center;gap:6px;">Priority:
-                    <span style="display:inline-flex;align-items:center;gap:2px;">High</span>
-                    <span style="display:inline-block;width:120px;height:10px;border-radius:3px;background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#ff9800')},#ffeb3b,${toPastel('#66bb6a')},${toPastel('#42a5f5')});"></span>
+                return `<span class="dle-graph-legend-gradient">Priority:
+                    <span>High</span>
+                    <span class="dle-graph-legend-gradient-bar" style="background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#ff9800')},#ffeb3b,${toPastel('#66bb6a')},${toPastel('#42a5f5')});"></span>
                     <span>Low</span>
                 </span>`;
             case 'centrality':
-                return `<span style="display:inline-flex;align-items:center;gap:6px;">Connections:
+                return `<span class="dle-graph-legend-gradient">Connections:
                     <span>Many</span>
-                    <span style="display:inline-block;width:120px;height:10px;border-radius:3px;background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#ff9800')},#ffeb3b,${toPastel('#66bb6a')},${toPastel('#42a5f5')});"></span>
+                    <span class="dle-graph-legend-gradient-bar" style="background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#ff9800')},#ffeb3b,${toPastel('#66bb6a')},${toPastel('#42a5f5')});"></span>
                     <span>Few</span>
                 </span>`;
             case 'frequency':
-                return `<span style="display:inline-flex;align-items:center;gap:6px;">Injections:
+                return `<span class="dle-graph-legend-gradient">Injections:
                     <span>Frequent</span>
-                    <span style="display:inline-block;width:120px;height:10px;border-radius:3px;background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#e87040')},${toPastel('#b08a50')},${toPastel('#6a8db8')},${toPastel('#4a6fa5')});"></span>
+                    <span class="dle-graph-legend-gradient-bar" style="background:linear-gradient(to right,${toPastel('#e53935')},${toPastel('#e87040')},${toPastel('#b08a50')},${toPastel('#6a8db8')},${toPastel('#4a6fa5')});"></span>
                     <span>Never</span>
                 </span>`;
             case 'community': {
@@ -197,7 +197,7 @@ export function initRender(gs) {
                 const items = [];
                 for (const [, cm] of gs.communities) {
                     if (cm.members.length === 0) continue;
-                    items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${toPastel(cm.color)};"></span>${escapeHtml(cm.label)} (${cm.members.length})</span>`);
+                    items.push(`<span class="dle-graph-legend-swatch"><span class="dle-graph-swatch-dot" style="background:${toPastel(cm.color)};"></span>${escapeHtml(cm.label)} (${cm.members.length})</span>`);
                 }
                 return items.slice(0, 8).join('') + (items.length > 8 ? `<span class="dle-dimmed">+${items.length - 8} more</span>` : '');
             }
@@ -209,12 +209,12 @@ export function initRender(gs) {
                     if (!idx || idx.size === 0) return `<span>No "${escapeHtml(fieldName)}" values found in vault</span>`;
                     const items = [];
                     // Field name header
-                    items.push(`<span style="color:#ccc;font-weight:bold;margin-right:8px;">${escapeHtml(fieldName)}</span>`);
+                    items.push(`<span class="dle-graph-field-label">${escapeHtml(fieldName)}</span>`);
                     for (const [val, c] of idx) {
-                        items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${toPastel(c)};"></span>${escapeHtml(val)}</span>`);
+                        items.push(`<span class="dle-graph-legend-swatch"><span class="dle-graph-swatch-dot" style="background:${toPastel(c)};"></span>${escapeHtml(val)}</span>`);
                     }
                     // "No value" indicator for grey nodes
-                    items.push(`<span class="dle-graph-legend-swatch" style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;opacity:0.6;"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#555555;"></span>No value</span>`);
+                    items.push(`<span class="dle-graph-legend-swatch dle-graph-legend-swatch--empty"><span class="dle-graph-swatch-dot" style="background:#555555;"></span>No value</span>`);
                     return items.slice(0, 12).join('') + (items.length > 12 ? `<span class="dle-dimmed">+${items.length - 12} more</span>` : '');
                 }
                 return '';

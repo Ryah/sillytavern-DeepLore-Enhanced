@@ -76,7 +76,7 @@ export function registerVaultCommands() {
                     ${folder ? `<p>Target folder: <strong>${escapeHtml(folder)}</strong></p>` : '<p>Entries will be created in the vault root. Pass a folder name as argument, e.g. <code>/dle-import Imported</code></p>'}
 
                     <!-- Lorebook dropdown -->
-                    <div id="dle_import_lb_section" style="margin-bottom: 8px;${hasLorebooks ? '' : ' display: none;'}">
+                    <div id="dle_import_lb_section" class="dle-mb-2${hasLorebooks ? '' : ' dle-hidden'}">
                         <label><small>Select a SillyTavern Lorebook</small></label>
                         <select id="dle_import_lorebook" class="text_pole">
                             <option value="">— Select a lorebook —</option>
@@ -85,7 +85,7 @@ export function registerVaultCommands() {
                     </div>
 
                     <!-- File browse button -->
-                    <div style="margin-bottom: 8px;">
+                    <div class="dle-mb-2">
                         <input type="file" id="dle_import_file" accept=".json" class="dle-hidden" />
                         <div id="dle_import_browse" class="menu_button menu_button_icon" style="display: inline-flex;">
                             <i class="fa-solid fa-file-import"></i>
@@ -95,7 +95,7 @@ export function registerVaultCommands() {
 
                     <!-- Textarea for manual paste -->
                     <label><small>Or paste JSON below</small></label>
-                    <textarea id="dle_import_json" class="text_pole" style="height: 200px; font-family: monospace; font-size: 0.85em;" placeholder="Paste World Info JSON here..."></textarea>
+                    <textarea id="dle_import_json" class="text_pole dle-import-textarea" placeholder="Paste World Info JSON here..."></textarea>
                 </div>`,
                 POPUP_TYPE.CONFIRM, '', { wide: true, onOpen: () => {
                     const lbSelect = document.getElementById('dle_import_lorebook');

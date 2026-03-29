@@ -287,10 +287,10 @@ export async function showGraphPopup() {
             <span class="dle-graph-toolbar-sep"></span>
             <button id="dle_graph_settings_btn" class="menu_button dle-graph-toolbar-btn" title="Graph settings"><i class="fa-solid fa-gear"></i></button>
         </div>
-        <div class="dle-graph-toolbar dle-gap-1" style="padding: 2px 6px; flex-wrap: nowrap;">
-            <button id="dle_graph_back" class="menu_button dle-graph-toolbar-btn-wide dle-hidden" title="Exit Focus Tree (Esc)" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">← Back</button>
-            <button id="dle_graph_hop_minus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden" title="Decrease hop depth" style="padding: 2px 6px;">−</button>
-            <button id="dle_graph_hop_plus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden" title="Increase hop depth" style="padding: 2px 6px;">+</button>
+        <div class="dle-graph-toolbar dle-gap-1 dle-graph-toolbar--secondary">
+            <button id="dle_graph_back" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-back-btn" title="Exit Focus Tree (Esc)">← Back</button>
+            <button id="dle_graph_hop_minus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Decrease hop depth">−</button>
+            <button id="dle_graph_hop_plus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Increase hop depth">+</button>
             <button id="dle_graph_fit" class="menu_button dle-graph-toolbar-btn" title="Fit to view (0)">Fit</button>
             <button id="dle_graph_unpin_all" class="menu_button dle-graph-toolbar-btn-wide" title="Unpin all nodes">Unpin All</button>
             <button id="dle_graph_reset" class="menu_button dle-graph-toolbar-btn" title="Reset simulation — re-randomize positions and restart physics">Reset</button>
@@ -306,8 +306,8 @@ export async function showGraphPopup() {
             <span class="dle-graph-legend-item" data-edge-type="excludes"><span class="dle-error">—</span> Excludes</span>
             <span class="dle-graph-legend-item" data-edge-type="cascade"><span class="dle-warning">—</span> Cascade</span>
         </div>
-        <div style="position: relative; flex: 1; min-height: 0;">
-            <canvas id="dle_graph_canvas" tabindex="-1" width="900" height="550" style="border: 1px solid var(--dle-border); border-radius: 4px; cursor: grab; width: 100%; height: 100%; min-height: 200px; background: var(--dle-bg-surface); outline: none;" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
+        <div class="dle-graph-canvas-wrap">
+            <canvas id="dle_graph_canvas" class="dle-graph-canvas" tabindex="-1" width="900" height="550" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
             <div id="dle_graph_tooltip" class="dle-graph-tooltip"></div>
             <div id="dle_graph_context_menu" class="dle-graph-context-menu dle-hidden"></div>
             <div id="dle_graph_settings_panel" class="dle-graph-settings-panel dle-hidden">
@@ -317,10 +317,10 @@ export async function showGraphPopup() {
                 </div>
                 <div class="dle-graph-settings-body">
                     <div class="dle-graph-settings-row dle-gap-1">
-                        <button class="menu_button dle-gs-preset" data-preset="compact" style="flex:1;height:22px;font-size:9px;">Compact</button>
-                        <button class="menu_button dle-gs-preset" data-preset="balanced" style="flex:1;height:22px;font-size:9px;">Balanced</button>
-                        <button class="menu_button dle-gs-preset" data-preset="spacious" style="flex:1;height:22px;font-size:9px;">Spacious</button>
-                        <button class="menu_button dle-gs-preset" data-preset="ginormous" style="flex:1;height:22px;font-size:9px;">Ginormous</button>
+                        <button class="menu_button dle-gs-preset" data-preset="compact">Compact</button>
+                        <button class="menu_button dle-gs-preset" data-preset="balanced">Balanced</button>
+                        <button class="menu_button dle-gs-preset" data-preset="spacious">Spacious</button>
+                        <button class="menu_button dle-gs-preset" data-preset="ginormous">Ginormous</button>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Layout</div>
@@ -348,7 +348,7 @@ export async function showGraphPopup() {
                     <div class="dle-graph-settings-section-label">Display</div>
                     <div class="dle-graph-settings-row">
                         <label>Color By</label>
-                        <select id="dle_gs_color_mode" class="text_pole" style="height: 22px; font-size: 10px; width: 100px;">
+                        <select id="dle_gs_color_mode" class="text_pole dle-gs-compact-select">
                             <option value="type">Type</option>
                             <option value="priority">Priority</option>
                             <option value="centrality">Connections</option>
@@ -389,22 +389,22 @@ export async function showGraphPopup() {
                         <input type="range" id="dle_gs_edge_filter" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle_gs_edge_filter_val"></span>
                     </div>
-                    <div class="dle-graph-settings-row" style="justify-content: center;">
-                        <small id="dle_gs_edge_count" class="dle-dimmed" style="font-size: 9px;"></small>
+                    <div class="dle-graph-settings-row dle-gs-center-row">
+                        <small id="dle_gs_edge_count" class="dle-dimmed dle-gs-edge-count"></small>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-row dle-gap-1">
-                        <button id="dle_gs_redraw" class="menu_button" style="flex: 1; height: 24px; font-size: 10px;" title="Clear saved positions and replay the BFS rollout animation">Redraw</button>
-                        <button id="dle_gs_reset" class="menu_button" style="flex: 1; height: 24px; font-size: 10px;">Reset to Defaults</button>
+                        <button id="dle_gs_redraw" class="menu_button dle-gs-compact-btn" title="Clear saved positions and replay the BFS rollout animation">Redraw</button>
+                        <button id="dle_gs_reset" class="menu_button dle-gs-compact-btn">Reset to Defaults</button>
                     </div>
                 </div>
             </div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+        <div class="dle-graph-footer">
             <small id="dle_graph_hints" class="dle-dimmed">Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit</small>
-            <details class="dle-text-sm" style="margin: 0;">
-                <summary style="cursor: pointer; font-size: 11px;">Screen reader summary</summary>
-                <div style="max-height: 100px; overflow-y: auto; font-size: 11px;">${summaryHtml}</div>
+            <details class="dle-text-sm dle-graph-sr-details">
+                <summary class="dle-graph-sr-summary">Screen reader summary</summary>
+                <div class="dle-graph-sr-content">${summaryHtml}</div>
             </details>
         </div>
     `;

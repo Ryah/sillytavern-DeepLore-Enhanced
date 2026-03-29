@@ -238,7 +238,7 @@ export async function summarizeEntries(entries) {
                     <p class="dle-text-sm dle-muted">Entry content preview: ${escapeHtml(entry.content.substring(0, 200))}...</p>
                     <hr>
                     <p><b>Generated Summary:</b></p>
-                    <textarea id="dle_summary_edit" class="text_pole" style="height: 100px; font-size: 0.9em;">${escapeHtml(summary)}</textarea>
+                    <textarea id="dle_summary_edit" class="text_pole dle-summary-textarea">${escapeHtml(summary)}</textarea>
                     <p class="dle-text-xs dle-faint">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
                 </div>`;
 

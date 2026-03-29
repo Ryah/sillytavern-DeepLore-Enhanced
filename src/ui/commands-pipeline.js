@@ -215,7 +215,7 @@ export function registerPipelineCommands() {
             }
             const plainText = plainLines.join('\n');
 
-            let html = `<div class="dle-popup dle-popup--mono">`;
+            let html = `<div class="dle-popup">`;
             html += `<h3>Entry Inspector</h3>`;
             html += buildCopyButton(plainText);
             html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
@@ -242,7 +242,7 @@ export function registerPipelineCommands() {
                     html += `<li>${escapeHtml(m.title)} [${escapeHtml(m.confidence)}] — ${escapeHtml(m.reason)}</li>`;
                 }
                 html += '</ul>';
-                html += `<p class="dle-text-xs dle-dimmed" style="margin-top: 2px;"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = tangential or speculative</p>`;
+                html += `<p class="dle-text-xs dle-dimmed dle-mt-1"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = tangential or speculative</p>`;
             }
 
             if (t.aiFallback) {

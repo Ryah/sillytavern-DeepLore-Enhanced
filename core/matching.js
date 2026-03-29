@@ -2,7 +2,7 @@
  * DeepLore Enhanced Core — Matching, Gating & Formatting
  */
 
-import { escapeRegex, truncateToSentence, escapeXml } from './utils.js';
+import { escapeRegex, truncateToSentence } from './utils.js';
 
 // ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
 const _regexCache = new WeakMap();
@@ -301,11 +301,12 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         count++;
     }
 
+    // Only escape angle brackets to prevent structural XML injection (e.g. </system>).
+    // Do NOT escape quotes or ampersands — those are valid content the AI should see as-is.
+    const escapeBrackets = (s) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const formatEntry = (entry) => {
-        let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
-        // Always escape content to prevent injection of structural XML elements
-        // (e.g. <system>) regardless of template format
-        text = text.replace(/\{\{content\}\}/g, escapeXml(entry.content));
+        let text = template.replace(/\{\{title\}\}/g, escapeBrackets(entry.title));
+        text = text.replace(/\{\{content\}\}/g, escapeBrackets(entry.content));
         return text;
     };
 

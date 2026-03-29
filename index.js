@@ -41,7 +41,7 @@ import {
 } from './src/state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
-import { resetAiThrottle } from './src/ai/ai.js';
+import { resetAiThrottle, callAI } from './src/ai/ai.js';
 import { runPipeline } from './src/pipeline/pipeline.js';
 import { setupSyncPolling } from './src/vault/sync.js';
 import { runScribe } from './src/ai/scribe.js';
@@ -52,8 +52,42 @@ import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
 import { extractAiNotes } from './src/helpers.js';
 
-/** Default instruction prompt for the AI Notepad feature. */
-const DEFAULT_AI_NOTEPAD_PROMPT = `At the end of your response, you may optionally include brief session notes inside <dle-notes></dle-notes> tags. Use this to record important details worth remembering: character decisions, relationship changes, plot developments, revealed secrets, or state changes. Keep notes concise (2-4 bullet points max). These notes will be preserved and provided to you in future messages. Do not reference these tags in your prose — they are invisible to the reader.`;
+/** Default instruction prompt for the AI Notebook feature. */
+const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
+You have a private notebook. After your roleplay response, you may append a <dle-notes> block. This block is AUTOMATICALLY HIDDEN from the reader — they will never see it. Your notes are saved and returned to you in future messages as "[Your previous session notes]" above.
+
+FORMAT — place this AFTER your entire response, on a new line:
+<dle-notes>
+- your notes here
+</dle-notes>
+
+RULES:
+- The <dle-notes> block must be the LAST thing you write, after all roleplay prose
+- Do NOT write notes as visible prose (no "Note to self:", "OOC:", or similar in your response)
+- Do NOT mention the notebook, notes, or <dle-notes> tags in your roleplay prose
+
+Use this space for anything you want to remember but can't put into the story right now — character motivations, unspoken thoughts, plot threads to revisit, world state, emotional arcs, planned callbacks, or anything else you find relevant.`;
+
+/** Default extraction prompt for AI Notebook extract mode. */
+const DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT = `You are a session note-taker for a roleplay. Given the AI's latest response and (optionally) its previous session notes, extract anything worth remembering for future context.
+
+Extract: character decisions, relationship shifts, emotional states, revealed information, plot developments, world state changes, unresolved threads, promises made, lies told, or anything else a writer would want to track.
+
+If the response contains visible "notes to self", "OOC" commentary, or meta-commentary by the AI, extract the useful content from those too.
+
+If there is nothing noteworthy, respond with exactly: NOTHING_TO_NOTE
+
+Otherwise, respond with concise bullet points only — no preamble, no headers, no explanation. Just the notes.`;
+
+/** Regex patterns for visible AI note-taking that should be stripped from the message. */
+const VISIBLE_NOTES_PATTERNS = [
+    /\[Note to self:[\s\S]*?\]/gi,
+    /\[OOC:[\s\S]*?\]/gi,
+    /\(OOC:[\s\S]*?\)/gi,
+    /\[Author['']?s? note:[\s\S]*?\]/gi,
+    /\[Session note:[\s\S]*?\]/gi,
+    /\[Meta:[\s\S]*?\]/gi,
+];
 
 // ============================================================================
 // Generation Interceptor
@@ -323,26 +357,35 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // AI Notepad injection (AI-written notes + instruction prompt)
+        // AI Notebook injection
+        // Tag mode: inject previous notes + instruction prompt (AI writes <dle-notes> tags)
+        // Extract mode: inject previous notes only (no instruction — extraction happens post-gen)
         if (settings.aiNotepadEnabled) {
+            const notepadMode = settings.aiNotepadMode || 'tag';
             const parts = [];
             const storedNotes = chat_metadata?.deeplore_ai_notepad?.trim();
             if (storedNotes) {
                 parts.push(`[Your previous session notes]\n${storedNotes}\n[End of session notes]`);
             }
-            const instructionPrompt = settings.aiNotepadPrompt?.trim() || DEFAULT_AI_NOTEPAD_PROMPT;
-            parts.push(instructionPrompt);
-            const notepadContent = parts.join('\n\n');
-            const usePromptList = settings.injectionMode === 'prompt_list';
-            if (usePromptList && promptManager) {
-                const pmEntry = promptManager.getPromptById('deeplore_ai_notepad');
-                if (pmEntry) {
-                    pmEntry.content = notepadContent;
+            if (notepadMode === 'tag') {
+                // Tag mode: include instruction prompt so AI knows to use <dle-notes>
+                const instructionPrompt = settings.aiNotepadPrompt?.trim() || DEFAULT_AI_NOTEPAD_PROMPT;
+                parts.push(instructionPrompt);
+            }
+            // Only inject if we have content (extract mode with no existing notes = nothing to inject)
+            if (parts.length > 0) {
+                const notepadContent = parts.join('\n\n');
+                const usePromptList = settings.injectionMode === 'prompt_list';
+                if (usePromptList && promptManager) {
+                    const pmEntry = promptManager.getPromptById('deeplore_ai_notepad');
+                    if (pmEntry) {
+                        pmEntry.content = notepadContent;
+                    } else {
+                        setExtensionPrompt('deeplore_ai_notepad', notepadContent, settings.aiNotepadPosition, settings.aiNotepadDepth, false, settings.aiNotepadRole);
+                    }
                 } else {
                     setExtensionPrompt('deeplore_ai_notepad', notepadContent, settings.aiNotepadPosition, settings.aiNotepadDepth, false, settings.aiNotepadRole);
                 }
-            } else {
-                setExtensionPrompt('deeplore_ai_notepad', notepadContent, settings.aiNotepadPosition, settings.aiNotepadDepth, false, settings.aiNotepadRole);
             }
         }
 
@@ -603,6 +646,76 @@ jQuery(async function () {
             showSourcesPopup(sources, { aiNotes: message?.extra?.deeplore_ai_notes });
         });
 
+        // AI Notebook: GENERATION_ENDED handler for both tag and extract modes.
+        // Tag mode: extract <dle-notes> from AI response before rendering.
+        // Extract mode: strip visible notes, then fire async API call to extract session notes.
+        eventSource.on(event_types.GENERATION_ENDED, () => {
+            const settings = getSettings();
+            if (!settings.aiNotepadEnabled) return;
+            const mode = settings.aiNotepadMode || 'tag';
+            const lastMessage = chat[chat.length - 1];
+            if (!lastMessage || lastMessage.is_user || !lastMessage.mes) return;
+
+            if (mode === 'tag') {
+                // Tag mode: extract <dle-notes> blocks
+                const { notes, cleanedMessage } = extractAiNotes(lastMessage.mes);
+                if (notes) {
+                    lastMessage.mes = cleanedMessage;
+                    lastMessage.extra = lastMessage.extra || {};
+                    lastMessage.extra.deeplore_ai_notes = notes;
+                    const existing = chat_metadata.deeplore_ai_notepad || '';
+                    chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+                    saveChatDebounced();
+                }
+            } else if (mode === 'extract') {
+                // Extract mode: strip visible note-taking prose, then async API extraction
+                let cleaned = lastMessage.mes;
+                for (const pattern of VISIBLE_NOTES_PATTERNS) {
+                    cleaned = cleaned.replace(pattern, '');
+                }
+                cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trimEnd();
+                if (cleaned !== lastMessage.mes) {
+                    lastMessage.mes = cleaned;
+                    saveChatDebounced();
+                }
+
+                // Fire-and-forget async extraction
+                (async () => {
+                    try {
+                        const extractPrompt = settings.aiNotepadExtractPrompt?.trim() || DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT;
+                        const existingNotes = chat_metadata?.deeplore_ai_notepad?.trim();
+                        let userMsg = `[Latest AI response]\n${lastMessage.mes}`;
+                        if (existingNotes) {
+                            userMsg = `[Previous session notes]\n${existingNotes}\n\n${userMsg}`;
+                        }
+
+                        const connectionConfig = {
+                            mode: settings.aiNotepadConnectionMode || 'profile',
+                            profileId: settings.aiNotepadProfileId,
+                            proxyUrl: settings.aiNotepadProxyUrl,
+                            model: settings.aiNotepadModel,
+                            maxTokens: settings.aiNotepadMaxTokens || 1024,
+                            timeout: settings.aiNotepadTimeout || 30000,
+                            skipThrottle: true,
+                        };
+
+                        const result = await callAI(extractPrompt, userMsg, connectionConfig);
+                        const responseText = (result?.text || result || '').trim();
+
+                        if (responseText && responseText !== 'NOTHING_TO_NOTE') {
+                            lastMessage.extra = lastMessage.extra || {};
+                            lastMessage.extra.deeplore_ai_notes = responseText;
+                            const existing = chat_metadata.deeplore_ai_notepad || '';
+                            chat_metadata.deeplore_ai_notepad = (existing + '\n' + responseText).trim();
+                            saveChatDebounced();
+                        }
+                    } catch (err) {
+                        console.warn('[DLE] AI Notebook extract error:', err.message);
+                    }
+                })();
+            }
+        });
+
         // Context Cartographer + Session Scribe: post-render handler
         eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
             const settings = getSettings();
@@ -626,7 +739,7 @@ jQuery(async function () {
                 injectSourcesButton(messageId);
             }
 
-            // --- AI Notepad: extract <dle-notes> from AI response ---
+            // --- AI Notebook: fallback extraction (if GENERATION_ENDED missed it, e.g. swipe) ---
             if (settings.aiNotepadEnabled) {
                 const message = chat[messageId];
                 if (message && !message.is_user && message.mes) {
@@ -634,12 +747,12 @@ jQuery(async function () {
                     if (notes) {
                         message.mes = cleanedMessage;
                         message.extra = message.extra || {};
-                        message.extra.deeplore_ai_notes = notes;
-                        // Accumulate into per-chat storage
-                        const existing = chat_metadata.deeplore_ai_notepad || '';
-                        chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+                        if (!message.extra.deeplore_ai_notes) {
+                            message.extra.deeplore_ai_notes = notes;
+                            const existing = chat_metadata.deeplore_ai_notepad || '';
+                            chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+                        }
                         saveChatDebounced();
-                        // Re-render the message element to reflect stripped content
                         const mesBlock = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
                         if (mesBlock) mesBlock.innerHTML = messageFormatting(cleanedMessage, message.name, message.is_system, message.is_user, messageId);
                     }

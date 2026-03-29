@@ -209,10 +209,9 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
             const summaryText = summaryMode === 'content_only'
                 ? truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen)
                 : (entry.summary || truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen));
-            const safeSummary = escapeXml(summaryText);
-            // BUG-002: XML-escape resolvedLinks (same as title and summary)
+            const safeSummary = summaryText;
             const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
-                ? ` → ${entry.resolvedLinks.map(l => escapeXml(l)).join(', ')}`
+                ? ` → ${entry.resolvedLinks.join(', ')}`
                 : '';
             // Decay/freshness annotation: hint to AI about stale or frequently-injected entries
             let decayHint = '';
@@ -238,12 +237,12 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
                     .map(([k, v]) => `${labelMap.get(k) || k}: ${Array.isArray(v) ? v.join(', ') : v}`);
                 if (pairs.length > 0) fieldsHint = `\n[${pairs.join(' | ')}]`;
             }
-            const safeTitle = escapeXml(entry.title);
-            const header = `${safeTitle} (${entry.tokenEstimate}tok)${links}${decayHint}${fieldsHint}`;
+            const attrSafeTitle = escapeXml(entry.title);
+            const header = `${entry.title} (${entry.tokenEstimate}tok)${links}${decayHint}${fieldsHint}`;
 
             // Wrap each entry in structural delimiters to prevent summary content
             // from being interpreted as manifest-level instructions
-            return `<entry name="${safeTitle}">\n${header}\n${safeSummary}\n</entry>`;
+            return `<entry name="${attrSafeTitle}">\n${header}\n${safeSummary}\n</entry>`;
         })
         .join('\n');
 

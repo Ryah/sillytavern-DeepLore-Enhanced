@@ -150,12 +150,12 @@ export async function openRuleBuilder() {
     <div class="dle-rb-popup">
         <div class="dle-rb-header">
             <h3><i class="fa-solid fa-sliders"></i> Custom Gating Fields</h3>
-            <p class="dle-text-sm" style="opacity: 0.7; margin-top: 4px;">
+            <p class="dle-text-sm dle-rb-desc">
                 Define frontmatter fields for contextual gating. Each field controls which lore entries
                 are injected based on the active scene context.
             </p>
         </div>
-        <div class="dle-rb-errors" style="display: none;"></div>
+        <div class="dle-rb-errors dle-hidden"></div>
         <div class="dle-rb-fields">
             ${working.map((f, i) => buildFieldRowHtml(f, i)).join('')}
         </div>

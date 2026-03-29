@@ -27,6 +27,7 @@ export const TOOL_ACTIONS = {
     'simulate': '/dle-simulate',
     'ai-review': '/dle-review',
     'notebook': '/dle-notebook',
+    'ai-notebook': '/dle-ai-notepad',
     'summarize': '/dle-summarize',
     'import-wi': '/dle-import',
     'optimize-keys': '/dle-optimize-keys',

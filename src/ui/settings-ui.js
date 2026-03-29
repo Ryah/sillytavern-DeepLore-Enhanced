@@ -555,12 +555,28 @@ function loadPopupSettings($container) {
         nbControls.addClass('dle-dimmed');
     }
 
-    // ── Features — AI Notepad ──
+    // ── Features — AI Notebook ──
     $c('#dle_sp_ai_notepad_enabled').prop('checked', settings.aiNotepadEnabled);
+    const aiNbMode = settings.aiNotepadMode || 'tag';
+    $c(`input[name="dle_sp_ai_notepad_mode"][value="${aiNbMode}"]`).prop('checked', true);
     $c(`input[name="dle_sp_ai_notepad_position"][value="${settings.aiNotepadPosition}"]`).prop('checked', true);
     $c('#dle_sp_ai_notepad_depth').val(settings.aiNotepadDepth);
     $c('#dle_sp_ai_notepad_role').val(settings.aiNotepadRole);
     $c('#dle_sp_ai_notepad_prompt').val(settings.aiNotepadPrompt || '');
+    $c('#dle_sp_ai_notepad_extract_prompt').val(settings.aiNotepadExtractPrompt || '');
+    // Extract mode connection settings
+    $c(`input[name="dle_sp_ai_notepad_connection_mode"][value="${settings.aiNotepadConnectionMode || 'profile'}"]`).prop('checked', true);
+    populateProfileDropdownIn($container, 'dle_sp_ai_notepad_profile_select', 'aiNotepadProfileId');
+    $c('#dle_sp_ai_notepad_proxy_url').val(settings.aiNotepadProxyUrl || '');
+    $c('#dle_sp_ai_notepad_model').val(settings.aiNotepadModel || '');
+    $c('#dle_sp_ai_notepad_max_tokens').val(settings.aiNotepadMaxTokens || 1024);
+    $c('#dle_sp_ai_notepad_timeout').val(settings.aiNotepadTimeout || 30000);
+    updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle_sp_ai_notepad_profile_row', proxyRowSelector: '#dle_sp_ai_notepad_proxy_row', modelInputSelector: '#dle_sp_ai_notepad_model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle_sp_ai_notepad_model_row'] });
+    // Show/hide mode-specific options
+    $c('#dle_sp_ai_notepad_mode_tag_desc').toggle(aiNbMode === 'tag');
+    $c('#dle_sp_ai_notepad_mode_extract_desc').toggle(aiNbMode === 'extract');
+    $c('#dle_sp_ai_notepad_tag_options').toggle(aiNbMode === 'tag');
+    $c('#dle_sp_ai_notepad_extract_options').toggle(aiNbMode === 'extract');
     if (!settings.aiNotepadEnabled && settings.injectionMode !== 'prompt_list') {
         const npControls = $c('#dle_sp_ai_notepad_position_controls');
         npControls.find('input, select').prop('disabled', true);
@@ -721,12 +737,12 @@ function runFuzzyPreview() {
     const scores = getFuzzyToyScores();
 
     let html = '<div style="margin-bottom:4px;">';
-    html += '<small><i class="fa-solid fa-flask" style="color:var(--dle-info,#2196f3);"></i> <strong>How this works</strong>';
-    html += ' <span class="dle_muted">— sample data, not your vault</span></small></div>';
-    html += `<div style="margin-bottom:6px;"><small class="dle_muted">If a chat message said </small><small><strong>"${FUZZY_TOY_QUERY}"</strong></small><small class="dle_muted">, these entries would be checked:</small></div>`;
+    html += '<span class="dle-text-xs"><i class="fa-solid fa-flask" style="color:var(--dle-info,#2196f3);"></i> <strong>How this works</strong>';
+    html += ' <span class="dle_muted">— sample data, not your vault</span></span></div>';
+    html += `<div style="margin-bottom:6px;"><span class="dle-text-xs dle_muted">If a chat message said </span><span class="dle-text-xs"><strong>"${FUZZY_TOY_QUERY}"</strong></span><span class="dle-text-xs dle_muted">, these entries would be checked:</span></div>`;
 
     html += '<table style="width:100%;border-collapse:collapse;">';
-    html += '<tr style="border-bottom:1px solid var(--dle-border,#444);"><th style="text-align:left;padding:2px 4px;"><small>Entry</small></th><th style="text-align:left;padding:2px 4px;"><small>Words matched</small></th><th style="text-align:right;padding:2px 4px;"><small>Score</small></th><th style="text-align:center;padding:2px 4px;"></th></tr>';
+    html += '<tr style="border-bottom:1px solid var(--dle-border,#444);"><th style="text-align:left;padding:2px 4px;"><span class="dle-text-xs">Entry</span></th><th style="text-align:left;padding:2px 4px;"><span class="dle-text-xs">Words matched</span></th><th style="text-align:right;padding:2px 4px;"><span class="dle-text-xs">Score</span></th><th style="text-align:center;padding:2px 4px;"></th></tr>';
     for (const e of scores) {
         const passes = e.score >= minScore;
         const icon = passes ? '✓' : '✗';
@@ -735,10 +751,10 @@ function runFuzzyPreview() {
             ? e.matchedWords.map(w => `<span style="color:var(--dle-info,#2196f3);">${escapeHtml(w)}</span>`).join(', ')
             : '<span class="dle_muted">—</span>';
         html += `<tr style="opacity:${passes ? 1 : 0.5};">`;
-        html += `<td style="padding:2px 4px;"><small>${escapeHtml(e.title)}</small></td>`;
-        html += `<td style="padding:2px 4px;"><small>${wordsHtml}</small></td>`;
-        html += `<td style="text-align:right;padding:2px 4px;"><small class="dle_muted">${e.score.toFixed(2)}</small></td>`;
-        html += `<td style="text-align:center;padding:2px 4px;color:${iconColor};font-weight:bold;"><small>${icon}</small></td>`;
+        html += `<td style="padding:2px 4px;"><span class="dle-text-xs">${escapeHtml(e.title)}</span></td>`;
+        html += `<td style="padding:2px 4px;"><span class="dle-text-xs">${wordsHtml}</span></td>`;
+        html += `<td style="text-align:right;padding:2px 4px;"><span class="dle-text-xs dle_muted">${e.score.toFixed(2)}</span></td>`;
+        html += `<td style="text-align:center;padding:2px 4px;color:${iconColor};font-weight:bold;"><span class="dle-text-xs">${icon}</span></td>`;
         html += '</tr>';
     }
     html += '</table>';
@@ -921,7 +937,7 @@ function bindPopupEvents($container) {
         sp = sp.replace(/\{\{maxEntries\}\}/g, maxE);
         const hdr = candidateHeader ? `## Manifest Info\n${candidateHeader}\n\n` : '';
         const um = `${hdr}## Recent Chat\n${chatContext}\n\n## Candidate Lore Entries\n${candidateManifest}\n\nSelect the relevant entries as a JSON array.`;
-        callGenericPopup(`<div class="dle-popup dle-popup--mono"><h3>Mode: ${escapeHtml(modeLabel)}</h3><h3>System Prompt</h3><div class="dle-preview dle-preview--short" style="margin-bottom:15px">${escapeHtml(sp)}</div><h3>User Message</h3><div class="dle-preview dle-preview--tall">${escapeHtml(um)}</div></div>`, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
+        callGenericPopup(`<div class="dle-popup"><h3>Mode: ${escapeHtml(modeLabel)}</h3><h3>System Prompt</h3><div class="dle-preview dle-preview--short" style="margin-bottom:15px">${escapeHtml(sp)}</div><h3>User Message</h3><div class="dle-preview dle-preview--tall">${escapeHtml(um)}</div></div>`, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
     });
 
     // ── Features — Notebook ──
@@ -937,9 +953,9 @@ function bindPopupEvents($container) {
     $c('input[name="dle_sp_notebook_position"]').on('change', function () { settings.notebookPosition = Number($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_notebook_depth').on('input', function () { settings.notebookDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_notebook_role').on('change', function () { settings.notebookRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
-    $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
+    $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Author Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
 
-    // ── Features — AI Notepad ──
+    // ── Features — AI Notebook ──
     $c('#dle_sp_ai_notepad_enabled').on('change', function () {
         settings.aiNotepadEnabled = $(this).prop('checked'); saveSettingsDebounced();
         const npControls = $c('#dle_sp_ai_notepad_position_controls');
@@ -953,7 +969,26 @@ function bindPopupEvents($container) {
     $c('#dle_sp_ai_notepad_depth').on('input', function () { settings.aiNotepadDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_ai_notepad_role').on('change', function () { settings.aiNotepadRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_ai_notepad_prompt').on('input', function () { settings.aiNotepadPrompt = $(this).val(); saveSettingsDebounced(); });
-    $c('#dle_sp_open_ai_notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notepad checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
+    $c('#dle_sp_ai_notepad_extract_prompt').on('input', function () { settings.aiNotepadExtractPrompt = $(this).val(); saveSettingsDebounced(); });
+    $c('input[name="dle_sp_ai_notepad_mode"]').on('change', function () {
+        settings.aiNotepadMode = $(this).val(); saveSettingsDebounced();
+        const isTag = settings.aiNotepadMode === 'tag';
+        $c('#dle_sp_ai_notepad_mode_tag_desc').toggle(isTag);
+        $c('#dle_sp_ai_notepad_mode_extract_desc').toggle(!isTag);
+        $c('#dle_sp_ai_notepad_tag_options').toggle(isTag);
+        $c('#dle_sp_ai_notepad_extract_options').toggle(!isTag);
+    });
+    // AI Notebook extract mode connection handlers
+    $c('input[name="dle_sp_ai_notepad_connection_mode"]').on('change', function () {
+        settings.aiNotepadConnectionMode = $(this).val(); saveSettingsDebounced();
+        updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle_sp_ai_notepad_profile_row', proxyRowSelector: '#dle_sp_ai_notepad_proxy_row', modelInputSelector: '#dle_sp_ai_notepad_model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle_sp_ai_notepad_model_row'] });
+    });
+    $c('#dle_sp_ai_notepad_profile_select').on('change', function () { settings.aiNotepadProfileId = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_notepad_proxy_url').on('input', function () { settings.aiNotepadProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
+    $c('#dle_sp_ai_notepad_model').on('input', function () { settings.aiNotepadModel = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_notepad_max_tokens').on('input', function () { settings.aiNotepadMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_notepad_timeout').on('input', function () { settings.aiNotepadTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
+    $c('#dle_sp_open_ai_notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
 
     // ── Features — Scribe ──
     $c('#dle_sp_scribe_enabled').on('change', function () {
@@ -997,6 +1032,11 @@ function bindPopupEvents($container) {
             $c(`input[name="dle_sp_scribe_connection_mode"][value="${mode}"]`).prop('checked', true); $c('#dle_sp_scribe_proxy_url').val(settings.scribeProxyUrl); $c('#dle_sp_scribe_model').val(settings.scribeModel);
             populateProfileDropdownIn($container, 'dle_sp_scribe_profile_select', 'scribeProfileId');
             updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle_sp_scribe_profile_row', proxyRowSelector: '#dle_sp_scribe_proxy_row', modelInputSelector: '#dle_sp_scribe_model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle_sp_scribe_model_row'], hasStMode: true });
+        } else if (target === 'ai_notepad') {
+            settings.aiNotepadConnectionMode = mode; settings.aiNotepadProfileId = settings.aiSearchProfileId; settings.aiNotepadProxyUrl = settings.aiSearchProxyUrl; settings.aiNotepadModel = settings.aiSearchModel;
+            $c(`input[name="dle_sp_ai_notepad_connection_mode"][value="${mode}"]`).prop('checked', true); $c('#dle_sp_ai_notepad_proxy_url').val(settings.aiNotepadProxyUrl); $c('#dle_sp_ai_notepad_model').val(settings.aiNotepadModel);
+            populateProfileDropdownIn($container, 'dle_sp_ai_notepad_profile_select', 'aiNotepadProfileId');
+            updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle_sp_ai_notepad_profile_row', proxyRowSelector: '#dle_sp_ai_notepad_proxy_row', modelInputSelector: '#dle_sp_ai_notepad_model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle_sp_ai_notepad_model_row'] });
         } else if (target === 'autosuggest') {
             settings.autoSuggestConnectionMode = mode; settings.autoSuggestProfileId = settings.aiSearchProfileId; settings.autoSuggestProxyUrl = settings.aiSearchProxyUrl; settings.autoSuggestModel = settings.aiSearchModel;
             $c(`input[name="dle_sp_autosuggest_connection_mode"][value="${mode}"]`).prop('checked', true); $c('#dle_sp_autosuggest_proxy_url').val(settings.autoSuggestProxyUrl); $c('#dle_sp_autosuggest_model').val(settings.autoSuggestModel);

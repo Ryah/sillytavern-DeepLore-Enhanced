@@ -8,8 +8,9 @@ import { testEntryMatch, countKeywordOccurrences, formatAndGroup } from '../../c
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
-    trackerKey, setLastPipelineTrace, fuzzySearchIndex,
+    trackerKey, setLastPipelineTrace, fuzzySearchIndex, fieldDefinitions,
 } from '../state.js';
+import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { buildCandidateManifest, aiSearch, hierarchicalPreFilter, isForceInjected } from '../ai/ai.js';
 import { ensureIndexFresh, queryBM25 } from '../vault/vault.js';
 import { name2 } from '../../../../../../script.js';
@@ -230,13 +231,21 @@ export function matchEntries(chat, snapshot = null) {
     const matched = [...matchedSet].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
     // Keyword occurrence weighting: re-sort within same priority group using hit count as tiebreaker
+    // BUG-M11: Memoize counts so sort comparator doesn't recompute O(n log n) times
     if (settings.keywordOccurrenceWeighting) {
         const scanText = buildScanText(chat, settings.scanDepth);
+        const occurrenceCache = new Map();
+        const getCachedCount = (entry) => {
+            let count = occurrenceCache.get(entry.title);
+            if (count === undefined) {
+                count = countKeywordOccurrences(entry, scanText, settings);
+                occurrenceCache.set(entry.title, count);
+            }
+            return count;
+        };
         matched.sort((a, b) => {
             if (a.priority !== b.priority) return a.priority - b.priority;
-            const aCount = countKeywordOccurrences(a, scanText, settings);
-            const bCount = countKeywordOccurrences(b, scanText, settings);
-            return bCount - aCount || a.title.localeCompare(b.title);
+            return getCachedCount(b) - getCachedCount(a) || a.title.localeCompare(b.title);
         });
     }
 
@@ -295,7 +304,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
             const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
-            aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings);
+            const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs);
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
@@ -402,7 +412,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
             const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
-            twoStageCandidates = applyContextualGating(twoStageCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings);
+            const fieldDefs2 = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            twoStageCandidates = applyContextualGating(twoStageCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs2);
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(twoStageCandidates, bootstrapActive);
@@ -454,6 +465,13 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
         trace.warmupFailed = keywordResult.warmupFailed;
+
+        // BUG-F1: Apply contextual gating in keywords-only mode (was previously skipped)
+        if (contextualGatingContext) {
+            const prePolicy = buildExemptionPolicy(finalEntries, pins, blocks);
+            const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            finalEntries = applyContextualGating(finalEntries, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs);
+        }
     }
 
     // Re-sort by user priority (with tiebreaker) after all modes.

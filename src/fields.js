@@ -367,10 +367,14 @@ export function evaluateOperator(operator, entryValue, activeValue) {
             return entryValue == null || (Array.isArray(entryValue) && entryValue.length === 0);
         case 'eq':
             return String(entryValue).toLowerCase() === String(activeValue).toLowerCase();
-        case 'gt':
-            return Number(entryValue) > Number(activeValue);
-        case 'lt':
-            return Number(entryValue) < Number(activeValue);
+        case 'gt': {
+            const a = Number(entryValue), b = Number(activeValue);
+            return !Number.isNaN(a) && !Number.isNaN(b) && a > b; // BUG-L2: NaN guard
+        }
+        case 'lt': {
+            const a = Number(entryValue), b = Number(activeValue);
+            return !Number.isNaN(a) && !Number.isNaN(b) && a < b; // BUG-L2: NaN guard
+        }
         default:
             return true;
     }

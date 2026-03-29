@@ -56,7 +56,7 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
     // Note: generateQuietPrompt cannot be aborted — the timed-out generation will complete in background
     const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-    const timeout = settings.scribeTimeout || 60000;
+    const timeout = settings.scribeTimeout ?? 60000; // BUG-H2: Use ?? to preserve explicit 0
     const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens });
     let scribeTimer;
     return await Promise.race([

@@ -159,15 +159,14 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
 
     const { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints } = connectionConfig;
 
-    // BUG-039: Set throttle timestamp AFTER the call completes (not before)
-    // so failed calls don't consume the throttle window
-    try {
-        if (mode === 'profile') {
-            return await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model);
-        }
-
+    // BUG-039 + BUG-H1: Set throttle timestamp only on SUCCESS.
+    // Failed calls must not consume the throttle window (prevents blocking retries).
+    let result;
+    if (mode === 'profile') {
+        result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model);
+    } else {
         // Proxy mode
-        return await callProxyViaCorsBridge(
+        result = await callProxyViaCorsBridge(
             proxyUrl,
             model || 'claude-haiku-4-5-20251001',
             systemPrompt,
@@ -176,13 +175,12 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
             timeout,
             cacheHints,
         );
-    } finally {
-        // Only stamp throttle for non-skipped calls — skipThrottle calls (e.g. hierarchicalPreFilter)
-        // must not consume the throttle window, otherwise the chained aiSearch gets blocked
-        if (!connectionConfig.skipThrottle) {
-            _lastAiCallTimestamp = Date.now();
-        }
     }
+    // Only stamp throttle on success, and only for non-skipped calls
+    if (!connectionConfig.skipThrottle) {
+        _lastAiCallTimestamp = Date.now();
+    }
+    return result;
 }
 
 /**
@@ -371,6 +369,11 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
         if (filtered.length < selectable.length * minRetention) {
             if (settings.debugMode) console.log('[DLE] Hierarchical pre-filter too aggressive, using full manifest');
             return null;
+        }
+
+        // BUG-H3: Warn when pre-filter drops >50% of candidates (even if within threshold)
+        if (filtered.length < selectable.length * 0.5 && settings.debugMode) {
+            console.warn(`[DLE] Hierarchical pre-filter dropped ${selectable.length - filtered.length}/${selectable.length} candidates — consider lowering aggressiveness`);
         }
 
         return filteredResult;
@@ -570,7 +573,11 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
 
         const parsed = extractAiResponseClient(aiResult.text);
         if (!parsed) {
-            if (settings.debugMode) console.warn('[DLE] AI search: could not parse response as JSON array');
+            // BUG-M7: Log truncated response for debugging parse failures
+            if (settings.debugMode) {
+                const preview = (aiResult.text || '').slice(0, 300);
+                console.warn(`[DLE] AI search: could not parse response as JSON array. Response preview: ${preview}`);
+            }
             recordAiFailure(); // BUG-010: Parse failures should trip circuit breaker
             return { results: [], error: true, errorMessage: 'Failed to parse AI response as JSON' };
         }

@@ -69,7 +69,11 @@ export function registerPipelineCommands() {
                 const proceed = await callGenericPopup('This will make a live AI search call and use API tokens. Continue?', POPUP_TYPE.CONFIRM);
                 if (!proceed) return '';
             }
-            const { finalEntries, matchedKeys } = await runPipeline(chat);
+            // BUG-F2: Pass context/pins/blocks to runPipeline so AI pre-filter respects gating
+            const gatingContext = chat_metadata?.deeplore_context || {};
+            const cmdPins = chat_metadata.deeplore_pins || [];
+            const cmdBlocks = chat_metadata.deeplore_blocks || [];
+            const { finalEntries, matchedKeys } = await runPipeline(chat, [...vaultIndex], gatingContext, { pins: cmdPins, blocks: cmdBlocks });
 
             // Apply re-injection cooldown (matches onGenerate order)
             let filtered = finalEntries;
@@ -81,17 +85,15 @@ export function registerPipelineCommands() {
                 });
             }
 
-            // Apply contextual gating — matches onGenerate order
-            const gatingContext = chat_metadata?.deeplore_context;
-            if (gatingContext) {
+            // Post-filter contextual gating (matches onGenerate's post-pipeline gating)
+            if (gatingContext && Object.keys(gatingContext).length > 0) {
                 const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
-                filtered = applyContextualGating(filtered, gatingContext, { forceInject: new Set() }, settings.debugMode, settings, fieldDefs);
+                const cmdPolicy = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
+                filtered = applyContextualGating(filtered, gatingContext, cmdPolicy, settings.debugMode, settings, fieldDefs);
             }
 
-            const cmdPins = chat_metadata.deeplore_pins || [];
-            const cmdBlocks = chat_metadata.deeplore_blocks || [];
-            const cmdPolicy = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
-            const { result: gated } = applyRequiresExcludesGating(filtered, cmdPolicy, settings.debugMode);
+            const cmdPolicy2 = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
+            const { result: gated } = applyRequiresExcludesGating(filtered, cmdPolicy2, settings.debugMode);
             const { count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
             const injected = acceptedEntries || gated.slice(0, injectedCount);
 

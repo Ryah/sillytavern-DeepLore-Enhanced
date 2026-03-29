@@ -98,7 +98,7 @@ function deduplicateMultiVault(entries, mode) {
                 if (entry.content && entry.content.trim()) {
                     existing.content = (existing.content || '') + '\n\n---\n\n' + entry.content;
                     // Recalculate token estimate from merged content
-                    existing.tokenEstimate = Math.ceil(existing.content.length / 3.5);
+                    existing.tokenEstimate = Math.ceil(existing.content.length / 4.0); // BUG-H9: standardize on 4.0 chars/token
                 }
                 // summary: prefer first non-empty
                 if (!existing.summary && entry.summary) existing.summary = entry.summary;
@@ -278,24 +278,23 @@ export async function buildIndex() {
         }
 
         // ── Load custom field definitions ──
-        // Fetch from the first enabled vault (field definitions are vault-wide config)
+        // BUG-F4: Resolve into a local variable first, then set state ONCE before parsing.
+        // This prevents entries from being parsed with inconsistent definitions if fallback logic triggers.
         const primaryVault = enabledVaults[0];
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
+        let loadedFieldDefs = [...DEFAULT_FIELD_DEFINITIONS];
         try {
             const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath);
             if (fdResult.ok && fdResult.content) {
                 const { definitions, errors } = parseFieldDefinitionYaml(fdResult.content);
                 if (definitions.length > 0) {
-                    setFieldDefinitions(definitions);
+                    loadedFieldDefs = definitions;
                     if (settings.debugMode) console.log(`[DLE] Loaded ${definitions.length} custom field definitions from ${fieldDefPath}`);
                     if (errors.length > 0) console.warn('[DLE] Field definition warnings:', errors);
                 } else {
-                    setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
                     if (settings.debugMode) console.log('[DLE] Field definitions file empty, using defaults');
                 }
             } else {
-                // File not found or error → use defaults
-                setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
                 if (fdResult.error === 'not_found') {
                     dedupWarning('Custom field definitions file not found — using defaults. Use Manage Fields to create one.', 'field_defs_missing');
                 } else if (settings.debugMode) {
@@ -304,8 +303,9 @@ export async function buildIndex() {
             }
         } catch (err) {
             console.warn('[DLE] Error loading field definitions:', err.message, '— using defaults');
-            setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
         }
+        // Set state once, before any parsing begins
+        setFieldDefinitions(loadedFieldDefs);
 
         let entries = [];
         const tagConfig = {
@@ -377,7 +377,7 @@ export async function buildIndex() {
                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
             } catch {
                 // Fallback to rough estimate if tokenizer unavailable
-                entry.tokenEstimate = Math.ceil(entry.content.length / 3.5);
+                entry.tokenEstimate = Math.ceil(entry.content.length / 4.0);
             }
         }));
 
@@ -501,6 +501,25 @@ export async function buildIndexWithReuse() {
 
     const promise = (async () => {
     try {
+        // BUG-F3: Reload field definitions during incremental sync (was only loaded in full buildIndex)
+        const primaryVault = enabledVaults[0];
+        const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
+        try {
+            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath);
+            if (fdResult.ok && fdResult.content) {
+                const { definitions } = parseFieldDefinitionYaml(fdResult.content);
+                if (definitions.length > 0) {
+                    setFieldDefinitions(definitions);
+                } else {
+                    setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+                }
+            } else {
+                setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+            }
+        } catch {
+            // Keep existing field definitions on error
+        }
+
         // Build lookup of existing entries by vault:filename → entry (with content hash)
         const existingMap = new Map();
         for (const entry of indexSnapshot) {
@@ -560,7 +579,7 @@ export async function buildIndexWithReuse() {
                             try {
                                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
                             } catch {
-                                entry.tokenEstimate = Math.ceil(entry.content.length / 3.5);
+                                entry.tokenEstimate = Math.ceil(entry.content.length / 4.0);
                             }
                             allEntries.push(entry);
                             if (existing) modifiedCount++;

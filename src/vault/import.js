@@ -72,10 +72,9 @@ export async function importEntries(entries, folder) {
                                 continue;
                             }
                         } catch (dupErr) {
-                            // Network error during uniqueness check — bail out of loop
-                            if (dupErr.name !== 'AbortError') {
-                                break;
-                            }
+                            // BUG-M6: Timeout (AbortError) should break immediately, not continue.
+                            // Non-timeout errors (e.g. 404 response) mean file doesn't exist — safe to use this name.
+                            break;
                         }
                         break;
                     }

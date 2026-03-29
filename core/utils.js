@@ -141,6 +141,7 @@ export function parseFrontmatter(content) {
  * @returns {string[]} Deduplicated array of link target page names
  */
 export function extractWikiLinks(body) {
+    if (!body || typeof body !== 'string') return []; // BUG-L1: guard against null/undefined/non-string
     const links = new Set();
     const regex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
     // Strip H1 line so wikilinks in headings aren't treated as entry links

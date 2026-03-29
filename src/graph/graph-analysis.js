@@ -45,7 +45,9 @@ export function computeDisparityFilter(gs, alpha) {
         const sFrom = strength[e.from];
         let pFrom = 1;
         if (kFrom > 1 && sFrom > 0) {
-            pFrom = Math.pow(1 - w / sFrom, kFrom - 1);
+            // BUG-F5: Clamp ratio to [0,1] — w can exceed sFrom with high mention weights,
+            // causing Math.pow(negative, fraction) → NaN
+            pFrom = Math.pow(Math.max(0, 1 - w / sFrom), kFrom - 1);
         }
 
         // p-value at "to" endpoint
@@ -53,7 +55,7 @@ export function computeDisparityFilter(gs, alpha) {
         const sTo = strength[e.to];
         let pTo = 1;
         if (kTo > 1 && sTo > 0) {
-            pTo = Math.pow(1 - w / sTo, kTo - 1);
+            pTo = Math.pow(Math.max(0, 1 - w / sTo), kTo - 1);
         }
 
         // Edge is backbone if significant at either endpoint
@@ -377,13 +379,19 @@ export function computeGapAnalysis(gs) {
                 const key = `${Math.min(ni.id, nj.id)},${Math.max(ni.id, nj.id)}`;
                 if (edgeSet.has(key)) continue;
 
-                // Check shared contextual fields
+                // Check shared contextual fields (via customFields)
                 let shared = false;
-                if (ei.era && ej.era && ei.era === ej.era) shared = true;
-                if (ei.location && ej.location && ei.location === ej.location) shared = true;
-                if (ei.characterPresent?.length && ej.characterPresent?.length) {
-                    for (const c of ei.characterPresent) {
-                        if (ej.characterPresent.includes(c)) { shared = true; break; }
+                const cfi = ei.customFields || {};
+                const cfj = ej.customFields || {};
+                // Check all string/string[] custom fields for overlap
+                for (const key of Object.keys(cfi)) {
+                    const vi = cfi[key];
+                    const vj = cfj[key];
+                    if (vi == null || vj == null) continue;
+                    if (Array.isArray(vi) && Array.isArray(vj)) {
+                        if (vi.some(v => vj.includes(v))) { shared = true; break; }
+                    } else if (vi === vj) {
+                        shared = true; break;
                     }
                 }
                 if (shared) {

@@ -181,14 +181,14 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, me
             signal: controller.signal,
         });
         const data = await response.text();
-        // Track server errors (5xx) as circuit breaker failures
-        // Don't count auth errors (401/403) or client errors (404) — they are persistent config issues, not transient server failures
-        if (response.status >= 500) {
+        // Track server errors (5xx) and rate limits (429) as circuit breaker failures.
+        // BUG-H5: 429 (rate limit) must trip breaker to prevent thundering herd.
+        // Don't count auth errors (401/403) or client errors (404) — they are persistent config issues, not transient server failures.
+        if (response.status >= 500 || response.status === 429) {
             recordFailure(circuitKey);
         } else if (response.status >= 200 && response.status < 300) {
             recordSuccess(circuitKey);
         }
-        // 4xx errors: neither success nor failure — don't affect circuit breaker state
         return { status: response.status, data };
     } catch (err) {
         recordFailure(circuitKey);
@@ -351,6 +351,68 @@ export async function writeNote(host, port, apiKey, filename, content) {
             body: content,
             contentType: 'text/markdown',
             accept: 'text/markdown',
+        });
+        if (result.status === 200 || result.status === 204) {
+            return { ok: true };
+        }
+        return { ok: false, error: `HTTP ${result.status}: ${(result.data || '').substring(0, 200)}` };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
+}
+
+/**
+ * Fetch a YAML field definitions file from the vault.
+ * @param {string} host
+ * @param {number} port
+ * @param {string} apiKey
+ * @param {string} filePath - Vault-relative path (e.g., 'DeepLore/field-definitions.yaml')
+ * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
+ */
+export async function fetchFieldDefinitions(host, port, apiKey, filePath) {
+    try {
+        const normalizedPath = validateVaultPath(filePath);
+        const result = await obsidianFetch({
+            host,
+            port,
+            apiKey,
+            path: `/vault/${encodeVaultPath(normalizedPath)}`,
+            method: 'GET',
+            accept: 'text/plain',
+        });
+        if (result.status === 200) {
+            return { ok: true, content: result.data };
+        }
+        if (result.status === 404) {
+            return { ok: false, error: 'not_found' };
+        }
+        return { ok: false, error: `HTTP ${result.status}: ${(result.data || '').substring(0, 200)}` };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
+}
+
+/**
+ * Write a YAML field definitions file to the vault.
+ * @param {string} host
+ * @param {number} port
+ * @param {string} apiKey
+ * @param {string} filePath - Vault-relative path (e.g., 'DeepLore/field-definitions.yaml')
+ * @param {string} content - Serialized YAML string
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+export async function writeFieldDefinitions(host, port, apiKey, filePath, content) {
+    try {
+        const normalizedPath = validateVaultPath(filePath);
+        const result = await obsidianFetch({
+            host,
+            port,
+            apiKey,
+            path: `/vault/${encodeVaultPath(normalizedPath)}`,
+            method: 'PUT',
+            body: content,
+            contentType: 'text/plain',
+            accept: 'text/plain',
         });
         if (result.status === 200 || result.status === 204) {
             return { ok: true };

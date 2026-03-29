@@ -5,6 +5,7 @@
  */
 import { trackerKey } from './state.js';
 import { normalizePinBlock, matchesPinBlock } from './helpers.js';
+import { evaluateOperator } from './fields.js';
 
 // ============================================================================
 // ExemptionPolicy
@@ -73,7 +74,7 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
                     excludes: [...(entry.excludes || [])],
                     links: [...(entry.links || [])],
                     resolvedLinks: [...(entry.resolvedLinks || [])],
-                    characterPresent: entry.characterPresent ? [...entry.characterPresent] : null,
+                    customFields: entry.customFields ? JSON.parse(JSON.stringify(entry.customFields)) : {},
                 };
                 if (!resultTitles.has(entry.title.toLowerCase())) {
                     result.push({ ...entry, constant: true, priority: 10, ...cloneFields });
@@ -102,70 +103,61 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
 // ============================================================================
 
 /**
- * Filter entries by contextual gating rules (era, location, scene type, character present).
+ * Filter entries by contextual gating rules using custom field definitions.
+ * Replaces the hardcoded era/location/sceneType/characterPresent logic with
+ * a generic loop driven by fieldDefinitions.
  * ForceInject entries are exempt from all contextual gating.
  *
  * @param {Array} entries
- * @param {{ era?: string, location?: string, scene_type?: string, characters_present?: string[] }} context
+ * @param {object} context - chat_metadata.deeplore_context (dynamic keys)
  * @param {{ forceInject: Set }} policy
  * @param {boolean} debugMode
+ * @param {object} [settings] - Settings object (used for fallback tolerance)
+ * @param {import('./fields.js').FieldDefinition[]} [fieldDefs] - Custom field definitions
  * @returns {Array} Filtered entries
  */
-export function applyContextualGating(entries, context, policy, debugMode, settings) {
-    const activeEra = (context.era || '').toLowerCase();
-    const activeLocation = (context.location || '').toLowerCase();
-    const activeScene = (context.scene_type || '').toLowerCase();
-    const presentChars = (context.characters_present || []).map(c => c.toLowerCase());
+export function applyContextualGating(entries, context, policy, debugMode, settings, fieldDefs) {
+    if (!fieldDefs || fieldDefs.length === 0) return entries;
 
-    const tolerance = (settings && settings.contextualGatingTolerance) || 'strict';
+    const fallbackTolerance = (settings && settings.contextualGatingTolerance) || 'strict';
 
     // Only apply gating if at least one context dimension is set
-    if (!activeEra && !activeLocation && !activeScene && presentChars.length === 0) {
-        return entries;
-    }
-
-    // BUG-016: Removed lenient early return — it was bypassing ALL gating including
-    // dimension-specific matching. The per-dimension filter logic already handles lenient
-    // correctly: entries with gating set but no active context in that dimension pass through.
-    // In lenient mode, only entries that MISMATCH an active dimension are filtered.
+    const hasAnyContext = fieldDefs.some(fd => {
+        if (!fd.gating || !fd.gating.enabled) return false;
+        const val = context[fd.contextKey];
+        return val != null && val !== '' && (!Array.isArray(val) || val.length > 0);
+    });
+    if (!hasAnyContext) return entries;
 
     const before = entries.length;
     const result = entries.filter(e => {
         if (policy.forceInject.has(e.title.toLowerCase())) return true;
 
-        // Era gating
-        if (e.era && e.era.length > 0) {
-            if (activeEra) {
-                if (!e.era.some(v => v.toLowerCase() === activeEra)) return false;
-            } else if (tolerance === 'strict') {
-                return false; // Entry requires an era but none is set
-            }
-            // moderate: entry has era set but active context doesn't — allow through
-        }
-        // Location gating
-        if (e.location && e.location.length > 0) {
-            if (activeLocation) {
-                if (!e.location.some(v => v.toLowerCase() === activeLocation)) return false;
-            } else if (tolerance === 'strict') {
-                return false;
-            }
-            // moderate: entry has location set but active context doesn't — allow through
-        }
-        // Scene type gating
-        if (e.sceneType && e.sceneType.length > 0) {
-            if (activeScene) {
-                if (!e.sceneType.some(v => v.toLowerCase() === activeScene)) return false;
-            } else if (tolerance === 'strict') {
-                return false;
-            }
-            // moderate: entry has sceneType set but active context doesn't — allow through
-        }
-        // Character present gating
-        if (e.characterPresent && e.characterPresent.length > 0) {
-            if (presentChars.length === 0) {
+        for (const fd of fieldDefs) {
+            if (!fd.gating || !fd.gating.enabled) continue;
+
+            const entryValue = e.customFields?.[fd.name];
+            const activeValue = context[fd.contextKey];
+            const tolerance = fd.gating.tolerance || fallbackTolerance;
+
+            // No entry value → pass (entry doesn't care about this field)
+            if (entryValue == null || (Array.isArray(entryValue) && entryValue.length === 0)) continue;
+            // Empty string → pass
+            if (entryValue === '') continue;
+
+            // Entry has value but no active context set for this field
+            if (activeValue == null || activeValue === '' || (Array.isArray(activeValue) && activeValue.length === 0)) {
                 if (tolerance === 'strict') return false;
-                // moderate/lenient: no active characters — allow through
-            } else if (!e.characterPresent.some(c => presentChars.some(p => c.toLowerCase() === p))) {
+                continue; // moderate/lenient: pass through
+            }
+
+            // Apply the field's operator
+            if (!evaluateOperator(fd.gating.operator, entryValue, activeValue)) {
+                // BUG-H8: Lenient tolerance only filters on explicit conflict operators (not_any, eq, gt, lt).
+                // For match_any/match_all, lenient treats a non-match as "not relevant" rather than "excluded".
+                if (tolerance === 'lenient' && (fd.gating.operator === 'match_any' || fd.gating.operator === 'match_all')) {
+                    continue;
+                }
                 return false;
             }
         }
@@ -173,7 +165,11 @@ export function applyContextualGating(entries, context, policy, debugMode, setti
     });
 
     if (debugMode && result.length < before) {
-        console.log(`[DLE] Contextual gating removed ${before - result.length} entries (era: ${activeEra || 'none'}, location: ${activeLocation || 'none'}, scene: ${activeScene || 'none'})`);
+        const activeFields = fieldDefs
+            .filter(fd => fd.gating?.enabled && context[fd.contextKey])
+            .map(fd => `${fd.name}: ${context[fd.contextKey]}`)
+            .join(', ');
+        console.log(`[DLE] Contextual gating removed ${before - result.length} entries (${activeFields || 'none'})`);
     }
 
     return result;
@@ -409,7 +405,7 @@ export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries
         const pruneThreshold = (settings.decayBoostThreshold || 5) * 2;
         for (const [tk, staleness] of decayTracker) {
             if (!injectedKeys.has(tk)) {
-                if (staleness + 1 > pruneThreshold) {
+                if (staleness + 1 >= pruneThreshold) { // BUG-H10: off-by-one, was > causing 1 extra generation
                     decayTracker.delete(tk);
                 } else {
                     decayTracker.set(tk, staleness + 1);

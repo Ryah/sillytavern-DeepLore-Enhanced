@@ -878,7 +878,7 @@ function bindPopupEvents($container) {
     // ── Graph settings ──
     $c('#dle_sp_graph_color_mode').on('change', function () { settings.graphDefaultColorMode = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_graph_hover_dim_distance').on('input', function () { settings.graphHoverDimDistance = numVal($(this).val(), 2); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_focus_tree_depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 3); saveSettingsDebounced(); });
+    $c('#dle_sp_graph_focus_tree_depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 2); saveSettingsDebounced(); }); // BUG-L4: fallback matches default (2)
     $c('#dle_sp_graph_show_labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle_sp_graph_repulsion').on('input', function () { settings.graphRepulsion = parseFloat($(this).val()) || 0.5; saveSettingsDebounced(); });
     $c('#dle_sp_graph_spring_length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 200); saveSettingsDebounced(); });

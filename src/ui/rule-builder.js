@@ -201,7 +201,7 @@ export async function openRuleBuilder() {
     $container.on('click', '.dle-rb-delete', function () {
         const $field = $(this).closest('.dle-rb-field');
         $field.addClass('dle-rb-removing');
-        $field.on('transitionend', () => { $field.remove(); reindexFields($container); });
+        $field.one('transitionend', () => { $field.remove(); reindexFields($container); }); // BUG-M1: .one() auto-removes listener
         // Fallback in case transitionend doesn't fire
         setTimeout(() => { if ($field.parent().length) { $field.remove(); reindexFields($container); } }, 200);
         dirty = true;

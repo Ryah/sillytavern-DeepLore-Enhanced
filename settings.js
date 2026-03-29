@@ -174,7 +174,7 @@ export const defaultSettings = {
     graphDamping: 0.50,                // Velocity damping (0.3-0.98)
     graphHoverDimDistance: 2,           // G2: BFS hops that stay vivid on hover (0-15)
     graphHoverDimOpacity: 0.1,         // Opacity of dimmed nodes/edges (0-0.5)
-    graphFocusTreeDepth: 2,            // N-hop depth for focus tree mode (0-15)
+    graphFocusTreeDepth: 2,            // N-hop depth for focus tree mode (1-15)
     graphDefaultColorMode: 'type',     // type, priority, centrality, frequency
     graphShowLabels: true,             // Show node labels
     graphEdgeFilterAlpha: 0.05,        // Disparity filter alpha (0.01-0.5, lower = sparser backbone)

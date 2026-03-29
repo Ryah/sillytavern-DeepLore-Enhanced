@@ -646,3 +646,28 @@ function bigrams(str) {
     for (let i = 0; i < str.length - 1; i++) set.add(str.slice(i, i + 2));
     return set;
 }
+
+// ── AI Notepad Extraction ──
+
+/**
+ * Extract AI notepad content from <dle-notes> tags in a message.
+ * Returns the cleaned message (tags stripped) and the extracted notes.
+ * @param {string} messageText - Raw AI response text
+ * @returns {{ notes: string|null, cleanedMessage: string }}
+ */
+export function extractAiNotes(messageText) {
+    if (!messageText) return { notes: null, cleanedMessage: messageText || '' };
+
+    const noteRegex = /<dle-notes>([\s\S]*?)<\/dle-notes>/g;
+    const extracted = [];
+    let match;
+    while ((match = noteRegex.exec(messageText)) !== null) {
+        const content = match[1].trim();
+        if (content) extracted.push(content);
+    }
+
+    if (extracted.length === 0) return { notes: null, cleanedMessage: messageText };
+
+    const cleanedMessage = messageText.replace(noteRegex, '').replace(/\n{3,}/g, '\n\n').trimEnd();
+    return { notes: extracted.join('\n'), cleanedMessage };
+}

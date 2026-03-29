@@ -54,7 +54,7 @@ function formatMatchReason(matchedBy) {
  * Show an enhanced popup with lore source details for a message.
  * @param {Array<{title: string, filename: string, matchedBy: string, priority: number, tokens: number}>} sources
  */
-export function showSourcesPopup(sources) {
+export function showSourcesPopup(sources, opts = {}) {
     const settings = getSettings();
     const totalTokens = sources.reduce((sum, s) => sum + s.tokens, 0);
     const maxTokens = Math.max(...sources.map(s => s.tokens), 1);
@@ -154,8 +154,14 @@ export function showSourcesPopup(sources) {
                 const meta = [];
                 if (src.entry.keys?.length > 0) meta.push(`Keys: ${src.entry.keys.slice(0, 5).join(', ')}${src.entry.keys.length > 5 ? '...' : ''}`);
                 if (src.entry.requires?.length > 0) meta.push(`Requires: ${src.entry.requires.join(', ')}`);
-                if (src.entry.era?.length > 0) meta.push(`Era: ${src.entry.era.join(', ')}`);
-                if (src.entry.location?.length > 0) meta.push(`Location: ${src.entry.location.join(', ')}`);
+                if (src.entry.customFields) {
+                    for (const [key, val] of Object.entries(src.entry.customFields)) {
+                        if (val != null && val !== '' && (!Array.isArray(val) || val.length > 0)) {
+                            const display = Array.isArray(val) ? val.join(', ') : String(val);
+                            meta.push(`${key}: ${display}`);
+                        }
+                    }
+                }
                 if (src.entry.resolvedLinks?.length > 0) meta.push(`Links: ${src.entry.resolvedLinks.slice(0, 5).join(', ')}`);
 
                 // Highlight matched keywords in content preview
@@ -231,6 +237,15 @@ export function showSourcesPopup(sources) {
     html += anyVaultNamed
         ? '<p class="dle-faint dle-text-xs dle-mt-2">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
         : '<p class="dle-faint dle-text-xs dle-mt-2">Set vault names in Vault Connections to enable deep links.</p>';
+
+    // AI Notepad: show per-message notes if present
+    if (opts.aiNotes) {
+        html += `<div class="dle-card" style="margin-top: var(--dle-space-2);">
+            <h4><i class="fa-solid fa-robot" style="margin-right: 4px;"></i>AI Notes (this message)</h4>
+            <pre class="dle-text-sm" style="white-space: pre-wrap; margin: var(--dle-space-1) 0;">${escapeHtml(opts.aiNotes)}</pre>
+        </div>`;
+    }
+
     html += '</div>';
 
     const container = document.createElement('div');

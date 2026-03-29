@@ -2,6 +2,24 @@
 
 ## 0.2.0-BETA
 
+### AI Notepad, Import Summaries & Timeout Caps (2026-03-28)
+
+#### AI Notepad (new feature)
+- **AI-written session notes** — The AI can maintain running notes about important story details (decisions, relationship changes, revealed secrets) using `<dle-notes>` tags. Notes are stripped from the visible chat, accumulated per-chat in `chat_metadata`, and reinjected into future messages as context.
+- **Configurable injection** — Position, depth, and role controls (same pattern as Author's Notebook). Custom instruction prompt override available.
+- **Per-message tracking** — Each message's extracted notes stored on `message.extra.deeplore_ai_notes` and visible in Context Cartographer popup.
+- **`/dle-ai-notepad`** — View/edit accumulated notes with token count, or `/dle-ai-notepad clear` to reset.
+- **Settings UI** — Enable toggle, injection controls, and custom prompt textarea in Features tab.
+
+#### AI Summaries on Import
+- **`/dle-import` → summarize piping** — After importing World Info entries, DLE offers to generate AI summaries for imported entries that only have placeholder text. Reuses the `/dle-summarize` pipeline.
+- **Extracted `summarizeEntries()`** — Shared function in `commands-ai.js` used by both `/dle-summarize` and the import flow.
+
+#### Local LLM Timeout Caps
+- **Raised timeout limits** — AI Search timeout cap raised from 30s → 120s. Auto-suggest timeout cap raised from 60s → 120s. Scribe was already 120s.
+- **Local LLM guidance** — Tooltip hints on all timeout inputs: "Local LLMs may need 60-120s. Cloud APIs typically respond in 5-15s."
+- **Wiki updates** — Settings Reference, AI Search, and Troubleshooting pages updated with new ranges and local LLM guidance.
+
 ### Custom Frontmatter Fields (2026-03-28)
 
 > **Highlights:** Contextual gating is now fully customizable. Define your own frontmatter fields (mood, faction, time_of_day — anything), configure gating rules, and manage everything from a visual editor. The four built-in fields (era, location, scene_type, character_present) are now just defaults.

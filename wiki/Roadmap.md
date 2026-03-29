@@ -55,7 +55,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | Feature | Size | Description |
 |---------|------|-------------|
 | **Auto-Sync from ST World Info** | M | Watch a SillyTavern lorebook JSON for changes and auto-import new entries. Bridges the gap with extensions like MemoryBooks and WREC. |
-| **AI-Generated Summaries on Import** | S | Optionally spend an API call per entry during `/dle-import` to generate a real `summary` field instead of the placeholder. (Post-import summaries already available via `/dle-summarize`.) |
+| ~~**AI-Generated Summaries on Import**~~ | ~~S~~ | ✅ Shipped. `/dle-import` now offers to generate AI summaries after import, reusing the `/dle-summarize` pipeline. |
 | **Update Existing Entries** | M | Dedicated function to update vault entries — modifying specific frontmatter fields while preserving the rest — rather than full file rewrites. |
 | **Per-Chat Vault Auto-Switching** | M | Automatically assign vaults to chats instead of manual toggling, or treat folders within a vault as chat-specific lorebooks. |
 | **Full Bidirectional Vault Sync** | L | Full version of the lite import bridge — two-way sync between ST World Info and Obsidian vault. |
@@ -87,6 +87,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Story Timeline View** | M | Scrollable timeline of Session Scribe notes with one-click expansion to full summaries. Replace popup-based `/dle-scribe-history` with a persistent view. |
 | **Debug Mode Lite** | M | In-drawer panel showing live matching traces, pipeline decisions, and cache state — avoiding the need for browser console or `/dle-inspect`. |
 | **Selectable Graph Algorithm** | M | Let users choose between different graph layout algorithms (force-directed, radial, hierarchical, etc.) for different vault structures and visualization needs. |
+| **Entry Studio** | M-L | In-browser entry viewer/editor with AI chat for adjusting frontmatter and content without needing Obsidian open. Preview AI-written entries before committing to vault. Conversational editing: "add era: Modern to frontmatter", "rewrite the summary". |
 
 ---
 
@@ -124,7 +125,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | Feature | Size | Description |
 |---------|------|-------------|
 | **Phone/Mobile Support** | M | Use DLE when SillyTavern runs on a PC but the user accesses from a phone. Remote Obsidian support shipped — this is the remaining UX work. |
-| **Higher/Unlimited AI Timeout** | S | Allow AI search timeout beyond the current 30,000ms cap, or disable it entirely. Scribe and Auto-Suggest already allow up to 60,000ms. |
+| ~~**Higher/Unlimited AI Timeout**~~ | ~~S~~ | ✅ Shipped. All timeouts raised to 120,000ms max. Local LLM guidance added to tooltips, wiki, and troubleshooting. |
 | **Web Worker for Keyword Matching** | M | Offload regex matching off the main thread for vaults with 500+ entries. |
 | **Pipeline Telemetry Dashboard** | M | Timing data, performance counters, and user-facing metrics for pipeline runs. |
 | **Observer Unsubscribe Pattern** | M | Refactor state.js callback arrays to return unsubscribe functions, enabling proper cleanup if modules are ever reloaded. |

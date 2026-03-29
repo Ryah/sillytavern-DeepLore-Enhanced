@@ -81,11 +81,17 @@ export const defaultSettings = {
     cacheTTL: 300,
     reviewResponseTokens: 0,
     debugMode: false,
-    // AI Notebook settings
+    // AI Notebook settings (user-written)
     notebookEnabled: false,
     notebookPosition: 1,   // in_chat
     notebookDepth: 4,
     notebookRole: 0,        // system
+    // AI Notepad settings (AI-written, extracted from <dle-notes> tags)
+    aiNotepadEnabled: false,
+    aiNotepadPosition: 1,   // in_chat
+    aiNotepadDepth: 4,
+    aiNotepadRole: 0,        // system
+    aiNotepadPrompt: '',     // custom instruction prompt (empty = default)
     // AI Search settings
     aiSearchEnabled: false,
     aiSearchConnectionMode: 'profile',
@@ -173,6 +179,8 @@ export const defaultSettings = {
     graphShowLabels: true,             // Show node labels
     graphEdgeFilterAlpha: 0.05,        // Disparity filter alpha (0.01-0.5, lower = sparser backbone)
     graphSavedLayout: null,            // Saved node positions { positions: {title: {x,y}}, timestamp }
+    // Custom Field Definitions
+    fieldDefinitionsPath: 'DeepLore/field-definitions.yaml',
     // Entry Decay & Freshness
     decayEnabled: false,
     decayBoostThreshold: 5,    // Generations without injection before freshness boost
@@ -206,11 +214,12 @@ export const settingsConstraints = {
     maxTokensBudget: { min: 100, max: 100000 },
     injectionDepth: { min: 0, max: 9999 },
     notebookDepth: { min: 0, max: 9999 },
+    aiNotepadDepth: { min: 0, max: 9999 },
     maxRecursionSteps: { min: 1, max: 10 },
     cacheTTL: { min: 0, max: 86400 },
     reviewResponseTokens: { min: 0, max: 100000 },
     aiSearchMaxTokens: { min: 64, max: 4096 },
-    aiSearchTimeout: { min: 1000, max: 30000 },
+    aiSearchTimeout: { min: 1000, max: 120000 },
     aiSearchScanDepth: { min: 1, max: 100 },
     aiSearchManifestSummaryLength: { min: 100, max: 1000 },
     scribeInterval: { min: 1, max: 50 },
@@ -223,7 +232,7 @@ export const settingsConstraints = {
     stripLookbackDepth: { min: 1, max: 10 },
     autoSuggestInterval: { min: 3, max: 50 },
     autoSuggestMaxTokens: { min: 256, max: 4096 },
-    autoSuggestTimeout: { min: 5000, max: 60000 },
+    autoSuggestTimeout: { min: 5000, max: 120000 },
     graphRepulsion: { min: 0.1, max: 50 },
     graphSpringLength: { min: 30, max: 600 },
     graphGravity: { min: 0.1, max: 20 },

@@ -213,6 +213,30 @@ export function registerVaultCommands() {
                 // Refresh index to pick up new entries
                 setIndexTimestamp(0);
                 await buildIndex();
+
+                // Offer to generate AI summaries for imported entries
+                if (result.imported > 0) {
+                    const settings = getSettings();
+                    if (settings.aiSearchEnabled) {
+                        const offerSummaries = await callGenericPopup(
+                            `<p>Generate AI summaries for the ${result.imported} imported entries?</p>
+                            <p class="dle-text-sm dle-muted">This uses your AI search connection to create meaningful summaries, replacing the default placeholder. Each summary is presented for review before writing.</p>`,
+                            POPUP_TYPE.CONFIRM, '', {},
+                        );
+                        if (offerSummaries) {
+                            const imported = vaultIndex.filter(e => !e.summary || e.summary === 'Imported from SillyTavern World Info' || !e.summary.trim());
+                            if (imported.length > 0) {
+                                const { summarizeEntries } = await import('./commands-ai.js');
+                                const sumResult = await summarizeEntries(imported);
+                                toastr.success(`Summaries: ${sumResult.generated} written, ${sumResult.skipped} skipped, ${sumResult.failed} failed.`, 'DeepLore Enhanced');
+                                if (sumResult.generated > 0) {
+                                    setIndexTimestamp(0);
+                                    await buildIndex();
+                                }
+                            }
+                        }
+                    }
+                }
             } catch (err) {
                 console.error('[DLE] Import error:', err);
                 toastr.error(classifyError(err), 'DeepLore Enhanced');

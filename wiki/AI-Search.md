@@ -176,7 +176,7 @@ AI search is designed to degrade gracefully:
 | No chat context | Skip AI search entirely | Skip AI search entirely |
 | AI search disabled | Keywords only (base DeepLore behavior) | N/A |
 
-The timeout is configurable (default 10,000ms, range 1,000-30,000ms).
+The timeout is configurable (default 10,000ms, range 1,000-120,000ms). Local LLMs may need 60,000-120,000ms; cloud APIs typically respond in 5,000-15,000ms.
 
 ---
 

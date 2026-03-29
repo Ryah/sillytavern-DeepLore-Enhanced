@@ -133,6 +133,52 @@ export async function showNotebookPopup() {
 }
 
 /**
+ * Show the AI Notepad viewer popup for the current chat.
+ * Read-only display of accumulated AI-written notes with clear option.
+ */
+export async function showAiNotepadPopup() {
+    const currentNotes = chat_metadata?.deeplore_ai_notepad || '';
+
+    const container = document.createElement('div');
+    container.classList.add('dle-popup');
+    container.innerHTML = `
+        <h3>AI Notepad</h3>
+        <p class="dle-muted dle-text-sm">Session notes written by the AI using &lt;dle-notes&gt; tags. These are stripped from visible chat and reinjected into future messages.</p>
+        <textarea id="dle_ai_notepad_textarea" class="text_pole dle-text-mono" rows="15" style="width: 100%;" placeholder="No AI notes yet for this chat.">${escapeHtml(currentNotes)}</textarea>
+        <small id="dle_ai_notepad_token_count" class="dle-faint"></small>
+    `;
+
+    let capturedValue = currentNotes;
+    const result = await callGenericPopup(container, POPUP_TYPE.CONFIRM, '', {
+        wide: true,
+        large: true,
+        allowVerticalScrolling: true,
+        okButton: 'Save',
+        cancelButton: 'Cancel',
+        onOpen: async () => {
+            const textarea = document.getElementById('dle_ai_notepad_textarea');
+            const countEl = document.getElementById('dle_ai_notepad_token_count');
+            if (textarea && countEl) {
+                const updateCount = async () => {
+                    try {
+                        capturedValue = textarea.value;
+                        const tokens = await getTokenCountAsync(textarea.value);
+                        countEl.textContent = `~${tokens} tokens`;
+                    } catch { countEl.textContent = ''; }
+                };
+                textarea.addEventListener('input', updateCount);
+                await updateCount();
+            }
+        },
+    });
+
+    if (result) {
+        chat_metadata.deeplore_ai_notepad = capturedValue;
+        saveChatDebounced();
+    }
+}
+
+/**
  * Show a searchable, filterable popup of all indexed vault entries.
  */
 export async function showBrowsePopup() {

@@ -28,7 +28,7 @@ import {
 import { matchEntries } from '../pipeline/pipeline.js';
 import { setupSyncPolling } from '../vault/sync.js';
 import { buildIndexWithReuse } from '../vault/vault.js';
-import { showNotebookPopup, showBrowsePopup } from './popups.js';
+import { showNotebookPopup, showBrowsePopup, showAiNotepadPopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
 
 // ============================================================================
@@ -555,6 +555,18 @@ function loadPopupSettings($container) {
         nbControls.addClass('dle-dimmed');
     }
 
+    // ── Features — AI Notepad ──
+    $c('#dle_sp_ai_notepad_enabled').prop('checked', settings.aiNotepadEnabled);
+    $c(`input[name="dle_sp_ai_notepad_position"][value="${settings.aiNotepadPosition}"]`).prop('checked', true);
+    $c('#dle_sp_ai_notepad_depth').val(settings.aiNotepadDepth);
+    $c('#dle_sp_ai_notepad_role').val(settings.aiNotepadRole);
+    $c('#dle_sp_ai_notepad_prompt').val(settings.aiNotepadPrompt || '');
+    if (!settings.aiNotepadEnabled && settings.injectionMode !== 'prompt_list') {
+        const npControls = $c('#dle_sp_ai_notepad_position_controls');
+        npControls.find('input, select').prop('disabled', true);
+        npControls.addClass('dle-dimmed');
+    }
+
     // ── Features — Scribe ──
     $c('#dle_sp_scribe_enabled').prop('checked', settings.scribeEnabled);
     $c('#dle_sp_scribe_controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
@@ -926,6 +938,22 @@ function bindPopupEvents($container) {
     $c('#dle_sp_notebook_depth').on('input', function () { settings.notebookDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_notebook_role').on('change', function () { settings.notebookRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
+
+    // ── Features — AI Notepad ──
+    $c('#dle_sp_ai_notepad_enabled').on('change', function () {
+        settings.aiNotepadEnabled = $(this).prop('checked'); saveSettingsDebounced();
+        const npControls = $c('#dle_sp_ai_notepad_position_controls');
+        const isPromptList = settings.injectionMode === 'prompt_list';
+        if (!isPromptList) {
+            npControls.find('input, select').prop('disabled', !settings.aiNotepadEnabled);
+            npControls.toggleClass('dle-dimmed', !settings.aiNotepadEnabled);
+        }
+    });
+    $c('input[name="dle_sp_ai_notepad_position"]').on('change', function () { settings.aiNotepadPosition = Number($(this).val()); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_notepad_depth').on('input', function () { settings.aiNotepadDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_notepad_role').on('change', function () { settings.aiNotepadRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
+    $c('#dle_sp_ai_notepad_prompt').on('input', function () { settings.aiNotepadPrompt = $(this).val(); saveSettingsDebounced(); });
+    $c('#dle_sp_open_ai_notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notepad checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
 
     // ── Features — Scribe ──
     $c('#dle_sp_scribe_enabled').on('change', function () {

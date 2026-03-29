@@ -176,108 +176,11 @@ export function registerAiCommands() {
             );
             if (!confirmed) return '';
 
-            const { callAI } = await import('../ai/ai.js');
-            const { writeNote, obsidianFetch, encodeVaultPath } = await import('../vault/obsidian-api.js');
-            const settings = getSettings();
-            const vault = getPrimaryVault(settings);
-
-            let generated = 0;
-            let skipped = 0;
-            let failed = 0;
-
-            for (let i = 0; i < missingSummary.length; i++) {
-                const entry = missingSummary[i];
-                toastr.info(`Generating summary ${i + 1}/${missingSummary.length}: "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
-
-                try {
-                    const systemPrompt = 'You are a lore librarian. Write a concise AI search summary (max 600 chars) for the following lorebook entry. The summary should answer: What is this? When should it be selected? Key relationships? Do NOT include physical descriptions or atmospheric prose. Write for an AI that needs to decide whether to inject this entry.';
-                    const userMsg = `Entry: ${entry.title}\n\nContent:\n${entry.content.substring(0, 3000)}`;
-
-                    const result = await callAI(systemPrompt, userMsg, {
-                        mode: settings.aiSearchConnectionMode || 'profile',
-                        profileId: settings.aiSearchProfileId,
-                        proxyUrl: settings.aiSearchProxyUrl,
-                        model: settings.aiSearchModel || 'claude-haiku-4-5-20251001',
-                        maxTokens: 300,
-                        timeout: settings.aiSearchTimeout,
-                    });
-                    const responseText = result.text;
-
-                    const summary = responseText.trim().substring(0, 600);
-                    if (!summary) {
-                        failed++;
-                        continue;
-                    }
-
-                    // Present for review
-                    const reviewHtml = `
-                        <div class="dle-popup">
-                            <h4>${escapeHtml(entry.title)} (${i + 1}/${missingSummary.length})</h4>
-                            <p class="dle-text-sm dle-muted">Entry content preview: ${escapeHtml(entry.content.substring(0, 200))}...</p>
-                            <hr>
-                            <p><b>Generated Summary:</b></p>
-                            <textarea id="dle_summary_edit" class="text_pole" style="height: 100px; font-size: 0.9em;">${escapeHtml(summary)}</textarea>
-                            <p class="dle-text-xs dle-faint">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
-                        </div>`;
-
-                    let capturedTextarea = null;
-                    const approved = await callGenericPopup(reviewHtml, POPUP_TYPE.CONFIRM, '', {
-                        wide: true,
-                        onOpen: () => { capturedTextarea = document.getElementById('dle_summary_edit'); },
-                    });
-
-                    if (!approved) {
-                        skipped++;
-                        continue;
-                    }
-
-                    const finalSummary = capturedTextarea?.value?.trim() || summary;
-
-                    // Read current file, inject summary into frontmatter, write back
-                    const fileResult = await obsidianFetch({
-                        host: vault.host,
-                        port: vault.port,
-                        apiKey: vault.apiKey,
-                        path: `/vault/${encodeVaultPath(entry.filename)}`,
-                        accept: 'text/markdown',
-                    });
-
-                    if (fileResult.status !== 200) {
-                        failed++;
-                        console.warn(`[DLE] Failed to read ${entry.filename}: HTTP ${fileResult.status}`);
-                        continue;
-                    }
-
-                    // Insert summary into frontmatter
-                    let fileContent = fileResult.data;
-                    if (fileContent.startsWith('---')) {
-                        const endIdx = fileContent.indexOf('---', 3);
-                        if (endIdx > 0) {
-                            const fmSection = fileContent.substring(0, endIdx);
-                            const rest = fileContent.substring(endIdx);
-                            // Remove existing summary line if present
-                            const cleaned = fmSection.replace(/^summary:.*$/m, '').replace(/\n{3,}/g, '\n\n');
-                            fileContent = cleaned + `summary: "${finalSummary.replace(/"/g, '\\"')}"\n` + rest;
-                        }
-                    }
-
-                    const writeResult = await writeNote(vault.host, vault.port, vault.apiKey, entry.filename, fileContent);
-                    if (writeResult.ok) {
-                        generated++;
-                    } else {
-                        failed++;
-                    }
-                } catch (err) {
-                    console.error(`[DLE] Summary generation error for "${entry.title}":`, err);
-                    failed++;
-                }
-            }
-
-            const msg = `Done: ${generated} written, ${skipped} skipped, ${failed} failed.`;
+            const result = await summarizeEntries(missingSummary);
+            const msg = `Done: ${result.generated} written, ${result.skipped} skipped, ${result.failed} failed.`;
             toastr.success(msg, 'DeepLore Enhanced');
 
-            // Refresh index to pick up new summaries
-            if (generated > 0) {
+            if (result.generated > 0) {
                 setIndexTimestamp(0);
                 await buildIndex();
             }
@@ -286,4 +189,111 @@ export function registerAiCommands() {
         helpString: 'Generate AI search summaries for entries that are missing them. Each summary is presented for review before writing.',
         returns: 'Summary generation status',
     }));
+}
+
+/**
+ * Generate AI summaries for a list of vault entries.
+ * Each summary is presented for review before writing to Obsidian.
+ * @param {Array} entries - VaultEntry objects to summarize
+ * @returns {{ generated: number, skipped: number, failed: number }}
+ */
+export async function summarizeEntries(entries) {
+    const { callAI } = await import('../ai/ai.js');
+    const { writeNote, obsidianFetch, encodeVaultPath } = await import('../vault/obsidian-api.js');
+    const settings = getSettings();
+    const vault = getPrimaryVault(settings);
+
+    let generated = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        toastr.info(`Generating summary ${i + 1}/${entries.length}: "${entry.title}"...`, 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
+
+        try {
+            const systemPrompt = 'You are a lore librarian. Write a concise AI search summary (max 600 chars) for the following lorebook entry. The summary should answer: What is this? When should it be selected? Key relationships? Do NOT include physical descriptions or atmospheric prose. Write for an AI that needs to decide whether to inject this entry.';
+            const userMsg = `Entry: ${entry.title}\n\nContent:\n${entry.content.substring(0, 3000)}`;
+
+            const result = await callAI(systemPrompt, userMsg, {
+                mode: settings.aiSearchConnectionMode || 'profile',
+                profileId: settings.aiSearchProfileId,
+                proxyUrl: settings.aiSearchProxyUrl,
+                model: settings.aiSearchModel || 'claude-haiku-4-5-20251001',
+                maxTokens: 300,
+                timeout: settings.aiSearchTimeout,
+            });
+            const responseText = result.text;
+
+            const summary = responseText.trim().substring(0, 600);
+            if (!summary) {
+                failed++;
+                continue;
+            }
+
+            // Present for review
+            const reviewHtml = `
+                <div class="dle-popup">
+                    <h4>${escapeHtml(entry.title)} (${i + 1}/${entries.length})</h4>
+                    <p class="dle-text-sm dle-muted">Entry content preview: ${escapeHtml(entry.content.substring(0, 200))}...</p>
+                    <hr>
+                    <p><b>Generated Summary:</b></p>
+                    <textarea id="dle_summary_edit" class="text_pole" style="height: 100px; font-size: 0.9em;">${escapeHtml(summary)}</textarea>
+                    <p class="dle-text-xs dle-faint">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
+                </div>`;
+
+            let capturedTextarea = null;
+            const approved = await callGenericPopup(reviewHtml, POPUP_TYPE.CONFIRM, '', {
+                wide: true,
+                onOpen: () => { capturedTextarea = document.getElementById('dle_summary_edit'); },
+            });
+
+            if (!approved) {
+                skipped++;
+                continue;
+            }
+
+            const finalSummary = capturedTextarea?.value?.trim() || summary;
+
+            // Read current file, inject summary into frontmatter, write back
+            const fileResult = await obsidianFetch({
+                host: vault.host,
+                port: vault.port,
+                apiKey: vault.apiKey,
+                path: `/vault/${encodeVaultPath(entry.filename)}`,
+                accept: 'text/markdown',
+            });
+
+            if (fileResult.status !== 200) {
+                failed++;
+                console.warn(`[DLE] Failed to read ${entry.filename}: HTTP ${fileResult.status}`);
+                continue;
+            }
+
+            // Insert summary into frontmatter
+            let fileContent = fileResult.data;
+            if (fileContent.startsWith('---')) {
+                const endIdx = fileContent.indexOf('---', 3);
+                if (endIdx > 0) {
+                    const fmSection = fileContent.substring(0, endIdx);
+                    const rest = fileContent.substring(endIdx);
+                    // Remove existing summary line if present
+                    const cleaned = fmSection.replace(/^summary:.*$/m, '').replace(/\n{3,}/g, '\n\n');
+                    fileContent = cleaned + `summary: "${finalSummary.replace(/"/g, '\\"')}"\n` + rest;
+                }
+            }
+
+            const writeResult = await writeNote(vault.host, vault.port, vault.apiKey, entry.filename, fileContent);
+            if (writeResult.ok) {
+                generated++;
+            } else {
+                failed++;
+            }
+        } catch (err) {
+            console.error(`[DLE] Summary generation error for "${entry.title}":`, err);
+            failed++;
+        }
+    }
+
+    return { generated, skipped, failed };
 }

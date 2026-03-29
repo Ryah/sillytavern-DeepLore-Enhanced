@@ -20,7 +20,7 @@ import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, fuzzyTitleMatch } from '../src/helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, fuzzyTitleMatch, extractAiNotes } from '../src/helpers.js';
 import { encodeVaultPath, validateVaultPath } from '../src/vault/obsidian-api.js';
 
 // BM25 functions (extracted to bm25.js for testability)
@@ -1669,77 +1669,83 @@ test('applyPinBlock: pin on already-constant entry sets priority to 10', () => {
 
 // -- applyContextualGating --
 
+// Strict-tolerance field definitions for gating tests that expect strict behavior
+const STRICT_FIELD_DEFS = DEFAULT_FIELD_DEFINITIONS.map(fd => ({
+    ...fd,
+    gating: { ...fd.gating, tolerance: 'strict' },
+}));
+
 test('applyContextualGating: no context set = return all entries unchanged', () => {
-    const entries = [makeEntry('A', { era: ['golden'] }), makeEntry('B')];
-    const result = applyContextualGating(entries, {}, { forceInject: new Set() }, false);
+    const entries = [makeEntry('A', { customFields: { era: ['golden'] } }), makeEntry('B')];
+    const result = applyContextualGating(entries, {}, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 2, 'no gating when no context dimensions set');
 });
 
 test('applyContextualGating: entry with era matches active era', () => {
-    const entries = [makeEntry('A', { era: ['golden'] }), makeEntry('B', { era: ['dark'] })];
-    const result = applyContextualGating(entries, { era: 'golden' }, { forceInject: new Set() }, false);
+    const entries = [makeEntry('A', { customFields: { era: ['golden'] } }), makeEntry('B', { customFields: { era: ['dark'] } })];
+    const result = applyContextualGating(entries, { era: 'golden' }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'only golden era entry kept');
     assertEqual(result[0].title, 'A', 'A matches golden era');
 });
 
-test('applyContextualGating: entry with era dropped when no era active', () => {
-    const entries = [makeEntry('A', { era: ['golden'] }), makeEntry('B')];
-    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set() }, false);
+test('applyContextualGating: entry with era dropped when no era active (strict)', () => {
+    const entries = [makeEntry('A', { customFields: { era: ['golden'] } }), makeEntry('B')];
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set() }, false, {}, STRICT_FIELD_DEFS);
     assertEqual(result.length, 1, 'era entry dropped when no era set');
     assertEqual(result[0].title, 'B', 'ungated entry kept');
 });
 
 test('applyContextualGating: forceInject entries bypass era gating', () => {
-    const entries = [makeEntry('A', { era: ['golden'] })];
-    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set(['a']) }, false);
+    const entries = [makeEntry('A', { customFields: { era: ['golden'] } })];
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set(['a']) }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'forceInject entry kept despite era mismatch');
 });
 
 test('applyContextualGating: location gating works', () => {
-    const entries = [makeEntry('A', { location: ['tavern'] }), makeEntry('B', { location: ['castle'] })];
-    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set() }, false);
+    const entries = [makeEntry('A', { customFields: { location: ['tavern'] } }), makeEntry('B', { customFields: { location: ['castle'] } })];
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'only matching location kept');
     assertEqual(result[0].title, 'A', 'tavern entry kept');
 });
 
 test('applyContextualGating: sceneType gating works', () => {
-    const entries = [makeEntry('A', { sceneType: ['combat'] }), makeEntry('B')];
-    const result = applyContextualGating(entries, { scene_type: 'combat' }, { forceInject: new Set() }, false);
+    const entries = [makeEntry('A', { customFields: { scene_type: ['combat'] } }), makeEntry('B')];
+    const result = applyContextualGating(entries, { scene_type: 'combat' }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 2, 'combat entry and ungated entry both kept');
 });
 
 test('applyContextualGating: characterPresent gating works', () => {
     const entries = [
-        makeEntry('A', { characterPresent: ['Eris'] }),
-        makeEntry('B', { characterPresent: ['Raven'] }),
+        makeEntry('A', { customFields: { character_present: ['Eris'] } }),
+        makeEntry('B', { customFields: { character_present: ['Raven'] } }),
     ];
-    const result = applyContextualGating(entries, { characters_present: ['Eris'] }, { forceInject: new Set() }, false);
+    const result = applyContextualGating(entries, { characters_present: ['Eris'] }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'only Eris entry kept');
     assertEqual(result[0].title, 'A', 'A kept for Eris');
 });
 
-test('applyContextualGating: characterPresent with no present chars drops entry', () => {
-    const entries = [makeEntry('A', { characterPresent: ['Eris'] }), makeEntry('B')];
-    const result = applyContextualGating(entries, { era: 'golden' }, { forceInject: new Set() }, false);
+test('applyContextualGating: characterPresent with no present chars drops entry (strict)', () => {
+    const entries = [makeEntry('A', { customFields: { character_present: ['Eris'] } }), makeEntry('B')];
+    const result = applyContextualGating(entries, { era: 'golden' }, { forceInject: new Set() }, false, {}, STRICT_FIELD_DEFS);
     assertEqual(result.length, 1, 'character-gated entry dropped when no chars present');
     assertEqual(result[0].title, 'B', 'ungated entry kept');
 });
 
 test('applyContextualGating: era matching is case-insensitive', () => {
-    const entries = [makeEntry('A', { era: ['Golden Age'] })];
-    const result = applyContextualGating(entries, { era: 'golden age' }, { forceInject: new Set() }, false);
+    const entries = [makeEntry('A', { customFields: { era: ['Golden Age'] } })];
+    const result = applyContextualGating(entries, { era: 'golden age' }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'case-insensitive era match');
 });
 
 test('applyContextualGating: multiple era values, any match passes', () => {
-    const entries = [makeEntry('A', { era: ['golden', 'silver'] })];
-    const result = applyContextualGating(entries, { era: 'silver' }, { forceInject: new Set() }, false);
+    const entries = [makeEntry('A', { customFields: { era: ['golden', 'silver'] } })];
+    const result = applyContextualGating(entries, { era: 'silver' }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'silver matches one of the era values');
 });
 
 test('applyContextualGating: entry with no gating fields always passes', () => {
     const entries = [makeEntry('A')];
-    const result = applyContextualGating(entries, { era: 'golden', location: 'tavern' }, { forceInject: new Set() }, false);
+    const result = applyContextualGating(entries, { era: 'golden', location: 'tavern' }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'ungated entry always passes regardless of active context');
 });
 
@@ -2070,7 +2076,7 @@ test('priority sort: lower priority number wins over alphabetical', () => {
 
 test('integration: pinned entry survives all gating stages', () => {
     const vault = [
-        makeEntry('A', { priority: 50, era: ['golden'], requires: ['X'] }),
+        makeEntry('A', { priority: 50, customFields: { era: ['golden'] }, requires: ['X'] }),
         makeEntry('B', { priority: 80 }),
     ];
     const policy = buildExemptionPolicy(vault, ['A'], []);
@@ -2080,7 +2086,7 @@ test('integration: pinned entry survives all gating stages', () => {
     assertEqual(entries.length, 2, 'pinned A added');
 
     // Stage 2: Contextual gating — no era set, but A has era field
-    entries = applyContextualGating(entries, { location: 'tavern' }, policy, false);
+    entries = applyContextualGating(entries, { location: 'tavern' }, policy, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assert(entries.some(e => e.title === 'A'), 'pinned A survives era gating');
 
     // Stage 3: Cooldown — A was recently injected
@@ -2101,11 +2107,11 @@ test('integration: blocked entry removed even if constant', () => {
     assertEqual(entries[0].title, 'B', 'only B remains');
 });
 
-test('integration: non-forceInject entry with era gated when no era set', () => {
-    const vault = [makeEntry('A', { era: ['golden'] }), makeEntry('B')];
+test('integration: non-forceInject entry with era gated when no era set (strict)', () => {
+    const vault = [makeEntry('A', { customFields: { era: ['golden'] } }), makeEntry('B')];
     const policy = buildExemptionPolicy(vault, [], []);
     let entries = applyPinBlock([vault[0], vault[1]], vault, policy, new Map());
-    entries = applyContextualGating(entries, { location: 'tavern' }, policy, false);
+    entries = applyContextualGating(entries, { location: 'tavern' }, policy, false, {}, STRICT_FIELD_DEFS);
     assertEqual(entries.length, 1, 'A gated out (has era but no era active)');
     assertEqual(entries[0].title, 'B', 'B stays');
 });
@@ -2309,7 +2315,7 @@ test('integration: full 4-stage chain with budget truncation', () => {
     assert(entries.some(e => e.title === 'Pinned'), 'Pinned is in entries');
 
     // Stage 2: Contextual gating (no context set — all pass)
-    entries = applyContextualGating(entries, {}, policy, false);
+    entries = applyContextualGating(entries, {}, policy, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(entries.length, 4, 'all entries pass (no context)');
 
     // Stage 3: Requires/excludes
@@ -3681,6 +3687,431 @@ test('validateSettings: trims lorebook tag', () => {
     const s = { lorebookTag: '  lorebook  ' };
     validateSettings(s, {});
     assertEqual(s.lorebookTag, 'lorebook', 'should trim whitespace');
+});
+
+// ============================================================================
+// Tests: Custom Field Definitions (src/fields.js)
+// ============================================================================
+
+import {
+    DEFAULT_FIELD_DEFINITIONS, RESERVED_FIELD_NAMES, VALID_OPERATORS,
+    validateFieldName, validateFieldDefinition,
+    parseFieldDefinitionYaml, serializeFieldDefinitions,
+    evaluateOperator, extractCustomFields, findDuplicateFieldNames,
+} from '../src/fields.js';
+
+test('DEFAULT_FIELD_DEFINITIONS: contains exactly 4 built-in fields', () => {
+    assertEqual(DEFAULT_FIELD_DEFINITIONS.length, 4, 'should have 4 default fields');
+    const names = DEFAULT_FIELD_DEFINITIONS.map(f => f.name);
+    assertEqual(names, ['era', 'location', 'scene_type', 'character_present'], 'should have correct names in order');
+});
+
+test('DEFAULT_FIELD_DEFINITIONS: all gating fields are multi (string|string[] in frontmatter)', () => {
+    for (const fd of DEFAULT_FIELD_DEFINITIONS) {
+        assert(fd.multi === true, `${fd.name} should be multi (frontmatter allows arrays)`);
+    }
+});
+
+test('DEFAULT_FIELD_DEFINITIONS: all have valid gating config', () => {
+    for (const fd of DEFAULT_FIELD_DEFINITIONS) {
+        assert(fd.gating.enabled === true, `${fd.name} gating should be enabled`);
+        assert(VALID_OPERATORS.has(fd.gating.operator), `${fd.name} should have valid operator`);
+        assert(['strict', 'moderate', 'lenient'].includes(fd.gating.tolerance), `${fd.name} should have valid tolerance`);
+    }
+});
+
+test('validateFieldName: accepts valid names', () => {
+    assert(validateFieldName('mood').valid, 'mood should be valid');
+    assert(validateFieldName('faction_type').valid, 'faction_type should be valid');
+    assert(validateFieldName('arc2').valid, 'arc2 should be valid');
+});
+
+test('validateFieldName: rejects reserved names', () => {
+    assert(!validateFieldName('keys').valid, 'keys should be rejected');
+    assert(!validateFieldName('priority').valid, 'priority should be rejected');
+    assert(!validateFieldName('tags').valid, 'tags should be rejected');
+    assert(!validateFieldName('enabled').valid, 'enabled should be rejected');
+    assert(!validateFieldName('summary').valid, 'summary should be rejected');
+});
+
+test('validateFieldName: rejects invalid formats', () => {
+    assert(!validateFieldName('').valid, 'empty should be rejected');
+    assert(!validateFieldName('  ').valid, 'whitespace should be rejected');
+    assert(!validateFieldName('2start').valid, 'starting with number should be rejected');
+    assert(!validateFieldName('has-dash').valid, 'dashes should be rejected');
+    assert(!validateFieldName('HasCaps').valid, 'uppercase should be rejected');
+});
+
+test('validateFieldDefinition: valid definition returns normalized field', () => {
+    const { field, errors } = validateFieldDefinition({
+        name: 'mood', label: 'Mood', type: 'string', multi: false,
+        gating: { enabled: true, operator: 'match_any', tolerance: 'strict' },
+        values: ['tense', 'calm'], contextKey: 'mood',
+    });
+    assert(field !== null, 'should return a field');
+    assertEqual(field.name, 'mood', 'name');
+    assertEqual(field.label, 'Mood', 'label');
+    assertEqual(field.type, 'string', 'type');
+    assertEqual(field.multi, false, 'multi');
+    assertEqual(field.gating.operator, 'match_any', 'operator');
+    assertEqual(field.values, ['tense', 'calm'], 'values');
+});
+
+test('validateFieldDefinition: defaults for missing optional fields', () => {
+    const { field } = validateFieldDefinition({ name: 'arc' });
+    assert(field !== null, 'should return a field');
+    assertEqual(field.label, 'arc', 'label defaults to name');
+    assertEqual(field.type, 'string', 'type defaults to string');
+    assertEqual(field.multi, false, 'multi defaults to false');
+    assertEqual(field.gating.enabled, true, 'gating enabled defaults to true');
+    assertEqual(field.gating.operator, 'match_any', 'operator defaults to match_any');
+    assertEqual(field.gating.tolerance, 'moderate', 'tolerance defaults to moderate');
+    assertEqual(field.contextKey, 'arc', 'contextKey defaults to name');
+});
+
+test('validateFieldDefinition: rejects reserved name', () => {
+    const { field, errors } = validateFieldDefinition({ name: 'keys' });
+    assert(field === null, 'should not return a field for reserved name');
+    assert(errors.length > 0, 'should have errors');
+});
+
+test('validateFieldDefinition: unknown type defaults to string with error', () => {
+    const { field, errors } = validateFieldDefinition({ name: 'test_field', type: 'widget' });
+    assert(field !== null, 'should still return a field');
+    assertEqual(field.type, 'string', 'should default to string');
+    assert(errors.some(e => e.includes('widget')), 'should warn about unknown type');
+});
+
+test('serializeFieldDefinitions: round-trip parse/serialize/parse produces identical results', () => {
+    const yaml1 = serializeFieldDefinitions(DEFAULT_FIELD_DEFINITIONS);
+    const { definitions: parsed1 } = parseFieldDefinitionYaml(yaml1);
+    const yaml2 = serializeFieldDefinitions(parsed1);
+    const { definitions: parsed2 } = parseFieldDefinitionYaml(yaml2);
+    assertEqual(parsed1, parsed2, 'round-trip should produce identical definitions');
+});
+
+test('serializeFieldDefinitions: empty array', () => {
+    const yaml = serializeFieldDefinitions([]);
+    assertEqual(yaml, 'fields: []\n', 'should produce empty fields YAML');
+});
+
+test('parseFieldDefinitionYaml: empty input returns empty array', () => {
+    assertEqual(parseFieldDefinitionYaml('').definitions, [], 'empty string');
+    assertEqual(parseFieldDefinitionYaml(null).definitions, [], 'null');
+    assertEqual(parseFieldDefinitionYaml(undefined).definitions, [], 'undefined');
+});
+
+test('parseFieldDefinitionYaml: valid YAML with all fields', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: strict
+    values:
+      - tense
+      - calm
+    contextKey: mood`;
+    const { definitions, errors } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'should parse one field');
+    assertEqual(definitions[0].name, 'mood', 'name');
+    assertEqual(definitions[0].values, ['tense', 'calm'], 'values');
+    assertEqual(definitions[0].gating.tolerance, 'strict', 'tolerance');
+});
+
+test('parseFieldDefinitionYaml: skips fields with reserved names', () => {
+    const yaml = `fields:
+  - name: keys
+    label: Keys
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: moderate
+    values: []
+    contextKey: keys`;
+    const { definitions, errors } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 0, 'should skip reserved name');
+    assert(errors.length > 0, 'should have errors for reserved name');
+});
+
+test('evaluateOperator: match_any with matching value', () => {
+    assert(evaluateOperator('match_any', ['medieval', 'renaissance'], 'medieval'), 'should match');
+    assert(evaluateOperator('match_any', ['medieval'], ['modern', 'medieval']), 'should match in array');
+});
+
+test('evaluateOperator: match_any with no match', () => {
+    assert(!evaluateOperator('match_any', ['medieval'], 'modern'), 'should not match');
+});
+
+test('evaluateOperator: match_any is case-insensitive', () => {
+    assert(evaluateOperator('match_any', ['Medieval'], 'medieval'), 'should match case-insensitively');
+    assert(evaluateOperator('match_any', ['medieval'], 'MEDIEVAL'), 'should match case-insensitively');
+});
+
+test('evaluateOperator: match_all requires all active values in entry', () => {
+    assert(evaluateOperator('match_all', ['medieval', 'dark'], ['medieval', 'dark']), 'both present = match');
+    assert(!evaluateOperator('match_all', ['medieval'], ['medieval', 'dark']), 'missing one = no match');
+});
+
+test('evaluateOperator: not_any inverts match_any', () => {
+    assert(evaluateOperator('not_any', ['medieval'], 'modern'), 'no overlap = true');
+    assert(!evaluateOperator('not_any', ['medieval'], 'medieval'), 'overlap = false');
+});
+
+test('evaluateOperator: exists/not_exists', () => {
+    assert(evaluateOperator('exists', 'anything', null), 'value exists = true');
+    assert(evaluateOperator('exists', ['a'], null), 'array value exists = true');
+    assert(!evaluateOperator('exists', null, null), 'null = false');
+    assert(!evaluateOperator('exists', [], null), 'empty array = false');
+    assert(evaluateOperator('not_exists', null, null), 'null = true for not_exists');
+    assert(evaluateOperator('not_exists', [], null), 'empty array = true for not_exists');
+    assert(!evaluateOperator('not_exists', 'val', null), 'value present = false for not_exists');
+});
+
+test('evaluateOperator: gt/lt/eq for numbers', () => {
+    assert(evaluateOperator('gt', 10, 5), '10 > 5');
+    assert(!evaluateOperator('gt', 3, 5), '3 > 5 = false');
+    assert(evaluateOperator('lt', 3, 5), '3 < 5');
+    assert(!evaluateOperator('lt', 10, 5), '10 < 5 = false');
+    assert(evaluateOperator('eq', 'hello', 'Hello'), 'case-insensitive eq');
+    assert(!evaluateOperator('eq', 'hello', 'world'), 'different values = false');
+});
+
+test('evaluateOperator: unknown operator returns true (permissive)', () => {
+    assert(evaluateOperator('unknown_op', 'a', 'b'), 'unknown operator should pass');
+});
+
+test('extractCustomFields: extracts defined fields from frontmatter', () => {
+    const fm = { era: 'medieval', mood: 'tense', location: 'tavern', unrelated: 'value' };
+    const defs = [
+        { name: 'era', type: 'string', multi: false },
+        { name: 'mood', type: 'string', multi: false },
+    ];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.era, 'medieval', 'should extract era');
+    assertEqual(result.mood, 'tense', 'should extract mood');
+    assert(result.location === undefined, 'should not extract undefined fields');
+    assert(result.unrelated === undefined, 'should not extract fields not in definitions');
+});
+
+test('extractCustomFields: multi field normalizes scalar to array', () => {
+    const fm = { character_present: 'Eris' };
+    const defs = [{ name: 'character_present', type: 'string', multi: true }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.character_present, ['eris'], 'should normalize scalar to lowercase array');
+});
+
+test('extractCustomFields: multi field normalizes array values', () => {
+    const fm = { character_present: ['Eris', 'Bob'] };
+    const defs = [{ name: 'character_present', type: 'string', multi: true }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.character_present, ['eris', 'bob'], 'should lowercase array values');
+});
+
+test('extractCustomFields: single string field lowercases', () => {
+    const fm = { era: 'Medieval' };
+    const defs = [{ name: 'era', type: 'string', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.era, 'medieval', 'should lowercase single string');
+});
+
+test('extractCustomFields: number type preserves numbers', () => {
+    const fm = { intensity: 8 };
+    const defs = [{ name: 'intensity', type: 'number', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.intensity, 8, 'should preserve number');
+});
+
+test('extractCustomFields: boolean type coerces', () => {
+    const fm = { visible: true, hidden: 'true', off: false };
+    const defs = [
+        { name: 'visible', type: 'boolean', multi: false },
+        { name: 'hidden', type: 'boolean', multi: false },
+        { name: 'off', type: 'boolean', multi: false },
+    ];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.visible, true, 'true stays true');
+    assertEqual(result.hidden, true, '"true" becomes true');
+    assertEqual(result.off, false, 'false stays false');
+});
+
+test('extractCustomFields: missing fields not included', () => {
+    const fm = {};
+    const defs = [{ name: 'mood', type: 'string', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(Object.keys(result).length, 0, 'should be empty');
+});
+
+test('extractCustomFields: null/undefined inputs return empty', () => {
+    assertEqual(Object.keys(extractCustomFields(null, [])).length, 0, 'null frontmatter');
+    assertEqual(Object.keys(extractCustomFields({}, null)).length, 0, 'null definitions');
+});
+
+test('findDuplicateFieldNames: detects duplicates', () => {
+    const defs = [
+        { name: 'mood' }, { name: 'era' }, { name: 'mood' },
+    ];
+    assertEqual(findDuplicateFieldNames(defs), ['mood'], 'should find mood duplicate');
+});
+
+test('findDuplicateFieldNames: no duplicates returns empty', () => {
+    const defs = [{ name: 'mood' }, { name: 'era' }];
+    assertEqual(findDuplicateFieldNames(defs), [], 'should be empty');
+});
+
+// ============================================================================
+// Regression Tests — Bug Fix Round (2026-03-28)
+// ============================================================================
+
+test('REGRESSION: parseFieldDefinitionYaml preserves contextKey with non-empty values', () => {
+    const yaml = `fields:
+  - name: faction
+    label: Faction
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: moderate
+    values:
+      - rebels
+      - empire
+      - neutral
+    contextKey: active_faction`;
+    const { definitions, errors } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'should parse one field');
+    assertEqual(definitions[0].contextKey, 'active_faction', 'contextKey must survive non-empty values block');
+});
+
+test('REGRESSION: parseFieldDefinitionYaml handles empty value items gracefully', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: moderate
+    values:
+      - happy
+      -
+    contextKey: mood`;
+    // Should not crash on the empty value item
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'should parse field despite empty value item');
+    assert(definitions[0].values.includes('happy'), 'should include valid value');
+});
+
+test('REGRESSION: extractCustomFields handles array on multi:true field correctly', () => {
+    const fm = { era: ['medieval', 'renaissance'] };
+    const defs = [{ name: 'era', type: 'string', multi: true }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.era.length, 2, 'should have 2 values');
+    assert(result.era.includes('medieval'), 'should include medieval');
+    assert(result.era.includes('renaissance'), 'should include renaissance');
+});
+
+test('REGRESSION: DEFAULT_FIELD_DEFINITIONS has multi:true for era/location/scene_type', () => {
+    const era = DEFAULT_FIELD_DEFINITIONS.find(fd => fd.name === 'era');
+    const loc = DEFAULT_FIELD_DEFINITIONS.find(fd => fd.name === 'location');
+    const scene = DEFAULT_FIELD_DEFINITIONS.find(fd => fd.name === 'scene_type');
+    assert(era.multi === true, 'era should be multi:true');
+    assert(loc.multi === true, 'location should be multi:true');
+    assert(scene.multi === true, 'scene_type should be multi:true');
+});
+
+test('REGRESSION: DEFAULT_FIELD_DEFINITIONS has correct shapes for all 4 built-in fields', () => {
+    assertEqual(DEFAULT_FIELD_DEFINITIONS.length, 4, 'should have 4 built-in fields');
+    for (const fd of DEFAULT_FIELD_DEFINITIONS) {
+        assert(fd.name, 'field must have name');
+        assert(fd.label, 'field must have label');
+        assert(fd.type === 'string', 'built-in fields are string type');
+        assert(fd.gating?.enabled === true, 'built-in fields have gating enabled');
+        assert(fd.gating?.operator === 'match_any', 'built-in fields use match_any');
+        assert(fd.contextKey, 'field must have contextKey');
+    }
+});
+
+test('REGRESSION: serializeFieldDefinitions round-trips with non-empty values', () => {
+    const defs = [{
+        name: 'faction',
+        label: 'Faction',
+        type: 'string',
+        multi: false,
+        gating: { enabled: true, operator: 'match_any', tolerance: 'moderate' },
+        values: ['rebels', 'empire', 'neutral'],
+        contextKey: 'active_faction',
+    }];
+    const yaml = serializeFieldDefinitions(defs);
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'should parse back one field');
+    assertEqual(definitions[0].name, 'faction', 'name round-trips');
+    assertEqual(definitions[0].contextKey, 'active_faction', 'contextKey round-trips with values');
+    assertEqual(definitions[0].values.length, 3, 'values round-trip');
+    assert(definitions[0].values.includes('rebels'), 'values content round-trips');
+});
+
+// ============================================================================
+// extractAiNotes
+// ============================================================================
+
+test('extractAiNotes: null/empty input returns null notes', () => {
+    const r1 = extractAiNotes(null);
+    assertEqual(r1.notes, null, 'null input');
+    assertEqual(r1.cleanedMessage, '', 'null input cleaned');
+
+    const r2 = extractAiNotes('');
+    assertEqual(r2.notes, null, 'empty input');
+    assertEqual(r2.cleanedMessage, '', 'empty input cleaned');
+});
+
+test('extractAiNotes: message without tags returns unchanged', () => {
+    const msg = 'Hello, this is a regular message.';
+    const r = extractAiNotes(msg);
+    assertEqual(r.notes, null, 'no tags = null notes');
+    assertEqual(r.cleanedMessage, msg, 'message unchanged');
+});
+
+test('extractAiNotes: extracts single note block', () => {
+    const msg = 'Some prose here.\n\n<dle-notes>- Character revealed secret\n- Plot advanced</dle-notes>';
+    const r = extractAiNotes(msg);
+    assertEqual(r.notes, '- Character revealed secret\n- Plot advanced', 'notes extracted');
+    assert(!r.cleanedMessage.includes('dle-notes'), 'tags stripped');
+    assert(r.cleanedMessage.includes('Some prose here.'), 'prose preserved');
+});
+
+test('extractAiNotes: extracts multiple note blocks', () => {
+    const msg = 'Prose 1.\n<dle-notes>Note A</dle-notes>\nMore prose.\n<dle-notes>Note B</dle-notes>';
+    const r = extractAiNotes(msg);
+    assert(r.notes.includes('Note A'), 'first note');
+    assert(r.notes.includes('Note B'), 'second note');
+    assert(!r.cleanedMessage.includes('dle-notes'), 'all tags stripped');
+});
+
+test('extractAiNotes: handles multiline notes', () => {
+    const msg = 'Story text.\n<dle-notes>\n- Item 1\n- Item 2\n- Item 3\n</dle-notes>';
+    const r = extractAiNotes(msg);
+    assert(r.notes.includes('Item 1'), 'multiline note 1');
+    assert(r.notes.includes('Item 3'), 'multiline note 3');
+});
+
+test('extractAiNotes: empty tags return null', () => {
+    const msg = 'Text.\n<dle-notes></dle-notes>';
+    const r = extractAiNotes(msg);
+    assertEqual(r.notes, null, 'empty tags = null');
+    assertEqual(r.cleanedMessage, msg, 'message unchanged with empty tags');
+});
+
+test('extractAiNotes: collapses excess newlines after stripping', () => {
+    const msg = 'Prose.\n\n\n\n<dle-notes>Note</dle-notes>';
+    const r = extractAiNotes(msg);
+    assert(!r.cleanedMessage.includes('\n\n\n'), 'no triple newlines');
 });
 
 // ============================================================================

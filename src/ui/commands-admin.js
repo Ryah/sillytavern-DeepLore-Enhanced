@@ -1,6 +1,6 @@
 /**
  * DeepLore Enhanced — Slash Commands: Admin & Status
- * /dle-notebook, /dle-status, /dle-scribe-history, /dle-analytics, /dle-health, /dle-setup, /dle-help
+ * /dle-notebook, /dle-ai-notepad, /dle-status, /dle-scribe-history, /dle-analytics, /dle-health, /dle-setup, /dle-help
  */
 import { saveSettingsDebounced } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
@@ -16,7 +16,7 @@ import {
 } from '../state.js';
 import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
 import { runHealthCheck } from './diagnostics.js';
-import { showNotebookPopup, buildCopyButton, attachCopyHandler } from './popups.js';
+import { showNotebookPopup, showAiNotepadPopup, buildCopyButton, attachCopyHandler } from './popups.js';
 
 export function registerAdminCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -27,6 +27,24 @@ export function registerAdminCommands() {
         },
         helpString: 'Open the Notebook editor for the current chat.',
         returns: 'Opens notebook popup',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-ai-notepad',
+        callback: async (_args, value) => {
+            const subcommand = (value || '').trim().toLowerCase();
+            if (subcommand === 'clear') {
+                const { chat_metadata, saveChatDebounced } = await import('../../../../../../script.js');
+                chat_metadata.deeplore_ai_notepad = '';
+                saveChatDebounced();
+                toastr.success('AI Notepad cleared for this chat.', 'DeepLore Enhanced');
+                return '';
+            }
+            await showAiNotepadPopup();
+            return '';
+        },
+        helpString: 'View or clear AI-written session notes. Usage: /dle-ai-notepad [clear]',
+        returns: 'Opens AI notepad popup or clears notes',
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -404,6 +422,7 @@ export function registerAdminCommands() {
                 { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph' },
                 { cmd: '/dle-analytics', desc: 'View entry match/injection analytics' },
                 { cmd: '/dle-notebook', desc: 'Edit the Notebook for this chat' },
+                { cmd: '/dle-ai-notepad [clear]', desc: 'View or clear AI-written session notes' },
                 { cmd: '/dle-scribe', desc: 'Run Session Scribe now' },
                 { cmd: '/dle-scribe-history', desc: 'View past Scribe notes' },
                 { cmd: '/dle-newlore', desc: 'AI suggests new lorebook entries from chat' },

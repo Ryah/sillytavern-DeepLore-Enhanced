@@ -428,9 +428,9 @@
                             <label for="dle_sp_ai_max_tokens"><small>Max Response Tokens</small></label>
                             <input id="dle_sp_ai_max_tokens" type="number" class="text_pole" min="64" max="4096" />
                         </div>
-                        <div class="flex1" title="Timeout in ms for the AI search request. Default: 10000.">
+                        <div class="flex1" title="Timeout in ms for the AI search request. Default: 10000. Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.">
                             <label for="dle_sp_ai_timeout"><small>Timeout (ms)</small></label>
-                            <input id="dle_sp_ai_timeout" type="number" class="text_pole" min="1000" max="30000" />
+                            <input id="dle_sp_ai_timeout" type="number" class="text_pole" min="1000" max="120000" />
                         </div>
                     </div>
                     <div class="flex-container">
@@ -591,6 +591,52 @@
             </div>
 
             <div class="dle-settings-section">
+            <h4>AI Notepad</h4>
+            <p class="dle_section_desc">Let the AI maintain its own session notes. The AI appends notes in &lt;dle-notes&gt; tags which are stripped from visible chat and reinjected on future turns.</p>
+            <div class="flex-container flexFlowColumn">
+                <label class="checkbox_label" for="dle_sp_ai_notepad_enabled" title="Enable AI Notepad — the AI can write session notes that persist across messages in this chat.">
+                    <input id="dle_sp_ai_notepad_enabled" type="checkbox" class="checkbox">
+                    <span>Enable AI Notepad</span>
+                </label>
+                <div class="flex-container">
+                    <div id="dle_sp_open_ai_notepad" class="menu_button menu_button_icon" role="button" tabindex="0" title="View accumulated AI notes for this chat.">
+                        <i class="fa-solid fa-robot" aria-hidden="true"></i>
+                        <span>View AI Notes</span>
+                    </div>
+                </div>
+                <div id="dle_sp_ai_notepad_position_controls">
+                    <label><small>AI Notepad Injection Position</small></label>
+                    <div class="radio_group">
+                        <label title="Place AI notepad content before the main system prompt.">
+                            <input type="radio" name="dle_sp_ai_notepad_position" value="2" />
+                            <span>Before Main Prompt</span>
+                        </label>
+                        <label title="Place AI notepad content after the main system prompt.">
+                            <input type="radio" name="dle_sp_ai_notepad_position" value="0" />
+                            <span>After Main Prompt</span>
+                        </label>
+                        <label title="Place AI notepad content in the chat history at a specific depth.">
+                            <input type="radio" name="dle_sp_ai_notepad_position" value="1" />
+                            <span>In-chat at depth</span>
+                            <input id="dle_sp_ai_notepad_depth" class="text_pole widthUnset" type="number" min="0" max="9999" style="width: 60px;" />
+                            <span> as </span>
+                            <select id="dle_sp_ai_notepad_role" class="text_pole widthNatural">
+                                <option value="0">System</option>
+                                <option value="1">User</option>
+                                <option value="2">Assistant</option>
+                            </select>
+                        </label>
+                    </div>
+                    <small id="dle_sp_ai_notepad_pm_note" style="display: none; opacity: 0.6;">Position is controlled by the prompt list — drag <b>deeplore_ai_notepad</b>.</small>
+                </div>
+                <div>
+                    <label for="dle_sp_ai_notepad_prompt"><small>Custom Instruction Prompt (leave empty for default)</small></label>
+                    <textarea id="dle_sp_ai_notepad_prompt" class="text_pole" rows="3" placeholder="At the end of your response, you may optionally include brief session notes inside &lt;dle-notes&gt;&lt;/dle-notes&gt; tags..."></textarea>
+                </div>
+            </div>
+            </div>
+
+            <div class="dle-settings-section">
             <h4>Session Scribe</h4>
             <p class="dle_section_desc">Automatically summarize the roleplay session and write notes to your Obsidian vault.</p>
             <label class="checkbox_label" for="dle_sp_scribe_enabled" title="Generate session summaries using your chosen AI connection.">
@@ -657,9 +703,9 @@
                         <label for="dle_sp_scribe_max_tokens"><small>Max Response Tokens</small></label>
                         <input id="dle_sp_scribe_max_tokens" type="number" class="text_pole" min="256" max="4096" />
                     </div>
-                    <div class="flex1" title="Timeout in ms. Default: 60000.">
+                    <div class="flex1" title="Timeout in ms. Default: 60000. Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.">
                         <label for="dle_sp_scribe_timeout"><small>Timeout (ms)</small></label>
-                        <input id="dle_sp_scribe_timeout" type="number" class="text_pole" min="5000" max="60000" />
+                        <input id="dle_sp_scribe_timeout" type="number" class="text_pole" min="5000" max="120000" />
                     </div>
                 </div>
                 <div class="flex-container">
@@ -723,9 +769,9 @@
                             <label for="dle_sp_autosuggest_max_tokens"><small>Max Tokens</small></label>
                             <input id="dle_sp_autosuggest_max_tokens" type="number" class="text_pole" min="256" max="4096" />
                         </div>
-                        <div class="flex1" title="Timeout in ms for auto-suggest requests. Default: 30000.">
+                        <div class="flex1" title="Timeout in ms for auto-suggest requests. Default: 30000. Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.">
                             <label for="dle_sp_autosuggest_timeout"><small>Timeout (ms)</small></label>
-                            <input id="dle_sp_autosuggest_timeout" type="number" class="text_pole" min="5000" max="60000" />
+                            <input id="dle_sp_autosuggest_timeout" type="number" class="text_pole" min="5000" max="120000" />
                         </div>
                     </div>
                 </div>

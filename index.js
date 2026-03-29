@@ -9,6 +9,7 @@ import {
     saveChatDebounced,
     chat,
     chat_metadata,
+    messageFormatting,
 } from '../../../../script.js';
 import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
@@ -36,7 +37,9 @@ import {
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources,
     notifyPipelineComplete, notifyGatingChanged,
+    fieldDefinitions,
 } from './src/state.js';
+import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
 import { resetAiThrottle } from './src/ai/ai.js';
 import { runPipeline } from './src/pipeline/pipeline.js';
@@ -47,6 +50,10 @@ import { loadSettingsUI, bindSettingsEvents } from './src/ui/settings-ui.js';
 import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
+import { extractAiNotes } from './src/helpers.js';
+
+/** Default instruction prompt for the AI Notepad feature. */
+const DEFAULT_AI_NOTEPAD_PROMPT = `At the end of your response, you may optionally include brief session notes inside <dle-notes></dle-notes> tags. Use this to record important details worth remembering: character decisions, relationship changes, plot developments, revealed secrets, or state changes. Keep notes concise (2-4 bullet points max). These notes will be preserved and provided to you in future messages. Do not reference these tags in your prose — they are invisible to the reader.`;
 
 // ============================================================================
 // Generation Interceptor
@@ -152,9 +159,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Stage 1: Pin/Block overrides
         let finalEntries = applyPinBlock(pipelineEntries, vaultSnapshot, policy, matchedKeys);
 
-        // Stage 2: Contextual gating (era, location, scene, character)
+        // Stage 2: Contextual gating (driven by field definitions)
         const preContextual = new Set(finalEntries.map(e => e.title));
-        finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode, settings);
+        const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+        finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode, settings, fieldDefs);
         if (trace) {
             const postContextual = new Set(finalEntries.map(e => e.title));
             trace.contextualGatingRemoved = [...preContextual].filter(t => !postContextual.has(t));
@@ -245,7 +253,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         // remain in context rather than being wiped to nothing.
         clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
         if (settings.injectionMode === 'prompt_list' && promptManager) {
-            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook']) {
+            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
                 const pmEntry = promptManager.getPromptById(id);
                 if (pmEntry) pmEntry.content = '';
             }
@@ -312,6 +320,29 @@ async function onGenerate(chat, contextSize, abort, type) {
                 }
             } else {
                 setExtensionPrompt('deeplore_notebook', notebookContent, settings.notebookPosition, settings.notebookDepth, false, settings.notebookRole);
+            }
+        }
+
+        // AI Notepad injection (AI-written notes + instruction prompt)
+        if (settings.aiNotepadEnabled) {
+            const parts = [];
+            const storedNotes = chat_metadata?.deeplore_ai_notepad?.trim();
+            if (storedNotes) {
+                parts.push(`[Your previous session notes]\n${storedNotes}\n[End of session notes]`);
+            }
+            const instructionPrompt = settings.aiNotepadPrompt?.trim() || DEFAULT_AI_NOTEPAD_PROMPT;
+            parts.push(instructionPrompt);
+            const notepadContent = parts.join('\n\n');
+            const usePromptList = settings.injectionMode === 'prompt_list';
+            if (usePromptList && promptManager) {
+                const pmEntry = promptManager.getPromptById('deeplore_ai_notepad');
+                if (pmEntry) {
+                    pmEntry.content = notepadContent;
+                } else {
+                    setExtensionPrompt('deeplore_ai_notepad', notepadContent, settings.aiNotepadPosition, settings.aiNotepadDepth, false, settings.aiNotepadRole);
+                }
+            } else {
+                setExtensionPrompt('deeplore_ai_notepad', notepadContent, settings.aiNotepadPosition, settings.aiNotepadDepth, false, settings.aiNotepadRole);
             }
         }
 
@@ -528,7 +559,7 @@ jQuery(async function () {
             // promptManager may not be initialized yet, so poll briefly.
             const registerPmEntries = () => {
                 if (!promptManager) return false;
-                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook'];
+                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad'];
                 for (const id of ids) {
                     const existing = promptManager.getPromptById(id);
                     if (!existing) {
@@ -594,7 +625,7 @@ jQuery(async function () {
             const message = chat[messageId];
             const sources = message?.extra?.deeplore_sources;
             if (!sources || sources.length === 0) return;
-            showSourcesPopup(sources);
+            showSourcesPopup(sources, { aiNotes: message?.extra?.deeplore_ai_notes });
         });
 
         // Context Cartographer + Session Scribe: post-render handler
@@ -618,6 +649,26 @@ jQuery(async function () {
 
             if (settings.showLoreSources) {
                 injectSourcesButton(messageId);
+            }
+
+            // --- AI Notepad: extract <dle-notes> from AI response ---
+            if (settings.aiNotepadEnabled) {
+                const message = chat[messageId];
+                if (message && !message.is_user && message.mes) {
+                    const { notes, cleanedMessage } = extractAiNotes(message.mes);
+                    if (notes) {
+                        message.mes = cleanedMessage;
+                        message.extra = message.extra || {};
+                        message.extra.deeplore_ai_notes = notes;
+                        // Accumulate into per-chat storage
+                        const existing = chat_metadata.deeplore_ai_notepad || '';
+                        chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+                        saveChatDebounced();
+                        // Re-render the message element to reflect stripped content
+                        const mesBlock = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
+                        if (mesBlock) mesBlock.innerHTML = messageFormatting(cleanedMessage, message.name, message.is_system, message.is_user, messageId);
+                    }
+                }
             }
 
             // --- Session Scribe: track chat position and auto-trigger ---
@@ -664,7 +715,7 @@ jQuery(async function () {
 
             // Re-register PM entries for the new active character (prompt_list mode)
             if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {
-                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook'];
+                const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad'];
                 for (const id of ids) {
                     const existing = promptManager.getPromptById(id);
                     if (!existing) {

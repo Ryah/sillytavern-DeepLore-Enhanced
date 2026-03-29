@@ -54,6 +54,21 @@ Open the Author's Notebook editor for the current chat.
 
 ---
 
+### `/dle-ai-notepad [clear]`
+View or clear AI-written session notes for the current chat.
+
+**When to use:** Check what the AI has been noting during the conversation, or clear stale notes.
+
+**Usage:**
+- `/dle-ai-notepad` Open a popup showing all accumulated AI notes
+- `/dle-ai-notepad clear` Clear all AI notes for this chat
+
+**How it works:** When AI Notepad is enabled, the AI is instructed to append session notes inside `<dle-notes></dle-notes>` tags at the end of its responses. DLE automatically strips these tags from the visible chat, stores the notes per-chat, and reinjects them into future messages so the AI can maintain continuity.
+
+Per-message AI notes are also shown in the Context Cartographer popup (the book icon on messages).
+
+---
+
 ### `/dle-review [question]`
 Send all vault entries to the AI for review. Posts the vault as a user message and generates an AI response.
 
@@ -275,6 +290,7 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-why` (`/dle-context`) | Preview what would be injected now |
 | `/dle-browse` | Browse all indexed entries |
 | `/dle-notebook` | Open Author's Notebook editor |
+| `/dle-ai-notepad [clear]` | View or clear AI session notes |
 | `/dle-review [question]` | Send vault to AI for review |
 | `/dle-scribe [focus]` | Write session note to Obsidian |
 | `/dle-scribe-history` | View all session notes |

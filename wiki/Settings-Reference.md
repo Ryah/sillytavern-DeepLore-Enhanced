@@ -110,7 +110,7 @@ Visible when Search Mode is Two-Stage or AI Only.
 | **Proxy URL** | `http://localhost:42069` | Text | (Proxy mode) URL of the claude-code-proxy or compatible endpoint. Must expose `/v1/messages`. |
 | **Model Override** | (none) | Text | Optional model override. In profile mode, leave empty to use the profile's model. In proxy mode, specify the model name. |
 | **Max Response Tokens** | `1024` | 64-4096 | Token limit for the AI response. Keep low; only a JSON array is needed. |
-| **Timeout (ms)** | `10000` | 1000-30000 | How long to wait for the AI before falling back to keyword-only results. |
+| **Timeout (ms)** | `10000` | 1000-120000 | How long to wait for the AI before falling back to keyword-only results. Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms. |
 | **AI Scan Depth** | `4` | 1-100 | Number of recent messages to send as context to the AI. Can differ from keyword scan depth. |
 | **Entry Description Length** | `600` | 100-1000 | Max characters for entry descriptions in the AI manifest. Only for entries without a `summary` field. |
 | **System Prompt Override** | (none) | Text | Custom system prompt for AI selection. Leave empty for default. Supports `{{maxEntries}}` placeholder. |
@@ -158,7 +158,7 @@ Session Scribe and Auto Lorebook are grouped under one collapsible drawer in set
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy server URL. Only shown in Proxy mode. |
 | **Model** | (none) | Text | Model override for suggestions. |
 | **Max Tokens** | `2048` | 256-4096 | Maximum tokens for the suggestion response. |
-| **Timeout (ms)** | `30000` | 5000-60000 | Request timeout for auto-suggest generation. |
+| **Timeout (ms)** | `30000` | 5000-120000 | Request timeout for auto-suggest generation. Local LLMs may need 60000-120000ms. |
 | **Skip Review** | Off | Toggle | When on, auto-suggested entries are written to the vault immediately without showing the review popup. Use with caution. |
 
 Use `/dle-newlore` to trigger on-demand at any time.

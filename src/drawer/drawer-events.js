@@ -12,6 +12,7 @@ import {
     fieldDefinitions,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
+import { normalizePinBlock } from '../helpers.js';
 import { buildIndex } from '../vault/vault.js';
 import { buildObsidianURI } from '../helpers.js';
 import { openSettingsPopup } from '../ui/settings-ui.js';
@@ -211,23 +212,27 @@ export function wireBrowseTab($drawer) {
         scheduleRender(renderBrowseTab);
     });
 
-    // Pin/block buttons via event delegation
+    // BUG-AUDIT-3: Pin/block buttons via event delegation
+    // Store {title, vaultSource} objects to match the format used by slash commands.
+    // Use normalizePinBlock() to safely compare existing entries (handles both legacy
+    // bare strings and structured objects).
     $drawer.find('.dle-browse-list').on('click', '.dle-browse-pin', function () {
         const title = $(this).data('entry');
+        const vaultSource = $(this).data('vault') || null;
         if (!title || !chat_metadata) return;
 
         if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
         const tl = title.toLowerCase();
-        const idx = chat_metadata.deeplore_pins.findIndex(t => t.toLowerCase() === tl);
+        const idx = chat_metadata.deeplore_pins.findIndex(p => normalizePinBlock(p).title.toLowerCase() === tl);
 
         if (idx !== -1) {
             // Unpin
             chat_metadata.deeplore_pins.splice(idx, 1);
         } else {
             // Pin — also remove from blocks
-            chat_metadata.deeplore_pins.push(title);
+            chat_metadata.deeplore_pins.push({ title, vaultSource });
             if (chat_metadata.deeplore_blocks) {
-                chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(t => t.toLowerCase() !== tl);
+                chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(b => normalizePinBlock(b).title.toLowerCase() !== tl);
             }
         }
         saveChatDebounced();
@@ -236,20 +241,21 @@ export function wireBrowseTab($drawer) {
 
     $drawer.find('.dle-browse-list').on('click', '.dle-browse-block', function () {
         const title = $(this).data('entry');
+        const vaultSource = $(this).data('vault') || null;
         if (!title || !chat_metadata) return;
 
         if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
         const tl = title.toLowerCase();
-        const idx = chat_metadata.deeplore_blocks.findIndex(t => t.toLowerCase() === tl);
+        const idx = chat_metadata.deeplore_blocks.findIndex(b => normalizePinBlock(b).title.toLowerCase() === tl);
 
         if (idx !== -1) {
             // Unblock
             chat_metadata.deeplore_blocks.splice(idx, 1);
         } else {
             // Block — also remove from pins
-            chat_metadata.deeplore_blocks.push(title);
+            chat_metadata.deeplore_blocks.push({ title, vaultSource });
             if (chat_metadata.deeplore_pins) {
-                chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(t => t.toLowerCase() !== tl);
+                chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => normalizePinBlock(p).title.toLowerCase() !== tl);
             }
         }
         saveChatDebounced();

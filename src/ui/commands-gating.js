@@ -24,7 +24,11 @@ export function registerGatingCommands() {
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
             if (!name) { toastr.info('Usage: /dle-pin <entry name>', 'DeepLore Enhanced'); return ''; }
-            await ensureIndexFresh();
+            try { await ensureIndexFresh(); } catch (err) {
+                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                console.error('[DLE] ensureIndexFresh failed in /dle-pin:', err);
+                return '';
+            }
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
             if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
@@ -71,7 +75,11 @@ export function registerGatingCommands() {
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
             if (!name) { toastr.info('Usage: /dle-block <entry name>', 'DeepLore Enhanced'); return ''; }
-            await ensureIndexFresh();
+            try { await ensureIndexFresh(); } catch (err) {
+                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                console.error('[DLE] ensureIndexFresh failed in /dle-block:', err);
+                return '';
+            }
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
             if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
@@ -180,7 +188,7 @@ export function registerGatingCommands() {
     };
 
     /**
-     * Helper: count entries matching a value for a gating field (case-insensitive substring, reads from customFields).
+     * Helper: count entries matching a value for a gating field (case-insensitive exact match, reads from customFields).
      */
     const countFieldMatches = (fieldName, value) => {
         const lower = value.toLowerCase();
@@ -188,7 +196,7 @@ export function registerGatingCommands() {
         for (const entry of vaultIndex) {
             const val = entry.customFields?.[fieldName];
             const arr = Array.isArray(val) ? val : (val != null && val !== '' ? [val] : []);
-            if (arr.some(v => String(v).toLowerCase().includes(lower) || lower.includes(String(v).toLowerCase()))) {
+            if (arr.some(v => String(v).toLowerCase() === lower)) {
                 count++;
             }
         }
@@ -213,43 +221,48 @@ export function registerGatingCommands() {
         // Sort by count descending, then alphabetically
         const sorted = [...valueMap.entries()].sort((a, b) => b[1].count - a[1].count || a[1].display.localeCompare(b[1].display));
 
-        const currentValue = ctx[ctxField] || '';
+        // BUG-AUDIT-10: Handle both scalar and array context values safely.
+        // Multi-value fields (like character_present) store arrays in context.
+        const rawCurrentValue = ctx[ctxField] || '';
+        const currentDisplay = Array.isArray(rawCurrentValue) ? rawCurrentValue.join(', ') : String(rawCurrentValue);
+        const currentLower = Array.isArray(rawCurrentValue) ? rawCurrentValue.map(v => String(v).toLowerCase()) : [];
         let html = `<div class="dle-popup"><h4>Select ${label}</h4>`;
-        if (currentValue) {
-            html += `<p class="dle-mb-2">Current: <strong>${escapeHtml(currentValue)}</strong></p>`;
+        if (currentDisplay) {
+            html += `<p class="dle-mb-2">Current: <strong>${escapeHtml(currentDisplay)}</strong></p>`;
         }
         html += '<div class="dle-flex-col dle-gap-1">';
         html += `<button class="menu_button dle-field-select dle-flex-between dle-w-full" data-value="">Clear filter</button>`;
         for (const [, { display, count }] of sorted) {
-            const isActive = currentValue.toLowerCase() === display.toLowerCase();
+            const isActive = Array.isArray(rawCurrentValue)
+                ? currentLower.includes(display.toLowerCase())
+                : String(rawCurrentValue).toLowerCase() === display.toLowerCase();
             const activeClass = isActive ? ' dle-field-select--active' : '';
             html += `<button class="menu_button dle-field-select dle-flex-between dle-w-full${activeClass}" data-value="${escapeHtml(display)}">${escapeHtml(display)}<span class="dle-text-xs" style="opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
         }
         html += '</div></div>';
 
-        // Show popup and wire up click handlers via event delegation
-        const promise = callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false });
-
-        // After DOM renders, attach click handlers
-        await new Promise(r => setTimeout(r, 50));
-        const buttons = document.querySelectorAll('.dle-field-select');
-        for (const btn of buttons) {
-            btn.addEventListener('click', () => {
-                const selected = btn.getAttribute('data-value');
-                ctx[ctxField] = selected;
-                saveChatDebounced();
-                notifyGatingChanged();
-                if (selected) {
-                    toastr.success(`${label} set to "${selected}" for this chat.`, 'DeepLore Enhanced');
-                } else {
-                    toastr.success(`${label} cleared.`, 'DeepLore Enhanced');
+        // Show popup and wire up click handlers via onOpen callback
+        await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+            wide: false,
+            onOpen: () => {
+                const buttons = document.querySelectorAll('.dle-field-select');
+                for (const btn of buttons) {
+                    btn.addEventListener('click', () => {
+                        const selected = btn.getAttribute('data-value');
+                        ctx[ctxField] = selected;
+                        saveChatDebounced();
+                        notifyGatingChanged();
+                        if (selected) {
+                            toastr.success(`${label} set to "${selected}" for this chat.`, 'DeepLore Enhanced');
+                        } else {
+                            toastr.success(`${label} cleared.`, 'DeepLore Enhanced');
+                        }
+                        // Close the popup
+                        document.querySelector('.popup-button-ok')?.click();
+                    });
                 }
-                // Close the popup
-                document.querySelector('.popup-button-ok')?.click();
-            });
-        }
-
-        await promise;
+            },
+        });
     };
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({

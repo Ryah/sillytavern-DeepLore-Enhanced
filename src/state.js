@@ -190,6 +190,7 @@ export function setAiCircuitOpenedAt(v) { aiCircuitOpenedAt = v; }
 export function recordAiFailure() {
     const wasClosed = !aiCircuitOpen;
     aiCircuitHalfOpenProbe = false;
+    aiCircuitProbeTimestamp = 0;
     aiCircuitFailures++;
     if (aiCircuitFailures >= AI_CIRCUIT_THRESHOLD) {
         aiCircuitOpen = true;
@@ -202,6 +203,7 @@ export function recordAiFailure() {
 export function recordAiSuccess() {
     const wasOpen = aiCircuitOpen;
     aiCircuitHalfOpenProbe = false;
+    aiCircuitProbeTimestamp = 0;
     aiCircuitFailures = 0;
     aiCircuitOpen = false;
     aiCircuitOpenedAt = 0;
@@ -214,20 +216,62 @@ export function recordAiSuccess() {
  *   OPEN    — aiCircuitOpen=true, cooldown not expired. All calls blocked.
  *   HALF-OPEN — aiCircuitOpen=true, cooldown expired. Exactly ONE probe call
  *              is allowed through (via atomic aiCircuitHalfOpenProbe flag).
- *              If the probe succeeds → resetAiCircuit() → CLOSED.
+ *              If the probe succeeds → recordAiSuccess() → CLOSED.
  *              If the probe fails → recordAiFailure() → OPEN (timer reset).
  *
  * The atomic probe flag (BUG-025) prevents thundering herd: if multiple
  * callers check simultaneously after cooldown, only the first gets through.
+ *
+ * BUG-AUDIT-1: Split into pure query (isAiCircuitOpen) vs probe acquisition
+ * (tryAcquireHalfOpenProbe). UI code must use isAiCircuitOpen() which never
+ * mutates state. AI callers use tryAcquireHalfOpenProbe() to claim the probe.
+ * BUG-AUDIT-2: Probe has a 60s timeout — if neither success nor failure is
+ * recorded, the probe flag auto-resets so the circuit can retry.
  */
+const AI_PROBE_TIMEOUT = 60_000; // ms before stale probe auto-resets
+let aiCircuitProbeTimestamp = 0;
+
+/** Pure query: is the circuit breaker blocking calls? Does NOT mutate state.
+ *  Use this in UI rendering, status checks, and non-AI code paths. */
 export function isAiCircuitOpen() {
     if (!aiCircuitOpen) return false;
     if (Date.now() - aiCircuitOpenedAt > AI_CIRCUIT_COOLDOWN) {
-        if (aiCircuitHalfOpenProbe) return true; // probe already dispatched, block others
-        aiCircuitHalfOpenProbe = true;
-        return false;
+        // Cooldown expired — half-open state. If probe is dispatched and not stale, block.
+        if (aiCircuitHalfOpenProbe) {
+            // BUG-AUDIT-2: Auto-reset stale probes (consumed by UI or orphaned by timeout/throttle)
+            if (Date.now() - aiCircuitProbeTimestamp > AI_PROBE_TIMEOUT) {
+                aiCircuitHalfOpenProbe = false;
+                aiCircuitProbeTimestamp = 0;
+                return false; // probe expired — circuit is open for a new probe
+            }
+            return true; // probe in flight, block others
+        }
+        return false; // no probe dispatched — caller should use tryAcquireHalfOpenProbe
     }
-    return true;
+    return true; // still in cooldown
+}
+
+/** Attempt to acquire the half-open probe slot. Returns true if this caller
+ *  got the probe (should proceed with AI call). Returns false if blocked.
+ *  Only call this from actual AI call paths (aiSearch, hierarchicalPreFilter). */
+export function tryAcquireHalfOpenProbe() {
+    if (!aiCircuitOpen) return true; // circuit closed, all pass
+    if (Date.now() - aiCircuitOpenedAt > AI_CIRCUIT_COOLDOWN) {
+        if (aiCircuitHalfOpenProbe) {
+            // Check for stale probe before blocking
+            if (Date.now() - aiCircuitProbeTimestamp > AI_PROBE_TIMEOUT) {
+                aiCircuitHalfOpenProbe = false;
+                aiCircuitProbeTimestamp = 0;
+                // Fall through to acquire
+            } else {
+                return false; // probe already dispatched, block
+            }
+        }
+        aiCircuitHalfOpenProbe = true;
+        aiCircuitProbeTimestamp = Date.now();
+        return true; // acquired probe — caller must call recordAiSuccess or recordAiFailure
+    }
+    return false; // still in cooldown
 }
 
 // ── Observer callbacks ──

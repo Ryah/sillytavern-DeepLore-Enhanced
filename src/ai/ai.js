@@ -11,7 +11,7 @@ import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
     trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
     notifyAiStatsUpdated,
-    isAiCircuitOpen, recordAiSuccess, recordAiFailure,
+    isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure,
     fieldDefinitions,
 } from '../state.js';
 import { dedupWarning } from '../toast-dedup.js';
@@ -301,8 +301,8 @@ Respond with ONLY a JSON array of category name strings.
 Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Systems"]`;
     const categoryUserMessage = `## Categories\n${categoryManifest}\n\n## Recent Chat\n${chatContext}`;
 
-    // Skip if AI circuit breaker is tripped — avoid burning timeouts during outages
-    if (isAiCircuitOpen()) return null;
+    // BUG-AUDIT-1: Use tryAcquireHalfOpenProbe for actual AI calls (not pure query)
+    if (!tryAcquireHalfOpenProbe()) return null;
 
     try {
         const result = await callAI(categoryPrompt, categoryUserMessage, {
@@ -375,6 +375,10 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
             console.warn(`[DLE] Hierarchical pre-filter dropped ${selectable.length - filtered.length}/${selectable.length} candidates — consider lowering aggressiveness`);
         }
 
+        // BUG-AUDIT-1: Pre-filter succeeded — record success so circuit closes and
+        // the subsequent aiSearch() call can pass through normally.
+        recordAiSuccess();
+
         return filteredResult;
     } catch (err) {
         if (!err.throttled) recordAiFailure();
@@ -405,8 +409,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         return { results: [], error: false };
     }
 
-    // Circuit breaker: skip AI search if service is repeatedly failing
-    if (isAiCircuitOpen()) {
+    // BUG-AUDIT-1: Use tryAcquireHalfOpenProbe for actual AI calls (not pure query)
+    if (!tryAcquireHalfOpenProbe()) {
         if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
         dedupWarning('AI search temporarily paused after repeated failures. Using keyword matching.', 'ai_circuit', { timeOut: 8000 });
         return { results: [], error: true, errorMessage: 'AI search temporarily paused' };

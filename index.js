@@ -223,6 +223,10 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (settings.debugMode) {
                 console.debug('[DLE] No entries matched');
             }
+            // BUG-AUDIT-4: Clear stale prompts when pipeline ran but nothing matched.
+            // This prevents stale lore from the previous generation persisting when
+            // the context has changed such that nothing matches anymore.
+            clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
             return;
         }
 
@@ -236,6 +240,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         if (finalEntries.length === 0) {
             if (settings.debugMode) console.debug('[DLE] All entries removed by re-injection cooldown');
+            clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
             return;
         }
 
@@ -244,6 +249,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         if (gated.length === 0) {
             if (settings.debugMode) console.debug('[DLE] All entries removed by gating rules');
+            clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
             return;
         }
 
@@ -282,6 +288,12 @@ async function onGenerate(chat, contextSize, abort, type) {
             setLastPipelineTrace(trace);
         }
 
+        // BUG-AUDIT-5: Epoch guard on clearPrompts — prevent stale force-released pipelines
+        // from wiping prompts that the new pipeline just set.
+        if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
+            console.warn('[DLE] Stale pipeline reached commit phase — discarding');
+            return;
+        }
         // Commit phase: clear previous prompts only now that we have results to replace them.
         // This prevents silent lore loss when the pipeline fails or returns early — old prompts
         // remain in context rather than being wiped to nothing.
@@ -679,7 +691,9 @@ jQuery(async function () {
                     saveChatDebounced();
                 }
 
-                // Fire-and-forget async extraction
+                // BUG-AUDIT-7: Fire-and-forget async extraction with epoch guard
+                // to prevent writing notes to the wrong chat after a chat switch.
+                const extractEpoch = chatEpoch;
                 (async () => {
                     try {
                         const extractPrompt = settings.aiNotepadExtractPrompt?.trim() || DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT;
@@ -702,6 +716,8 @@ jQuery(async function () {
                         const result = await callAI(extractPrompt, userMsg, connectionConfig);
                         const responseText = (result?.text || result || '').trim();
 
+                        // BUG-AUDIT-7: Bail if chat changed during async extraction
+                        if (extractEpoch !== chatEpoch) return;
                         if (responseText && responseText !== 'NOTHING_TO_NOTE') {
                             lastMessage.extra = lastMessage.extra || {};
                             lastMessage.extra.deeplore_ai_notes = responseText;

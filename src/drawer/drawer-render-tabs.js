@@ -12,7 +12,7 @@ import {
     fieldDefinitions,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
-import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault } from '../helpers.js';
+import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault, normalizePinBlock } from '../helpers.js';
 import {
     ds, BROWSE_ROW_HEIGHT, BROWSE_OVERSCAN,
     getMatchLabel, computeEntryTemperatures,
@@ -261,8 +261,9 @@ export function renderBrowseTab() {
     // Pin/block state
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
-    const pinSet = new Set(pins.map(t => t.toLowerCase()));
-    const blockSet = new Set(blocks.map(t => t.toLowerCase()));
+    // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
+    const pinSet = new Set(pins.map(p => normalizePinBlock(p).title.toLowerCase()));
+    const blockSet = new Set(blocks.map(b => normalizePinBlock(b).title.toLowerCase()));
 
     // Injected set — fall back to lastPipelineTrace (sources cleared after message render)
     const injectedSet = new Set();
@@ -389,8 +390,9 @@ export function renderBrowseWindow() {
     // Pin/block/injected state for rendering
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
-    const pinSet = new Set(pins.map(t => t.toLowerCase()));
-    const blockSet = new Set(blocks.map(t => t.toLowerCase()));
+    // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
+    const pinSet = new Set(pins.map(p => normalizePinBlock(p).title.toLowerCase()));
+    const blockSet = new Set(blocks.map(b => normalizePinBlock(b).title.toLowerCase()));
     // Build injected set — fall back to lastPipelineTrace when lastInjectionSources
     // has been consumed by CHARACTER_MESSAGE_RENDERED (moved to message.extra)
     const injectedSet = new Set();

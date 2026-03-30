@@ -23,9 +23,12 @@ import { evaluateOperator } from './fields.js';
  */
 export function buildExemptionPolicy(vaultSnapshot, pins, blocks) {
     // BUG-011: Normalize all titles to lowercase for case-insensitive matching
+    // BUG-AUDIT-9: Seeds and bootstraps are also exempt from contextual gating.
+    // They are designed to be always-available in their respective scenarios, so
+    // gating should not suppress them.
     const forceInject = new Set();
     for (const entry of vaultSnapshot) {
-        if (entry.constant) forceInject.add(entry.title.toLowerCase());
+        if (entry.constant || entry.seed || entry.bootstrap) forceInject.add(entry.title.toLowerCase());
     }
     // H23: Normalize pin/block items to structured form (backward compat with bare strings)
     const normalizedPins = (pins || []).map(normalizePinBlock);
@@ -155,7 +158,7 @@ export function applyContextualGating(entries, context, policy, debugMode, setti
             if (!evaluateOperator(fd.gating.operator, entryValue, activeValue)) {
                 // BUG-H8: Lenient tolerance only filters on explicit conflict operators (not_any, eq, gt, lt).
                 // For match_any/match_all, lenient treats a non-match as "not relevant" rather than "excluded".
-                if (tolerance === 'lenient' && (fd.gating.operator === 'match_any' || fd.gating.operator === 'match_all')) {
+                if (tolerance === 'lenient' && (fd.gating.operator === 'match_any' || fd.gating.operator === 'match_all' || fd.gating.operator === 'eq')) {
                     continue;
                 }
                 return false;

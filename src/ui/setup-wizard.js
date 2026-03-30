@@ -3,6 +3,7 @@
  * Multi-page wizard for new user onboarding.
  */
 import { saveSettingsDebounced } from '../../../../../../script.js';
+import { escapeHtml } from '../../../../../utils.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { getSettings, getPrimaryVault, invalidateSettingsCache } from '../../settings.js';
@@ -260,7 +261,7 @@ function wireConnectionTest() {
             } else {
                 connectionVerified = false;
                 $result
-                    .html(`<i class="fa-solid fa-circle-xmark"></i> Connection failed: ${result.error}`)
+                    .html(`<i class="fa-solid fa-circle-xmark"></i> Connection failed: ${escapeHtml(result.error)}`)
                     .removeClass('dle-wizard-result-success')
                     .addClass('dle-wizard-result-error')
                     .show();
@@ -269,7 +270,7 @@ function wireConnectionTest() {
         } catch (err) {
             connectionVerified = false;
             $result
-                .html(`<i class="fa-solid fa-circle-xmark"></i> Error: ${err.message}`)
+                .html(`<i class="fa-solid fa-circle-xmark"></i> Error: ${escapeHtml(err.message)}`)
                 .removeClass('dle-wizard-result-success')
                 .addClass('dle-wizard-result-error')
                 .show();
@@ -403,7 +404,7 @@ function wireAiSetup() {
             }
         } catch (err) {
             $result
-                .html(`<i class="fa-solid fa-circle-xmark"></i> ${err.message}`)
+                .html(`<i class="fa-solid fa-circle-xmark"></i> ${escapeHtml(err.message)}`)
                 .removeClass('dle-wizard-result-success')
                 .addClass('dle-wizard-result-error')
                 .show();
@@ -470,7 +471,7 @@ async function runVaultStructureCreation() {
                 .addClass('dle-wizard-file-ok');
         } catch (err) {
             $fieldsStatus
-                .html(`<i class="fa-solid fa-circle-xmark dle-wizard-status-err"></i> Failed: ${err.message}`)
+                .html(`<i class="fa-solid fa-circle-xmark dle-wizard-status-err"></i> Failed: ${escapeHtml(err.message)}`)
                 .addClass('dle-wizard-file-err');
         }
     } else {
@@ -491,7 +492,7 @@ async function runVaultStructureCreation() {
                 .addClass('dle-wizard-file-ok');
         } catch (err) {
             $sessionsStatus
-                .html(`<i class="fa-solid fa-circle-xmark dle-wizard-status-err"></i> Failed: ${err.message}`)
+                .html(`<i class="fa-solid fa-circle-xmark dle-wizard-status-err"></i> Failed: ${escapeHtml(err.message)}`)
                 .addClass('dle-wizard-file-err');
         }
     } else {

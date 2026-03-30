@@ -358,7 +358,10 @@ export function evaluateOperator(operator, entryValue, activeValue) {
         case 'match_any':
             return entryArr.some(v => activeArr.some(a => String(v).toLowerCase() === String(a).toLowerCase()));
         case 'match_all':
-            return activeArr.every(a => entryArr.some(v => String(v).toLowerCase() === String(a).toLowerCase()));
+            // BUG-AUDIT-6: Corrected semantics — all ENTRY values must exist in the active
+            // context. E.g., entry with character_present: [Alice, Bob] only passes when
+            // both Alice and Bob are in the active context.
+            return entryArr.every(v => activeArr.some(a => String(v).toLowerCase() === String(a).toLowerCase()));
         case 'not_any':
             return !entryArr.some(v => activeArr.some(a => String(v).toLowerCase() === String(a).toLowerCase()));
         case 'exists':
@@ -395,9 +398,9 @@ export function extractCustomFields(frontmatter, fieldDefinitions) {
     if (!frontmatter || !fieldDefinitions) return customFields;
 
     const toStringArray = (v) => {
-        if (Array.isArray(v)) return v.map(s => String(s).trim().toLowerCase()).filter(Boolean);
-        if (typeof v === 'string' && v.trim()) return [v.trim().toLowerCase()];
-        if (typeof v === 'number' || typeof v === 'boolean') return [String(v).toLowerCase()];
+        if (Array.isArray(v)) return v.map(s => String(s).trim()).filter(Boolean);
+        if (typeof v === 'string' && v.trim()) return [v.trim()];
+        if (typeof v === 'number' || typeof v === 'boolean') return [String(v)];
         return [];
     };
 
@@ -406,7 +409,7 @@ export function extractCustomFields(frontmatter, fieldDefinitions) {
         if (raw === undefined) continue;
 
         if (field.type === 'string') {
-            customFields[field.name] = field.multi ? toStringArray(raw) : (typeof raw === 'string' ? raw.trim().toLowerCase() : String(raw).toLowerCase());
+            customFields[field.name] = field.multi ? toStringArray(raw) : (typeof raw === 'string' ? raw.trim() : String(raw));
         } else if (field.type === 'number') {
             customFields[field.name] = typeof raw === 'number' ? raw : Number(raw);
         } else if (field.type === 'boolean') {

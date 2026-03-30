@@ -218,6 +218,15 @@ export function matchEntries(chat, snapshot = null) {
             const remaining = cooldownTracker.get(trackerKey(entry));
             if (remaining !== undefined && remaining > 0) continue;
 
+            // BUG-AUDIT-8: Respect warmup — BM25 fuzzy matches must also honor warmup gates.
+            // Without this, entries with warmup requirements could be injected via fuzzy search
+            // with a single term similarity match, bypassing the author's intended gating.
+            if (entry.warmup && entry.warmup > 1) {
+                const scanText = getScanText(entry.scanDepth ?? settings.scanDepth);
+                const occurrences = countKeywordOccurrences(entry, scanText, settings);
+                if (occurrences < entry.warmup) continue;
+            }
+
             // Respect probability
             if (entry.probability === 0) continue;
             if (entry.probability !== null && entry.probability < 1.0 && Math.random() > entry.probability) continue;

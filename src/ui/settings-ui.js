@@ -968,7 +968,8 @@ function bindPopupEvents($container) {
     $c('#dle_sp_graph_spring_length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 200); saveSettingsDebounced(); });
     $c('#dle_sp_graph_gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 5.0; saveSettingsDebounced(); });
     $c('#dle_sp_graph_damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.70; saveSettingsDebounced(); });
-    $c('#dle_sp_graph_hover_dim_opacity').on('input', function () { settings.graphHoverDimOpacity = parseFloat($(this).val()) || 0.1; saveSettingsDebounced(); });
+    // BUG-AUDIT-14: Use isNaN check instead of || fallback so 0 is a valid value
+    $c('#dle_sp_graph_hover_dim_opacity').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverDimOpacity = isNaN(v) ? 0.1 : v; saveSettingsDebounced(); });
     $c('#dle_sp_graph_edge_filter_alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
 
     // Test AI / Preview

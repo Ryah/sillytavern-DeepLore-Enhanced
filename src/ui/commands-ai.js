@@ -11,7 +11,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
-import { classifyError, NO_ENTRIES_MSG } from '../../core/utils.js';
+import { classifyError, NO_ENTRIES_MSG, yamlEscape } from '../../core/utils.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { vaultIndex, scribeInProgress, setIndexTimestamp } from '../state.js';
 import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from '../vault/vault.js';
@@ -23,7 +23,11 @@ export function registerAiCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-optimize-keys',
         callback: async (_args, entryName) => {
-            await ensureIndexFresh();
+            try { await ensureIndexFresh(); } catch (err) {
+                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                console.error('[DLE] ensureIndexFresh failed in /dle-optimize-keys:', err);
+                return '';
+            }
             if (vaultIndex.length === 0) {
                 toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
@@ -156,7 +160,11 @@ export function registerAiCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-summarize',
         callback: async () => {
-            await ensureIndexFresh();
+            try { await ensureIndexFresh(); } catch (err) {
+                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                console.error('[DLE] ensureIndexFresh failed in /dle-summarize:', err);
+                return '';
+            }
             if (vaultIndex.length === 0) {
                 toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
@@ -279,7 +287,7 @@ export async function summarizeEntries(entries) {
                     const rest = fileContent.substring(endIdx);
                     // Remove existing summary line if present
                     const cleaned = fmSection.replace(/^summary:.*$/m, '').replace(/\n{3,}/g, '\n\n');
-                    fileContent = cleaned + `summary: "${finalSummary.replace(/"/g, '\\"')}"\n` + rest;
+                    fileContent = cleaned + `summary: ${yamlEscape(finalSummary)}\n` + rest;
                 }
             }
 

@@ -49,6 +49,7 @@ export function resetDrawerState() {
     ds.browseLastRangeEnd = -1;
     ds.browseExpandedEntry = null;
     ds.browseNavigateTarget = null;
+    ds.browseCustomFieldFilters = {}; // BUG-AUDIT-11: Reset custom field filters on chat change
     ds.contextTokens = 0;
     // Note: ds.stGenerating is NOT reset here — it tracks ST's generation state
     // which persists across chat switches. GENERATION_ENDED clears it.

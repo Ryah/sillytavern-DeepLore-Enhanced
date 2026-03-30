@@ -46,6 +46,10 @@ function openDB() {
         };
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
+        request.onblocked = () => {
+            console.warn('[DLE] IndexedDB open blocked — another tab may have an older version open');
+            reject(new Error('IndexedDB open blocked by another connection'));
+        };
     });
 }
 

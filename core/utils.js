@@ -358,7 +358,7 @@ export function classifyError(err) {
     if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch failed/i.test(raw)) {
         return 'Could not connect. Check that the service is running.';
     }
-    if (/5\d{2}|Internal Server Error|Bad Gateway|Service Unavailable/i.test(raw)) {
+    if (/\b5\d{2}\b|Internal Server Error|Bad Gateway|Service Unavailable/i.test(raw)) {
         return 'The server returned an error. Try again in a moment.';
     }
     return raw.length > 120 ? raw.slice(0, 120) + '...' : raw;

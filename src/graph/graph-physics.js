@@ -85,11 +85,22 @@ export function initPhysics(gs) {
             const di = (nodeDegree[i] || 0) + 1;
             for (let j = i + 1; j < nodes.length; j++) {
                 if (nodes[j].hidden || nodes[j].orphan) continue;
-                const ddx = nodes[j].x - nodes[i].x;
-                const ddy = nodes[j].y - nodes[i].y;
+                let ddx = nodes[j].x - nodes[i].x;
+                let ddy = nodes[j].y - nodes[i].y;
                 const dist2 = ddx * ddx + ddy * ddy;
                 if (dist2 > CHARGE_MAX_DIST * CHARGE_MAX_DIST) continue;
-                const dist = Math.sqrt(dist2) || 1;
+                // BUG-AUDIT-12: When nodes overlap (dist≈0), apply random jitter so they
+                // get a nonzero direction vector and can separate. Without this, overlapping
+                // nodes get a (0,0) force vector and remain stuck permanently.
+                let dist;
+                if (dist2 < 0.01) {
+                    const angle = Math.random() * Math.PI * 2;
+                    ddx = Math.cos(angle);
+                    ddy = Math.sin(angle);
+                    dist = 0.1;
+                } else {
+                    dist = Math.sqrt(dist2);
+                }
                 const dj = (nodeDegree[j] || 0) + 1;
                 // sqrt(di*dj) gives linear degree scaling — avoids quadratic blowup for hubs
                 const force = CHARGE * Math.sqrt(di * dj) * hubRepulsionMul * gs.alpha / dist;

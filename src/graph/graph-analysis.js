@@ -388,11 +388,11 @@ export function computeGapAnalysis(gs) {
                     const vi = cfi[key];
                     const vj = cfj[key];
                     if (vi == null || vj == null) continue;
-                    if (Array.isArray(vi) && Array.isArray(vj)) {
-                        if (vi.some(v => vj.includes(v))) { shared = true; break; }
-                    } else if (vi === vj) {
-                        shared = true; break;
-                    }
+                    // BUG-AUDIT-13: Normalize both values to arrays to handle mixed
+                    // scalar/array comparisons (e.g., era: "modern" vs era: ["modern"])
+                    const arrI = Array.isArray(vi) ? vi : [vi];
+                    const arrJ = Array.isArray(vj) ? vj : [vj];
+                    if (arrI.some(v => arrJ.includes(v))) { shared = true; break; }
                 }
                 if (shared) {
                     missingConnections.push({ a: ni.id, b: nj.id, aTitle: ni.title, bTitle: nj.title });

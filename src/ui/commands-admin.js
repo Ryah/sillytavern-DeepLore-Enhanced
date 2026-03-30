@@ -220,7 +220,11 @@ export function registerAdminCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-health',
         callback: async () => {
-            await ensureIndexFresh();
+            try { await ensureIndexFresh(); } catch (err) {
+                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                console.error('[DLE] ensureIndexFresh failed in /dle-health:', err);
+                return '';
+            }
 
             const health = runHealthCheck();
             const { issues, errors, warnings } = health;

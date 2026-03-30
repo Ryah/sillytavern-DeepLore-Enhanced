@@ -1576,10 +1576,11 @@ test('buildExemptionPolicy: pins are in forceInject', () => {
     assert(!policy.forceInject.has('b'), 'non-pinned B should NOT be in forceInject');
 });
 
-test('buildExemptionPolicy: bootstrap entries are NOT in forceInject (fixed: bootstrap only force-injects on short chats via pipeline)', () => {
-    const vault = [makeEntry('Boot', { bootstrap: true }), makeEntry('Normal')];
+test('buildExemptionPolicy: bootstrap and seed entries ARE in forceInject (exempt from contextual gating)', () => {
+    const vault = [makeEntry('Boot', { bootstrap: true }), makeEntry('Seed', { seed: true }), makeEntry('Normal')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(!policy.forceInject.has('boot'), 'bootstrap should NOT be in forceInject (gating handled by pipeline)');
+    assert(policy.forceInject.has('boot'), 'bootstrap should be in forceInject (exempt from gating)');
+    assert(policy.forceInject.has('seed'), 'seed should be in forceInject (exempt from gating)');
     assert(!policy.forceInject.has('normal'), 'normal should NOT be in forceInject');
 });
 
@@ -3853,9 +3854,10 @@ test('evaluateOperator: match_any is case-insensitive', () => {
     assert(evaluateOperator('match_any', ['medieval'], 'MEDIEVAL'), 'should match case-insensitively');
 });
 
-test('evaluateOperator: match_all requires all active values in entry', () => {
+test('evaluateOperator: match_all requires all entry values present in active context', () => {
     assert(evaluateOperator('match_all', ['medieval', 'dark'], ['medieval', 'dark']), 'both present = match');
-    assert(!evaluateOperator('match_all', ['medieval'], ['medieval', 'dark']), 'missing one = no match');
+    assert(evaluateOperator('match_all', ['medieval'], ['medieval', 'dark']), 'entry subset of active = match');
+    assert(!evaluateOperator('match_all', ['medieval', 'dark'], ['medieval']), 'entry has value not in active = no match');
 });
 
 test('evaluateOperator: not_any inverts match_any', () => {
@@ -3899,25 +3901,25 @@ test('extractCustomFields: extracts defined fields from frontmatter', () => {
     assert(result.unrelated === undefined, 'should not extract fields not in definitions');
 });
 
-test('extractCustomFields: multi field normalizes scalar to array', () => {
+test('extractCustomFields: multi field normalizes scalar to array preserving case', () => {
     const fm = { character_present: 'Eris' };
     const defs = [{ name: 'character_present', type: 'string', multi: true }];
     const result = extractCustomFields(fm, defs);
-    assertEqual(result.character_present, ['eris'], 'should normalize scalar to lowercase array');
+    assertEqual(result.character_present, ['Eris'], 'should normalize scalar to array preserving case');
 });
 
-test('extractCustomFields: multi field normalizes array values', () => {
+test('extractCustomFields: multi field normalizes array values preserving case', () => {
     const fm = { character_present: ['Eris', 'Bob'] };
     const defs = [{ name: 'character_present', type: 'string', multi: true }];
     const result = extractCustomFields(fm, defs);
-    assertEqual(result.character_present, ['eris', 'bob'], 'should lowercase array values');
+    assertEqual(result.character_present, ['Eris', 'Bob'], 'should preserve array value casing');
 });
 
-test('extractCustomFields: single string field lowercases', () => {
+test('extractCustomFields: single string field preserves case', () => {
     const fm = { era: 'Medieval' };
     const defs = [{ name: 'era', type: 'string', multi: false }];
     const result = extractCustomFields(fm, defs);
-    assertEqual(result.era, 'medieval', 'should lowercase single string');
+    assertEqual(result.era, 'Medieval', 'should preserve single string casing');
 });
 
 test('extractCustomFields: number type preserves numbers', () => {

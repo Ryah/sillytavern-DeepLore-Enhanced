@@ -29,7 +29,11 @@ export function registerPipelineCommands() {
                 toastr.info('No active chat.', 'DeepLore Enhanced');
                 return '';
             }
-            await ensureIndexFresh();
+            try { await ensureIndexFresh(); } catch (err) {
+                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                console.error('[DLE] ensureIndexFresh failed in /dle-simulate:', err);
+                return '';
+            }
             if (vaultIndex.length === 0) {
                 toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
@@ -57,7 +61,11 @@ export function registerPipelineCommands() {
             }
             // Await any in-progress index build to prevent concurrent pipeline execution
             if (buildPromise) await buildPromise;
-            await ensureIndexFresh();
+            try { await ensureIndexFresh(); } catch (err) {
+                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                console.error('[DLE] ensureIndexFresh failed in /dle-why:', err);
+                return '';
+            }
             if (vaultIndex.length === 0) {
                 toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';

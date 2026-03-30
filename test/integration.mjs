@@ -54,7 +54,7 @@ import {
     onIndexingChanged,
 
     // Circuit breaker
-    recordAiFailure, recordAiSuccess, isAiCircuitOpen,
+    recordAiFailure, recordAiSuccess, isAiCircuitOpen, tryAcquireHalfOpenProbe,
 
     // Build epoch (BUG-015)
     buildEpoch, setBuildEpoch,
@@ -1248,14 +1248,17 @@ test('BUG-025: AI circuit breaker probe gate allows exactly one caller', () => {
     // Backdate openedAt to simulate cooldown elapsed (31s ago, cooldown is 30s)
     setAiCircuitOpenedAt(Date.now() - 31_000);
 
-    // First call after cooldown: should be allowed (probe)
-    assert(isAiCircuitOpen() === false, 'first call after cooldown should be allowed (probe)');
+    // After cooldown, isAiCircuitOpen is false (pure query), but probe must be acquired
+    assert(isAiCircuitOpen() === false, 'circuit should report not-open after cooldown');
 
-    // Second call: should be blocked (probe already dispatched)
-    assert(isAiCircuitOpen() === true, 'second call should be blocked (probe in progress)');
+    // First probe acquisition: should succeed
+    assert(tryAcquireHalfOpenProbe() === true, 'first probe acquisition should succeed');
+
+    // Second probe acquisition: should be blocked (probe already dispatched)
+    assert(tryAcquireHalfOpenProbe() === false, 'second call should be blocked (probe in progress)');
 
     // Third call: still blocked
-    assert(isAiCircuitOpen() === true, 'third call should still be blocked');
+    assert(tryAcquireHalfOpenProbe() === false, 'third call should still be blocked');
 
     // Success clears everything
     recordAiSuccess();

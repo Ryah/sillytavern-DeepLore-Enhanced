@@ -94,6 +94,9 @@
                 <button class="dle-why-filter-btn" data-filter="both" role="radio" aria-checked="false">Both</button>
             </div>
             <span class="dle-section-diff"></span>
+            <button class="menu_button_icon dle-copy-titles-btn" data-action="copy-titles" title="Copy injected entry titles to clipboard" aria-label="Copy injected entry titles to clipboard">
+                <i class="fa-solid fa-clipboard" aria-hidden="true"></i>
+            </button>
             <button class="dle-tab-expand" data-expand="injection" title="Open full details popup (/dle-why)" aria-label="Open full details popup">
                 Full View <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
             </button>
@@ -149,6 +152,7 @@
                 <option value="injections_desc">Injections &#x2193;</option>
             </select>
         </div>
+        <div class="dle-browse-summary dle-text-sm dle-muted" aria-live="polite"></div>
         <div class="dle-browse-list" role="list" aria-label="Vault entries"></div>
         <!-- Empty state: loading vault entries -->
         <div class="dle-empty-state" id="dle-browse-loading">
@@ -172,6 +176,9 @@
          role="tabpanel" aria-labelledby="dle-tab-gating">
         <div class="dle-panel-toolbar">
             <span class="dle-text-sm">Filters</span>
+            <button class="menu_button menu_button_icon dle-clear-all-gating-btn" title="Clear all active gating filters" aria-label="Clear all gating filters">
+                <i class="fa-solid fa-eraser" aria-hidden="true"></i>
+            </button>
             <button class="menu_button menu_button_icon dle-manage-fields-btn" title="Add, remove, or configure custom gating fields" aria-label="Manage field definitions">
                 <i class="fa-solid fa-gear" aria-hidden="true"></i>
             </button>

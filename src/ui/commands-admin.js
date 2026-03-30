@@ -15,6 +15,7 @@ import {
     fieldDefinitions,
 } from '../state.js';
 import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
+import { loadIndexFromCache, clearIndexCache } from '../vault/cache.js';
 import { runHealthCheck } from './diagnostics.js';
 import { showNotebookPopup, showAiNotepadPopup, buildCopyButton, attachCopyHandler } from './popups.js';
 
@@ -219,6 +220,7 @@ export function registerAdminCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-health',
+        aliases: ['dle-h'],
         callback: async () => {
             try { await ensureIndexFresh(); } catch (err) {
                 toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
@@ -295,6 +297,56 @@ export function registerAdminCommands() {
     // ── Setup Wizard ──
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-cache-info',
+        callback: async () => {
+            const cacheData = await loadIndexFromCache();
+            const cacheAge = cacheData?.timestamp ? Math.round((Date.now() - cacheData.timestamp) / 1000) : null;
+            const cacheEntries = cacheData?.entries?.length || 0;
+
+            let storageInfo = 'Unknown';
+            try {
+                if (navigator.storage?.estimate) {
+                    const est = await navigator.storage.estimate();
+                    const usedMB = ((est.usage || 0) / 1024 / 1024).toFixed(1);
+                    const quotaMB = ((est.quota || 0) / 1024 / 1024).toFixed(0);
+                    const pct = est.quota ? Math.round(((est.usage || 0) / est.quota) * 100) : 0;
+                    storageInfo = `${usedMB} MB used of ${quotaMB} MB (${pct}%)`;
+                }
+            } catch { /* storage API unavailable */ }
+
+            let ageLabel = 'No cache';
+            if (cacheAge !== null) {
+                if (cacheAge < 60) ageLabel = `${cacheAge}s ago`;
+                else if (cacheAge < 3600) ageLabel = `${Math.round(cacheAge / 60)}m ago`;
+                else ageLabel = `${(cacheAge / 3600).toFixed(1)}h ago`;
+            }
+
+            let html = `<div class="dle-popup">`;
+            html += `<h3>Vault Cache Info</h3>`;
+            html += `<p><b>Cached entries:</b> ${cacheEntries} (live index: ${vaultIndex.length})</p>`;
+            html += `<p><b>Cache age:</b> ${ageLabel}</p>`;
+            html += `<p><b>Browser storage:</b> ${storageInfo}</p>`;
+            html += `<p><b>Index loaded at:</b> ${indexTimestamp ? new Date(indexTimestamp).toLocaleTimeString() : 'never'}</p>`;
+            html += `<br><button class="menu_button dle-cache-clear-btn" style="margin-top: 8px;"><i class="fa-solid fa-trash-can"></i> Clear Cache</button>`;
+            html += `</div>`;
+
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                wide: false,
+                onOpen: () => {
+                    document.querySelector('.dle-cache-clear-btn')?.addEventListener('click', async () => {
+                        await clearIndexCache();
+                        toastr.success('Vault cache cleared.', 'DeepLore Enhanced');
+                        document.querySelector('.dle-cache-clear-btn')?.closest('.popup')?.querySelector('.popup-button-ok')?.click();
+                    });
+                },
+            });
+            return '';
+        },
+        helpString: 'Show vault cache status: size, age, entry count, and a button to clear it.',
+        returns: 'Cache info popup',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-setup',
         callback: async () => {
             const { showSetupWizard } = await import('./setup-wizard.js');
@@ -309,15 +361,16 @@ export function registerAdminCommands() {
         name: 'dle-help',
         callback: async () => {
             const commands = [
-                { cmd: '/dle-browse', desc: 'Search and preview vault entries' },
-                { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (no generation needed)' },
-                { cmd: '/dle-inspect', desc: 'Inspect what happened in the last message' },
-                { cmd: '/dle-health', desc: 'Run vault health check' },
-                { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian' },
+                { cmd: '/dle-browse', desc: 'Search and preview vault entries (alias: /dle-b)' },
+                { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (alias: /dle-context)' },
+                { cmd: '/dle-inspect', desc: 'Inspect what happened in the last message (alias: /dle-i)' },
+                { cmd: '/dle-health', desc: 'Run vault health check (alias: /dle-h)' },
+                { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian (alias: /dle-r)' },
                 { cmd: '/dle-status', desc: 'Show extension status and stats' },
                 { cmd: '/dle-simulate', desc: 'Replay chat showing entry activation timeline' },
-                { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph' },
+                { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph (alias: /dle-g)' },
                 { cmd: '/dle-analytics', desc: 'View entry match/injection analytics' },
+                { cmd: '/dle-cache-info', desc: 'View vault cache status, size, and clear cache' },
                 { cmd: '/dle-notebook', desc: 'Edit the Notebook for this chat' },
                 { cmd: '/dle-ai-notepad [clear]', desc: 'View or clear AI-written session notes' },
                 { cmd: '/dle-scribe', desc: 'Run Session Scribe now' },
@@ -337,11 +390,12 @@ export function registerAdminCommands() {
                 { sep: true, label: 'Contextual Gating' },
                 { cmd: '/dle-set-field &lt;name&gt; [value]', desc: 'Set a custom gating field' },
                 { cmd: '/dle-clear-field &lt;name&gt;', desc: 'Clear a custom gating field' },
-                { cmd: '/dle-set-era [era]', desc: 'Set era filter (alias for /dle-set-field era)' },
-                { cmd: '/dle-set-location [loc]', desc: 'Set location filter (alias for /dle-set-field location)' },
+                { cmd: '/dle-clear-all-context', desc: 'Clear all gating filters at once (alias: /dle-reset-context)' },
+                { cmd: '/dle-set-era [era]', desc: 'Set era filter (alias: /dle-era)' },
+                { cmd: '/dle-set-location [loc]', desc: 'Set location filter (alias: /dle-loc)' },
                 { cmd: '/dle-set-scene [type]', desc: 'Set scene type filter (alias for /dle-set-field scene_type)' },
                 { cmd: '/dle-set-characters &lt;names&gt;', desc: 'Set present characters (alias for /dle-set-field character_present)' },
-                { cmd: '/dle-context-state', desc: 'Show current gating state' },
+                { cmd: '/dle-context-state', desc: 'Show current gating state (alias: /dle-ctx)' },
             ];
             let html = '<div class="dle-popup"><h3>DeepLore Enhanced Commands</h3>';
             for (const c of commands) {

@@ -34,10 +34,10 @@ export function renderStatusZone() {
     $dot.attr('title', `System status: ${status} — ${statusDesc}`);
     $dot.attr('aria-label', `System status: ${status} — ${statusDesc}`);
 
-    // Activity label (3-state: Choosing Lore → Generating → Idle)
-    const pipelineText = generationLock ? 'Choosing Lore...' : ds.stGenerating ? 'Generating...' : 'Idle';
+    // Activity label (4-state: Indexing → Choosing Lore → Generating → Idle)
+    const pipelineText = indexing ? 'Indexing...' : generationLock ? 'Choosing Lore...' : ds.stGenerating ? 'Generating...' : 'Idle';
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
-    $dot.toggleClass('dle-status-active', !!generationLock || ds.stGenerating);
+    $dot.toggleClass('dle-status-active', !!indexing || !!generationLock || ds.stGenerating);
 
     // First-run setup banner (shown when no vaults configured and setup not dismissed)
     const $setupBanner = $drawer.find('.dle-setup-banner');
@@ -105,10 +105,31 @@ export function renderStatusZone() {
             ? `Lore | ${used.toLocaleString()} / \u221E`
             : 'Lore | waiting';
     $drawer.find('.dle-token-bar-label').text(budgetLabel);
+    // Build budget breakdown from trace for tooltip
+    let breakdownParts = [];
+    if (trace?.injected?.length) {
+        const src = lastInjectionSources || [];
+        const srcMap = new Map(src.map(s => [s.title, (s.matchedBy || '').toLowerCase()]));
+        let constTokens = 0, keywordTokens = 0, aiTokens = 0, pinTokens = 0, otherTokens = 0;
+        for (const e of trace.injected) {
+            const reason = srcMap.get(e.title) || '';
+            if (reason.includes('constant') || reason.includes('always')) constTokens += e.tokens;
+            else if (reason.startsWith('ai:') || reason.includes('ai selection')) aiTokens += e.tokens;
+            else if (reason.includes('pinned')) pinTokens += e.tokens;
+            else if (reason.includes('fuzzy') || reason.includes('keyword') || reason.includes('(')) keywordTokens += e.tokens;
+            else otherTokens += e.tokens;
+        }
+        if (constTokens) breakdownParts.push(`Constants: ${constTokens}`);
+        if (keywordTokens) breakdownParts.push(`Keyword: ${keywordTokens}`);
+        if (aiTokens) breakdownParts.push(`AI: ${aiTokens}`);
+        if (pinTokens) breakdownParts.push(`Pinned: ${pinTokens}`);
+        if (otherTokens) breakdownParts.push(`Other: ${otherTokens}`);
+    }
+    const breakdownStr = breakdownParts.length ? `\n${breakdownParts.join(' | ')}` : '';
     const tokenTitle = budget
-        ? `Lore budget: ${used.toLocaleString()} of ${budget.toLocaleString()} tokens used — controls how much lore is injected`
+        ? `Lore budget: ${used.toLocaleString()} of ${budget.toLocaleString()} tokens used${breakdownStr}`
         : settings.unlimitedBudget
-            ? `Lore budget: ${used.toLocaleString()} tokens used (unlimited) — no token cap configured`
+            ? `Lore budget: ${used.toLocaleString()} tokens used (unlimited)${breakdownStr}`
             : 'Lore budget: waiting for first generation';
     $barContainer.attr('title', tokenTitle);
 

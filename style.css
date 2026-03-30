@@ -851,6 +851,25 @@ dle-notes { display: none !important; }
     min-width: 0;
 }
 
+/* Copy titles button (Why? tab toolbar) */
+.dle-copy-titles-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--dle-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 0.75rem;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+    line-height: 1;
+}
+
+.dle-copy-titles-btn:hover {
+    opacity: 1;
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
 /* Tab expand button (open full popup) */
 .dle-tab-expand {
     flex-shrink: 0;
@@ -1219,6 +1238,12 @@ button.dle-chip-x:hover {
 }
 
 /* --- Browse panel --- */
+.dle-browse-summary {
+    padding: 2px var(--dle-space-2);
+    font-size: var(--dle-text-xs);
+    opacity: 0.7;
+}
+
 .dle-browse-filters {
     display: flex;
     gap: var(--dle-space-1);

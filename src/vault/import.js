@@ -20,9 +20,10 @@ import { convertWiEntry } from '../helpers.js';
  * Import an array of ST World Info entries into the Obsidian vault.
  * @param {object[]} entries - Array of ST WI entry objects
  * @param {string} folder - Target folder in the vault
+ * @param {function} [onProgress] - Optional callback(imported, total) for progress updates
  * @returns {Promise<{ imported: number, failed: number, errors: string[] }>}
  */
-export async function importEntries(entries, folder) {
+export async function importEntries(entries, folder, onProgress) {
     const settings = getSettings();
     const vault = getPrimaryVault(settings);
     const lorebookTag = settings.lorebookTag;
@@ -106,6 +107,7 @@ export async function importEntries(entries, folder) {
             failed++;
             errors.push(`Entry: ${err.message}`);
         }
+        if (onProgress) onProgress(imported + failed, entries.length);
     }
 
     return { imported, failed, renamed, errors };

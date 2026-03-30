@@ -326,6 +326,15 @@ export function renderBrowseTab() {
         default: entries.sort((a, b) => (a.priority || 50) - (b.priority || 50));
     }
 
+    // Update filter summary line
+    const $summary = $drawer.find('.dle-browse-summary');
+    const isFiltered = query || statusFilter !== 'all' || tagFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
+    if (isFiltered && entries.length !== vaultIndex.length) {
+        $summary.text(`Showing ${entries.length} of ${vaultIndex.length} entries`).show();
+    } else {
+        $summary.hide();
+    }
+
     // Store filtered entries for virtual scroll
     ds.browseFilteredEntries = entries;
     ds.browseLastRangeStart = -1;

@@ -206,9 +206,13 @@ export function matchEntries(chat, snapshot = null) {
     }
 
     // BM25 fuzzy search: supplement keyword matches with TF-IDF scored results
+    /** @type {{ active: boolean, candidates: number, matched: number, threshold: number }} */
+    const fuzzyStats = { active: false, candidates: 0, matched: 0, threshold: settings.fuzzySearchMinScore || 0.5 };
     if (settings.fuzzySearchEnabled && fuzzySearchIndex && settings.scanDepth > 0) {
+        fuzzyStats.active = true;
         const fuzzyText = getScanText(settings.scanDepth);
-        const bm25Results = queryBM25(fuzzySearchIndex, fuzzyText, 20, settings.fuzzySearchMinScore || 0.5);
+        const bm25Results = queryBM25(fuzzySearchIndex, fuzzyText, 20, fuzzyStats.threshold);
+        fuzzyStats.candidates = bm25Results.length;
         for (const result of bm25Results) {
             const entry = result.entry;
             if (matchedSet.has(entry)) continue; // Already matched by keywords
@@ -233,6 +237,7 @@ export function matchEntries(chat, snapshot = null) {
 
             matchedSet.add(entry);
             matchedKeys.set(entry.title, `(fuzzy, score: ${result.score.toFixed(1)})`);
+            fuzzyStats.matched++;
         }
     }
 
@@ -258,7 +263,7 @@ export function matchEntries(chat, snapshot = null) {
         });
     }
 
-    return { matched, matchedKeys, probabilitySkipped, warmupFailed };
+    return { matched, matchedKeys, probabilitySkipped, warmupFailed, fuzzyStats };
 }
 
 /**
@@ -294,6 +299,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         bootstrapActive,
         aiFallback: false,
         aiError: '', // BUG-004: Capture AI error message for toast enrichment
+        fuzzyStats: null,
     };
 
     let finalEntries;
@@ -312,9 +318,11 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
 
         // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
+            const beforeGating = aiOnlyCandidates.length;
             const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
             const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
             aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs);
+            trace.aiPreFilter = { before: beforeGating, after: aiOnlyCandidates.length, removed: beforeGating - aiOnlyCandidates.length };
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
@@ -343,6 +351,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     trace.keywordMatched = kwResult.matched.map(e => ({ title: e.title, matchedBy: kwResult.matchedKeys.get(e.title) || '?' }));
                     trace.probabilitySkipped = kwResult.probabilitySkipped;
                     trace.warmupFailed = kwResult.warmupFailed;
+                    trace.fuzzyStats = kwResult.fuzzyStats;
                     // Warn if ai-only fallback collapsed to constants-only
                     const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                     if (nonConstant.length === 0 && finalEntries.length > 0) {
@@ -382,6 +391,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
         trace.warmupFailed = keywordResult.warmupFailed;
+        trace.fuzzyStats = keywordResult.fuzzyStats;
 
         // Wiki-link candidate expansion: add entries referenced by matched entries as AI candidates
         const matchedTitles = new Set(keywordResult.matched.map(e => e.title));
@@ -420,9 +430,11 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
 
         // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
+            const beforeGating = twoStageCandidates.length;
             const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
             const fieldDefs2 = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
             twoStageCandidates = applyContextualGating(twoStageCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs2);
+            trace.aiPreFilter = { before: beforeGating, after: twoStageCandidates.length, removed: beforeGating - twoStageCandidates.length };
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(twoStageCandidates, bootstrapActive);
@@ -474,6 +486,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
         trace.warmupFailed = keywordResult.warmupFailed;
+        trace.fuzzyStats = keywordResult.fuzzyStats;
 
         // BUG-F1: Apply contextual gating in keywords-only mode (was previously skipped)
         if (contextualGatingContext) {

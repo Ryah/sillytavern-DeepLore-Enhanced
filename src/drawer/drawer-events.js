@@ -7,7 +7,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { getSettings, invalidateSettingsCache } from '../../settings.js';
 import {
     vaultIndex, indexTimestamp, indexEverLoaded,
-    aiSearchStats,
+    aiSearchStats, lastInjectionSources,
     notifyGatingChanged, notifyPinBlockChanged,
     fieldDefinitions,
 } from '../state.js';
@@ -159,6 +159,20 @@ export function wireInjectionTab($drawer) {
     $drawer.on('click', '.dle-why-filter-btn', function () {
         ds.whyTabFilter = $(this).data('filter') || 'both';
         scheduleRender(renderInjectionTab);
+    });
+
+    // Copy injected entry titles to clipboard
+    $drawer.on('click', '.dle-copy-titles-btn', function () {
+        const sources = lastInjectionSources;
+        if (!sources || sources.length === 0) {
+            toastr.warning('No injected entries to copy.', 'DeepLore Enhanced', { timeOut: 2000 });
+            return;
+        }
+        const titles = sources.map(s => s.title).join('\n');
+        navigator.clipboard.writeText(titles).then(
+            () => toastr.success(`Copied ${sources.length} entry title${sources.length !== 1 ? 's' : ''} to clipboard`, 'DeepLore Enhanced', { timeOut: 2000 }),
+            () => toastr.warning('Clipboard access denied — check browser permissions.', 'DeepLore Enhanced', { timeOut: 3000 }),
+        );
     });
 }
 
@@ -396,6 +410,29 @@ export function wireGatingTab($drawer) {
         };
         const cmd = cmdMap[field] || `/dle-set-field ${field}`;
         executeCommand(cmd);
+    });
+
+    // Clear All gating button — reset all active context fields
+    $drawer.find('.dle-clear-all-gating-btn').on('click', function () {
+        if (!chat_metadata?.deeplore_context) return;
+        const ctx = chat_metadata.deeplore_context;
+        const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+        let cleared = 0;
+        for (const fd of allDefs) {
+            if (!fd.gating?.enabled) continue;
+            const val = ctx[fd.contextKey];
+            if (fd.multi ? (Array.isArray(val) && val.length > 0) : !!val) {
+                ctx[fd.contextKey] = fd.multi ? [] : null;
+                cleared++;
+            }
+        }
+        if (cleared === 0) {
+            toastr.info('No active gating filters to clear.', 'DeepLore Enhanced', { timeOut: 2000 });
+            return;
+        }
+        saveChatDebounced();
+        notifyGatingChanged();
+        toastr.success(`Cleared ${cleared} gating filter${cleared !== 1 ? 's' : ''}.`, 'DeepLore Enhanced', { timeOut: 2000 });
     });
 
     // Manage Fields button — opens the rule builder popup

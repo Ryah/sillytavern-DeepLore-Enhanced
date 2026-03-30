@@ -267,6 +267,7 @@ export function registerGatingCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-set-era',
+        aliases: ['dle-era'],
         callback: async (_args, value) => {
             const v = (value || '').trim();
 
@@ -302,6 +303,7 @@ export function registerGatingCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-set-location',
+        aliases: ['dle-loc'],
         callback: async (_args, value) => {
             const v = (value || '').trim();
 
@@ -390,6 +392,7 @@ export function registerGatingCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-context-state',
+        aliases: ['dle-ctx'],
         callback: async () => {
             const ctx = chat_metadata.deeplore_context || {};
             const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
@@ -497,6 +500,34 @@ export function registerGatingCommands() {
             },
         })],
         helpString: 'Clear a gating field value. Usage: /dle-clear-field <field_name>.',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-clear-all-context',
+        aliases: ['dle-reset-context'],
+        callback: async () => {
+            const ctx = ensureCtx();
+            const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            let cleared = 0;
+            for (const fd of allDefs) {
+                if (!fd.gating?.enabled) continue;
+                const val = ctx[fd.contextKey];
+                if (fd.multi ? (Array.isArray(val) && val.length > 0) : !!val) {
+                    ctx[fd.contextKey] = fd.multi ? [] : null;
+                    cleared++;
+                }
+            }
+            if (cleared === 0) {
+                toastr.info('No active gating filters to clear.', 'DeepLore Enhanced');
+                return '';
+            }
+            saveChatDebounced();
+            notifyGatingChanged();
+            toastr.success(`Cleared ${cleared} gating filter${cleared !== 1 ? 's' : ''}.`, 'DeepLore Enhanced');
+            return `Cleared ${cleared} fields`;
+        },
+        helpString: 'Clear all active gating context fields (era, location, scene, characters, custom fields) at once.',
         returns: 'Status message',
     }));
 }

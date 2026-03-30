@@ -18,6 +18,7 @@ import { world_names, loadWorldInfo } from '../../../../../world-info.js';
 export function registerVaultCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-graph',
+        aliases: ['dle-g'],
         callback: async () => {
             const { showGraphPopup } = await import('../graph/graph.js');
             await showGraphPopup();
@@ -29,6 +30,7 @@ export function registerVaultCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-browse',
+        aliases: ['dle-b'],
         callback: async () => {
             await showBrowsePopup();
             return '';
@@ -39,6 +41,7 @@ export function registerVaultCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-refresh',
+        aliases: ['dle-r'],
         callback: async () => {
             // Don't pre-clear vaultIndex — buildIndex replaces it atomically.
             // Pre-clearing would give zero entries to any generation during rebuild.
@@ -199,8 +202,11 @@ export function registerVaultCommands() {
                 );
                 if (!confirmed) return '';
 
-                toastr.info(`Importing ${entries.length} entries...`, 'DeepLore Enhanced', { timeOut: 5000 });
-                const result = await importEntries(entries, folder);
+                const progressToast = toastr.info(`Importing 0/${entries.length} entries...`, 'DeepLore Enhanced', { timeOut: 0, extendedTimeOut: 0 });
+                const result = await importEntries(entries, folder, (done, total) => {
+                    progressToast.find('.toast-message').text(`Importing ${done}/${total} entries...`);
+                });
+                progressToast.remove();
 
                 const renamedNote = result.renamed > 0 ? ` (${result.renamed} renamed to avoid overwrite)` : '';
                 if (result.failed > 0) {

@@ -315,12 +315,12 @@ function updatePopupModeVisibility($container, settings) {
 
 function updatePopupInjectionModeVisibility($container, settings) {
     const isPromptList = settings.injectionMode === 'prompt_list';
-    $container.find('#dle_sp_extension_position_controls').toggle(!isPromptList);
-    $container.find('#dle_sp_prompt_list_info').toggle(isPromptList);
-    const nbControls = $container.find('#dle_sp_notebook_position_controls');
-    nbControls.find('input, select').prop('disabled', isPromptList);
-    nbControls.toggleClass('dle-disabled', isPromptList);
-    $container.find('#dle_sp_notebook_pm_note').toggle(isPromptList);
+    // Toggle extension-mode controls vs PM name labels for all injection rows
+    $container.find('.dle-injection-ext-controls').toggle(!isPromptList);
+    $container.find('.dle-injection-pm-name').toggle(isPromptList);
+    $container.find('#dle_sp_injection_pm_info').toggle(isPromptList);
+    // Disable all injection controls when in PM mode
+    $container.find('.dle-injection-ext-controls').find('input, select').prop('disabled', isPromptList);
 }
 
 function updatePopupIndexStats($container) {
@@ -354,6 +354,10 @@ export async function openSettingsPopup() {
         $tab.addClass('active').attr('aria-selected', 'true').attr('tabindex', '0');
         $container.find('.dle-settings-panel').removeClass('active').attr('hidden', '');
         $container.find(`[data-settings-panel="${tab}"]`).addClass('active').removeAttr('hidden');
+        // Clear features subtab highlighting when leaving Features
+        if (tab !== 'features') {
+            $container.find('.dle-features-subtab').removeClass('active');
+        }
         localStorage.setItem('dle_last_settings_tab', tab);
     }
 
@@ -557,14 +561,25 @@ function loadPopupSettings($container) {
     $c('#dle_sp_keyword_occurrence_weighting').prop('checked', settings.keywordOccurrenceWeighting);
     $c('#dle_sp_contextual_gating_tolerance').val(settings.contextualGatingTolerance);
 
-    // ── Injection ──
+    // ── Injection tab ──
     $c(`input[name="dle_sp_injection_mode"][value="${settings.injectionMode || 'extension'}"]`).prop('checked', true);
     updatePopupInjectionModeVisibility($container, settings);
-    $c(`input[name="dle_sp_position"][value="${settings.injectionPosition}"]`).prop('checked', true);
+    // Lore position (now a select dropdown)
+    $c('#dle_sp_position').val(String(settings.injectionPosition));
     $c('#dle_sp_depth').val(settings.injectionDepth);
     $c('#dle_sp_role').val(settings.injectionRole);
-    const isInChat = settings.injectionPosition === 1;
-    $c('#dle_sp_depth, #dle_sp_role').prop('disabled', !isInChat).toggleClass('dle-disabled', !isInChat);
+    $c('#dle_sp_position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.injectionPosition === 1);
+    // Author Notebook position (now a select dropdown)
+    $c('#dle_sp_notebook_position').val(String(settings.notebookPosition));
+    $c('#dle_sp_notebook_depth').val(settings.notebookDepth);
+    $c('#dle_sp_notebook_role').val(settings.notebookRole);
+    $c('#dle_sp_notebook_position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.notebookPosition === 1);
+    // AI Notebook position (now a select dropdown)
+    $c('#dle_sp_ai_notepad_position').val(String(settings.aiNotepadPosition));
+    $c('#dle_sp_ai_notepad_depth').val(settings.aiNotepadDepth);
+    $c('#dle_sp_ai_notepad_role').val(settings.aiNotepadRole);
+    $c('#dle_sp_ai_notepad_position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.aiNotepadPosition === 1);
+    // Advanced injection settings
     $c('#dle_sp_template').val(settings.injectionTemplate);
     $c('#dle_sp_allow_wi_scan').prop('checked', settings.allowWIScan);
 
@@ -614,22 +629,11 @@ function loadPopupSettings($container) {
 
     // ── Features — Notebook ──
     $c('#dle_sp_notebook_enabled').prop('checked', settings.notebookEnabled);
-    $c(`input[name="dle_sp_notebook_position"][value="${settings.notebookPosition}"]`).prop('checked', true);
-    $c('#dle_sp_notebook_depth').val(settings.notebookDepth);
-    $c('#dle_sp_notebook_role').val(settings.notebookRole);
-    if (!settings.notebookEnabled && settings.injectionMode !== 'prompt_list') {
-        const nbControls = $c('#dle_sp_notebook_position_controls');
-        nbControls.find('input, select').prop('disabled', true);
-        nbControls.addClass('dle-dimmed');
-    }
 
     // ── Features — AI Notebook ──
     $c('#dle_sp_ai_notepad_enabled').prop('checked', settings.aiNotepadEnabled);
     const aiNbMode = settings.aiNotepadMode || 'tag';
     $c(`input[name="dle_sp_ai_notepad_mode"][value="${aiNbMode}"]`).prop('checked', true);
-    $c(`input[name="dle_sp_ai_notepad_position"][value="${settings.aiNotepadPosition}"]`).prop('checked', true);
-    $c('#dle_sp_ai_notepad_depth').val(settings.aiNotepadDepth);
-    $c('#dle_sp_ai_notepad_role').val(settings.aiNotepadRole);
     $c('#dle_sp_ai_notepad_prompt').val(settings.aiNotepadPrompt || '');
     $c('#dle_sp_ai_notepad_extract_prompt').val(settings.aiNotepadExtractPrompt || '');
     // Extract mode connection settings
@@ -645,11 +649,6 @@ function loadPopupSettings($container) {
     $c('#dle_sp_ai_notepad_mode_extract_desc').toggle(aiNbMode === 'extract');
     $c('#dle_sp_ai_notepad_tag_options').toggle(aiNbMode === 'tag');
     $c('#dle_sp_ai_notepad_extract_options').toggle(aiNbMode === 'extract');
-    if (!settings.aiNotepadEnabled && settings.injectionMode !== 'prompt_list') {
-        const npControls = $c('#dle_sp_ai_notepad_position_controls');
-        npControls.find('input, select').prop('disabled', true);
-        npControls.addClass('dle-dimmed');
-    }
 
     // ── Features — Scribe ──
     $c('#dle_sp_scribe_enabled').prop('checked', settings.scribeEnabled);
@@ -912,13 +911,13 @@ function bindPopupEvents($container) {
     $c('#dle_sp_keyword_occurrence_weighting').on('change', function () { settings.keywordOccurrenceWeighting = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle_sp_contextual_gating_tolerance').on('change', function () { settings.contextualGatingTolerance = String($(this).val()); saveSettingsDebounced(); });
 
-    // ── Injection ──
+    // ── Injection tab ──
     $c('input[name="dle_sp_injection_mode"]').on('change', function () {
         const oldMode = settings.injectionMode;
         settings.injectionMode = String($(this).val());
         // H16: Clean up stale PM entries when switching away from prompt_list mode
         if (oldMode === 'prompt_list' && settings.injectionMode !== 'prompt_list' && promptManager) {
-            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook']) {
+            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
                 const pmEntry = promptManager.getPromptById(id);
                 if (pmEntry) pmEntry.content = '';
             }
@@ -926,11 +925,31 @@ function bindPopupEvents($container) {
         updatePopupInjectionModeVisibility($container, settings);
         saveSettingsDebounced();
     });
-    $c('input[name="dle_sp_position"]').on('change', function () { settings.injectionPosition = Number($(this).val()); const inChat = settings.injectionPosition === 1; $c('#dle_sp_depth, #dle_sp_role').prop('disabled', !inChat).toggleClass('dle-disabled', !inChat); saveSettingsDebounced(); });
-    $c('#dle_sp_depth').on('input', function () { settings.injectionDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
-    $c('#dle_sp_role').on('change', function () { settings.injectionRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
+
+    // Helper: wire a position select + in-chat controls for an injection row
+    function wirePositionSelect(selectId, depthId, roleId, posKey, depthKey, roleKey) {
+        $c(selectId).on('change', function () {
+            settings[posKey] = Number($(this).val());
+            $(this).closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings[posKey] === 1);
+            saveSettingsDebounced();
+        });
+        $c(depthId).on('input', function () { settings[depthKey] = numVal($(this).val(), 4); saveSettingsDebounced(); });
+        $c(roleId).on('change', function () { settings[roleKey] = numVal($(this).val(), 0); saveSettingsDebounced(); });
+    }
+    wirePositionSelect('#dle_sp_position', '#dle_sp_depth', '#dle_sp_role', 'injectionPosition', 'injectionDepth', 'injectionRole');
+    wirePositionSelect('#dle_sp_notebook_position', '#dle_sp_notebook_depth', '#dle_sp_notebook_role', 'notebookPosition', 'notebookDepth', 'notebookRole');
+    wirePositionSelect('#dle_sp_ai_notepad_position', '#dle_sp_ai_notepad_depth', '#dle_sp_ai_notepad_role', 'aiNotepadPosition', 'aiNotepadDepth', 'aiNotepadRole');
+
     $c('#dle_sp_template').on('input', function () { settings.injectionTemplate = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle_sp_allow_wi_scan').on('change', function () { settings.allowWIScan = $(this).prop('checked'); saveSettingsDebounced(); });
+
+    // Cross-tab links (e.g., "Injection tab" links in Features subtabs)
+    $container.on('click', '.dle-goto-tab-link', function (e) {
+        e.preventDefault();
+        const targetTab = $(this).data('goto-tab');
+        const $targetTab = $container.find(`[data-settings-tab="${targetTab}"]`);
+        if ($targetTab.length) switchSettingsTab($targetTab);
+    });
 
     // ── AI Search ──
     $c('input[name="dle_sp_ai_connection_mode"]').on('change', function () {
@@ -1012,31 +1031,13 @@ function bindPopupEvents($container) {
     // ── Features — Notebook ──
     $c('#dle_sp_notebook_enabled').on('change', function () {
         settings.notebookEnabled = $(this).prop('checked'); saveSettingsDebounced();
-        const nbControls = $c('#dle_sp_notebook_position_controls');
-        const isPromptList = settings.injectionMode === 'prompt_list';
-        if (!isPromptList) {
-            nbControls.find('input, select').prop('disabled', !settings.notebookEnabled);
-            nbControls.toggleClass('dle-dimmed', !settings.notebookEnabled);
-        }
     });
-    $c('input[name="dle_sp_notebook_position"]').on('change', function () { settings.notebookPosition = Number($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_notebook_depth').on('input', function () { settings.notebookDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
-    $c('#dle_sp_notebook_role').on('change', function () { settings.notebookRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Author Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
 
     // ── Features — AI Notebook ──
     $c('#dle_sp_ai_notepad_enabled').on('change', function () {
         settings.aiNotepadEnabled = $(this).prop('checked'); saveSettingsDebounced();
-        const npControls = $c('#dle_sp_ai_notepad_position_controls');
-        const isPromptList = settings.injectionMode === 'prompt_list';
-        if (!isPromptList) {
-            npControls.find('input, select').prop('disabled', !settings.aiNotepadEnabled);
-            npControls.toggleClass('dle-dimmed', !settings.aiNotepadEnabled);
-        }
     });
-    $c('input[name="dle_sp_ai_notepad_position"]').on('change', function () { settings.aiNotepadPosition = Number($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_notepad_depth').on('input', function () { settings.aiNotepadDepth = numVal($(this).val(), 0); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_notepad_role').on('change', function () { settings.aiNotepadRole = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle_sp_ai_notepad_prompt').on('input', function () { settings.aiNotepadPrompt = $(this).val(); saveSettingsDebounced(); });
     $c('#dle_sp_ai_notepad_extract_prompt').on('input', function () { settings.aiNotepadExtractPrompt = $(this).val(); saveSettingsDebounced(); });
     $c('input[name="dle_sp_ai_notepad_mode"]').on('change', function () {

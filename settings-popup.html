@@ -18,6 +18,11 @@
             <i class="fa-solid fa-brain" aria-hidden="true"></i>
             <span>AI Search</span>
         </button>
+        <button class="dle-settings-tab" id="dle-sp-tab-injection" data-settings-tab="injection" role="tab"
+                aria-selected="false" aria-controls="dle-sp-injection">
+            <i class="fa-solid fa-layer-group" aria-hidden="true"></i>
+            <span>Injection</span>
+        </button>
         <button class="dle-settings-tab" id="dle-sp-tab-features" data-settings-tab="features" role="tab"
                 aria-selected="false" aria-controls="dle-sp-features">
             <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
@@ -243,15 +248,7 @@
                 <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
             </div>
             <div class="dle_advanced_section" data-section="sp_matching" style="display: none;">
-                <div class="flex-container">
-                    <div class="flex1" title="Controls how /dle-optimize-keys suggests keywords.">
-                        <label for="dle_sp_optimize_keys_mode"><small>Optimize Keys Mode</small></label>
-                        <select id="dle_sp_optimize_keys_mode" class="text_pole">
-                            <option value="keyword-only">keyword-only</option>
-                            <option value="two-stage">two-stage</option>
-                        </select>
-                    </div>
-                </div>
+                <label class="dle-advanced-subheader"><small>Keyword Matching</small></label>
                 <label class="checkbox_label" for="dle_sp_case_sensitive" title="When checked, keyword matching is case-sensitive.">
                     <input id="dle_sp_case_sensitive" type="checkbox" class="checkbox">
                     <span>Case Sensitive</span>
@@ -260,6 +257,13 @@
                     <input id="dle_sp_match_whole_words" type="checkbox" class="checkbox">
                     <span>Match Whole Words</span>
                 </label>
+                <label class="checkbox_label" for="dle_sp_keyword_occurrence_weighting" title="When enabled, entries with more keyword occurrences in the chat sort higher within the same priority tier. May increase processing time on large vaults.">
+                    <input id="dle_sp_keyword_occurrence_weighting" type="checkbox" class="checkbox">
+                    <span>Keyword Occurrence Weighting</span>
+                </label>
+                <span class="dle-text-xs dle-muted dle-sp-indent"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May increase processing time on large vaults — counts occurrences for every matched entry.</span>
+
+                <label class="dle-advanced-subheader"><small>Recursive Scan</small></label>
                 <label class="checkbox_label" for="dle_sp_recursive_scan" title="Scan matched entries' content for keywords that might trigger additional entries.">
                     <input id="dle_sp_recursive_scan" type="checkbox" class="checkbox">
                     <span>Recursive Scanning</span>
@@ -270,6 +274,8 @@
                         <input id="dle_sp_max_recursion" type="number" class="text_pole" min="1" max="10" />
                     </div>
                 </div>
+
+                <label class="dle-advanced-subheader"><small>Re-injection Control</small></label>
                 <div class="flex-container">
                     <div class="flex1" title="After an entry is injected, skip it for the next N generations. 0 = always include when matched.">
                         <label for="dle_sp_reinjection_cooldown"><small>Reinjection Cooldown (0 = off)</small></label>
@@ -288,11 +294,8 @@
                         <input id="dle_sp_strip_lookback" type="number" class="text_pole" min="1" max="10" />
                     </div>
                 </div>
-                <label class="checkbox_label" for="dle_sp_keyword_occurrence_weighting" title="When enabled, entries with more keyword occurrences in the chat sort higher within the same priority tier. May increase processing time on large vaults.">
-                    <input id="dle_sp_keyword_occurrence_weighting" type="checkbox" class="checkbox">
-                    <span>Keyword Occurrence Weighting</span>
-                </label>
-                <span class="dle-text-xs dle-muted dle-sp-indent"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May increase processing time on large vaults — counts occurrences for every matched entry.</span>
+
+                <label class="dle-advanced-subheader"><small>Gating</small></label>
                 <div class="flex-container">
                     <div class="flex1" title="How to handle entries with era/location/scene requirements when no context is set. Strict: block if any dimension is missing. Moderate: block only when entry's dimension is set but doesn't match. Lenient: allow all entries when no context dimensions are set.">
                         <label for="dle_sp_contextual_gating_tolerance"><small>Contextual Gating Tolerance</small></label>
@@ -305,69 +308,171 @@
                 </div>
             </div>
             </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             TAB: Injection
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="dle-settings-panel" id="dle-sp-injection" data-settings-panel="injection"
+             role="tabpanel" aria-labelledby="dle-sp-tab-injection" hidden>
 
             <div class="dle-settings-section">
-            <h4>Injection</h4>
-            <p class="dle_section_desc">Control where and how matched entries are placed in the prompt.</p>
+            <h4>Injection Mode</h4>
+            <p class="dle_section_desc">Control how DeepLore places entries into the prompt.</p>
 
-            <div class="flex-container flexFlowColumn">
-                <label>Injection Mode</label>
-                <div class="radio_group">
-                    <label title="Use the standard SillyTavern injection method with fixed position, depth, and role.">
-                        <input type="radio" name="dle_sp_injection_mode" value="extension" />
-                        <span>Extension Prompt</span>
-                    </label>
-                    <label title="Create named prompts that appear in the prompt list. Drag them to any position.">
-                        <input type="radio" name="dle_sp_injection_mode" value="prompt_list" />
-                        <span>Prompt List (drag &amp; drop)</span>
-                    </label>
+            <div class="radio_group">
+                <label title="Use the standard SillyTavern injection method with fixed position, depth, and role.">
+                    <input type="radio" name="dle_sp_injection_mode" value="extension" />
+                    <span>Extension Prompt</span>
+                </label>
+                <label title="Create named prompts that appear in the prompt list. Drag them to any position.">
+                    <input type="radio" name="dle_sp_injection_mode" value="prompt_list" />
+                    <span>Prompt List (drag &amp; drop)</span>
+                </label>
+            </div>
+            </div>
+
+            <div class="dle-settings-section">
+            <h4>Injection Overview</h4>
+            <p class="dle_section_desc">Default position, depth, and role for each injection type.</p>
+
+            <div class="dle-injection-table">
+
+                <!-- Constants -->
+                <div class="dle-injection-row">
+                    <div class="dle-injection-type">
+                        <i class="fa-solid fa-thumbtack" aria-hidden="true"></i>
+                        <span>Constants</span>
+                    </div>
+                    <div class="dle-injection-controls">
+                        <div class="dle-injection-ext-controls">
+                            <span class="dle-text-xs dle_muted">Same position as Lore Entries</span>
+                        </div>
+                        <span class="dle-injection-pm-name" style="display:none"><code>DLE Constants</code></span>
+                    </div>
+                    <div class="dle-injection-status">
+                        <span id="dle_sp_inj_constants_status" class="dle-text-xs dle_muted"></span>
+                    </div>
                 </div>
 
-                <div id="dle_sp_extension_position_controls">
-                    <label>Injection Position</label>
-                    <div class="radio_group">
-                        <label title="Inject lore before the main system prompt / story string.">
-                            <input type="radio" name="dle_sp_position" value="2" />
-                            <span>Before Main Prompt / Story String</span>
-                        </label>
-                        <label title="Inject lore after the main system prompt / story string.">
-                            <input type="radio" name="dle_sp_position" value="0" />
-                            <span>After Main Prompt / Story String</span>
-                        </label>
-                        <label title="Inject lore as a message in the chat history at the specified depth.">
-                            <input type="radio" name="dle_sp_position" value="1" />
-                            <span>In-chat at depth</span>
-                            <input id="dle_sp_depth" class="text_pole widthUnset" type="number" min="0" max="9999" />
-                            <span> as </span>
-                            <select id="dle_sp_role" class="text_pole widthNatural">
-                                <option value="0">System</option>
-                                <option value="1">User</option>
-                                <option value="2">Assistant</option>
+                <!-- Lore Entries -->
+                <div class="dle-injection-row">
+                    <div class="dle-injection-type">
+                        <i class="fa-solid fa-book" aria-hidden="true"></i>
+                        <span>Lore Entries</span>
+                    </div>
+                    <div class="dle-injection-controls">
+                        <div class="dle-injection-ext-controls">
+                            <select id="dle_sp_position" class="text_pole widthNatural" title="Where to inject matched lore entries in the prompt.">
+                                <option value="2">Before Main Prompt</option>
+                                <option value="0">After Main Prompt</option>
+                                <option value="1">In-chat</option>
                             </select>
-                        </label>
+                            <span class="dle-injection-inchat-controls" style="display:none">
+                                <label class="dle-text-xs" for="dle_sp_depth">depth</label>
+                                <input id="dle_sp_depth" class="text_pole widthUnset dle-sp-narrow-input" type="number" min="0" max="9999" />
+                                <label class="dle-text-xs" for="dle_sp_role">as</label>
+                                <select id="dle_sp_role" class="text_pole widthNatural">
+                                    <option value="0">System</option>
+                                    <option value="1">User</option>
+                                    <option value="2">Assistant</option>
+                                </select>
+                            </span>
+                        </div>
+                        <span class="dle-injection-pm-name" style="display:none"><code>DLE Lore Entries</code></span>
                     </div>
-                    <span class="dle-text-xs dle-muted">Individual entries can override these defaults in their note settings.</span>
+                    <div class="dle-injection-status">
+                        <span id="dle_sp_inj_lore_status" class="dle-text-xs dle_muted"></span>
+                    </div>
                 </div>
 
-                <div id="dle_sp_prompt_list_info" style="display: none;">
-                    <span class="dle-text-xs dle-muted">Placement controlled by the prompt list. Find <b>deeplore_constants</b>, <b>deeplore_lore</b>, and <b>deeplore_notebook</b> in the prompt list.</span>
+                <!-- Author's Notebook -->
+                <div class="dle-injection-row">
+                    <div class="dle-injection-type">
+                        <i class="fa-solid fa-pen-fancy" aria-hidden="true"></i>
+                        <span>Author's Notebook</span>
+                    </div>
+                    <div class="dle-injection-controls">
+                        <div class="dle-injection-ext-controls">
+                            <select id="dle_sp_notebook_position" class="text_pole widthNatural" title="Where to inject the Author's Notebook content.">
+                                <option value="2">Before Main Prompt</option>
+                                <option value="0">After Main Prompt</option>
+                                <option value="1">In-chat</option>
+                            </select>
+                            <span class="dle-injection-inchat-controls" style="display:none">
+                                <label class="dle-text-xs" for="dle_sp_notebook_depth">depth</label>
+                                <input id="dle_sp_notebook_depth" class="text_pole widthUnset dle-sp-narrow-input" type="number" min="0" max="9999" />
+                                <label class="dle-text-xs" for="dle_sp_notebook_role">as</label>
+                                <select id="dle_sp_notebook_role" class="text_pole widthNatural">
+                                    <option value="0">System</option>
+                                    <option value="1">User</option>
+                                    <option value="2">Assistant</option>
+                                </select>
+                            </span>
+                        </div>
+                        <span class="dle-injection-pm-name" style="display:none"><code>DLE Author's Notebook</code></span>
+                    </div>
+                    <div class="dle-injection-status">
+                        <span id="dle_sp_inj_notebook_status" class="dle-text-xs dle_muted"></span>
+                    </div>
                 </div>
 
-                <div class="dle_advanced_toggle" data-section="sp_injection" tabindex="0" role="button" aria-expanded="false">
-                    <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
-                </div>
-                <div class="dle_advanced_section" data-section="sp_injection" style="display: none;">
-                    <div title="Template for formatting each injected entry. Use {{title}} and {{content}} macros.">
-                        <label for="dle_sp_template"><small>Injection Template</small></label>
-                        <textarea id="dle_sp_template" class="text_pole textarea_compact" rows="3" placeholder="Use {{title}} and {{content}} macros."></textarea>
+                <!-- AI Notebook -->
+                <div class="dle-injection-row">
+                    <div class="dle-injection-type">
+                        <i class="fa-solid fa-robot" aria-hidden="true"></i>
+                        <span>AI Notebook</span>
                     </div>
-                    <label class="checkbox_label" for="dle_sp_allow_wi_scan" title="When enabled, SillyTavern's built-in World Info can trigger on text inside your DeepLore entries. Useful if you use both systems. May cause duplicate injections.">
-                        <input id="dle_sp_allow_wi_scan" type="checkbox" class="checkbox">
-                        <span>Allow World Info Scan</span>
-                    </label>
+                    <div class="dle-injection-controls">
+                        <div class="dle-injection-ext-controls">
+                            <select id="dle_sp_ai_notepad_position" class="text_pole widthNatural" title="Where to inject the AI Notebook content.">
+                                <option value="2">Before Main Prompt</option>
+                                <option value="0">After Main Prompt</option>
+                                <option value="1">In-chat</option>
+                            </select>
+                            <span class="dle-injection-inchat-controls" style="display:none">
+                                <label class="dle-text-xs" for="dle_sp_ai_notepad_depth">depth</label>
+                                <input id="dle_sp_ai_notepad_depth" class="text_pole widthUnset dle-sp-narrow-input" type="number" min="0" max="9999" />
+                                <label class="dle-text-xs" for="dle_sp_ai_notepad_role">as</label>
+                                <select id="dle_sp_ai_notepad_role" class="text_pole widthNatural">
+                                    <option value="0">System</option>
+                                    <option value="1">User</option>
+                                    <option value="2">Assistant</option>
+                                </select>
+                            </span>
+                        </div>
+                        <span class="dle-injection-pm-name" style="display:none"><code>DLE AI Notebook</code></span>
+                    </div>
+                    <div class="dle-injection-status">
+                        <span id="dle_sp_inj_notepad_status" class="dle-text-xs dle_muted"></span>
+                    </div>
                 </div>
+
+            </div>
+
+            <span class="dle-text-xs dle_muted"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Individual entries can override these defaults in their frontmatter (position, depth, role).</span>
+
+            <div id="dle_sp_injection_pm_info" style="display: none;">
+                <span class="dle-text-xs dle_muted"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Drag these entries in SillyTavern's Prompt Manager to control injection order.</span>
             </div>
             </div>
+
+            <div class="dle-settings-section">
+            <div class="dle_advanced_toggle" data-section="sp_injection" tabindex="0" role="button" aria-expanded="false">
+                <i class="fa-solid fa-chevron-right dle_advanced_icon" aria-hidden="true"></i> Show Advanced
+            </div>
+            <div class="dle_advanced_section" data-section="sp_injection" style="display: none;">
+                <div title="Template for formatting each injected entry. Use {{title}} and {{content}} macros.">
+                    <label for="dle_sp_template"><small>Injection Template</small></label>
+                    <textarea id="dle_sp_template" class="text_pole textarea_compact" rows="3" placeholder="Use {{title}} and {{content}} macros."></textarea>
+                </div>
+                <label class="checkbox_label" for="dle_sp_allow_wi_scan" title="When enabled, SillyTavern's built-in World Info can trigger on text inside your DeepLore entries. Useful if you use both systems. May cause duplicate injections.">
+                    <input id="dle_sp_allow_wi_scan" type="checkbox" class="checkbox">
+                    <span>Allow World Info Scan</span>
+                </label>
+            </div>
+            </div>
+
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -524,6 +629,16 @@
                                 <option value="none">Nothing (skip injection)</option>
                             </select>
                         </div>
+                    <hr class="dle-my-10">
+                    <label class="dle-advanced-subheader"><small>AI Utilities</small></label>
+                    <div class="flex-container">
+                        <div class="flex1" title="When running /dle-optimize-keys, use keyword-only analysis or two-stage (keyword + AI) analysis.">
+                            <label for="dle_sp_optimize_keys_mode"><small>Optimize Keys Mode</small></label>
+                            <select id="dle_sp_optimize_keys_mode" class="text_pole">
+                                <option value="keyword">Keyword Only</option>
+                                <option value="two-stage">Two-Stage (Keyword + AI)</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -582,31 +697,7 @@
                         <span>Open Author Notebook</span>
                     </div>
                 </div>
-                <div id="dle_sp_notebook_position_controls">
-                    <label><small>Author Notebook Injection Position</small></label>
-                    <div class="radio_group">
-                        <label title="Place Author Notebook content before the main system prompt.">
-                            <input type="radio" name="dle_sp_notebook_position" value="2" />
-                            <span>Before Main Prompt</span>
-                        </label>
-                        <label title="Place Author Notebook content after the main system prompt.">
-                            <input type="radio" name="dle_sp_notebook_position" value="0" />
-                            <span>After Main Prompt</span>
-                        </label>
-                        <label title="Place Author Notebook content in the chat history at a specific depth.">
-                            <input type="radio" name="dle_sp_notebook_position" value="1" />
-                            <span>In-chat at depth</span>
-                            <input id="dle_sp_notebook_depth" class="text_pole widthUnset dle-sp-narrow-input" type="number" min="0" max="9999" />
-                            <span> as </span>
-                            <select id="dle_sp_notebook_role" class="text_pole widthNatural">
-                                <option value="0">System</option>
-                                <option value="1">User</option>
-                                <option value="2">Assistant</option>
-                            </select>
-                        </label>
-                    </div>
-                    <span id="dle_sp_notebook_pm_note" class="dle-text-xs" style="display: none; opacity: 0.6;">Position is controlled by the prompt list — drag <b>deeplore_notebook</b>.</span>
-                </div>
+                <span class="dle-text-xs dle_muted">Injection position: configured in the <a href="#" class="dle-goto-tab-link" data-goto-tab="injection">Injection tab</a>.</span>
             </div>
             </div>
             </div>
@@ -651,31 +742,7 @@
                         <span>View AI Notebook</span>
                     </div>
                 </div>
-                <div id="dle_sp_ai_notepad_position_controls">
-                    <label><small>AI Notebook Injection Position</small></label>
-                    <div class="radio_group">
-                        <label title="Place AI Notebook content before the main system prompt.">
-                            <input type="radio" name="dle_sp_ai_notepad_position" value="2" />
-                            <span>Before Main Prompt</span>
-                        </label>
-                        <label title="Place AI Notebook content after the main system prompt.">
-                            <input type="radio" name="dle_sp_ai_notepad_position" value="0" />
-                            <span>After Main Prompt</span>
-                        </label>
-                        <label title="Place AI Notebook content in the chat history at a specific depth.">
-                            <input type="radio" name="dle_sp_ai_notepad_position" value="1" />
-                            <span>In-chat at depth</span>
-                            <input id="dle_sp_ai_notepad_depth" class="text_pole widthUnset dle-sp-narrow-input" type="number" min="0" max="9999" />
-                            <span> as </span>
-                            <select id="dle_sp_ai_notepad_role" class="text_pole widthNatural">
-                                <option value="0">System</option>
-                                <option value="1">User</option>
-                                <option value="2">Assistant</option>
-                            </select>
-                        </label>
-                    </div>
-                    <span id="dle_sp_ai_notepad_pm_note" class="dle-text-xs" style="display: none; opacity: 0.6;">Position is controlled by the prompt list — drag <b>deeplore_ai_notepad</b>.</span>
-                </div>
+                <span class="dle-text-xs dle_muted">Injection position: configured in the <a href="#" class="dle-goto-tab-link" data-goto-tab="injection">Injection tab</a>.</span>
                 <div id="dle_sp_ai_notepad_tag_options">
                     <label for="dle_sp_ai_notepad_prompt"><small>Custom Tag Instruction (leave empty for default)</small></label>
                     <textarea id="dle_sp_ai_notepad_prompt" class="text_pole" rows="3" placeholder="Leave empty for default. Instructs the AI to append &lt;dle-notes&gt; after its response."></textarea>

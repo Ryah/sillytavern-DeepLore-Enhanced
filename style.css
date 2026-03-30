@@ -2003,6 +2003,84 @@ button.dle-browse-block.dle-block-active {
     margin-bottom: 4px;
 }
 
+/* ── Injection tab table ── */
+.dle-injection-table {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.dle-injection-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid color-mix(in srgb, var(--dle-border) 40%, transparent);
+    border-radius: var(--dle-radius-sm);
+    background: color-mix(in srgb, var(--dle-bg-surface) 30%, transparent);
+    min-height: 32px;
+}
+.dle-injection-type {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 140px;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+.dle-injection-type i { width: 14px; text-align: center; opacity: 0.7; }
+.dle-injection-controls {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.dle-injection-ext-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.dle-injection-inchat-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.dle-injection-pm-name code {
+    font-size: 11px;
+    padding: 1px 4px;
+    background: color-mix(in srgb, var(--dle-border) 30%, transparent);
+    border-radius: 3px;
+}
+.dle-injection-status {
+    flex-shrink: 0;
+    text-align: right;
+    min-width: 50px;
+}
+
+/* ── Advanced section subheaders ── */
+.dle-advanced-subheader {
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 4px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 40%, transparent);
+    font-weight: 600;
+    opacity: 0.7;
+    font-size: 11px;
+}
+.dle-advanced-subheader:first-child { margin-top: 0; }
+
+/* ── Cross-tab link styling ── */
+.dle-goto-tab-link {
+    color: var(--SmartThemeQuoteColor, #4caf50);
+    text-decoration: underline;
+    cursor: pointer;
+}
+.dle-goto-tab-link:hover { opacity: 0.8; }
+
 /* --- Container query: hide footer in collapsed drawers --- */
 @container (max-height: 250px) {
     .dle-zone-footer {
@@ -2543,12 +2621,36 @@ button.dle-browse-block.dle-block-active {
 .dle-rb-desc { opacity: 0.7; margin-top: 4px; }
 
 /* Graph legend swatches */
-.dle-graph-legend-swatch { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
-.dle-graph-swatch-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+.dle-graph-legend-swatch { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; max-width: 130px; }
+.dle-graph-legend-swatch > :last-child:not(.dle-graph-swatch-dot) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dle-graph-swatch-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .dle-graph-legend-gradient { display: inline-flex; align-items: center; gap: 6px; }
 .dle-graph-legend-gradient-bar { display: inline-block; width: 120px; height: 10px; border-radius: 3px; }
 .dle-graph-field-label { color: var(--SmartThemeBodyColor, #ccc); font-weight: bold; margin-right: 8px; }
 .dle-graph-legend-swatch--empty { opacity: 0.6; }
+
+/* Legend mode: allow wrapping and overflow control */
+.dle-graph-tooltip--legend {
+    flex-wrap: wrap;
+    white-space: normal;
+    max-height: 3.5em;
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+    align-items: flex-start;
+}
+.dle-graph-tooltip--legend.dle-graph-tooltip--expanded { max-height: 50%; }
+.dle-graph-legend-toggle {
+    pointer-events: auto;
+    cursor: pointer;
+    opacity: 0.5;
+    font-size: 0.7em;
+    padding: 0 6px;
+    user-select: none;
+    transition: opacity 150ms;
+    flex-shrink: 0;
+}
+.dle-graph-legend-toggle:hover { opacity: 1; }
+.dle-graph-tooltip--expanded .dle-graph-legend-toggle { transform: rotate(180deg); }
 
 /* Graph canvas and wrapper */
 .dle-graph-canvas { border: 1px solid var(--dle-border); border-radius: var(--dle-radius-sm); cursor: grab; width: 100%; height: 100%; min-height: 200px; background: var(--dle-bg-surface); outline: none; }

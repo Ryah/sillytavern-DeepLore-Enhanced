@@ -587,6 +587,12 @@ jQuery(async function () {
         if (initSettings.injectionMode === 'prompt_list') {
             // Register directly in PM (so entries appear in the list without generating first).
             // promptManager may not be initialized yet, so poll briefly.
+            const PM_DISPLAY_NAMES = {
+                [`${PROMPT_TAG_PREFIX}constants`]: 'DLE Constants',
+                [`${PROMPT_TAG_PREFIX}lore`]: 'DLE Lore Entries',
+                'deeplore_notebook': 'DLE Author\'s Notebook',
+                'deeplore_ai_notepad': 'DLE AI Notebook',
+            };
             const registerPmEntries = () => {
                 if (!promptManager) return false;
                 const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad'];
@@ -594,7 +600,7 @@ jQuery(async function () {
                     const existing = promptManager.getPromptById(id);
                     if (!existing) {
                         promptManager.addPrompt({
-                            name: id,
+                            name: PM_DISPLAY_NAMES[id] || id,
                             content: '',
                             system_prompt: true,
                             role: 'system',
@@ -604,10 +610,12 @@ jQuery(async function () {
                             extension: true,
                         }, id);
                     } else {
-                        // Patch legacy entries missing role or position
+                        // Patch legacy entries missing role, position, or old display name
                         if (!existing.role) existing.role = 'system';
                         if (!existing.position) existing.position = 'end';
                         if (!existing.extension) existing.extension = true;
+                        const friendlyName = PM_DISPLAY_NAMES[id];
+                        if (friendlyName && existing.name !== friendlyName) existing.name = friendlyName;
                     }
                     // Add to active character's prompt order if not already there
                     if (promptManager.activeCharacter) {
@@ -823,14 +831,17 @@ jQuery(async function () {
                 for (const id of ids) {
                     const existing = promptManager.getPromptById(id);
                     if (!existing) {
+                        const pmNames = { [`${PROMPT_TAG_PREFIX}constants`]: 'DLE Constants', [`${PROMPT_TAG_PREFIX}lore`]: 'DLE Lore Entries', 'deeplore_notebook': 'DLE Author\'s Notebook', 'deeplore_ai_notepad': 'DLE AI Notebook' };
                         promptManager.addPrompt({
-                            name: id, content: '', system_prompt: true,
+                            name: pmNames[id] || id, content: '', system_prompt: true,
                             role: 'system', position: 'end', marker: false, enabled: true, extension: true,
                         }, id);
                     } else {
                         if (!existing.role) existing.role = 'system';
                         if (!existing.position) existing.position = 'end';
                         if (!existing.extension) existing.extension = true;
+                        const friendlyName = pmNames[id];
+                        if (friendlyName && existing.name !== friendlyName) existing.name = friendlyName;
                     }
                     const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter);
                     if (order && !order.find(e => e.identifier === id)) {

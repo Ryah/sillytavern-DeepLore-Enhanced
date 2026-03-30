@@ -107,24 +107,25 @@ export function initRender(gs) {
         '#039be5', '#c0ca33', '#6d4c41', '#00897b', '#3949ab',
     ];
     const fieldColorCache = new Map();
+    function ensureFieldIndex(fieldName) {
+        if (fieldColorCache.has(`__idx__${fieldName}`)) return;
+        const uniqueVals = new Set();
+        for (const node of gs.nodes) {
+            const val = gs._vaultIndex?.[node.id]?.customFields?.[fieldName];
+            if (val != null) {
+                if (Array.isArray(val)) val.forEach(v => uniqueVals.add(v));
+                else uniqueVals.add(String(val));
+            }
+        }
+        const sorted = [...uniqueVals].sort();
+        const map = new Map();
+        sorted.forEach((v, i) => map.set(v, FIELD_COLOR_PALETTE[i % FIELD_COLOR_PALETTE.length]));
+        fieldColorCache.set(`__idx__${fieldName}`, map);
+    }
     function fieldValueColor(fieldName, value) {
         const key = `${fieldName}:${value}`;
         if (fieldColorCache.has(key)) return fieldColorCache.get(key);
-        // Build a deterministic index from all unique values for this field
-        if (!fieldColorCache.has(`__idx__${fieldName}`)) {
-            const uniqueVals = new Set();
-            for (const node of gs.nodes) {
-                const val = gs._vaultIndex?.[node.id]?.customFields?.[fieldName];
-                if (val != null) {
-                    if (Array.isArray(val)) val.forEach(v => uniqueVals.add(v));
-                    else uniqueVals.add(String(val));
-                }
-            }
-            const sorted = [...uniqueVals].sort();
-            const map = new Map();
-            sorted.forEach((v, i) => map.set(v, FIELD_COLOR_PALETTE[i % FIELD_COLOR_PALETTE.length]));
-            fieldColorCache.set(`__idx__${fieldName}`, map);
-        }
+        ensureFieldIndex(fieldName);
         const map = fieldColorCache.get(`__idx__${fieldName}`);
         const c = map.get(value) || '#888888';
         fieldColorCache.set(key, c);
@@ -159,6 +160,21 @@ export function initRender(gs) {
     function getNodeRadius(n) {
         const connections = gs.edgeCountByNode.get(n.id) || 0;
         return Math.max(7, Math.min(22, 7 + Math.sqrt(connections / gs.maxEdgeCount) * 15));
+    }
+
+    /** Wrap legend HTML with adaptive font scaling for many items */
+    function wrapLegendScaled(html, count) {
+        // ≤8: inherit, 9-15: 0.6em, 16-25: 0.55em, 26+: 0.5em (floor)
+        if (count <= 8) return html;
+        const em = count <= 15 ? '0.6em' : count <= 25 ? '0.55em' : '0.5em';
+        return `<span style="font-size:${em}">${html}</span>`;
+    }
+
+    /** Safety cap + expand toggle for overflowing legends */
+    const LEGEND_SAFETY_CAP = 50;
+    function capLegendItems(items, cap = LEGEND_SAFETY_CAP) {
+        if (items.length <= cap) return items.join('');
+        return items.slice(0, cap).join('') + `<span class="dle-dimmed">+${items.length - cap} more</span>`;
     }
 
     function buildColorLegend() {
@@ -199,12 +215,14 @@ export function initRender(gs) {
                     if (cm.members.length === 0) continue;
                     items.push(`<span class="dle-graph-legend-swatch"><span class="dle-graph-swatch-dot" style="background:${toPastel(cm.color)};"></span>${escapeHtml(cm.label)} (${cm.members.length})</span>`);
                 }
-                return items.slice(0, 8).join('') + (items.length > 8 ? `<span class="dle-dimmed">+${items.length - 8} more</span>` : '');
+                const html = capLegendItems(items);
+                return wrapLegendScaled(html, items.length);
             }
             default: {
                 // Custom field color mode: "field:era", "field:mood", etc.
                 if (gs.colorMode?.startsWith('field:')) {
                     const fieldName = gs.colorMode.slice(6);
+                    ensureFieldIndex(fieldName);
                     const idx = fieldColorCache.get(`__idx__${fieldName}`);
                     if (!idx || idx.size === 0) return `<span>No "${escapeHtml(fieldName)}" values found in vault</span>`;
                     const items = [];
@@ -215,7 +233,9 @@ export function initRender(gs) {
                     }
                     // "No value" indicator for grey nodes
                     items.push(`<span class="dle-graph-legend-swatch dle-graph-legend-swatch--empty"><span class="dle-graph-swatch-dot" style="background:#555555;"></span>No value</span>`);
-                    return items.slice(0, 12).join('') + (items.length > 12 ? `<span class="dle-dimmed">+${items.length - 12} more</span>` : '');
+                    const count = items.length - 1; // exclude field-label header from count
+                    const html = capLegendItems(items);
+                    return wrapLegendScaled(html, count);
                 }
                 return '';
             }
@@ -232,9 +252,18 @@ export function initRender(gs) {
         const tooltipEl = gs.tooltipEl;
         if (!tooltipEl) return;
         if (!gs.hoverNode || gs.hoverNode.hidden) {
-            tooltipEl.innerHTML = withLayoutNotice(buildColorLegend()) || '&nbsp;';
+            tooltipEl.classList.add('dle-graph-tooltip--legend');
+            tooltipEl.classList.remove('dle-graph-tooltip--expanded');
+            const legendHtml = withLayoutNotice(buildColorLegend()) || '&nbsp;';
+            // Add expand toggle if legend content will likely overflow
+            const swatchCount = (legendHtml.match(/dle-graph-legend-swatch/g) || []).length;
+            const expandToggle = swatchCount > 8
+                ? `<span class="dle-graph-legend-toggle" title="Click to expand/collapse legend">&#x25BC;</span>`
+                : '';
+            tooltipEl.innerHTML = legendHtml + expandToggle;
             return;
         }
+        tooltipEl.classList.remove('dle-graph-tooltip--legend', 'dle-graph-tooltip--expanded');
         const n = gs.hoverNode;
         const entry = gs._vaultIndex?.[n.id];
         const connections = gs.edgeCountByNode.get(n.id) || 0;
@@ -609,6 +638,15 @@ export function initRender(gs) {
                 ctx.restore();
             }
         }
+    }
+
+    // Legend expand/collapse toggle click handler
+    if (gs.tooltipEl) {
+        gs.tooltipEl.addEventListener('click', (e) => {
+            if (e.target.closest('.dle-graph-legend-toggle')) {
+                gs.tooltipEl.classList.toggle('dle-graph-tooltip--expanded');
+            }
+        });
     }
 
     // Attach to gs for cross-module access

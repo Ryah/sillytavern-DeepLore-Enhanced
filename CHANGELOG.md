@@ -148,12 +148,12 @@ Contextual gating is now fully customizable. Define your own frontmatter fields 
 
 ### Bug Fixes
 
-Fixed ~60 bugs across all severity levels identified through a comprehensive code audit and stabilization sprint:
+Fixed ~200 bugs across all severity levels identified through a comprehensive code audit and stabilization sprint:
 
-- **6 critical** -- Multi-vault data loss prevention, special character corruption in AI manifests, circuit breaker mutation races, epoch guard isolation, pre-filter cascading failures, division-by-zero errors
-- **13 high** -- AI search failures, timeout semantics, cache invalidation, fuzzy warmup off-by-one, pre-filter empty results, connection manager timeouts, priority resolution for mutual excludes, case-insensitive pin/block matching, pre-filter AI stats overcounting, cross-vault fuzzy collisions, cascade warmup bypass, lenient gating tolerance, fit timer cleanup leaks
-- **25+ medium** -- Multi-vault field merging, storage cleanup on vault removal, cache rebuild on chat switch, double-rebuild prevention, stuck index detection, sync polling chat-switch handling, storage error surfacing, token estimate validation, YAML unescaping order, injection mode switching, auto-suggest special characters, import keyword format handling, entry truncation accuracy, pinned entry isolation, wiki documentation corrections
-- **10+ low** -- Minor edge cases, UI state fixes, diagnostic detail improvements
+- **~15 critical** -- Multi-vault data loss prevention, special character corruption in AI manifests, circuit breaker mutation races, epoch guard isolation, pre-filter cascading failures, division-by-zero errors, const redeclaration SyntaxErrors, re-export ReferenceErrors, generation lock hangs, SSRF protection gaps, pinned entry flag leaks, cache hydration bypasses, silent data loss on vault writes, budget tracking via positional slice
+- **~65 high** -- AI search failures, timeout semantics, cache invalidation, fuzzy warmup off-by-one, pre-filter empty results, connection manager timeouts, priority resolution for mutual excludes, case-insensitive pin/block matching, pre-filter AI stats overcounting, cross-vault fuzzy collisions, cascade warmup bypass, lenient gating tolerance, fit timer cleanup leaks, generation lock feedback, memory doubling, cascade/recursive bypass of cooldown/warmup/probability, circuit breaker state issues, delta sync vault loss, empty key matching everything, YAML corruption, sliding window cache performance, and 40+ more
+- **~70 medium** -- Multi-vault field merging, storage cleanup on vault removal, cache rebuild on chat switch, double-rebuild prevention, stuck index detection, sync polling chat-switch handling, storage error surfacing, token estimate validation, YAML unescaping order, injection mode switching, auto-suggest special characters, import keyword format handling, entry truncation accuracy, pinned entry isolation, Unicode normalization, case-sensitivity fixes, CHAT_CHANGED state resets, epoch guards, DOM lifecycle issues, and 40+ more
+- **~50 low** -- Falsy-zero coalescing, recursion bounds, API signatures, click delegation, tracker key mismatches, cooldown timer freeze, tag cache invalidation, prompt injection guards, regex recompilation, dead code removal, analytics pruning, prototype pollution, filename collisions, and 30+ more
 
 ### Under the Hood
 

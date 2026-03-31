@@ -78,7 +78,7 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
     // Extract keys
     const keys = Array.isArray(frontmatter.keys)
         ? frontmatter.keys.map(k => String(k))
-        : [];
+        : (frontmatter.keys ? [String(frontmatter.keys)] : []);
 
     const title = extractTitle(body, file.filename);
     const links = extractWikiLinks(body);

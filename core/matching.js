@@ -232,7 +232,7 @@ export function applyGating(entries) {
                 for (const req of removed.requires) {
                     const reqEntry = entries.find(e => e.title.toLowerCase() === req.toLowerCase());
                     if (reqEntry && reqEntry.excludes && reqEntry.excludes.some(exc => exc.toLowerCase() === removed.title.toLowerCase())) {
-                        console.warn(`[DeepLore] Contradictory gating: "${removed.title}" requires "${reqEntry.title}" but "${reqEntry.title}" excludes "${removed.title}" — both dropped`);
+                        console.warn(`[DLE] Contradictory gating: "${removed.title}" requires "${reqEntry.title}" but "${reqEntry.title}" excludes "${removed.title}" — both dropped`);
                     }
                 }
             }
@@ -240,7 +240,7 @@ export function applyGating(entries) {
     }
 
     if (iterations >= MAX_ITERATIONS && changed) {
-        console.warn('[DeepLore] Gating did not stabilize after', MAX_ITERATIONS, 'iterations — results may be incomplete. Check for circular requires/excludes.');
+        console.warn('[DLE] Gating did not stabilize after', MAX_ITERATIONS, 'iterations — results may be incomplete. Check for circular requires/excludes.');
     }
 
     return result;
@@ -320,7 +320,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
 
             if (count > 0) break;
             // First entry exceeds budget and remaining is too small to truncate — skip
-            console.warn(`[DeepLore] Entry "${entry.title}" (${entry.tokenEstimate} tokens) exceeds entire budget (${settings.maxTokensBudget}) — skipping`);
+            console.warn(`[DLE] Entry "${entry.title}" (${entry.tokenEstimate} tokens) exceeds entire budget (${settings.maxTokensBudget}) — skipping`);
             continue;
         }
 

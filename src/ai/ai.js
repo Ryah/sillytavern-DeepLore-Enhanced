@@ -302,7 +302,7 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
 
     // BUG-AUDIT-1: Use tryAcquireHalfOpenProbe for actual AI calls (not pure query)
     if (!tryAcquireHalfOpenProbe()) {
-        dedupWarning('circuit-prefilter', 'AI circuit breaker is open — skipping hierarchical pre-filter.', 'DeepLore Enhanced');
+        dedupWarning('AI circuit breaker is open — skipping hierarchical pre-filter.', 'circuit-prefilter');
         return null;
     }
 

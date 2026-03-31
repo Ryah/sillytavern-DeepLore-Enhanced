@@ -314,7 +314,7 @@ function clampWithLog(obj, key, min, max, label) {
     const isIntegerRange = Number.isInteger(min) && Number.isInteger(max);
     obj[key] = Math.max(min, Math.min(max, isIntegerRange ? Math.round(obj[key]) : obj[key]));
     if (before !== obj[key]) {
-        console.info(`[DeepLore] ${label} clamped from ${before} to ${obj[key]} (range: ${min}-${max})`);
+        console.info(`[DLE] ${label} clamped from ${before} to ${obj[key]} (range: ${min}-${max})`);
     }
 }
 

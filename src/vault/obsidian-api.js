@@ -248,7 +248,7 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
             if (result.status === 'fulfilled') {
                 allFiles.push(...result.value);
             } else {
-                console.warn(`[DeepLore] Failed to list directory: ${result.reason?.message || result.reason}`);
+                console.warn(`[DLE] Failed to list directory: ${result.reason?.message || result.reason}`);
             }
         }
     }
@@ -312,11 +312,11 @@ export async function fetchAllMdFiles(host, port, apiKey) {
                     if (result.status === 200) {
                         return { filename, content: result.data };
                     }
-                    console.warn(`[DeepLore] Failed to fetch "${filename}": HTTP ${result.status}`);
+                    console.warn(`[DLE] Failed to fetch "${filename}": HTTP ${result.status}`);
                     failed++;
                     return null;
                 } catch (err) {
-                    console.warn(`[DeepLore] Failed to fetch "${filename}": ${err.message}`);
+                    console.warn(`[DLE] Failed to fetch "${filename}": ${err.message}`);
                     failed++;
                     return null;
                 }
@@ -324,7 +324,7 @@ export async function fetchAllMdFiles(host, port, apiKey) {
         );
         for (const r of batchSettled) {
             if (r.status === 'fulfilled' && r.value) results.push(r.value);
-            else if (r.status === 'rejected') { failed++; console.warn(`[DeepLore] Batch file fetch rejected: ${r.reason?.message || r.reason}`); }
+            else if (r.status === 'rejected') { failed++; console.warn(`[DLE] Batch file fetch rejected: ${r.reason?.message || r.reason}`); }
         }
     }
 

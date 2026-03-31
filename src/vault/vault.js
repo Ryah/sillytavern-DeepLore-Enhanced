@@ -353,6 +353,11 @@ export async function buildIndex() {
                 console.warn(`[DLE] Failed to index vault "${vault.name}":`, vaultErr.message);
                 vaultFetchFailed = true;
                 vaultFailCount++;
+                // Surface auth errors as user-facing toasts even in multi-vault mode
+                // (otherwise a misconfigured API key silently produces zero entries)
+                if (/401|403/.test(String(vaultErr.message))) {
+                    dedupWarning(`Vault "${vault.name}" authentication failed — check its API key.`, 'vault_auth');
+                }
                 if (enabledVaults.length === 1) throw vaultErr;
             }
         }

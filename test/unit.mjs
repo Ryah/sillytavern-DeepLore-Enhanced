@@ -834,6 +834,28 @@ test('parseVaultFile: parses valid lorebook entry', () => {
     assertEqual(entry.bootstrap, false, 'should not be bootstrap');
 });
 
+test('parseVaultFile: coerces scalar keys string to array', () => {
+    const file = {
+        filename: 'test.md',
+        content: '---\ntags:\n  - lorebook\nkeys: single_keyword\n---\n# Test\n\nContent.',
+    };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assert(entry !== null, 'should return an entry');
+    assertEqual(entry.keys, ['single_keyword'], 'scalar keys should be coerced to single-element array');
+});
+
+test('parseVaultFile: numeric keys value coerced to string array', () => {
+    const file = {
+        filename: 'test.md',
+        content: '---\ntags:\n  - lorebook\nkeys: 42\n---\n# Test\n\nContent.',
+    };
+    const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };
+    const entry = parseVaultFile(file, tagConfig);
+    assert(entry !== null, 'should return an entry');
+    assertEqual(entry.keys, ['42'], 'numeric keys should be coerced to string array');
+});
+
 test('parseVaultFile: skips non-lorebook files', () => {
     const file = { filename: 'notes.md', content: '---\ntags:\n  - misc\n---\nContent' };
     const tagConfig = { lorebookTag: 'lorebook', constantTag: '', neverInsertTag: '', seedTag: '', bootstrapTag: '' };

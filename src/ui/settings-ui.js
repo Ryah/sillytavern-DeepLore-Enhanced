@@ -972,10 +972,10 @@ function bindPopupEvents($container) {
     $c('#dle-sp-graph-hover-dim-distance').on('input', function () { settings.graphHoverDimDistance = numVal($(this).val(), 2); saveSettingsDebounced(); });
     $c('#dle-sp-graph-focus-tree-depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 2); saveSettingsDebounced(); }); // BUG-L4: fallback matches default (2)
     $c('#dle-sp-graph-show-labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle-sp-graph-repulsion').on('input', function () { settings.graphRepulsion = parseFloat($(this).val()) || 0.5; saveSettingsDebounced(); });
-    $c('#dle-sp-graph-spring-length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 200); saveSettingsDebounced(); });
-    $c('#dle-sp-graph-gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 5.0; saveSettingsDebounced(); });
-    $c('#dle-sp-graph-damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.70; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-repulsion').on('input', function () { settings.graphRepulsion = parseFloat($(this).val()) || 0.3; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-spring-length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 80); saveSettingsDebounced(); });
+    $c('#dle-sp-graph-gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 11.0; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.50; saveSettingsDebounced(); });
     // BUG-AUDIT-14: Use isNaN check instead of || fallback so 0 is a valid value
     $c('#dle-sp-graph-hover-dim-opacity').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverDimOpacity = isNaN(v) ? 0.1 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-edge-filter-alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });

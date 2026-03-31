@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.0.0-beta
+
+### Bug Fix Round (2026-03-30)
+
+#### Pipeline & State Fixes
+- **Epoch guard on analytics** — `recordAnalytics()` now checks epoch/lock guards like adjacent stages, preventing cross-chat analytics pollution on stale pipelines.
+- **Circuit breaker query purity** — `isAiCircuitOpen()` no longer mutates stale-probe state; cleanup moved to `tryAcquireHalfOpenProbe()` to prevent races between concurrent callers.
+- **Pre-filter failure isolation** — `hierarchicalPreFilter` errors no longer trip the circuit breaker, which was cascading to block the main `aiSearch()` call.
+- **Fuzzy warmup off-by-one** — Entries with `warmup: 1` were bypassing the gate via BM25 fuzzy search (`> 1` → `>= 1`).
+- **Pre-filter empty result** — `hierarchicalPreFilter` returning `[]` (valid zero candidates) was treated as falsy and silently discarded.
+
+#### AI & Timeout Fixes
+- **Timeout=0 semantics** — Scribe and auto-suggest `setTimeout(fn, 0)` would fire instantly; now falls back to 60s default instead of preserving explicit zero.
+
+#### Graph Fixes
+- **Hit radius div-by-zero** — `hitRadius()` no longer divides by zero when `cachedVisibleCount` is 0 (returns sensible default instead).
+- **Fit timer cleanup** — Three `setTimeout` fit-to-view callbacks now tracked and cancelled on popup close, preventing stale callbacks from firing on rapid reopen.
+
+#### Versioning
+- Bumped from `0.2.0-beta` to `1.0.0-beta` (feature-complete, community testing phase).
+
 ## 0.2.0-BETA
 
 ### AI Notepad, Import Summaries & Timeout Caps (2026-03-28)

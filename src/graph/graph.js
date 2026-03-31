@@ -706,6 +706,9 @@ export async function showGraphPopup() {
             dbg('Canvas removed from DOM — cleaning up graph');
             gs.isRunning = false;
             if (gs.animationFrameId) { cancelAnimationFrame(gs.animationFrameId); gs.animationFrameId = null; }
+            // BUG-FIX: Cancel pending fit timers to prevent stale callbacks
+            for (const id of gs._fitTimers || []) clearTimeout(id);
+            gs._fitTimers = [];
             listenerAC.abort();
             observer.disconnect();
         }
@@ -841,9 +844,13 @@ export async function showGraphPopup() {
         gs.layoutNotice = 'Calculating layout…';
         if (gs.updateTooltip) gs.updateTooltip();
         // Auto-fit 1s + 2s + 6s after redraw starts (don't wait for settle)
-        setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 1000);
-        setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 2000);
-        setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 6000);
+        // BUG-FIX: Store timer IDs so they can be cancelled on popup close
+        for (const id of gs._fitTimers || []) clearTimeout(id);
+        gs._fitTimers = [
+            setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 1000),
+            setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 2000),
+            setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 6000),
+        ];
         dbg('Redraw: replaying BFS reveal animation');
     };
 

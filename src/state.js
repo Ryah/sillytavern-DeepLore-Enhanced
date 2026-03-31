@@ -238,11 +238,10 @@ export function isAiCircuitOpen() {
     if (Date.now() - aiCircuitOpenedAt > AI_CIRCUIT_COOLDOWN) {
         // Cooldown expired — half-open state. If probe is dispatched and not stale, block.
         if (aiCircuitHalfOpenProbe) {
-            // BUG-AUDIT-2: Auto-reset stale probes (consumed by UI or orphaned by timeout/throttle)
+            // BUG-FIX: Stale probe detection moved to tryAcquireHalfOpenProbe() —
+            // query functions must not mutate state to avoid races between concurrent callers.
             if (Date.now() - aiCircuitProbeTimestamp > AI_PROBE_TIMEOUT) {
-                aiCircuitHalfOpenProbe = false;
-                aiCircuitProbeTimestamp = 0;
-                return false; // probe expired — circuit is open for a new probe
+                return false; // probe looks stale — report as open for new probe (actual reset in tryAcquire)
             }
             return true; // probe in flight, block others
         }

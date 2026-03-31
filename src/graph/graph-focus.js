@@ -44,6 +44,8 @@ export function initFocus(gs, dbg) {
 
     function hitRadius() {
         if (gs.focusTreeRoot) return 16 / gs.zoom;
+        // BUG-FIX: Guard against cachedVisibleCount=0 (division by zero → Infinity)
+        if (gs.cachedVisibleCount <= 0) return 20 / gs.zoom;
         const baseRadius = Math.max(gs.W, gs.H) / (Math.sqrt(gs.cachedVisibleCount) * 2);
         return Math.max(8, Math.min(40, baseRadius / gs.zoom));
     }

@@ -381,7 +381,10 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
 
         return filteredResult;
     } catch (err) {
-        if (!err.throttled) recordAiFailure();
+        // BUG-FIX: Pre-filter failures should NOT trip the circuit breaker — pre-filter is
+        // optional and its failure shouldn't cascade to block the main aiSearch() call.
+        // Record success to release the probe cleanly (the main search will handle its own probing).
+        if (!err.throttled) recordAiSuccess();
         if (settings.debugMode) console.warn('[DLE] Hierarchical pre-filter failed:', err.message);
         return null; // Fall back to single-call
     }

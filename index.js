@@ -437,7 +437,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Stage 8: Analytics (use postDedup — entries that passed all gating — as "matched")
-        if (postDedup.length > 0) {
+        // BUG-FIX: Epoch-guard analytics like Stages 7 and 9 to prevent cross-chat pollution
+        if (postDedup.length > 0 && epoch === chatEpoch && lockEpoch === generationLockEpoch) {
             recordAnalytics(postDedup, injectedEntries, settings.analyticsData);
             // Only persist analytics every 5 generations to reduce write amplification
             if (generationCount % 5 === 0) {

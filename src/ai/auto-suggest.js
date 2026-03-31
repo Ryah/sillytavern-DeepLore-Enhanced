@@ -42,7 +42,8 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
     if (mode === 'st') {
         // Note: generateQuietPrompt cannot be aborted — timed-out generation completes in background
         const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-        const effectiveTimeout = timeout ?? 60000; // BUG-H2: Use ?? to preserve explicit 0
+        // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
+        const effectiveTimeout = timeout || 60000;
         const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
         let suggestTimer;
         const response = await Promise.race([

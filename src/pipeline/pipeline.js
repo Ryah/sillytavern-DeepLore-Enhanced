@@ -234,7 +234,8 @@ export function matchEntries(chat, snapshot = null) {
             // BUG-AUDIT-8: Respect warmup — BM25 fuzzy matches must also honor warmup gates.
             // Without this, entries with warmup requirements could be injected via fuzzy search
             // with a single term similarity match, bypassing the author's intended gating.
-            if (entry.warmup && entry.warmup > 1) {
+            // BUG-FIX: Was > 1, skipping warmup=1 entries. Must be >= 1 to enforce all warmup gates.
+            if (entry.warmup && entry.warmup >= 1) {
                 const scanText = getScanText(entry.scanDepth ?? settings.scanDepth);
                 const occurrences = countKeywordOccurrences(entry, scanText, settings);
                 if (occurrences < entry.warmup) continue;
@@ -319,7 +320,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         // Hierarchical pre-filter: for large vaults, narrow candidates by category first
         let aiOnlyCandidates = vaultSnapshot;
         const preFiltered = await hierarchicalPreFilter(vaultSnapshot, chat);
-        if (preFiltered) {
+        // BUG-FIX: Was `if (preFiltered)` which treats [] as falsy, discarding valid empty results
+        if (preFiltered != null) {
             aiOnlyCandidates = preFiltered;
             if (settings.debugMode) {
                 console.log(`[DLE] Hierarchical clustering: ${vaultSnapshot.length} → ${aiOnlyCandidates.length} candidates`);

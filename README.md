@@ -52,11 +52,11 @@ A **lorebook** fixes this by injecting reference entries into the prompt when th
  Obsidian Vault                     SillyTavern
  ┌─────────────────┐               ┌───────────────────────┐
  │  Markdown notes │    index      │                       │
- │  with YAML      │ ───────────▶ | DeepLore Enhanced     │
- │  frontmatter    │  (REST API)   │                       │
+ │  with YAML      │ ───────────▶ | DeepLore Enhanced     │ ──▶ Injected into
+ │  frontmatter    │  (REST API)   │                       │     the AI prompt
  │                 │               │  1. Keyword scan      │
- │  #lorebook tag  │               │  2. AI selection      │──▶ Injected into
- │  keys, summary  │               │  3. Gating & filters  │    the AI prompt
+ │  #lorebook tag  │               │  2. AI selection      │ 
+ │  keys, summary  │               │  3. Gating & filters  |
  │  priority, etc. │               │  4. Budget & format   │
  └─────────────────┘               └───────────────────────┘
 ```

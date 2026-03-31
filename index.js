@@ -33,7 +33,7 @@ import {
     setLastGenerationChatHash, setLastGenerationInjectedKeys,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
-    setGenerationCount, setLastWarningRatio, setChatEpoch,
+    setGenerationCount, setLastWarningRatio, setChatEpoch, setLastIndexGenerationCount,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources,
     notifyPipelineComplete, notifyGatingChanged,
@@ -811,7 +811,10 @@ jQuery(async function () {
             const savedCounts = chat_metadata?.deeplore_chat_counts;
             setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
             setLastGenerationInjectedKeys(new Set());
+            setLastGenerationChatHash('');
             setGenerationCount(0);
+            setLastIndexGenerationCount(0);
+            setLastInjectionEpoch(-1);
             setLastWarningRatio(0);
             setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
             resetAiThrottle();

@@ -27,7 +27,7 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
         }
         // BUG-036: Block localhost variants (except 127.0.0.1 which is required for local proxies)
         if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1'
-            || hostname === '::ffff:127.0.0.1' || hostname === '[::1]') {
+            || hostname === '::ffff:127.0.0.1') {
             throw new Error(`Proxy URL "${hostname}" is blocked — use 127.0.0.1 for local proxies`);
         }
         // Block private/reserved IP ranges (RFC 1918, RFC 6598, link-local)

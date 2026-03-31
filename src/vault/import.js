@@ -73,11 +73,18 @@ export async function importEntries(entries, folder, onProgress) {
                                 continue;
                             }
                         } catch (dupErr) {
-                            // BUG-M6: Timeout (AbortError) should break immediately, not continue.
-                            // Non-timeout errors (e.g. 404 response) mean file doesn't exist — safe to use this name.
+                            // FIX-M6: Timeout (AbortError) should skip this entry, not use a possibly-undefined path.
+                            if (dupErr.name === 'AbortError') {
+                                candidatePath = undefined; // force skip below
+                            }
                             break;
                         }
                         break;
+                    }
+                    if (!candidatePath) {
+                        errors.push(`${filename}: skipped — dedup check timed out`);
+                        failed++;
+                        continue; // continues the outer for-of loop
                     }
                     if (attempt > MAX_DEDUP_ATTEMPTS) {
                         errors.push(`${filename}: exceeded ${MAX_DEDUP_ATTEMPTS} dedup attempts, skipping`);

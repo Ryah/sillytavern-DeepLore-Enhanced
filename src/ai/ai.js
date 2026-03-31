@@ -333,7 +333,11 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
         // BUG-027: Handle object format responses (e.g. {"categories": ["cat1", "cat2"]})
         if (!Array.isArray(parsed) && typeof parsed === 'object') {
             // Try common wrapper keys
-            const arrayValue = parsed.categories || parsed.labels || parsed.selected || Object.values(parsed).find(Array.isArray);
+            let arrayValue = parsed.categories || parsed.labels || parsed.selected || Object.values(parsed).find(Array.isArray);
+            // Flatten nested arrays (e.g. [["cat1", "cat2"]] → ["cat1", "cat2"])
+            if (Array.isArray(arrayValue) && arrayValue.length > 0 && Array.isArray(arrayValue[0])) {
+                arrayValue = arrayValue.flat();
+            }
             if (Array.isArray(arrayValue)) {
                 parsed = arrayValue;
             } else {

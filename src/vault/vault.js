@@ -373,6 +373,8 @@ export async function buildIndex() {
             // Set short-lived timestamp so ensureIndexFresh retries soon
             const ttl = settings.cacheTTL * 1000;
             setIndexTimestamp(Date.now() - ttl + 30_000); // retry in ~30s
+            setIndexing(false);
+            setBuildPromise(null);
             return;
         }
 

@@ -13,7 +13,7 @@ import { getSettings, getPrimaryVault } from '../../settings.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI, extractAiResponseClient } from './ai.js';
-import { vaultIndex, isAiCircuitOpen, tryAcquireHalfOpenProbe } from '../state.js';
+import { vaultIndex, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe } from '../state.js';
 import { stripObsidianSyntax } from '../helpers.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 
@@ -78,9 +78,11 @@ let autoSuggestInProgress = false;
 export async function runAutoSuggest() {
     if (autoSuggestInProgress) return [];
     autoSuggestInProgress = true;
+    const epoch = chatEpoch;
     try {
     const settings = getSettings();
     await ensureIndexFresh();
+    if (epoch !== chatEpoch) return []; // chat changed during index refresh
 
     const existingTitles = vaultIndex.map(e => `"${e.title.replace(/"/g, '\\"')}"`).join(', ');
     // BUG 3 FIX: Use a proper scan depth, not the interval frequency

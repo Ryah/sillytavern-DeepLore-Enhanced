@@ -472,7 +472,10 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
-                if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
+                if (emptyFallback === 'constants') {
+                    // AI found nothing relevant — fall back to force-injected entries only (constants + active bootstrap)
+                    finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));
+                } else if (emptyFallback === 'constants_bootstrap') {
                     finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = keywordResult.matched;

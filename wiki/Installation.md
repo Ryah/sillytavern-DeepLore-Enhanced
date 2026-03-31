@@ -6,7 +6,7 @@ Step-by-step guide to installing and configuring DeepLore Enhanced.
 
 Before you begin, make sure you have:
 
-- [SillyTavern](https://github.com/SillyTavern/SillyTavern) **1.12.0+**
+- [SillyTavern](https://github.com/SillyTavern/SillyTavern) **1.12.6+**
 - [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) community plugin installed and enabled
 - **For AI search** (one of):
   - A saved Connection Manager profile in SillyTavern (any provider: Anthropic, OpenAI, OpenRouter, etc.)
@@ -129,5 +129,5 @@ git pull
 ### Extension not appearing in SillyTavern
 
 - **Check the extensions folder:** The extension should be at `SillyTavern/data/default-user/extensions/sillytavern-DeepLore-Enhanced/` with `manifest.json` at the root.
-- **Check SillyTavern version:** DeepLore Enhanced requires SillyTavern 1.12.0 or later.
+- **Check SillyTavern version:** DeepLore Enhanced requires SillyTavern 1.12.6 or later.
 - **Clear browser cache:** Hard-refresh (`Ctrl+Shift+R`) or clear cache and reload.

@@ -158,7 +158,7 @@ Fixed ~200 bugs across all severity levels identified through a comprehensive co
 ### Under the Hood
 
 - Decomposed the codebase from one massive file (4619 lines) into 21+ focused modules for better maintainability.
-- 814 passing tests.
+- 960 passing tests.
 
 ---
 

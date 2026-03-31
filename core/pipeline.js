@@ -57,7 +57,7 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
     // Check if this file has the lorebook tag
     const tags = Array.isArray(frontmatter.tags)
         ? frontmatter.tags.map(t => String(t).toLowerCase())
-        : [];
+        : (typeof frontmatter.tags === 'string' ? [frontmatter.tags.toLowerCase()] : []);
 
     const tagToMatch = tagConfig.lorebookTag.toLowerCase();
     if (!tags.includes(tagToMatch)) {

@@ -259,13 +259,12 @@ export function tryAcquireHalfOpenProbe() {
         if (aiCircuitHalfOpenProbe) {
             // Check for stale probe before blocking
             if (Date.now() - aiCircuitProbeTimestamp > AI_PROBE_TIMEOUT) {
-                aiCircuitHalfOpenProbe = false;
-                aiCircuitProbeTimestamp = 0;
-                // Fall through to acquire
+                // Stale probe — reset and fall through to re-acquire atomically
             } else {
                 return false; // probe already dispatched, block
             }
         }
+        // Atomic acquire: set both flag and timestamp together before returning
         aiCircuitHalfOpenProbe = true;
         aiCircuitProbeTimestamp = Date.now();
         return true; // acquired probe — caller must call recordAiSuccess or recordAiFailure

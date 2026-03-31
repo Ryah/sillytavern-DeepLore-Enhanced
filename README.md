@@ -112,8 +112,7 @@ keys:
   - blood bond
   - feeding addiction
 priority: 35
-summary: >
-  The biological dependency created when a vampire feeds from a mortal.
+summary: The biological dependency created when a vampire feeds from a mortal.
   Select when feeding, biting, addiction, venom, or chattel dynamics come up.
 ---
 

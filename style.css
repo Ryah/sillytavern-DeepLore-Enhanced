@@ -49,58 +49,58 @@
 }
 
 /* --- Utility classes --- */
-.dle_settings .dle_header_badge {
+.dle-settings .dle-header-badge {
     font-size: 0.75em;
     color: var(--dle-text-muted);
     margin-left: 8px;
 }
 
-.dle_settings .dle_text_sm {
+.dle-settings .dle-text-sm {
     font-size: 0.85em;
 }
 
-.dle_settings .dle_muted {
+.dle-settings .dle-muted {
     color: var(--dle-text-muted);
 }
 
-.dle_settings .dle_section_desc {
+.dle-settings .dle-section-desc {
     font-size: 0.85em;
     color: var(--dle-text-muted);
     margin: 2px 0 6px;
 }
 
 /* --- Status indicators --- */
-.dle_settings .dle_status {
+.dle-settings .dle-status {
     display: inline-block;
     margin-left: 10px;
     font-size: 0.85em;
 }
 
-.dle_settings .dle_status.success {
+.dle-settings .dle-status.success {
     color: var(--dle-success);
 }
 
-.dle_settings .dle_status.success::before {
+.dle-settings .dle-status.success::before {
     content: '\2713 ';
 }
 
-.dle_settings .dle_status.failure {
+.dle-settings .dle-status.failure {
     color: var(--dle-error);
 }
 
-.dle_settings .dle_status.failure::before {
+.dle-settings .dle-status.failure::before {
     content: '\2717 ';
 }
 
 /* --- AI stats --- */
-.dle_settings .dle_ai_stats {
+.dle-settings .dle-ai-stats {
     font-size: 0.85em;
     color: var(--dle-text-muted);
     margin-top: 4px;
 }
 
 /* --- Advanced toggle --- */
-.dle_settings .dle_advanced_toggle {
+.dle-settings .dle-advanced-toggle {
     cursor: pointer;
     color: var(--dle-accent);
     font-size: 0.85em;
@@ -112,18 +112,18 @@
     gap: var(--dle-space-1);
 }
 
-.dle_settings .dle_advanced_toggle:hover {
+.dle-settings .dle-advanced-toggle:hover {
     color: var(--SmartThemeBodyColor, #eee);
     text-decoration: underline;
 }
 
-.dle_settings .dle_advanced_icon {
+.dle-settings .dle-advanced-icon {
     font-size: 0.8em;
     margin-right: 4px;
 }
 
 /* --- Vault row --- */
-.dle_settings .dle_vault_row {
+.dle-settings .dle-vault-row {
     border: 1px solid var(--dle-border);
     border-radius: var(--dle-radius-md);
     padding: 8px;
@@ -131,27 +131,27 @@
     transition: background 0.15s;
 }
 
-.dle_settings .dle_vault_row:hover {
+.dle-settings .dle-vault-row:hover {
     background: var(--dle-bg-hover);
 }
 
-.dle_settings .dle_vault_remove {
+.dle-settings .dle-vault-remove {
     color: var(--dle-error);
 }
 
 /* --- Disabled button class (for div-based buttons) --- */
-.dle_settings .menu_button.disabled {
+.dle-settings .menu_button.disabled {
     opacity: var(--dle-opacity-disabled);
     pointer-events: none;
 }
 
 /* --- Focus-visible styles (accessibility) --- */
-.dle_settings button:focus-visible,
-.dle_settings input:focus-visible,
-.dle_settings select:focus-visible,
-.dle_settings textarea:focus-visible,
-.dle_settings .menu_button:focus-visible,
-.dle_settings [tabindex="0"]:focus-visible {
+.dle-settings button:focus-visible,
+.dle-settings input:focus-visible,
+.dle-settings select:focus-visible,
+.dle-settings textarea:focus-visible,
+.dle-settings .menu_button:focus-visible,
+.dle-settings [tabindex="0"]:focus-visible {
     outline: 2px solid var(--dle-success);
     outline-offset: 2px;
 }
@@ -180,8 +180,8 @@
 
 /* --- Reduced motion support --- */
 @media (prefers-reduced-motion: reduce) {
-    .dle_settings,
-    .dle_settings *,
+    .dle-settings,
+    .dle-settings *,
     #deeplore-drawer,
     #deeplore-drawer *,
     .dle-settings-popup,
@@ -201,7 +201,7 @@
 }
 
 /* --- Section spacing between settings groups --- */
-.dle_settings .inline-drawer-content > hr {
+.dle-settings .inline-drawer-content > hr {
     margin: 10px 0;
 }
 
@@ -453,33 +453,33 @@ dle-notes { display: none !important; }
  * ============================================================================ */
 
 /* Tier 1: Spotlight — essential setup (Enable, Quick Actions, Vaults, Tags) */
-.dle_settings h4[data-zone="a"] {
+.dle-settings h4[data-zone="a"] {
     font-size: var(--dle-text-lg);
 }
-.dle_settings h4[data-zone="a"] + .dle_section_desc {
+.dle-settings h4[data-zone="a"] + .dle-section-desc {
     opacity: 1;
 }
 
 /* Tier 2: Key Light — core matching (Search Mode, Matching, Injection, Cartographer) */
-.dle_settings h4[data-zone="b"] {
+.dle-settings h4[data-zone="b"] {
     font-size: var(--dle-text-base);
 }
-.dle_settings h4[data-zone="b"] + .dle_section_desc {
+.dle-settings h4[data-zone="b"] + .dle-section-desc {
     opacity: 0.8;
 }
 
 /* Tier 3: Ambient — AI & automation, infrastructure, reference */
-.dle_settings h4[data-zone="c"],
-.dle_settings h4[data-zone="d"] {
+.dle-settings h4[data-zone="c"],
+.dle-settings h4[data-zone="d"] {
     font-size: 0.95em;
 }
-.dle_settings h4[data-zone="c"] + .dle_section_desc,
-.dle_settings h4[data-zone="d"] + .dle_section_desc {
+.dle-settings h4[data-zone="c"] + .dle-section-desc,
+.dle-settings h4[data-zone="d"] + .dle-section-desc {
     opacity: var(--dle-opacity-muted);
 }
 
 /* Zone boundary separators (thicker hr between major zones) */
-.dle_settings hr.dle-zone-separator {
+.dle-settings hr.dle-zone-separator {
     border: none;
     border-top: 2px solid var(--dle-border);
     margin: var(--dle-space-5) 0 var(--dle-space-3);
@@ -491,12 +491,12 @@ dle-notes { display: none !important; }
  * ============================================================================ */
 
 /* Button hover micro-feedback */
-.dle_settings .menu_button {
+.dle-settings .menu_button {
     transition: background-color 120ms ease;
 }
 
 /* Advanced section expand/collapse */
-.dle_settings .dle_advanced_section {
+.dle-settings .dle-advanced-section {
     overflow: hidden;
     transition: max-height 200ms ease-out, opacity 200ms ease-out;
 }
@@ -552,7 +552,7 @@ dle-notes { display: none !important; }
 }
 
 /* Focus-visible transition */
-.dle_settings [tabindex="0"] {
+.dle-settings [tabindex="0"] {
     transition: outline-color 100ms ease;
 }
 
@@ -2018,7 +2018,7 @@ button.dle-browse-block.dle-block-active {
 .dle-settings-section + hr,
 .dle-settings-section + .dle-settings-section { /* reset margin for adjacent sections */ }
 
-.dle-settings-panel .dle_section_desc {
+.dle-settings-panel .dle-section-desc {
     font-size: 11px;
     opacity: 0.6;
     margin: 0 0 8px;

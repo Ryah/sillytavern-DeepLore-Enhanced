@@ -208,7 +208,7 @@ export const defaultSettings = {
 function runMigrations(settings, fromVersion, toVersion) {
     // Migration 0 → 1: initial versioned settings (no-op, just sets version)
     if (fromVersion < 1) {
-        console.log('[DLE] Migrating settings to version 1');
+        if (settings.debugMode) console.log('[DLE] Migrating settings to version 1');
     }
     // Future migrations go here:
     // if (fromVersion < 2) { ... }

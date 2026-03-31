@@ -259,20 +259,20 @@ export async function showGraphPopup() {
         <h3 class="dle-graph-title">Entry Relationship Graph (${nodes.length} nodes, ${edges.length} edges)</h3>
         ${circularWarning}
         <div class="dle-graph-toolbar">
-            <input type="text" id="dle_graph_search" class="text_pole dle-graph-toolbar-input" placeholder="Search entries..." />
-            <select id="dle_graph_type_filter" class="text_pole dle-graph-toolbar-select">
+            <input type="text" id="dle-graph-search" class="text_pole dle-graph-toolbar-input" placeholder="Search entries..." />
+            <select id="dle-graph-type-filter" class="text_pole dle-graph-toolbar-select">
                 <option value="">All Types</option>
                 <option value="regular">Regular</option>
                 <option value="constant">Constant</option>
                 <option value="seed">Seed</option>
                 <option value="bootstrap">Bootstrap</option>
             </select>
-            <select id="dle_graph_tag_filter" class="text_pole dle-graph-toolbar-select">
+            <select id="dle-graph-tag-filter" class="text_pole dle-graph-toolbar-select">
                 <option value="">All Tags</option>
                 ${tagOptions}
             </select>
             <span class="dle-graph-toolbar-sep"></span>
-            <select id="dle_graph_color_mode" class="text_pole dle-graph-toolbar-select" title="Node color mode">
+            <select id="dle-graph-color-mode" class="text_pole dle-graph-toolbar-select" title="Node color mode">
                 <option value="type">Color: Type</option>
                 <option value="priority">Color: Priority</option>
                 <option value="centrality">Color: Connections</option>
@@ -285,35 +285,35 @@ export async function showGraphPopup() {
                 })()}
             </select>
             <span class="dle-graph-toolbar-sep"></span>
-            <button id="dle_graph_settings_btn" class="menu_button dle-graph-toolbar-btn" title="Graph settings"><i class="fa-solid fa-gear"></i></button>
+            <button id="dle-graph-settings-btn" class="menu_button dle-graph-toolbar-btn" title="Graph settings"><i class="fa-solid fa-gear"></i></button>
         </div>
         <div class="dle-graph-toolbar dle-gap-1 dle-graph-toolbar--secondary">
-            <button id="dle_graph_back" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-back-btn" title="Exit Focus Tree (Esc)">← Back</button>
-            <button id="dle_graph_hop_minus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Decrease hop depth">−</button>
-            <button id="dle_graph_hop_plus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Increase hop depth">+</button>
-            <button id="dle_graph_fit" class="menu_button dle-graph-toolbar-btn" title="Fit to view (0)">Fit</button>
-            <button id="dle_graph_unpin_all" class="menu_button dle-graph-toolbar-btn-wide" title="Unpin all nodes">Unpin All</button>
-            <button id="dle_graph_reset" class="menu_button dle-graph-toolbar-btn" title="Reset simulation — re-randomize positions and restart physics">Reset</button>
+            <button id="dle-graph-back" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-back-btn" title="Exit Focus Tree (Esc)">← Back</button>
+            <button id="dle-graph-hop-minus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Decrease hop depth">−</button>
+            <button id="dle-graph-hop-plus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Increase hop depth">+</button>
+            <button id="dle-graph-fit" class="menu_button dle-graph-toolbar-btn" title="Fit to view (0)">Fit</button>
+            <button id="dle-graph-unpin-all" class="menu_button dle-graph-toolbar-btn-wide" title="Unpin all nodes">Unpin All</button>
+            <button id="dle-graph-reset" class="menu_button dle-graph-toolbar-btn" title="Reset simulation — re-randomize positions and restart physics">Reset</button>
             <span class="dle-graph-toolbar-sep"></span>
-            <button id="dle_graph_export_png" class="menu_button dle-graph-toolbar-btn" title="Export as PNG">PNG</button>
-            <button id="dle_graph_export_json" class="menu_button dle-graph-toolbar-btn" title="Export as JSON">JSON</button>
+            <button id="dle-graph-export-png" class="menu_button dle-graph-toolbar-btn" title="Export as PNG">PNG</button>
+            <button id="dle-graph-export-json" class="menu_button dle-graph-toolbar-btn" title="Export as JSON">JSON</button>
             <span class="dle-graph-toolbar-sep"></span>
-            <button id="dle_graph_analyze" class="menu_button dle-graph-toolbar-btn" title="Toggle gap analysis overlay — highlights orphans, weak bridges, and missing connections"><i class="fa-solid fa-magnifying-glass-chart"></i> Analyze</button>
+            <button id="dle-graph-analyze" class="menu_button dle-graph-toolbar-btn" title="Toggle gap analysis overlay — highlights orphans, weak bridges, and missing connections"><i class="fa-solid fa-magnifying-glass-chart"></i> Analyze</button>
         </div>
-        <div class="dle-graph-legend" id="dle_graph_legend">
+        <div class="dle-graph-legend" id="dle-graph-legend">
             <span class="dle-graph-legend-item" data-edge-type="link"><span style="color: #aac8ff;">—</span> Link</span>
             <span class="dle-graph-legend-item" data-edge-type="requires"><span class="dle-success">—</span> Requires</span>
             <span class="dle-graph-legend-item" data-edge-type="excludes"><span class="dle-error">—</span> Excludes</span>
             <span class="dle-graph-legend-item" data-edge-type="cascade"><span class="dle-warning">—</span> Cascade</span>
         </div>
         <div class="dle-graph-canvas-wrap">
-            <canvas id="dle_graph_canvas" class="dle-graph-canvas" tabindex="-1" width="900" height="550" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
-            <div id="dle_graph_tooltip" class="dle-graph-tooltip"></div>
-            <div id="dle_graph_context_menu" class="dle-graph-context-menu dle-hidden"></div>
-            <div id="dle_graph_settings_panel" class="dle-graph-settings-panel dle-hidden">
-                <div class="dle-graph-settings-titlebar" id="dle_graph_settings_titlebar">
+            <canvas id="dle-graph-canvas" class="dle-graph-canvas" tabindex="-1" width="900" height="550" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
+            <div id="dle-graph-tooltip" class="dle-graph-tooltip"></div>
+            <div id="dle-graph-context-menu" class="dle-graph-context-menu dle-hidden"></div>
+            <div id="dle-graph-settings-panel" class="dle-graph-settings-panel dle-hidden">
+                <div class="dle-graph-settings-titlebar" id="dle-graph-settings-titlebar">
                     <span><i class="fa-solid fa-gear"></i> Graph Settings</span>
-                    <span class="dle-graph-settings-close" id="dle_graph_settings_panel_close">&times;</span>
+                    <span class="dle-graph-settings-close" id="dle-graph-settings-panel-close">&times;</span>
                 </div>
                 <div class="dle-graph-settings-body">
                     <div class="dle-graph-settings-row dle-gap-1">
@@ -326,29 +326,29 @@ export async function showGraphPopup() {
                     <div class="dle-graph-settings-section-label">Layout</div>
                     <div class="dle-graph-settings-row">
                         <label title="Push force between unconnected nodes — higher spreads them further apart">Repulsion</label>
-                        <input type="range" id="dle_gs_repulsion" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_repulsion_val"></span>
+                        <input type="range" id="dle-gs-repulsion" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-repulsion-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
                         <label title="Preferred length of edges between connected nodes">Link Length</label>
-                        <input type="range" id="dle_gs_spring" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_spring_val"></span>
+                        <input type="range" id="dle-gs-spring" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-spring-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
                         <label title="Pull force toward the center of the canvas — prevents nodes from drifting off-screen">Gravity</label>
-                        <input type="range" id="dle_gs_gravity" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_gravity_val"></span>
+                        <input type="range" id="dle-gs-gravity" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-gravity-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
                         <label title="Friction applied to node movement — higher values make nodes settle faster">Damping</label>
-                        <input type="range" id="dle_gs_damping" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_damping_val"></span>
+                        <input type="range" id="dle-gs-damping" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-damping-val"></span>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Display</div>
                     <div class="dle-graph-settings-row">
                         <label>Color By</label>
-                        <select id="dle_gs_color_mode" class="text_pole dle-gs-compact-select">
+                        <select id="dle-gs-color-mode" class="text_pole dle-gs-compact-select">
                             <option value="type">Type</option>
                             <option value="priority">Priority</option>
                             <option value="centrality">Connections</option>
@@ -363,45 +363,45 @@ export async function showGraphPopup() {
                     </div>
                     <div class="dle-graph-settings-row">
                         <label>Show Labels</label>
-                        <input type="checkbox" id="dle_gs_labels" />
+                        <input type="checkbox" id="dle-gs-labels" />
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Interaction</div>
                     <div class="dle-graph-settings-row">
                         <label title="Number of connection hops from the hovered node that remain bright — nodes beyond this distance are dimmed">Hover Depth</label>
-                        <input type="range" id="dle_gs_hover_dim" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_hover_dim_val"></span>
+                        <input type="range" id="dle-gs-hover-dim" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-hover-dim-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
                         <label title="How visible out-of-reach edges remain when hovering a node — lower makes distant edges nearly invisible">Background Fade</label>
-                        <input type="range" id="dle_gs_dim_opacity" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_dim_opacity_val"></span>
+                        <input type="range" id="dle-gs-dim-opacity" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-dim-opacity-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
                         <label title="Number of hops shown in Focus Tree mode (double-click a node to enter)">Focus Tree Depth</label>
-                        <input type="range" id="dle_gs_tree_depth" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_tree_depth_val"></span>
+                        <input type="range" id="dle-gs-tree-depth" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-tree-depth-val"></span>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Filtering</div>
                     <div class="dle-graph-settings-row">
                         <label title="Statistical significance threshold for edges — lower values hide weak connections, keeping only the strongest relationships">Edge Pruning</label>
-                        <input type="range" id="dle_gs_edge_filter" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle_gs_edge_filter_val"></span>
+                        <input type="range" id="dle-gs-edge-filter" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-edge-filter-val"></span>
                     </div>
                     <div class="dle-graph-settings-row dle-gs-center-row">
-                        <small id="dle_gs_edge_count" class="dle-dimmed dle-gs-edge-count"></small>
+                        <small id="dle-gs-edge-count" class="dle-dimmed dle-gs-edge-count"></small>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-row dle-gap-1">
-                        <button id="dle_gs_redraw" class="menu_button dle-gs-compact-btn" title="Clear saved positions and replay the BFS rollout animation">Redraw</button>
-                        <button id="dle_gs_reset" class="menu_button dle-gs-compact-btn">Reset to Defaults</button>
+                        <button id="dle-gs-redraw" class="menu_button dle-gs-compact-btn" title="Clear saved positions and replay the BFS rollout animation">Redraw</button>
+                        <button id="dle-gs-reset" class="menu_button dle-gs-compact-btn">Reset to Defaults</button>
                     </div>
                 </div>
             </div>
         </div>
         <div class="dle-graph-footer">
-            <small id="dle_graph_hints" class="dle-dimmed">Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit</small>
+            <small id="dle-graph-hints" class="dle-dimmed">Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit</small>
             <details class="dle-text-sm dle-graph-sr-details">
                 <summary class="dle-graph-sr-summary">Screen reader summary</summary>
                 <div class="dle-graph-sr-content">${summaryHtml}</div>
@@ -414,7 +414,7 @@ export async function showGraphPopup() {
     // Poll for canvas with layout wait
     let canvas = null;
     for (let attempt = 0; attempt < 20; attempt++) {
-        canvas = document.getElementById('dle_graph_canvas');
+        canvas = document.getElementById('dle-graph-canvas');
         if (canvas && canvas.getBoundingClientRect().height > 0) break;
         canvas = null;
         await new Promise(r => setTimeout(r, 50));
@@ -767,7 +767,7 @@ export async function showGraphPopup() {
         nodeColors, edgeColors, computedStyle,
         // References
         settings, springLen,
-        tooltipEl: document.getElementById('dle_graph_tooltip'),
+        tooltipEl: document.getElementById('dle-graph-tooltip'),
         listenerAC,
         // Cross-module functions (set by init calls below)
         buildAdjacency: null, applyFilters: null, fitToView: null,
@@ -859,7 +859,7 @@ export async function showGraphPopup() {
     // ========================================================================
     function tick() {
         if (!gs.isRunning) return;
-        if (!document.getElementById('dle_graph_canvas')) {
+        if (!document.getElementById('dle-graph-canvas')) {
             gs.isRunning = false;
             if (gs.animationFrameId) { cancelAnimationFrame(gs.animationFrameId); gs.animationFrameId = null; }
             return;

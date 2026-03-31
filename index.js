@@ -874,7 +874,7 @@ jQuery(async function () {
             setTimeout(injectAllSourceButtons, 100);
         });
 
-        console.log('[DLE] DeepLore Enhanced client extension initialized');
+        if (getSettings().debugMode) console.log('[DLE] DeepLore Enhanced client extension initialized');
     } catch (err) {
         console.error('[DLE] Failed to initialize:', err);
     }

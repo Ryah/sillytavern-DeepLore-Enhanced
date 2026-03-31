@@ -126,12 +126,12 @@ export function registerAdminCommands() {
                     const noteId = simpleHash(note.filename);
 
                     html += `<div class="dle-card dle-popup-section">`;
-                    html += `<div class="dle-note-toggle dle-card-header" data-target="dle_note_${noteId}" aria-expanded="false">`;
+                    html += `<div class="dle-note-toggle dle-card-header" data-target="dle-note-${noteId}" aria-expanded="false">`;
                     html += `<strong>${escapeHtml(note.character || 'Unknown')}</strong>`;
                     html += `<span class="dle-text-xs dle-muted">${escapeHtml(dateDisplay)}</span>`;
                     html += `</div>`;
                     html += `<span class="dle-text-xs dle-faint">${escapeHtml(preview)}</span>`;
-                    html += `<div id="dle_note_${noteId}" class="dle-popup-detail">${escapeHtml(note.body)}</div>`;
+                    html += `<div id="dle-note-${noteId}" class="dle-popup-detail">${escapeHtml(note.body)}</div>`;
                     html += `</div>`;
                 }
                 html += '</div>';

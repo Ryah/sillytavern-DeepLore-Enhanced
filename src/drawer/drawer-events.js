@@ -79,7 +79,7 @@ export function switchTab($drawer, tabName) {
     }
 
     // E10: Persist last viewed tab
-    try { localStorage.setItem('dle_last_drawer_tab', tabName); } catch { /* noop */ }
+    try { localStorage.setItem('dle-last-drawer-tab', tabName); } catch { /* noop */ }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -98,33 +98,38 @@ export function wireToolsTab($drawer) {
 /** Wire tab expand buttons */
 export function wireTabExpand($drawer) {
     $drawer.on('click', '[data-expand]', async function () {
-        const target = $(this).data('expand');
-        // Why tab "Full View" → show Context Cartographer popup (no API call)
-        if (target === 'injection') {
-            const { lastInjectionSources } = await import('../state.js');
-            let sources = lastInjectionSources;
-            // Fallback: lastInjectionSources gets cleared after render — check the last AI message
-            if (!sources || sources.length === 0) {
-                const { chat } = await import('../../../../../../script.js');
-                if (chat) {
-                    for (let i = chat.length - 1; i >= 0; i--) {
-                        if (!chat[i].is_user && chat[i].extra?.deeplore_sources?.length > 0) {
-                            sources = chat[i].extra.deeplore_sources;
-                            break;
+        try {
+            const target = $(this).data('expand');
+            // Why tab "Full View" → show Context Cartographer popup (no API call)
+            if (target === 'injection') {
+                const { lastInjectionSources } = await import('../state.js');
+                let sources = lastInjectionSources;
+                // Fallback: lastInjectionSources gets cleared after render — check the last AI message
+                if (!sources || sources.length === 0) {
+                    const { chat } = await import('../../../../../../script.js');
+                    if (chat) {
+                        for (let i = chat.length - 1; i >= 0; i--) {
+                            if (!chat[i].is_user && chat[i].extra?.deeplore_sources?.length > 0) {
+                                sources = chat[i].extra.deeplore_sources;
+                                break;
+                            }
                         }
                     }
                 }
+                if (sources && sources.length > 0) {
+                    const { showSourcesPopup } = await import('../ui/cartographer.js');
+                    showSourcesPopup(sources);
+                } else {
+                    toastr.info('No lore sources from the last generation. Send a message first.', 'DeepLore Enhanced', { timeOut: 3000 });
+                }
+                return;
             }
-            if (sources && sources.length > 0) {
-                const { showSourcesPopup } = await import('../ui/cartographer.js');
-                showSourcesPopup(sources);
-            } else {
-                toastr.info('No lore sources from the last generation. Send a message first.', 'DeepLore Enhanced', { timeOut: 3000 });
-            }
-            return;
+            const cmd = EXPAND_ACTIONS[target];
+            if (cmd) executeCommand(cmd);
+        } catch (err) {
+            console.error('[DLE] Tab expand error:', err);
+            toastr.error('Failed to expand tab view.', 'DeepLore Enhanced');
         }
-        const cmd = EXPAND_ACTIONS[target];
-        if (cmd) executeCommand(cmd);
     });
 }
 
@@ -142,8 +147,13 @@ export function wireStatusActions($drawer) {
 
     // First-run setup banner actions
     $drawer.on('click', '.dle-setup-banner-btn', async () => {
-        const { showSetupWizard } = await import('../ui/setup-wizard.js');
-        showSetupWizard();
+        try {
+            const { showSetupWizard } = await import('../ui/setup-wizard.js');
+            showSetupWizard();
+        } catch (err) {
+            console.error('[DLE] Setup wizard error:', err);
+            toastr.error('Failed to open setup wizard.', 'DeepLore Enhanced');
+        }
     });
     $drawer.on('click', '.dle-setup-banner-dismiss', () => {
         $drawer.find('.dle-setup-banner').remove();
@@ -443,7 +453,7 @@ export function wireGatingTab($drawer) {
  * Wire health icon click handlers (one-time binding).
  */
 export function wireHealthIcons($drawer) {
-    const $footer = $drawer.find('#dle_drawer_footer');
+    const $footer = $drawer.find('#dle-drawer-footer');
     if (!$footer.length) return;
 
     $footer.find('.dle-health-icons').on('click', '[data-health]', function (e) {

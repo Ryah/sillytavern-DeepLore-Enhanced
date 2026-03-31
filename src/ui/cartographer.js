@@ -123,7 +123,7 @@ export function showSourcesPopup(sources, opts = {}) {
             const rawPreview = src.entry ? src.entry.content.substring(0, 300) + (src.entry.content.length > 300 ? '...' : '') : '';
 
             html += `<div class="dle-card">`;
-            html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle_ctx_${entryId}" aria-expanded="false">`;
+            html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle-ctx-${entryId}" aria-expanded="false">`;
             html += `<span><strong>${titleHtml}</strong> <span class="dle-text-xs dle-faint">pri ${src.priority}</span>`;
             html += ` <button class="dle-carto-browse-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
             html += `<span class="dle-text-xs" style="color: ${barColor};">~${src.tokens} tok</span>`;
@@ -179,7 +179,7 @@ export function showSourcesPopup(sources, opts = {}) {
                     .replace(/\x00MARK_START\x00/g, '<mark class="dle-highlight">')
                     .replace(/\x00MARK_END\x00/g, '</mark>');
 
-                html += `<div id="dle_ctx_${entryId}" class="dle-ctx-detail">`;
+                html += `<div id="dle-ctx-${entryId}" class="dle-ctx-detail">`;
                 if (meta.length > 0) {
                     html += `<div class="dle-text-xs dle-faint dle-mb-1">${meta.map(m => escapeHtml(m)).join(' · ')}</div>`;
                 }
@@ -203,11 +203,11 @@ export function showSourcesPopup(sources, opts = {}) {
             for (const group of rejectedGroups) {
                 const groupId = simpleHash(`rejected_${group.label}`);
                 html += `<div class="dle-card dle-carto-rejected">`;
-                html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle_rej_${groupId}" aria-expanded="false">`;
+                html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle-rej-${groupId}" aria-expanded="false">`;
                 html += `<span><i class="fa-solid ${group.icon} dle-text-muted" style="margin-right: 6px;"></i><strong>${escapeHtml(group.label)}</strong> <span class="dle-text-xs dle-faint">(${group.entries.length})</span></span>`;
                 html += `<span class="dle-text-xs dle-faint">click to expand</span>`;
                 html += `</div>`;
-                html += `<div id="dle_rej_${groupId}" class="dle-ctx-detail">`;
+                html += `<div id="dle-rej-${groupId}" class="dle-ctx-detail">`;
 
                 for (const e of group.entries) {
                     const entry = entryByTitle.get(e.title);
@@ -215,8 +215,8 @@ export function showSourcesPopup(sources, opts = {}) {
                     html += `<div class="dle-carto-entry-row">`;
                     html += `<span class="dle-text-sm">${escapeHtml(e.title)} <button class="dle-carto-browse-btn" data-browse-title="${escapeHtml(e.title)}" title="Show in Browse"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
                     if (entry && !entry.constant) {
-                        html += ` <button class="menu_button dle-carto-whynot-btn dle-text-xs" data-title="${escapeHtml(e.title)}" data-container="dle_whynot_carto_${whynotId}">Why?</button>`;
-                        html += `<div id="dle_whynot_carto_${whynotId}"></div>`;
+                        html += ` <button class="menu_button dle-carto-whynot-btn dle-text-xs" data-title="${escapeHtml(e.title)}" data-container="dle-whynot-carto-${whynotId}">Why?</button>`;
+                        html += `<div id="dle-whynot-carto-${whynotId}"></div>`;
                     }
                     // All-time stats for rejected entries
                     const rejKey = entry ? trackerKey(entry) : `${e.vaultSource || ''}:${e.title}`;

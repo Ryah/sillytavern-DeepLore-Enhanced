@@ -151,7 +151,7 @@ export async function loadIndexFromCache() {
 
         // Schema version mismatch — cache is stale, force full rebuild
         if (result.schemaVersion !== CACHE_SCHEMA_VERSION) {
-            console.log(`[DLE] Cache schema version mismatch (have ${result.schemaVersion}, want ${CACHE_SCHEMA_VERSION}) — rebuilding`);
+            if (getSettings().debugMode) console.log(`[DLE] Cache schema version mismatch (have ${result.schemaVersion}, want ${CACHE_SCHEMA_VERSION}) — rebuilding`);
             try { dedupWarning('Vault cache format outdated — rebuilding from Obsidian. This is normal after an update.', 'cache_schema'); } catch { /* toastr may not be ready */ }
             return null;
         }
@@ -208,7 +208,7 @@ export async function pruneOrphanedCacheKeys() {
                 tx.oncomplete = resolve;
                 tx.onerror = () => reject(tx.error);
             });
-            console.log(`[DLE] Pruned ${pruned} orphaned cache key(s)`);
+            if (getSettings().debugMode) console.log(`[DLE] Pruned ${pruned} orphaned cache key(s)`);
         }
         return pruned;
     } catch (err) {

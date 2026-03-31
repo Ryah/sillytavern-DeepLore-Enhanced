@@ -40,7 +40,7 @@ import { runHealthCheck } from './diagnostics.js';
  * @param {object} settings
  */
 function renderVaultList(settings, container = null) {
-    container = container || document.getElementById('dle_vault_list');
+    container = container || document.getElementById('dle-vault-list');
     if (!container) return;
 
     const vaults = settings.vaults || [];
@@ -48,23 +48,23 @@ function renderVaultList(settings, container = null) {
 
     for (let i = 0; i < vaults.length; i++) {
         const v = vaults[i];
-        html += `<div class="dle_vault_row" data-index="${i}">
+        html += `<div class="dle-vault-row" data-index="${i}">
             <div class="flex-container" style="gap: 6px; align-items: center;">
                 <label class="checkbox_label" style="flex: 0 0 auto;" title="Enable/disable this vault">
-                    <input type="checkbox" class="dle_vault_enabled checkbox" ${v.enabled ? 'checked' : ''} />
+                    <input type="checkbox" class="dle-vault-enabled checkbox" ${v.enabled ? 'checked' : ''} />
                 </label>
-                <input type="text" class="dle_vault_name text_pole" placeholder="Obsidian vault name" value="${escapeHtml(v.name)}" title="Must match your Obsidian vault name exactly (used for deep links)" style="flex: 1; min-width: 80px;" aria-label="Vault name" />
-                <input type="text" class="dle_vault_host text_pole" placeholder="Host" value="${escapeHtml(v.host || '127.0.0.1')}" style="flex: 0 0 100px;" aria-label="Vault host" />
-                <input type="number" class="dle_vault_port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" aria-label="Vault port" />
-                <input type="password" class="dle_vault_key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" aria-label="API key" />
-                <div class="dle_vault_test menu_button menu_button_icon" title="Test this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Test vault connection">
+                <input type="text" class="dle-vault-name text_pole" placeholder="Obsidian vault name" value="${escapeHtml(v.name)}" title="Must match your Obsidian vault name exactly (used for deep links)" style="flex: 1; min-width: 80px;" aria-label="Vault name" />
+                <input type="text" class="dle-vault-host text_pole" placeholder="Host" value="${escapeHtml(v.host || '127.0.0.1')}" style="flex: 0 0 100px;" aria-label="Vault host" />
+                <input type="number" class="dle-vault-port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" aria-label="Vault port" />
+                <input type="password" class="dle-vault-key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" aria-label="API key" />
+                <div class="dle-vault-test menu_button menu_button_icon" title="Test this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Test vault connection">
                     <i class="fa-solid fa-plug" aria-hidden="true"></i>
                 </div>
-                <div class="dle_vault_remove menu_button menu_button_icon" title="Remove this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Remove vault">
+                <div class="dle-vault-remove menu_button menu_button_icon" title="Remove this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Remove vault">
                     <i class="fa-solid fa-trash" aria-hidden="true"></i>
                 </div>
             </div>
-            <span class="dle_vault_status dle_status dle_text_sm"></span>
+            <span class="dle-vault-status dle-status dle-text-sm"></span>
         </div>`;
     }
 
@@ -76,15 +76,15 @@ function renderVaultList(settings, container = null) {
  * @param {object} settings
  */
 function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
-    const container = $scope || $('#dle_vault_list');
+    const container = $scope || $('#dle-vault-list');
 
     // Input changes on vault fields
-    container.on('input', '.dle_vault_name, .dle_vault_host, .dle_vault_port, .dle_vault_key', function () {
-        const row = $(this).closest('.dle_vault_row');
+    container.on('input', '.dle-vault-name, .dle-vault-host, .dle-vault-port, .dle-vault-key', function () {
+        const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
 
-        if ($(this).hasClass('dle_vault_name')) {
+        if ($(this).hasClass('dle-vault-name')) {
             let newName = String($(this).val()).trim() || 'Vault';
             // Validate unique vault names — prevent duplicates
             const otherNames = settings.vaults
@@ -101,14 +101,14 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
                 toastr.warning(`Vault name already in use. Renamed to "${newName}".`, 'DeepLore Enhanced', { timeOut: 4000 });
             }
             settings.vaults[idx].name = newName;
-        } else if ($(this).hasClass('dle_vault_host')) {
+        } else if ($(this).hasClass('dle-vault-host')) {
             let hostVal = String($(this).val()).trim();
             hostVal = hostVal.replace(/^https?:\/\//, ''); // Strip protocol prefix
             hostVal = hostVal.replace(/:\d+$/, ''); // Strip port suffix if user pasted host:port
             settings.vaults[idx].host = hostVal || '127.0.0.1';
-        } else if ($(this).hasClass('dle_vault_port')) {
+        } else if ($(this).hasClass('dle-vault-port')) {
             settings.vaults[idx].port = Math.max(1, Math.min(65535, numVal($(this).val(), 27123)));
-        } else if ($(this).hasClass('dle_vault_key')) {
+        } else if ($(this).hasClass('dle-vault-key')) {
             settings.vaults[idx].apiKey = String($(this).val());
         }
         // Keep legacy fields in sync with primary vault
@@ -119,8 +119,8 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // Enable/disable toggle
-    container.on('change', '.dle_vault_enabled', function () {
-        const row = $(this).closest('.dle_vault_row');
+    container.on('change', '.dle-vault-enabled', function () {
+        const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
         settings.vaults[idx].enabled = $(this).prop('checked');
@@ -131,15 +131,15 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // Test individual vault
-    container.on('click', '.dle_vault_test', async function () {
+    container.on('click', '.dle-vault-test', async function () {
         const $btn = $(this);
         if ($btn.hasClass('disabled')) return;
         $btn.addClass('disabled');
-        const row = $btn.closest('.dle_vault_row');
+        const row = $btn.closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) { $btn.removeClass('disabled'); return; }
         const vault = settings.vaults[idx];
-        const statusEl = row.find('.dle_vault_status');
+        const statusEl = row.find('.dle-vault-status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
             const data = await testConnection(vault.host, vault.port, vault.apiKey);
@@ -157,8 +157,8 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // Remove vault (with confirmation)
-    container.on('click', '.dle_vault_remove', async function () {
-        const row = $(this).closest('.dle_vault_row');
+    container.on('click', '.dle-vault-remove', async function () {
+        const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
         if (settings.vaults.length <= 1) {
@@ -180,7 +180,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // Add vault button
-    const $addButton = $addBtn || $('#dle_add_vault');
+    const $addButton = $addBtn || $('#dle-add-vault');
     $addButton.on('click', function () {
         settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27123, apiKey: '', enabled: true });
         saveSettingsDebounced();
@@ -211,7 +211,7 @@ const STATUS_DISPLAY = {
 
 /** Update the header badge with entry count and overall status indicator. */
 function updateHeaderBadge() {
-    const headerBadge = document.getElementById('dle_header_badge');
+    const headerBadge = document.getElementById('dle-header-badge');
     if (!headerBadge) return;
 
     if (vaultIndex.length > 0) {
@@ -298,18 +298,18 @@ function updatePopupModeVisibility($container, settings) {
     const aiEnabled = settings.aiSearchEnabled;
     const isProxy = settings.aiSearchConnectionMode === 'proxy';
     const isAiOnly = aiEnabled && settings.aiSearchMode === 'ai-only';
-    $container.find('#dle_sp_scan_depth').closest('.flex-container').toggle(!isAiOnly);
-    $container.find('#dle_sp_optimize_keys_mode').closest('.flex-container').toggleClass('dle-disabled', isAiOnly);
-    $container.find('#dle_sp_ai_claude_prefix').closest('.checkbox_label').toggle(aiEnabled && isProxy);
+    $container.find('#dle-sp-scan-depth').closest('.flex-container').toggle(!isAiOnly);
+    $container.find('#dle-sp-optimize-keys-mode').closest('.flex-container').toggleClass('dle-disabled', isAiOnly);
+    $container.find('#dle-sp-ai-claude-prefix').closest('.checkbox_label').toggle(aiEnabled && isProxy);
     // Blur/overlay AI tab content when AI search is off
     const $aiPanel = $container.find('#dle-sp-ai');
-    $container.find('#dle_sp_ai_disabled_notice').toggle(!aiEnabled);
+    $container.find('#dle-sp-ai-disabled-notice').toggle(!aiEnabled);
     $aiPanel.find('.dle-ai-content-wrap').toggleClass('dle-blurred', !aiEnabled);
     $aiPanel.find('.dle-ai-content-wrap input, .dle-ai-content-wrap select, .dle-ai-content-wrap textarea, .dle-ai-content-wrap .menu_button').prop('disabled', !aiEnabled);
     // Source Tracking + Decay are always available (not AI-dependent)
     if (!aiEnabled) {
-        $container.find('#dle_sp_show_sources, #dle_sp_decay_enabled').prop('disabled', false);
-        $container.find('#dle_sp_decay_controls input').prop('disabled', !settings.decayEnabled);
+        $container.find('#dle-sp-show-sources, #dle-sp-decay-enabled').prop('disabled', false);
+        $container.find('#dle-sp-decay-controls input').prop('disabled', !settings.decayEnabled);
     }
 }
 
@@ -318,13 +318,13 @@ function updatePopupInjectionModeVisibility($container, settings) {
     // Toggle extension-mode controls vs PM name labels for all injection rows
     $container.find('.dle-injection-ext-controls').toggle(!isPromptList);
     $container.find('.dle-injection-pm-name').toggle(isPromptList);
-    $container.find('#dle_sp_injection_pm_info').toggle(isPromptList);
+    $container.find('#dle-sp-injection-pm-info').toggle(isPromptList);
     // Disable all injection controls when in PM mode
     $container.find('.dle-injection-ext-controls').find('input, select').prop('disabled', isPromptList);
 }
 
 function updatePopupIndexStats($container) {
-    const statsEl = $container.find('#dle_sp_index_stats');
+    const statsEl = $container.find('#dle-sp-index-stats');
     if (statsEl.length === 0) return;
     if (vaultIndex.length > 0) {
         const totalKeys = vaultIndex.reduce((sum, e) => sum + e.keys.length, 0);
@@ -358,11 +358,11 @@ export async function openSettingsPopup() {
         if (tab !== 'features') {
             $container.find('.dle-features-subtab').removeClass('active');
         }
-        localStorage.setItem('dle_last_settings_tab', tab);
+        localStorage.setItem('dle-last-settings-tab', tab);
     }
 
     // Restore last viewed tab
-    const lastTab = localStorage.getItem('dle_last_settings_tab');
+    const lastTab = localStorage.getItem('dle-last-settings-tab');
     if (lastTab) {
         const $lastTab = $container.find(`.dle-settings-tab[data-settings-tab="${lastTab}"]`);
         if ($lastTab.length) switchSettingsTab($lastTab);
@@ -382,7 +382,7 @@ export async function openSettingsPopup() {
         $subtab.addClass('active');
         $container.find('.dle-features-subpanel').removeClass('active').attr('hidden', '');
         $container.find(`[data-features-subpanel="${subtab}"]`).addClass('active').removeAttr('hidden');
-        localStorage.setItem('dle_last_features_subtab', subtab);
+        localStorage.setItem('dle-last-features-subtab', subtab);
         // Ensure features main panel is active
         if (!$featuresTab.hasClass('active')) {
             switchSettingsTab($featuresTab);
@@ -395,7 +395,7 @@ export async function openSettingsPopup() {
         if ($tab.data('settings-tab') === 'features') {
             switchSettingsTab($tab);
             // Restore last sub-tab or default to first
-            const stored = localStorage.getItem('dle_last_features_subtab');
+            const stored = localStorage.getItem('dle-last-features-subtab');
             const $target = stored
                 ? $container.find(`.dle-features-subtab[data-features-subtab="${stored}"]`)
                 : $container.find('.dle-features-subtab').first();
@@ -452,18 +452,18 @@ export async function openSettingsPopup() {
     $container.find('.dle-features-subpanel').not('.active').attr('hidden', '');
 
     // Restore last viewed features sub-tab on init
-    const lastSubtab = localStorage.getItem('dle_last_features_subtab');
+    const lastSubtab = localStorage.getItem('dle-last-features-subtab');
     if (lastSubtab && lastTab === 'features') {
         const $lastSubtab = $container.find(`.dle-features-subtab[data-features-subtab="${lastSubtab}"]`);
         if ($lastSubtab.length) switchFeaturesSubtab($lastSubtab);
     }
 
     // "Go to Matching tab" link in AI disabled notice
-    $container.on('click', '#dle_sp_goto_matching', function (e) {
+    $container.on('click', '#dle-sp-goto-matching', function (e) {
         e.preventDefault();
         const $matchingTab = $container.find('[data-settings-tab="matching"]');
         switchSettingsTab($matchingTab);
-        const $modeSelect = $container.find('#dle_sp_search_mode');
+        const $modeSelect = $container.find('#dle-sp-search-mode');
         $modeSelect.addClass('dle-pulse');
         setTimeout(() => $modeSelect.removeClass('dle-pulse'), 2000);
     });
@@ -477,13 +477,13 @@ export async function openSettingsPopup() {
     });
 
     // Advanced section toggles
-    $container.on('click', '.dle_advanced_toggle', function () {
+    $container.on('click', '.dle-advanced-toggle', function () {
         const section = $(this).data('section');
-        const $section = $container.find(`.dle_advanced_section[data-section="${section}"]`);
+        const $section = $container.find(`.dle-advanced-section[data-section="${section}"]`);
         const isOpen = $section.is(':visible');
         $section.slideToggle(200);
         $(this).attr('aria-expanded', String(!isOpen));
-        $(this).find('.dle_advanced_icon')
+        $(this).find('.dle-advanced-icon')
             .toggleClass('fa-chevron-right', isOpen)
             .toggleClass('fa-chevron-down', !isOpen);
         const s = getSettings();
@@ -524,190 +524,190 @@ function loadPopupSettings($container) {
     const $c = (sel) => $container.find(sel);
 
     // ── Connection ──
-    $c('#dle_sp_enabled').prop('checked', settings.enabled);
-    renderVaultList(settings, $c('#dle_sp_vault_list')[0]);
-    $c('#dle_sp_multi_vault_conflict').val(settings.multiVaultConflictResolution);
-    $c('#dle_sp_field_definitions_path').val(settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml');
-    $c('#dle_sp_tag').val(settings.lorebookTag);
-    $c('#dle_sp_constant_tag').val(settings.constantTag);
-    $c('#dle_sp_never_insert_tag').val(settings.neverInsertTag);
-    $c('#dle_sp_seed_tag').val(settings.seedTag);
-    $c('#dle_sp_bootstrap_tag').val(settings.bootstrapTag);
-    $c('#dle_sp_new_chat_threshold').val(settings.newChatThreshold);
+    $c('#dle-sp-enabled').prop('checked', settings.enabled);
+    renderVaultList(settings, $c('#dle-sp-vault-list')[0]);
+    $c('#dle-sp-multi-vault-conflict').val(settings.multiVaultConflictResolution);
+    $c('#dle-sp-field-definitions-path').val(settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml');
+    $c('#dle-sp-tag').val(settings.lorebookTag);
+    $c('#dle-sp-constant-tag').val(settings.constantTag);
+    $c('#dle-sp-never-insert-tag').val(settings.neverInsertTag);
+    $c('#dle-sp-seed-tag').val(settings.seedTag);
+    $c('#dle-sp-bootstrap-tag').val(settings.bootstrapTag);
+    $c('#dle-sp-new-chat-threshold').val(settings.newChatThreshold);
 
     // ── Matching ──
     const searchMode = !settings.aiSearchEnabled ? 'keyword-only'
         : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
-    $c('#dle_sp_search_mode').val(searchMode);
-    $c('#dle_sp_scan_depth').val(settings.scanDepth);
-    $c('#dle_sp_char_context_scan').prop('checked', settings.characterContextScan);
-    $c('#dle_sp_fuzzy_search').prop('checked', settings.fuzzySearchEnabled);
-    $c('#dle_sp_fuzzy_min_score').val(settings.fuzzySearchMinScore);
-    $c('#dle_sp_fuzzy_min_score_value').text((settings.fuzzySearchMinScore || 0.5).toFixed(1));
-    $c('#dle_sp_fuzzy_min_score_row').toggle(settings.fuzzySearchEnabled);
+    $c('#dle-sp-search-mode').val(searchMode);
+    $c('#dle-sp-scan-depth').val(settings.scanDepth);
+    $c('#dle-sp-char-context-scan').prop('checked', settings.characterContextScan);
+    $c('#dle-sp-fuzzy-search').prop('checked', settings.fuzzySearchEnabled);
+    $c('#dle-sp-fuzzy-min-score').val(settings.fuzzySearchMinScore);
+    $c('#dle-sp-fuzzy-min-score-value').text((settings.fuzzySearchMinScore || 0.5).toFixed(1));
+    $c('#dle-sp-fuzzy-min-score-row').toggle(settings.fuzzySearchEnabled);
     if (settings.fuzzySearchEnabled) runFuzzyPreview();
-    $c('#dle_sp_unlimited_entries').prop('checked', settings.unlimitedEntries);
-    $c('#dle_sp_max_entries').val(settings.maxEntries).prop('disabled', settings.unlimitedEntries);
-    $c('#dle_sp_unlimited_budget').prop('checked', settings.unlimitedBudget);
-    $c('#dle_sp_token_budget').val(settings.maxTokensBudget).prop('disabled', settings.unlimitedBudget);
-    $c('#dle_sp_optimize_keys_mode').val(settings.optimizeKeysMode);
-    $c('#dle_sp_case_sensitive').prop('checked', settings.caseSensitive);
-    $c('#dle_sp_match_whole_words').prop('checked', settings.matchWholeWords);
-    $c('#dle_sp_recursive_scan').prop('checked', settings.recursiveScan);
-    $c('#dle_sp_max_recursion').val(settings.maxRecursionSteps).prop('disabled', !settings.recursiveScan);
-    $c('#dle_sp_reinjection_cooldown').val(settings.reinjectionCooldown);
-    $c('#dle_sp_strip_dedup').prop('checked', settings.stripDuplicateInjections);
-    $c('#dle_sp_strip_lookback').val(settings.stripLookbackDepth).prop('disabled', !settings.stripDuplicateInjections);
-    $c('#dle_sp_keyword_occurrence_weighting').prop('checked', settings.keywordOccurrenceWeighting);
-    $c('#dle_sp_contextual_gating_tolerance').val(settings.contextualGatingTolerance);
+    $c('#dle-sp-unlimited-entries').prop('checked', settings.unlimitedEntries);
+    $c('#dle-sp-max-entries').val(settings.maxEntries).prop('disabled', settings.unlimitedEntries);
+    $c('#dle-sp-unlimited-budget').prop('checked', settings.unlimitedBudget);
+    $c('#dle-sp-token-budget').val(settings.maxTokensBudget).prop('disabled', settings.unlimitedBudget);
+    $c('#dle-sp-optimize-keys-mode').val(settings.optimizeKeysMode);
+    $c('#dle-sp-case-sensitive').prop('checked', settings.caseSensitive);
+    $c('#dle-sp-match-whole-words').prop('checked', settings.matchWholeWords);
+    $c('#dle-sp-recursive-scan').prop('checked', settings.recursiveScan);
+    $c('#dle-sp-max-recursion').val(settings.maxRecursionSteps).prop('disabled', !settings.recursiveScan);
+    $c('#dle-sp-reinjection-cooldown').val(settings.reinjectionCooldown);
+    $c('#dle-sp-strip-dedup').prop('checked', settings.stripDuplicateInjections);
+    $c('#dle-sp-strip-lookback').val(settings.stripLookbackDepth).prop('disabled', !settings.stripDuplicateInjections);
+    $c('#dle-sp-keyword-occurrence-weighting').prop('checked', settings.keywordOccurrenceWeighting);
+    $c('#dle-sp-contextual-gating-tolerance').val(settings.contextualGatingTolerance);
 
     // ── Injection tab ──
-    $c(`input[name="dle_sp_injection_mode"][value="${settings.injectionMode || 'extension'}"]`).prop('checked', true);
+    $c(`input[name="dle-sp-injection-mode"][value="${settings.injectionMode || 'extension'}"]`).prop('checked', true);
     updatePopupInjectionModeVisibility($container, settings);
     // Lore position (now a select dropdown)
-    $c('#dle_sp_position').val(String(settings.injectionPosition));
-    $c('#dle_sp_depth').val(settings.injectionDepth);
-    $c('#dle_sp_role').val(settings.injectionRole);
-    $c('#dle_sp_position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.injectionPosition === 1);
+    $c('#dle-sp-position').val(String(settings.injectionPosition));
+    $c('#dle-sp-depth').val(settings.injectionDepth);
+    $c('#dle-sp-role').val(settings.injectionRole);
+    $c('#dle-sp-position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.injectionPosition === 1);
     // Author Notebook position (now a select dropdown)
-    $c('#dle_sp_notebook_position').val(String(settings.notebookPosition));
-    $c('#dle_sp_notebook_depth').val(settings.notebookDepth);
-    $c('#dle_sp_notebook_role').val(settings.notebookRole);
-    $c('#dle_sp_notebook_position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.notebookPosition === 1);
+    $c('#dle-sp-notebook-position').val(String(settings.notebookPosition));
+    $c('#dle-sp-notebook-depth').val(settings.notebookDepth);
+    $c('#dle-sp-notebook-role').val(settings.notebookRole);
+    $c('#dle-sp-notebook-position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.notebookPosition === 1);
     // AI Notebook position (now a select dropdown)
-    $c('#dle_sp_ai_notepad_position').val(String(settings.aiNotepadPosition));
-    $c('#dle_sp_ai_notepad_depth').val(settings.aiNotepadDepth);
-    $c('#dle_sp_ai_notepad_role').val(settings.aiNotepadRole);
-    $c('#dle_sp_ai_notepad_position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.aiNotepadPosition === 1);
+    $c('#dle-sp-ai-notepad-position').val(String(settings.aiNotepadPosition));
+    $c('#dle-sp-ai-notepad-depth').val(settings.aiNotepadDepth);
+    $c('#dle-sp-ai-notepad-role').val(settings.aiNotepadRole);
+    $c('#dle-sp-ai-notepad-position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.aiNotepadPosition === 1);
     // Advanced injection settings
-    $c('#dle_sp_template').val(settings.injectionTemplate);
-    $c('#dle_sp_allow_wi_scan').prop('checked', settings.allowWIScan);
+    $c('#dle-sp-template').val(settings.injectionTemplate);
+    $c('#dle-sp-allow-wi-scan').prop('checked', settings.allowWIScan);
 
     // ── AI Search ──
-    $c(`input[name="dle_sp_ai_connection_mode"][value="${settings.aiSearchConnectionMode}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle_sp_ai_profile_select', 'aiSearchProfileId');
+    $c(`input[name="dle-sp-ai-connection-mode"][value="${settings.aiSearchConnectionMode}"]`).prop('checked', true);
+    populateProfileDropdownIn($container, 'dle-sp-ai-profile-select', 'aiSearchProfileId');
     updateConnectionVisibilityIn($container, {
         modeSettingsKey: 'aiSearchConnectionMode',
-        profileRowSelector: '#dle_sp_ai_profile_row',
-        proxyRowSelector: '#dle_sp_ai_proxy_row',
-        modelInputSelector: '#dle_sp_ai_model',
+        profileRowSelector: '#dle-sp-ai-profile-row',
+        proxyRowSelector: '#dle-sp-ai-proxy-row',
+        modelInputSelector: '#dle-sp-ai-model',
         profileIdSettingsKey: 'aiSearchProfileId',
     });
-    $c('#dle_sp_ai_proxy_url').val(settings.aiSearchProxyUrl);
-    $c('#dle_sp_ai_model').val(settings.aiSearchModel);
-    $c('#dle_sp_ai_max_tokens').val(settings.aiSearchMaxTokens);
-    $c('#dle_sp_ai_timeout').val(settings.aiSearchTimeout);
-    $c('#dle_sp_ai_scan_depth').val(settings.aiSearchScanDepth);
-    $c('#dle_sp_ai_system_prompt').val(settings.aiSearchSystemPrompt);
-    $c('#dle_sp_ai_summary_length').val(settings.aiSearchManifestSummaryLength);
-    $c('#dle_sp_ai_claude_prefix').prop('checked', settings.aiSearchClaudeCodePrefix);
-    $c('#dle_sp_scribe_informed_retrieval').prop('checked', settings.scribeInformedRetrieval);
-    $c('#dle_sp_ai_confidence_threshold').val(settings.aiConfidenceThreshold);
-    $c('#dle_sp_hierarchical_aggressiveness').val(settings.hierarchicalAggressiveness);
-    $c('#dle_sp_hierarchical_value').text(settings.hierarchicalAggressiveness);
-    $c('#dle_sp_manifest_summary_mode').val(settings.manifestSummaryMode);
-    $c('#dle_sp_ai_error_fallback').val(settings.aiErrorFallback);
-    $c('#dle_sp_ai_empty_fallback').val(settings.aiEmptyFallback);
-    $c('#dle_sp_show_sources').prop('checked', settings.showLoreSources);
-    $c('#dle_sp_decay_enabled').prop('checked', settings.decayEnabled);
-    $c('#dle_sp_decay_boost_threshold').val(settings.decayBoostThreshold);
-    $c('#dle_sp_decay_penalty_threshold').val(settings.decayPenaltyThreshold);
-    $c('#dle_sp_decay_controls').toggleClass('dle-dimmed', !settings.decayEnabled);
-    $c('#dle_sp_decay_controls input').prop('disabled', !settings.decayEnabled);
+    $c('#dle-sp-ai-proxy-url').val(settings.aiSearchProxyUrl);
+    $c('#dle-sp-ai-model').val(settings.aiSearchModel);
+    $c('#dle-sp-ai-max-tokens').val(settings.aiSearchMaxTokens);
+    $c('#dle-sp-ai-timeout').val(settings.aiSearchTimeout);
+    $c('#dle-sp-ai-scan-depth').val(settings.aiSearchScanDepth);
+    $c('#dle-sp-ai-system-prompt').val(settings.aiSearchSystemPrompt);
+    $c('#dle-sp-ai-summary-length').val(settings.aiSearchManifestSummaryLength);
+    $c('#dle-sp-ai-claude-prefix').prop('checked', settings.aiSearchClaudeCodePrefix);
+    $c('#dle-sp-scribe-informed-retrieval').prop('checked', settings.scribeInformedRetrieval);
+    $c('#dle-sp-ai-confidence-threshold').val(settings.aiConfidenceThreshold);
+    $c('#dle-sp-hierarchical-aggressiveness').val(settings.hierarchicalAggressiveness);
+    $c('#dle-sp-hierarchical-value').text(settings.hierarchicalAggressiveness);
+    $c('#dle-sp-manifest-summary-mode').val(settings.manifestSummaryMode);
+    $c('#dle-sp-ai-error-fallback').val(settings.aiErrorFallback);
+    $c('#dle-sp-ai-empty-fallback').val(settings.aiEmptyFallback);
+    $c('#dle-sp-show-sources').prop('checked', settings.showLoreSources);
+    $c('#dle-sp-decay-enabled').prop('checked', settings.decayEnabled);
+    $c('#dle-sp-decay-boost-threshold').val(settings.decayBoostThreshold);
+    $c('#dle-sp-decay-penalty-threshold').val(settings.decayPenaltyThreshold);
+    $c('#dle-sp-decay-controls').toggleClass('dle-dimmed', !settings.decayEnabled);
+    $c('#dle-sp-decay-controls input').prop('disabled', !settings.decayEnabled);
 
     // ── Features — Graph ──
-    $c('#dle_sp_graph_color_mode').val(settings.graphDefaultColorMode);
-    $c('#dle_sp_graph_hover_dim_distance').val(settings.graphHoverDimDistance);
-    $c('#dle_sp_graph_focus_tree_depth').val(settings.graphFocusTreeDepth);
-    $c('#dle_sp_graph_show_labels').prop('checked', settings.graphShowLabels);
-    $c('#dle_sp_graph_repulsion').val(settings.graphRepulsion);
-    $c('#dle_sp_graph_spring_length').val(settings.graphSpringLength);
-    $c('#dle_sp_graph_gravity').val(settings.graphGravity);
-    $c('#dle_sp_graph_damping').val(settings.graphDamping);
-    $c('#dle_sp_graph_hover_dim_opacity').val(settings.graphHoverDimOpacity);
-    $c('#dle_sp_graph_edge_filter_alpha').val(settings.graphEdgeFilterAlpha);
+    $c('#dle-sp-graph-color-mode').val(settings.graphDefaultColorMode);
+    $c('#dle-sp-graph-hover-dim-distance').val(settings.graphHoverDimDistance);
+    $c('#dle-sp-graph-focus-tree-depth').val(settings.graphFocusTreeDepth);
+    $c('#dle-sp-graph-show-labels').prop('checked', settings.graphShowLabels);
+    $c('#dle-sp-graph-repulsion').val(settings.graphRepulsion);
+    $c('#dle-sp-graph-spring-length').val(settings.graphSpringLength);
+    $c('#dle-sp-graph-gravity').val(settings.graphGravity);
+    $c('#dle-sp-graph-damping').val(settings.graphDamping);
+    $c('#dle-sp-graph-hover-dim-opacity').val(settings.graphHoverDimOpacity);
+    $c('#dle-sp-graph-edge-filter-alpha').val(settings.graphEdgeFilterAlpha);
 
     // ── Features — Notebook ──
-    $c('#dle_sp_notebook_enabled').prop('checked', settings.notebookEnabled);
+    $c('#dle-sp-notebook-enabled').prop('checked', settings.notebookEnabled);
 
     // ── Features — AI Notebook ──
-    $c('#dle_sp_ai_notepad_enabled').prop('checked', settings.aiNotepadEnabled);
+    $c('#dle-sp-ai-notepad-enabled').prop('checked', settings.aiNotepadEnabled);
     const aiNbMode = settings.aiNotepadMode || 'tag';
-    $c(`input[name="dle_sp_ai_notepad_mode"][value="${aiNbMode}"]`).prop('checked', true);
-    $c('#dle_sp_ai_notepad_prompt').val(settings.aiNotepadPrompt || '');
-    $c('#dle_sp_ai_notepad_extract_prompt').val(settings.aiNotepadExtractPrompt || '');
+    $c(`input[name="dle-sp-ai-notepad-mode"][value="${aiNbMode}"]`).prop('checked', true);
+    $c('#dle-sp-ai-notepad-prompt').val(settings.aiNotepadPrompt || '');
+    $c('#dle-sp-ai-notepad-extract-prompt').val(settings.aiNotepadExtractPrompt || '');
     // Extract mode connection settings
-    $c(`input[name="dle_sp_ai_notepad_connection_mode"][value="${settings.aiNotepadConnectionMode || 'profile'}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle_sp_ai_notepad_profile_select', 'aiNotepadProfileId');
-    $c('#dle_sp_ai_notepad_proxy_url').val(settings.aiNotepadProxyUrl || '');
-    $c('#dle_sp_ai_notepad_model').val(settings.aiNotepadModel || '');
-    $c('#dle_sp_ai_notepad_max_tokens').val(settings.aiNotepadMaxTokens || 1024);
-    $c('#dle_sp_ai_notepad_timeout').val(settings.aiNotepadTimeout || 30000);
-    updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle_sp_ai_notepad_profile_row', proxyRowSelector: '#dle_sp_ai_notepad_proxy_row', modelInputSelector: '#dle_sp_ai_notepad_model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle_sp_ai_notepad_model_row'] });
+    $c(`input[name="dle-sp-ai-notepad-connection-mode"][value="${settings.aiNotepadConnectionMode || 'profile'}"]`).prop('checked', true);
+    populateProfileDropdownIn($container, 'dle-sp-ai-notepad-profile-select', 'aiNotepadProfileId');
+    $c('#dle-sp-ai-notepad-proxy-url').val(settings.aiNotepadProxyUrl || '');
+    $c('#dle-sp-ai-notepad-model').val(settings.aiNotepadModel || '');
+    $c('#dle-sp-ai-notepad-max-tokens').val(settings.aiNotepadMaxTokens || 1024);
+    $c('#dle-sp-ai-notepad-timeout').val(settings.aiNotepadTimeout || 30000);
+    updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle-sp-ai-notepad-profile-row', proxyRowSelector: '#dle-sp-ai-notepad-proxy-row', modelInputSelector: '#dle-sp-ai-notepad-model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle-sp-ai-notepad-model-row'] });
     // Show/hide mode-specific options
-    $c('#dle_sp_ai_notepad_mode_tag_desc').toggle(aiNbMode === 'tag');
-    $c('#dle_sp_ai_notepad_mode_extract_desc').toggle(aiNbMode === 'extract');
-    $c('#dle_sp_ai_notepad_tag_options').toggle(aiNbMode === 'tag');
-    $c('#dle_sp_ai_notepad_extract_options').toggle(aiNbMode === 'extract');
+    $c('#dle-sp-ai-notepad-mode-tag-desc').toggle(aiNbMode === 'tag');
+    $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(aiNbMode === 'extract');
+    $c('#dle-sp-ai-notepad-tag-options').toggle(aiNbMode === 'tag');
+    $c('#dle-sp-ai-notepad-extract-options').toggle(aiNbMode === 'extract');
 
     // ── Features — Scribe ──
-    $c('#dle_sp_scribe_enabled').prop('checked', settings.scribeEnabled);
-    $c('#dle_sp_scribe_controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
-    $c('#dle_sp_scribe_controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
-    $c('#dle_sp_scribe_interval').val(settings.scribeInterval);
-    $c('#dle_sp_scribe_folder').val(settings.scribeFolder);
-    $c(`input[name="dle_sp_scribe_connection_mode"][value="${settings.scribeConnectionMode}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle_sp_scribe_profile_select', 'scribeProfileId');
+    $c('#dle-sp-scribe-enabled').prop('checked', settings.scribeEnabled);
+    $c('#dle-sp-scribe-controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
+    $c('#dle-sp-scribe-controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
+    $c('#dle-sp-scribe-interval').val(settings.scribeInterval);
+    $c('#dle-sp-scribe-folder').val(settings.scribeFolder);
+    $c(`input[name="dle-sp-scribe-connection-mode"][value="${settings.scribeConnectionMode}"]`).prop('checked', true);
+    populateProfileDropdownIn($container, 'dle-sp-scribe-profile-select', 'scribeProfileId');
     updateConnectionVisibilityIn($container, {
         modeSettingsKey: 'scribeConnectionMode',
-        profileRowSelector: '#dle_sp_scribe_profile_row',
-        proxyRowSelector: '#dle_sp_scribe_proxy_row',
-        modelInputSelector: '#dle_sp_scribe_model',
+        profileRowSelector: '#dle-sp-scribe-profile-row',
+        proxyRowSelector: '#dle-sp-scribe-proxy-row',
+        modelInputSelector: '#dle-sp-scribe-model',
         profileIdSettingsKey: 'scribeProfileId',
-        externalOnlySelectors: ['#dle_sp_scribe_model_row'],
+        externalOnlySelectors: ['#dle-sp-scribe-model-row'],
         hasStMode: true,
     });
-    $c('#dle_sp_scribe_proxy_url').val(settings.scribeProxyUrl);
-    $c('#dle_sp_scribe_model').val(settings.scribeModel);
-    $c('#dle_sp_scribe_max_tokens').val(settings.scribeMaxTokens);
-    $c('#dle_sp_scribe_timeout').val(settings.scribeTimeout);
-    $c('#dle_sp_scribe_scan_depth').val(settings.scribeScanDepth);
-    $c('#dle_sp_scribe_prompt').val(settings.scribePrompt);
+    $c('#dle-sp-scribe-proxy-url').val(settings.scribeProxyUrl);
+    $c('#dle-sp-scribe-model').val(settings.scribeModel);
+    $c('#dle-sp-scribe-max-tokens').val(settings.scribeMaxTokens);
+    $c('#dle-sp-scribe-timeout').val(settings.scribeTimeout);
+    $c('#dle-sp-scribe-scan-depth').val(settings.scribeScanDepth);
+    $c('#dle-sp-scribe-prompt').val(settings.scribePrompt);
 
     // ── Features — Auto Lorebook ──
-    $c('#dle_sp_autosuggest_enabled').prop('checked', settings.autoSuggestEnabled);
-    $c('#dle_sp_autosuggest_controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
-    $c('#dle_sp_autosuggest_interval').val(settings.autoSuggestInterval);
-    $c('#dle_sp_autosuggest_folder').val(settings.autoSuggestFolder);
-    $c(`input[name="dle_sp_autosuggest_connection_mode"][value="${settings.autoSuggestConnectionMode}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle_sp_autosuggest_profile', 'autoSuggestProfileId');
+    $c('#dle-sp-autosuggest-enabled').prop('checked', settings.autoSuggestEnabled);
+    $c('#dle-sp-autosuggest-controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
+    $c('#dle-sp-autosuggest-interval').val(settings.autoSuggestInterval);
+    $c('#dle-sp-autosuggest-folder').val(settings.autoSuggestFolder);
+    $c(`input[name="dle-sp-autosuggest-connection-mode"][value="${settings.autoSuggestConnectionMode}"]`).prop('checked', true);
+    populateProfileDropdownIn($container, 'dle-sp-autosuggest-profile', 'autoSuggestProfileId');
     updateConnectionVisibilityIn($container, {
         modeSettingsKey: 'autoSuggestConnectionMode',
-        profileRowSelector: '#dle_sp_autosuggest_profile_container',
-        proxyRowSelector: '#dle_sp_autosuggest_proxy_container',
+        profileRowSelector: '#dle-sp-autosuggest-profile-container',
+        proxyRowSelector: '#dle-sp-autosuggest-proxy-container',
     });
-    $c('#dle_sp_autosuggest_proxy_url').val(settings.autoSuggestProxyUrl);
-    $c('#dle_sp_autosuggest_model').val(settings.autoSuggestModel);
-    $c('#dle_sp_autosuggest_max_tokens').val(settings.autoSuggestMaxTokens);
-    $c('#dle_sp_autosuggest_timeout').val(settings.autoSuggestTimeout);
+    $c('#dle-sp-autosuggest-proxy-url').val(settings.autoSuggestProxyUrl);
+    $c('#dle-sp-autosuggest-model').val(settings.autoSuggestModel);
+    $c('#dle-sp-autosuggest-max-tokens').val(settings.autoSuggestMaxTokens);
+    $c('#dle-sp-autosuggest-timeout').val(settings.autoSuggestTimeout);
 
     // ── System ──
     updatePopupIndexStats($container);
-    $c('#dle_sp_cache_ttl').val(settings.cacheTTL);
-    $c('#dle_sp_sync_interval').val(settings.syncPollingInterval);
-    $c('#dle_sp_index_rebuild_trigger').val(settings.indexRebuildTrigger);
-    $c('#dle_sp_rebuild_gen_interval').val(settings.indexRebuildGenerationInterval);
+    $c('#dle-sp-cache-ttl').val(settings.cacheTTL);
+    $c('#dle-sp-sync-interval').val(settings.syncPollingInterval);
+    $c('#dle-sp-index-rebuild-trigger').val(settings.indexRebuildTrigger);
+    $c('#dle-sp-rebuild-gen-interval').val(settings.indexRebuildGenerationInterval);
     // Show/hide rebuild trigger descriptions
     const showTrigger = (t) => {
-        $c('#dle_sp_rebuild_trigger_ttl_desc').toggle(t === 'ttl');
-        $c('#dle_sp_rebuild_trigger_gen_desc').toggle(t === 'generation');
-        $c('#dle_sp_rebuild_trigger_manual_desc').toggle(t === 'manual');
-        $c('#dle_sp_rebuild_gen_interval_row').toggle(t === 'generation');
+        $c('#dle-sp-rebuild-trigger-ttl-desc').toggle(t === 'ttl');
+        $c('#dle-sp-rebuild-trigger-gen-desc').toggle(t === 'generation');
+        $c('#dle-sp-rebuild-trigger-manual-desc').toggle(t === 'manual');
+        $c('#dle-sp-rebuild-gen-interval-row').toggle(t === 'generation');
     };
     showTrigger(settings.indexRebuildTrigger);
-    $c('#dle_sp_show_sync_toasts').prop('checked', settings.showSyncToasts);
-    $c('#dle_sp_review_tokens').val(settings.reviewResponseTokens);
-    $c('#dle_sp_debug').prop('checked', settings.debugMode);
+    $c('#dle-sp-show-sync-toasts').prop('checked', settings.showSyncToasts);
+    $c('#dle-sp-review-tokens').val(settings.reviewResponseTokens);
+    $c('#dle-sp-debug').prop('checked', settings.debugMode);
 
     // Migrate renamed data-section keys (D4 consistency fix)
     if (settings.advancedVisible) {
@@ -722,13 +722,13 @@ function loadPopupSettings($container) {
 
     // Restore advanced toggles
     const advVisible = settings.advancedVisible || {};
-    $container.find('.dle_advanced_section').each(function () {
+    $container.find('.dle-advanced-section').each(function () {
         const section = jQuery(this).data('section');
         if (advVisible[section]) {
             jQuery(this).show();
-            jQuery(this).prev('.dle_advanced_toggle')
-                .find('.dle_advanced_icon').removeClass('fa-chevron-right').addClass('fa-chevron-down');
-            jQuery(this).prev('.dle_advanced_toggle').attr('aria-expanded', 'true');
+            jQuery(this).prev('.dle-advanced-toggle')
+                .find('.dle-advanced-icon').removeClass('fa-chevron-right').addClass('fa-chevron-down');
+            jQuery(this).prev('.dle-advanced-toggle').attr('aria-expanded', 'true');
         }
     });
 
@@ -797,7 +797,7 @@ function getFuzzyToyScores() {
 }
 
 function runFuzzyPreview() {
-    const $results = $('#dle_sp_fuzzy_preview_results');
+    const $results = $('#dle-sp-fuzzy-preview-results');
     if (!$results.length) return;
 
     const minScore = getSettings().fuzzySearchMinScore || 0.5;
@@ -805,8 +805,8 @@ function runFuzzyPreview() {
 
     let html = '<div style="margin-bottom:4px;">';
     html += '<span class="dle-text-xs"><i class="fa-solid fa-flask" style="color:var(--dle-info,#2196f3);"></i> <strong>How this works</strong>';
-    html += ' <span class="dle_muted">— sample data, not your vault</span></span></div>';
-    html += `<div style="margin-bottom:6px;"><span class="dle-text-xs dle_muted">If a chat message said </span><span class="dle-text-xs"><strong>"${FUZZY_TOY_QUERY}"</strong></span><span class="dle-text-xs dle_muted">, these entries would be checked:</span></div>`;
+    html += ' <span class="dle-muted">— sample data, not your vault</span></span></div>';
+    html += `<div style="margin-bottom:6px;"><span class="dle-text-xs dle-muted">If a chat message said </span><span class="dle-text-xs"><strong>"${FUZZY_TOY_QUERY}"</strong></span><span class="dle-text-xs dle-muted">, these entries would be checked:</span></div>`;
 
     html += '<table style="width:100%;border-collapse:collapse;">';
     html += '<tr style="border-bottom:1px solid var(--dle-border,#444);"><th style="text-align:left;padding:2px 4px;"><span class="dle-text-xs">Entry</span></th><th style="text-align:left;padding:2px 4px;"><span class="dle-text-xs">Words matched</span></th><th style="text-align:right;padding:2px 4px;"><span class="dle-text-xs">Score</span></th><th style="text-align:center;padding:2px 4px;"></th></tr>';
@@ -816,11 +816,11 @@ function runFuzzyPreview() {
         const iconColor = passes ? 'var(--dle-success,#4caf50)' : 'var(--dle-error,#f44336)';
         const wordsHtml = e.matchedWords.length > 0
             ? e.matchedWords.map(w => `<span style="color:var(--dle-info,#2196f3);">${escapeHtml(w)}</span>`).join(', ')
-            : '<span class="dle_muted">—</span>';
+            : '<span class="dle-muted">—</span>';
         html += `<tr style="opacity:${passes ? 1 : 0.5};">`;
         html += `<td style="padding:2px 4px;"><span class="dle-text-xs">${escapeHtml(e.title)}</span></td>`;
         html += `<td style="padding:2px 4px;"><span class="dle-text-xs">${wordsHtml}</span></td>`;
-        html += `<td style="text-align:right;padding:2px 4px;"><span class="dle-text-xs dle_muted">${e.score.toFixed(2)}</span></td>`;
+        html += `<td style="text-align:right;padding:2px 4px;"><span class="dle-text-xs dle-muted">${e.score.toFixed(2)}</span></td>`;
         html += `<td style="text-align:center;padding:2px 4px;color:${iconColor};font-weight:bold;"><span class="dle-text-xs">${icon}</span></td>`;
         html += '</tr>';
     }
@@ -839,26 +839,26 @@ function bindPopupEvents($container) {
     $container.on('change input', 'input, select, textarea', () => invalidateSettingsCache());
 
     // ── Connection ──
-    $c('#dle_sp_enabled').on('change', function () {
+    $c('#dle-sp-enabled').on('change', function () {
         settings.enabled = $(this).prop('checked');
         saveSettingsDebounced();
         setupSyncPolling(buildIndexWithReuse, buildIndexWithReuse);
-        $('#dle_enabled').prop('checked', settings.enabled);
+        $('#dle-enabled').prop('checked', settings.enabled);
     });
 
-    bindVaultListEvents(settings, $c('#dle_sp_vault_list'), $c('#dle_sp_add_vault'));
-    $c('#dle_sp_multi_vault_conflict').on('change', function () { settings.multiVaultConflictResolution = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_field_definitions_path').on('change', function () { settings.fieldDefinitionsPath = String($(this).val()).trim() || 'DeepLore/field-definitions.yaml'; saveSettingsDebounced(); });
-    $c('#dle_sp_edit_fields_btn').on('click', async () => {
+    bindVaultListEvents(settings, $c('#dle-sp-vault-list'), $c('#dle-sp-add-vault'));
+    $c('#dle-sp-multi-vault-conflict').on('change', function () { settings.multiVaultConflictResolution = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-field-definitions-path').on('change', function () { settings.fieldDefinitionsPath = String($(this).val()).trim() || 'DeepLore/field-definitions.yaml'; saveSettingsDebounced(); });
+    $c('#dle-sp-edit-fields-btn').on('click', async () => {
         const { openRuleBuilder } = await import('./rule-builder.js');
         openRuleBuilder();
     });
 
-    $c('#dle_sp_test_connection').on('click', async function () {
+    $c('#dle-sp-test-connection').on('click', async function () {
         const $btn = $(this);
         if ($btn.prop('disabled')) return;
         $btn.prop('disabled', true).addClass('disabled');
-        const statusEl = $c('#dle_sp_connection_status');
+        const statusEl = $c('#dle-sp-connection-status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
             const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
@@ -877,42 +877,42 @@ function bindPopupEvents($container) {
         finally { $btn.prop('disabled', false).removeClass('disabled'); }
     });
 
-    $c('#dle_sp_tag').on('input', function () { settings.lorebookTag = String($(this).val()).trim() || 'lorebook'; saveSettingsDebounced(); debouncedRebuild(); });
-    $c('#dle_sp_constant_tag').on('input', function () { settings.constantTag = String($(this).val()).trim() || 'lorebook-always'; saveSettingsDebounced(); debouncedRebuild(); });
-    $c('#dle_sp_never_insert_tag').on('input', function () { settings.neverInsertTag = String($(this).val()).trim() || 'lorebook-never'; saveSettingsDebounced(); debouncedRebuild(); });
-    $c('#dle_sp_seed_tag').on('input', function () { settings.seedTag = String($(this).val()).trim() || 'lorebook-seed'; saveSettingsDebounced(); debouncedRebuild(); });
-    $c('#dle_sp_bootstrap_tag').on('input', function () { settings.bootstrapTag = String($(this).val()).trim() || 'lorebook-bootstrap'; saveSettingsDebounced(); debouncedRebuild(); });
-    $c('#dle_sp_new_chat_threshold').on('input', function () { settings.newChatThreshold = numVal($(this).val(), 3); saveSettingsDebounced(); });
+    $c('#dle-sp-tag').on('input', function () { settings.lorebookTag = String($(this).val()).trim() || 'lorebook'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle-sp-constant-tag').on('input', function () { settings.constantTag = String($(this).val()).trim() || 'lorebook-always'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle-sp-never-insert-tag').on('input', function () { settings.neverInsertTag = String($(this).val()).trim() || 'lorebook-never'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle-sp-seed-tag').on('input', function () { settings.seedTag = String($(this).val()).trim() || 'lorebook-seed'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle-sp-bootstrap-tag').on('input', function () { settings.bootstrapTag = String($(this).val()).trim() || 'lorebook-bootstrap'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle-sp-new-chat-threshold').on('input', function () { settings.newChatThreshold = numVal($(this).val(), 3); saveSettingsDebounced(); });
 
     // ── Matching ──
-    $c('#dle_sp_search_mode').on('change', function () { const mode = $(this).val(); settings.aiSearchEnabled = mode !== 'keyword-only'; settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage'; saveSettingsDebounced(); updatePopupModeVisibility($container, settings); });
-    $c('#dle_sp_scan_depth').on('input', function () { settings.scanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
-    $c('#dle_sp_char_context_scan').on('change', function () { settings.characterContextScan = $(this).is(':checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_fuzzy_search').on('change', function () { settings.fuzzySearchEnabled = $(this).is(':checked'); $c('#dle_sp_fuzzy_min_score_row').toggle(settings.fuzzySearchEnabled); saveSettingsDebounced(); buildIndexWithReuse(); });
-    $c('#dle_sp_fuzzy_min_score').on('input', function () {
+    $c('#dle-sp-search-mode').on('change', function () { const mode = $(this).val(); settings.aiSearchEnabled = mode !== 'keyword-only'; settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage'; saveSettingsDebounced(); updatePopupModeVisibility($container, settings); });
+    $c('#dle-sp-scan-depth').on('input', function () { settings.scanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
+    $c('#dle-sp-char-context-scan').on('change', function () { settings.characterContextScan = $(this).is(':checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-fuzzy-search').on('change', function () { settings.fuzzySearchEnabled = $(this).is(':checked'); $c('#dle-sp-fuzzy-min-score-row').toggle(settings.fuzzySearchEnabled); saveSettingsDebounced(); buildIndexWithReuse(); });
+    $c('#dle-sp-fuzzy-min-score').on('input', function () {
         const v = parseFloat($(this).val());
         settings.fuzzySearchMinScore = v;
-        $c('#dle_sp_fuzzy_min_score_value').text(v.toFixed(1));
+        $c('#dle-sp-fuzzy-min-score-value').text(v.toFixed(1));
         saveSettingsDebounced();
         runFuzzyPreview();
     });
-    $c('#dle_sp_unlimited_entries').on('change', function () { settings.unlimitedEntries = $(this).prop('checked'); $c('#dle_sp_max_entries').prop('disabled', settings.unlimitedEntries); saveSettingsDebounced(); });
-    $c('#dle_sp_max_entries').on('input', function () { settings.maxEntries = numVal($(this).val(), 10); saveSettingsDebounced(); });
-    $c('#dle_sp_unlimited_budget').on('change', function () { settings.unlimitedBudget = $(this).prop('checked'); $c('#dle_sp_token_budget').prop('disabled', settings.unlimitedBudget); saveSettingsDebounced(); });
-    $c('#dle_sp_token_budget').on('input', function () { settings.maxTokensBudget = numVal($(this).val(), 2048); saveSettingsDebounced(); });
-    $c('#dle_sp_optimize_keys_mode').on('change', function () { settings.optimizeKeysMode = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_case_sensitive').on('change', function () { settings.caseSensitive = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_match_whole_words').on('change', function () { settings.matchWholeWords = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_recursive_scan').on('change', function () { settings.recursiveScan = $(this).prop('checked'); $c('#dle_sp_max_recursion').prop('disabled', !settings.recursiveScan); saveSettingsDebounced(); });
-    $c('#dle_sp_max_recursion').on('input', function () { settings.maxRecursionSteps = numVal($(this).val(), 3); saveSettingsDebounced(); });
-    $c('#dle_sp_reinjection_cooldown').on('input', function () { settings.reinjectionCooldown = numVal($(this).val(), 0); saveSettingsDebounced(); });
-    $c('#dle_sp_strip_dedup').on('change', function () { settings.stripDuplicateInjections = $(this).prop('checked'); $c('#dle_sp_strip_lookback').prop('disabled', !settings.stripDuplicateInjections); saveSettingsDebounced(); });
-    $c('#dle_sp_strip_lookback').on('input', function () { settings.stripLookbackDepth = numVal($(this).val(), 2); saveSettingsDebounced(); });
-    $c('#dle_sp_keyword_occurrence_weighting').on('change', function () { settings.keywordOccurrenceWeighting = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_contextual_gating_tolerance').on('change', function () { settings.contextualGatingTolerance = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-unlimited-entries').on('change', function () { settings.unlimitedEntries = $(this).prop('checked'); $c('#dle-sp-max-entries').prop('disabled', settings.unlimitedEntries); saveSettingsDebounced(); });
+    $c('#dle-sp-max-entries').on('input', function () { settings.maxEntries = numVal($(this).val(), 10); saveSettingsDebounced(); });
+    $c('#dle-sp-unlimited-budget').on('change', function () { settings.unlimitedBudget = $(this).prop('checked'); $c('#dle-sp-token-budget').prop('disabled', settings.unlimitedBudget); saveSettingsDebounced(); });
+    $c('#dle-sp-token-budget').on('input', function () { settings.maxTokensBudget = numVal($(this).val(), 2048); saveSettingsDebounced(); });
+    $c('#dle-sp-optimize-keys-mode').on('change', function () { settings.optimizeKeysMode = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-case-sensitive').on('change', function () { settings.caseSensitive = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-match-whole-words').on('change', function () { settings.matchWholeWords = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-recursive-scan').on('change', function () { settings.recursiveScan = $(this).prop('checked'); $c('#dle-sp-max-recursion').prop('disabled', !settings.recursiveScan); saveSettingsDebounced(); });
+    $c('#dle-sp-max-recursion').on('input', function () { settings.maxRecursionSteps = numVal($(this).val(), 3); saveSettingsDebounced(); });
+    $c('#dle-sp-reinjection-cooldown').on('input', function () { settings.reinjectionCooldown = numVal($(this).val(), 0); saveSettingsDebounced(); });
+    $c('#dle-sp-strip-dedup').on('change', function () { settings.stripDuplicateInjections = $(this).prop('checked'); $c('#dle-sp-strip-lookback').prop('disabled', !settings.stripDuplicateInjections); saveSettingsDebounced(); });
+    $c('#dle-sp-strip-lookback').on('input', function () { settings.stripLookbackDepth = numVal($(this).val(), 2); saveSettingsDebounced(); });
+    $c('#dle-sp-keyword-occurrence-weighting').on('change', function () { settings.keywordOccurrenceWeighting = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-contextual-gating-tolerance').on('change', function () { settings.contextualGatingTolerance = String($(this).val()); saveSettingsDebounced(); });
 
     // ── Injection tab ──
-    $c('input[name="dle_sp_injection_mode"]').on('change', function () {
+    $c('input[name="dle-sp-injection-mode"]').on('change', function () {
         const oldMode = settings.injectionMode;
         settings.injectionMode = String($(this).val());
         // H16: Clean up stale PM entries when switching away from prompt_list mode
@@ -936,12 +936,12 @@ function bindPopupEvents($container) {
         $c(depthId).on('input', function () { settings[depthKey] = numVal($(this).val(), 4); saveSettingsDebounced(); });
         $c(roleId).on('change', function () { settings[roleKey] = numVal($(this).val(), 0); saveSettingsDebounced(); });
     }
-    wirePositionSelect('#dle_sp_position', '#dle_sp_depth', '#dle_sp_role', 'injectionPosition', 'injectionDepth', 'injectionRole');
-    wirePositionSelect('#dle_sp_notebook_position', '#dle_sp_notebook_depth', '#dle_sp_notebook_role', 'notebookPosition', 'notebookDepth', 'notebookRole');
-    wirePositionSelect('#dle_sp_ai_notepad_position', '#dle_sp_ai_notepad_depth', '#dle_sp_ai_notepad_role', 'aiNotepadPosition', 'aiNotepadDepth', 'aiNotepadRole');
+    wirePositionSelect('#dle-sp-position', '#dle-sp-depth', '#dle-sp-role', 'injectionPosition', 'injectionDepth', 'injectionRole');
+    wirePositionSelect('#dle-sp-notebook-position', '#dle-sp-notebook-depth', '#dle-sp-notebook-role', 'notebookPosition', 'notebookDepth', 'notebookRole');
+    wirePositionSelect('#dle-sp-ai-notepad-position', '#dle-sp-ai-notepad-depth', '#dle-sp-ai-notepad-role', 'aiNotepadPosition', 'aiNotepadDepth', 'aiNotepadRole');
 
-    $c('#dle_sp_template').on('input', function () { settings.injectionTemplate = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_allow_wi_scan').on('change', function () { settings.allowWIScan = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-template').on('input', function () { settings.injectionTemplate = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-allow-wi-scan').on('change', function () { settings.allowWIScan = $(this).prop('checked'); saveSettingsDebounced(); });
 
     // Cross-tab links (e.g., "Injection tab" links in Features subtabs)
     $container.on('click', '.dle-goto-tab-link', function (e) {
@@ -952,51 +952,51 @@ function bindPopupEvents($container) {
     });
 
     // ── AI Search ──
-    $c('input[name="dle_sp_ai_connection_mode"]').on('change', function () {
-        settings.aiSearchConnectionMode = $c('input[name="dle_sp_ai_connection_mode"]:checked').val();
+    $c('input[name="dle-sp-ai-connection-mode"]').on('change', function () {
+        settings.aiSearchConnectionMode = $c('input[name="dle-sp-ai-connection-mode"]:checked').val();
         saveSettingsDebounced();
-        updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiSearchConnectionMode', profileRowSelector: '#dle_sp_ai_profile_row', proxyRowSelector: '#dle_sp_ai_proxy_row', modelInputSelector: '#dle_sp_ai_model', profileIdSettingsKey: 'aiSearchProfileId' });
+        updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiSearchConnectionMode', profileRowSelector: '#dle-sp-ai-profile-row', proxyRowSelector: '#dle-sp-ai-proxy-row', modelInputSelector: '#dle-sp-ai-model', profileIdSettingsKey: 'aiSearchProfileId' });
         updatePopupModeVisibility($container, settings);
     });
-    $c('#dle_sp_ai_profile_select').on('change', function () { settings.aiSearchProfileId = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_proxy_url').on('input', function () { settings.aiSearchProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
-    $c('#dle_sp_ai_model').on('input', function () { settings.aiSearchModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_max_tokens').on('input', function () { settings.aiSearchMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_timeout').on('input', function () { settings.aiSearchTimeout = numVal($(this).val(), 10000); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_scan_depth').on('input', function () { settings.aiSearchScanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_system_prompt').on('input', function () { settings.aiSearchSystemPrompt = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_summary_length').on('input', function () { settings.aiSearchManifestSummaryLength = numVal($(this).val(), 600); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_claude_prefix').on('change', function () { settings.aiSearchClaudeCodePrefix = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_informed_retrieval').on('change', function () { settings.scribeInformedRetrieval = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_confidence_threshold').on('change', function () { settings.aiConfidenceThreshold = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_hierarchical_aggressiveness').on('input', function () { const v = parseFloat($(this).val()); settings.hierarchicalAggressiveness = v; $c('#dle_sp_hierarchical_value').text(v.toFixed(1)); saveSettingsDebounced(); });
-    $c('#dle_sp_manifest_summary_mode').on('change', function () { settings.manifestSummaryMode = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_error_fallback').on('change', function () { settings.aiErrorFallback = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_empty_fallback').on('change', function () { settings.aiEmptyFallback = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_show_sources').on('change', function () { settings.showLoreSources = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_decay_enabled').on('change', function () { settings.decayEnabled = $(this).prop('checked'); saveSettingsDebounced(); $c('#dle_sp_decay_controls').toggleClass('dle-dimmed', !settings.decayEnabled); $c('#dle_sp_decay_controls input').prop('disabled', !settings.decayEnabled); });
-    $c('#dle_sp_decay_boost_threshold').on('input', function () { settings.decayBoostThreshold = numVal($(this).val(), 5); saveSettingsDebounced(); });
-    $c('#dle_sp_decay_penalty_threshold').on('input', function () { settings.decayPenaltyThreshold = numVal($(this).val(), 2); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-profile-select').on('change', function () { settings.aiSearchProfileId = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-proxy-url').on('input', function () { settings.aiSearchProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
+    $c('#dle-sp-ai-model').on('input', function () { settings.aiSearchModel = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-max-tokens').on('input', function () { settings.aiSearchMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-timeout').on('input', function () { settings.aiSearchTimeout = numVal($(this).val(), 10000); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-scan-depth').on('input', function () { settings.aiSearchScanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-system-prompt').on('input', function () { settings.aiSearchSystemPrompt = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-summary-length').on('input', function () { settings.aiSearchManifestSummaryLength = numVal($(this).val(), 600); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-claude-prefix').on('change', function () { settings.aiSearchClaudeCodePrefix = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-informed-retrieval').on('change', function () { settings.scribeInformedRetrieval = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-confidence-threshold').on('change', function () { settings.aiConfidenceThreshold = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-hierarchical-aggressiveness').on('input', function () { const v = parseFloat($(this).val()); settings.hierarchicalAggressiveness = v; $c('#dle-sp-hierarchical-value').text(v.toFixed(1)); saveSettingsDebounced(); });
+    $c('#dle-sp-manifest-summary-mode').on('change', function () { settings.manifestSummaryMode = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-error-fallback').on('change', function () { settings.aiErrorFallback = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-empty-fallback').on('change', function () { settings.aiEmptyFallback = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-show-sources').on('change', function () { settings.showLoreSources = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-decay-enabled').on('change', function () { settings.decayEnabled = $(this).prop('checked'); saveSettingsDebounced(); $c('#dle-sp-decay-controls').toggleClass('dle-dimmed', !settings.decayEnabled); $c('#dle-sp-decay-controls input').prop('disabled', !settings.decayEnabled); });
+    $c('#dle-sp-decay-boost-threshold').on('input', function () { settings.decayBoostThreshold = numVal($(this).val(), 5); saveSettingsDebounced(); });
+    $c('#dle-sp-decay-penalty-threshold').on('input', function () { settings.decayPenaltyThreshold = numVal($(this).val(), 2); saveSettingsDebounced(); });
 
     // ── Graph settings ──
-    $c('#dle_sp_graph_color_mode').on('change', function () { settings.graphDefaultColorMode = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_hover_dim_distance').on('input', function () { settings.graphHoverDimDistance = numVal($(this).val(), 2); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_focus_tree_depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 2); saveSettingsDebounced(); }); // BUG-L4: fallback matches default (2)
-    $c('#dle_sp_graph_show_labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_repulsion').on('input', function () { settings.graphRepulsion = parseFloat($(this).val()) || 0.5; saveSettingsDebounced(); });
-    $c('#dle_sp_graph_spring_length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 200); saveSettingsDebounced(); });
-    $c('#dle_sp_graph_gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 5.0; saveSettingsDebounced(); });
-    $c('#dle_sp_graph_damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.70; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-color-mode').on('change', function () { settings.graphDefaultColorMode = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-graph-hover-dim-distance').on('input', function () { settings.graphHoverDimDistance = numVal($(this).val(), 2); saveSettingsDebounced(); });
+    $c('#dle-sp-graph-focus-tree-depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 2); saveSettingsDebounced(); }); // BUG-L4: fallback matches default (2)
+    $c('#dle-sp-graph-show-labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-graph-repulsion').on('input', function () { settings.graphRepulsion = parseFloat($(this).val()) || 0.5; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-spring-length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 200); saveSettingsDebounced(); });
+    $c('#dle-sp-graph-gravity').on('input', function () { settings.graphGravity = parseFloat($(this).val()) || 5.0; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-damping').on('input', function () { settings.graphDamping = parseFloat($(this).val()) || 0.70; saveSettingsDebounced(); });
     // BUG-AUDIT-14: Use isNaN check instead of || fallback so 0 is a valid value
-    $c('#dle_sp_graph_hover_dim_opacity').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverDimOpacity = isNaN(v) ? 0.1 : v; saveSettingsDebounced(); });
-    $c('#dle_sp_graph_edge_filter_alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-hover-dim-opacity').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverDimOpacity = isNaN(v) ? 0.1 : v; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-edge-filter-alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
 
     // Test AI / Preview
-    $c('#dle_sp_test_ai').on('click', async function () {
+    $c('#dle-sp-test-ai').on('click', async function () {
         const $btn = $(this);
         if ($btn.prop('disabled')) return;
         $btn.prop('disabled', true).addClass('disabled');
-        const statusEl = $c('#dle_sp_ai_status');
+        const statusEl = $c('#dle-sp-ai-status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
             if (settings.aiSearchConnectionMode === 'profile') {
@@ -1011,7 +1011,7 @@ function bindPopupEvents($container) {
         finally { $btn.prop('disabled', false).removeClass('disabled'); }
     });
 
-    $c('#dle_sp_preview_ai').on('click', async function () {
+    $c('#dle-sp-preview-ai').on('click', async function () {
         if (!chat || chat.length === 0) { toastr.info('No active chat.', 'DeepLore Enhanced'); return; }
         await ensureIndexFresh();
         if (vaultIndex.length === 0) { toastr.info('No entries indexed.', 'DeepLore Enhanced'); return; }
@@ -1029,69 +1029,69 @@ function bindPopupEvents($container) {
     });
 
     // ── Features — Notebook ──
-    $c('#dle_sp_notebook_enabled').on('change', function () {
+    $c('#dle-sp-notebook-enabled').on('change', function () {
         settings.notebookEnabled = $(this).prop('checked'); saveSettingsDebounced();
     });
-    $c('#dle_sp_open_notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Author Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
+    $c('#dle-sp-open-notebook').on('click', function () { if (!settings.notebookEnabled) { toastr.warning('Enable the Author Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showNotebookPopup(); });
 
     // ── Features — AI Notebook ──
-    $c('#dle_sp_ai_notepad_enabled').on('change', function () {
+    $c('#dle-sp-ai-notepad-enabled').on('change', function () {
         settings.aiNotepadEnabled = $(this).prop('checked'); saveSettingsDebounced();
     });
-    $c('#dle_sp_ai_notepad_prompt').on('input', function () { settings.aiNotepadPrompt = $(this).val(); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_notepad_extract_prompt').on('input', function () { settings.aiNotepadExtractPrompt = $(this).val(); saveSettingsDebounced(); });
-    $c('input[name="dle_sp_ai_notepad_mode"]').on('change', function () {
+    $c('#dle-sp-ai-notepad-prompt').on('input', function () { settings.aiNotepadPrompt = $(this).val(); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-notepad-extract-prompt').on('input', function () { settings.aiNotepadExtractPrompt = $(this).val(); saveSettingsDebounced(); });
+    $c('input[name="dle-sp-ai-notepad-mode"]').on('change', function () {
         settings.aiNotepadMode = $(this).val(); saveSettingsDebounced();
         const isTag = settings.aiNotepadMode === 'tag';
-        $c('#dle_sp_ai_notepad_mode_tag_desc').toggle(isTag);
-        $c('#dle_sp_ai_notepad_mode_extract_desc').toggle(!isTag);
-        $c('#dle_sp_ai_notepad_tag_options').toggle(isTag);
-        $c('#dle_sp_ai_notepad_extract_options').toggle(!isTag);
+        $c('#dle-sp-ai-notepad-mode-tag-desc').toggle(isTag);
+        $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(!isTag);
+        $c('#dle-sp-ai-notepad-tag-options').toggle(isTag);
+        $c('#dle-sp-ai-notepad-extract-options').toggle(!isTag);
     });
     // AI Notebook extract mode connection handlers
-    $c('input[name="dle_sp_ai_notepad_connection_mode"]').on('change', function () {
+    $c('input[name="dle-sp-ai-notepad-connection-mode"]').on('change', function () {
         settings.aiNotepadConnectionMode = $(this).val(); saveSettingsDebounced();
-        updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle_sp_ai_notepad_profile_row', proxyRowSelector: '#dle_sp_ai_notepad_proxy_row', modelInputSelector: '#dle_sp_ai_notepad_model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle_sp_ai_notepad_model_row'] });
+        updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle-sp-ai-notepad-profile-row', proxyRowSelector: '#dle-sp-ai-notepad-proxy-row', modelInputSelector: '#dle-sp-ai-notepad-model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle-sp-ai-notepad-model-row'] });
     });
-    $c('#dle_sp_ai_notepad_profile_select').on('change', function () { settings.aiNotepadProfileId = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_notepad_proxy_url').on('input', function () { settings.aiNotepadProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
-    $c('#dle_sp_ai_notepad_model').on('input', function () { settings.aiNotepadModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_notepad_max_tokens').on('input', function () { settings.aiNotepadMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
-    $c('#dle_sp_ai_notepad_timeout').on('input', function () { settings.aiNotepadTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
-    $c('#dle_sp_open_ai_notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
+    $c('#dle-sp-ai-notepad-profile-select').on('change', function () { settings.aiNotepadProfileId = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-notepad-proxy-url').on('input', function () { settings.aiNotepadProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
+    $c('#dle-sp-ai-notepad-model').on('input', function () { settings.aiNotepadModel = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-notepad-max-tokens').on('input', function () { settings.aiNotepadMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-notepad-timeout').on('input', function () { settings.aiNotepadTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
+    $c('#dle-sp-open-ai-notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
 
     // ── Features — Scribe ──
-    $c('#dle_sp_scribe_enabled').on('change', function () {
+    $c('#dle-sp-scribe-enabled').on('change', function () {
         settings.scribeEnabled = $(this).prop('checked'); saveSettingsDebounced();
-        $c('#dle_sp_scribe_controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
-        $c('#dle_sp_scribe_controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
-        if (settings.scribeEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle_sp_scribe_profile_row', proxyRowSelector: '#dle_sp_scribe_proxy_row', modelInputSelector: '#dle_sp_scribe_model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle_sp_scribe_model_row'], hasStMode: true });
+        $c('#dle-sp-scribe-controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
+        $c('#dle-sp-scribe-controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
+        if (settings.scribeEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle-sp-scribe-profile-row', proxyRowSelector: '#dle-sp-scribe-proxy-row', modelInputSelector: '#dle-sp-scribe-model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle-sp-scribe-model-row'], hasStMode: true });
     });
-    $c('#dle_sp_scribe_interval').on('input', function () { settings.scribeInterval = numVal($(this).val(), 5); saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_folder').on('input', function () { settings.scribeFolder = String($(this).val()).trim() || 'Sessions'; saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_prompt').on('input', function () { settings.scribePrompt = String($(this).val()); saveSettingsDebounced(); });
-    $c('input[name="dle_sp_scribe_connection_mode"]').on('change', function () { settings.scribeConnectionMode = $c('input[name="dle_sp_scribe_connection_mode"]:checked').val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle_sp_scribe_profile_row', proxyRowSelector: '#dle_sp_scribe_proxy_row', modelInputSelector: '#dle_sp_scribe_model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle_sp_scribe_model_row'], hasStMode: true }); });
-    $c('#dle_sp_scribe_profile_select').on('change', function () { settings.scribeProfileId = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_proxy_url').on('input', function () { settings.scribeProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_model').on('input', function () { settings.scribeModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_max_tokens').on('input', function () { settings.scribeMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_timeout').on('input', function () { settings.scribeTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
-    $c('#dle_sp_scribe_scan_depth').on('input', function () { settings.scribeScanDepth = numVal($(this).val(), 20); saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-interval').on('input', function () { settings.scribeInterval = numVal($(this).val(), 5); saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-folder').on('input', function () { settings.scribeFolder = String($(this).val()).trim() || 'Sessions'; saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-prompt').on('input', function () { settings.scribePrompt = String($(this).val()); saveSettingsDebounced(); });
+    $c('input[name="dle-sp-scribe-connection-mode"]').on('change', function () { settings.scribeConnectionMode = $c('input[name="dle-sp-scribe-connection-mode"]:checked').val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle-sp-scribe-profile-row', proxyRowSelector: '#dle-sp-scribe-proxy-row', modelInputSelector: '#dle-sp-scribe-model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle-sp-scribe-model-row'], hasStMode: true }); });
+    $c('#dle-sp-scribe-profile-select').on('change', function () { settings.scribeProfileId = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-proxy-url').on('input', function () { settings.scribeProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-model').on('input', function () { settings.scribeModel = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-max-tokens').on('input', function () { settings.scribeMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-timeout').on('input', function () { settings.scribeTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
+    $c('#dle-sp-scribe-scan-depth').on('input', function () { settings.scribeScanDepth = numVal($(this).val(), 20); saveSettingsDebounced(); });
 
     // ── Features — Auto Lorebook ──
-    $c('#dle_sp_autosuggest_enabled').on('change', function () {
+    $c('#dle-sp-autosuggest-enabled').on('change', function () {
         settings.autoSuggestEnabled = $(this).prop('checked'); saveSettingsDebounced();
-        $c('#dle_sp_autosuggest_controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
-        if (settings.autoSuggestEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle_sp_autosuggest_profile_container', proxyRowSelector: '#dle_sp_autosuggest_proxy_container' });
+        $c('#dle-sp-autosuggest-controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
+        if (settings.autoSuggestEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle-sp-autosuggest-profile-container', proxyRowSelector: '#dle-sp-autosuggest-proxy-container' });
     });
-    $c('#dle_sp_autosuggest_interval').on('input', function () { settings.autoSuggestInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
-    $c('#dle_sp_autosuggest_folder').on('input', function () { settings.autoSuggestFolder = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('input[name="dle_sp_autosuggest_connection_mode"]').on('change', function () { settings.autoSuggestConnectionMode = $(this).val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle_sp_autosuggest_profile_container', proxyRowSelector: '#dle_sp_autosuggest_proxy_container' }); });
-    $c('#dle_sp_autosuggest_profile').on('change', function () { settings.autoSuggestProfileId = $(this).val(); saveSettingsDebounced(); });
-    $c('#dle_sp_autosuggest_proxy_url').on('input', function () { settings.autoSuggestProxyUrl = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_autosuggest_model').on('input', function () { settings.autoSuggestModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle_sp_autosuggest_max_tokens').on('input', function () { settings.autoSuggestMaxTokens = numVal($(this).val(), 2048); saveSettingsDebounced(); });
-    $c('#dle_sp_autosuggest_timeout').on('input', function () { settings.autoSuggestTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-interval').on('input', function () { settings.autoSuggestInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-folder').on('input', function () { settings.autoSuggestFolder = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('input[name="dle-sp-autosuggest-connection-mode"]').on('change', function () { settings.autoSuggestConnectionMode = $(this).val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle-sp-autosuggest-profile-container', proxyRowSelector: '#dle-sp-autosuggest-proxy-container' }); });
+    $c('#dle-sp-autosuggest-profile').on('change', function () { settings.autoSuggestProfileId = $(this).val(); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-proxy-url').on('input', function () { settings.autoSuggestProxyUrl = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-model').on('input', function () { settings.autoSuggestModel = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-max-tokens').on('input', function () { settings.autoSuggestMaxTokens = numVal($(this).val(), 2048); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-timeout').on('input', function () { settings.autoSuggestTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
 
     // Copy from AI Search buttons
     $container.on('click', '.dle-copy-ai-btn', function () {
@@ -1099,51 +1099,51 @@ function bindPopupEvents($container) {
         const mode = settings.aiSearchConnectionMode;
         if (target === 'scribe') {
             settings.scribeConnectionMode = mode; settings.scribeProfileId = settings.aiSearchProfileId; settings.scribeProxyUrl = settings.aiSearchProxyUrl; settings.scribeModel = settings.aiSearchModel;
-            $c(`input[name="dle_sp_scribe_connection_mode"][value="${mode}"]`).prop('checked', true); $c('#dle_sp_scribe_proxy_url').val(settings.scribeProxyUrl); $c('#dle_sp_scribe_model').val(settings.scribeModel);
-            populateProfileDropdownIn($container, 'dle_sp_scribe_profile_select', 'scribeProfileId');
-            updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle_sp_scribe_profile_row', proxyRowSelector: '#dle_sp_scribe_proxy_row', modelInputSelector: '#dle_sp_scribe_model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle_sp_scribe_model_row'], hasStMode: true });
+            $c(`input[name="dle-sp-scribe-connection-mode"][value="${mode}"]`).prop('checked', true); $c('#dle-sp-scribe-proxy-url').val(settings.scribeProxyUrl); $c('#dle-sp-scribe-model').val(settings.scribeModel);
+            populateProfileDropdownIn($container, 'dle-sp-scribe-profile-select', 'scribeProfileId');
+            updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle-sp-scribe-profile-row', proxyRowSelector: '#dle-sp-scribe-proxy-row', modelInputSelector: '#dle-sp-scribe-model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle-sp-scribe-model-row'], hasStMode: true });
         } else if (target === 'ai_notepad') {
             settings.aiNotepadConnectionMode = mode; settings.aiNotepadProfileId = settings.aiSearchProfileId; settings.aiNotepadProxyUrl = settings.aiSearchProxyUrl; settings.aiNotepadModel = settings.aiSearchModel;
-            $c(`input[name="dle_sp_ai_notepad_connection_mode"][value="${mode}"]`).prop('checked', true); $c('#dle_sp_ai_notepad_proxy_url').val(settings.aiNotepadProxyUrl); $c('#dle_sp_ai_notepad_model').val(settings.aiNotepadModel);
-            populateProfileDropdownIn($container, 'dle_sp_ai_notepad_profile_select', 'aiNotepadProfileId');
-            updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle_sp_ai_notepad_profile_row', proxyRowSelector: '#dle_sp_ai_notepad_proxy_row', modelInputSelector: '#dle_sp_ai_notepad_model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle_sp_ai_notepad_model_row'] });
+            $c(`input[name="dle-sp-ai-notepad-connection-mode"][value="${mode}"]`).prop('checked', true); $c('#dle-sp-ai-notepad-proxy-url').val(settings.aiNotepadProxyUrl); $c('#dle-sp-ai-notepad-model').val(settings.aiNotepadModel);
+            populateProfileDropdownIn($container, 'dle-sp-ai-notepad-profile-select', 'aiNotepadProfileId');
+            updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle-sp-ai-notepad-profile-row', proxyRowSelector: '#dle-sp-ai-notepad-proxy-row', modelInputSelector: '#dle-sp-ai-notepad-model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle-sp-ai-notepad-model-row'] });
         } else if (target === 'autosuggest') {
             settings.autoSuggestConnectionMode = mode; settings.autoSuggestProfileId = settings.aiSearchProfileId; settings.autoSuggestProxyUrl = settings.aiSearchProxyUrl; settings.autoSuggestModel = settings.aiSearchModel;
-            $c(`input[name="dle_sp_autosuggest_connection_mode"][value="${mode}"]`).prop('checked', true); $c('#dle_sp_autosuggest_proxy_url').val(settings.autoSuggestProxyUrl); $c('#dle_sp_autosuggest_model').val(settings.autoSuggestModel);
-            populateProfileDropdownIn($container, 'dle_sp_autosuggest_profile', 'autoSuggestProfileId');
-            updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle_sp_autosuggest_profile_container', proxyRowSelector: '#dle_sp_autosuggest_proxy_container' });
+            $c(`input[name="dle-sp-autosuggest-connection-mode"][value="${mode}"]`).prop('checked', true); $c('#dle-sp-autosuggest-proxy-url').val(settings.autoSuggestProxyUrl); $c('#dle-sp-autosuggest-model').val(settings.autoSuggestModel);
+            populateProfileDropdownIn($container, 'dle-sp-autosuggest-profile', 'autoSuggestProfileId');
+            updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle-sp-autosuggest-profile-container', proxyRowSelector: '#dle-sp-autosuggest-proxy-container' });
         }
         invalidateSettingsCache(); saveSettingsDebounced();
         toastr.success('Connection settings copied from AI Search.', 'DeepLore Enhanced');
     });
 
     // ── System ──
-    $c('#dle_sp_refresh').on('click', async function () {
+    $c('#dle-sp-refresh').on('click', async function () {
         const $btn = $(this), $icon = $btn.find('i');
         $btn.prop('disabled', true); $icon.removeClass('fa-rotate').addClass('fa-spinner fa-spin');
         try { setVaultIndex([]); setIndexTimestamp(0); await buildIndexWithReuse(); toastr.success(`Indexed ${vaultIndex.length} entries.`, 'DeepLore Enhanced'); updatePopupIndexStats($container); }
         catch (err) { toastr.error(String(err), 'DeepLore Enhanced'); }
         finally { $btn.prop('disabled', false); $icon.removeClass('fa-spinner fa-spin').addClass('fa-rotate'); }
     });
-    $c('#dle_sp_browse_entries').on('click', () => showBrowsePopup());
-    $c('#dle_sp_test_match').on('click', () => toastr.info('Use /dle-simulate in chat for a full match test.', 'DeepLore Enhanced'));
-    $c('#dle_sp_cache_ttl').on('input', function () { settings.cacheTTL = numVal($(this).val(), 300); saveSettingsDebounced(); });
-    $c('#dle_sp_sync_interval').on('input', function () { settings.syncPollingInterval = numVal($(this).val(), 0); saveSettingsDebounced(); setupSyncPolling(buildIndexWithReuse, buildIndexWithReuse); });
-    $c('#dle_sp_index_rebuild_trigger').on('change', function () {
+    $c('#dle-sp-browse-entries').on('click', () => showBrowsePopup());
+    $c('#dle-sp-test-match').on('click', () => toastr.info('Use /dle-simulate in chat for a full match test.', 'DeepLore Enhanced'));
+    $c('#dle-sp-cache-ttl').on('input', function () { settings.cacheTTL = numVal($(this).val(), 300); saveSettingsDebounced(); });
+    $c('#dle-sp-sync-interval').on('input', function () { settings.syncPollingInterval = numVal($(this).val(), 0); saveSettingsDebounced(); setupSyncPolling(buildIndexWithReuse, buildIndexWithReuse); });
+    $c('#dle-sp-index-rebuild-trigger').on('change', function () {
         settings.indexRebuildTrigger = String($(this).val());
-        $c('#dle_sp_rebuild_trigger_ttl_desc').toggle(settings.indexRebuildTrigger === 'ttl');
-        $c('#dle_sp_rebuild_trigger_gen_desc').toggle(settings.indexRebuildTrigger === 'generation');
-        $c('#dle_sp_rebuild_trigger_manual_desc').toggle(settings.indexRebuildTrigger === 'manual');
-        $c('#dle_sp_rebuild_gen_interval_row').toggle(settings.indexRebuildTrigger === 'generation');
+        $c('#dle-sp-rebuild-trigger-ttl-desc').toggle(settings.indexRebuildTrigger === 'ttl');
+        $c('#dle-sp-rebuild-trigger-gen-desc').toggle(settings.indexRebuildTrigger === 'generation');
+        $c('#dle-sp-rebuild-trigger-manual-desc').toggle(settings.indexRebuildTrigger === 'manual');
+        $c('#dle-sp-rebuild-gen-interval-row').toggle(settings.indexRebuildTrigger === 'generation');
         saveSettingsDebounced();
     });
-    $c('#dle_sp_rebuild_gen_interval').on('input', function () { settings.indexRebuildGenerationInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
-    $c('#dle_sp_show_sync_toasts').on('change', function () { settings.showSyncToasts = $(this).prop('checked'); saveSettingsDebounced(); });
-    $c('#dle_sp_review_tokens').on('input', function () { settings.reviewResponseTokens = numVal($(this).val(), 0); saveSettingsDebounced(); });
-    $c('#dle_sp_debug').on('change', function () { settings.debugMode = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-rebuild-gen-interval').on('input', function () { settings.indexRebuildGenerationInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
+    $c('#dle-sp-show-sync-toasts').on('change', function () { settings.showSyncToasts = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-review-tokens').on('input', function () { settings.reviewResponseTokens = numVal($(this).val(), 0); saveSettingsDebounced(); });
+    $c('#dle-sp-debug').on('change', function () { settings.debugMode = $(this).prop('checked'); saveSettingsDebounced(); });
 
     // ── Reset All Settings ──
-    $c('#dle_sp_reset_defaults').on('click', async function () {
+    $c('#dle-sp-reset-defaults').on('click', async function () {
         const confirmed = await callGenericPopup(
             '<div style="text-align:center;"><p><strong>Reset all DeepLore Enhanced settings to defaults?</strong></p><p>This cannot be undone. Your vault connections and AI connection profiles will be preserved.</p></div>',
             POPUP_TYPE.CONFIRM, '', { okButton: 'Reset', cancelButton: 'Cancel' },
@@ -1193,22 +1193,22 @@ function bindPopupEvents($container) {
 
     // Visual clamping
     const clampMap = {
-        dle_sp_scan_depth: 'scanDepth', dle_sp_max_entries: 'maxEntries', dle_sp_token_budget: 'maxTokensBudget',
-        dle_sp_depth: 'injectionDepth', dle_sp_notebook_depth: 'notebookDepth', dle_sp_max_recursion: 'maxRecursionSteps',
-        dle_sp_cache_ttl: 'cacheTTL', dle_sp_review_tokens: 'reviewResponseTokens',
-        dle_sp_ai_max_tokens: 'aiSearchMaxTokens', dle_sp_ai_timeout: 'aiSearchTimeout',
-        dle_sp_ai_scan_depth: 'aiSearchScanDepth', dle_sp_ai_summary_length: 'aiSearchManifestSummaryLength',
-        dle_sp_scribe_interval: 'scribeInterval', dle_sp_scribe_max_tokens: 'scribeMaxTokens',
-        dle_sp_scribe_timeout: 'scribeTimeout', dle_sp_scribe_scan_depth: 'scribeScanDepth',
-        dle_sp_new_chat_threshold: 'newChatThreshold', dle_sp_sync_interval: 'syncPollingInterval',
-        dle_sp_reinjection_cooldown: 'reinjectionCooldown', dle_sp_strip_lookback: 'stripLookbackDepth',
-        dle_sp_autosuggest_interval: 'autoSuggestInterval', dle_sp_autosuggest_max_tokens: 'autoSuggestMaxTokens', dle_sp_autosuggest_timeout: 'autoSuggestTimeout',
-        dle_sp_decay_boost_threshold: 'decayBoostThreshold', dle_sp_decay_penalty_threshold: 'decayPenaltyThreshold',
-        dle_sp_graph_repulsion: 'graphRepulsion', dle_sp_graph_spring_length: 'graphSpringLength',
-        dle_sp_graph_gravity: 'graphGravity', dle_sp_graph_damping: 'graphDamping',
-        dle_sp_graph_hover_dim_distance: 'graphHoverDimDistance', dle_sp_graph_hover_dim_opacity: 'graphHoverDimOpacity',
-        dle_sp_graph_focus_tree_depth: 'graphFocusTreeDepth', dle_sp_graph_edge_filter_alpha: 'graphEdgeFilterAlpha',
-        dle_sp_fuzzy_min_score: 'fuzzySearchMinScore', dle_sp_rebuild_gen_interval: 'indexRebuildGenerationInterval',
+        'dle-sp-scan-depth': 'scanDepth', 'dle-sp-max-entries': 'maxEntries', 'dle-sp-token-budget': 'maxTokensBudget',
+        'dle-sp-depth': 'injectionDepth', 'dle-sp-notebook-depth': 'notebookDepth', 'dle-sp-max-recursion': 'maxRecursionSteps',
+        'dle-sp-cache-ttl': 'cacheTTL', 'dle-sp-review-tokens': 'reviewResponseTokens',
+        'dle-sp-ai-max-tokens': 'aiSearchMaxTokens', 'dle-sp-ai-timeout': 'aiSearchTimeout',
+        'dle-sp-ai-scan-depth': 'aiSearchScanDepth', 'dle-sp-ai-summary-length': 'aiSearchManifestSummaryLength',
+        'dle-sp-scribe-interval': 'scribeInterval', 'dle-sp-scribe-max-tokens': 'scribeMaxTokens',
+        'dle-sp-scribe-timeout': 'scribeTimeout', 'dle-sp-scribe-scan-depth': 'scribeScanDepth',
+        'dle-sp-new-chat-threshold': 'newChatThreshold', 'dle-sp-sync-interval': 'syncPollingInterval',
+        'dle-sp-reinjection-cooldown': 'reinjectionCooldown', 'dle-sp-strip-lookback': 'stripLookbackDepth',
+        'dle-sp-autosuggest-interval': 'autoSuggestInterval', 'dle-sp-autosuggest-max-tokens': 'autoSuggestMaxTokens', 'dle-sp-autosuggest-timeout': 'autoSuggestTimeout',
+        'dle-sp-decay-boost-threshold': 'decayBoostThreshold', 'dle-sp-decay-penalty-threshold': 'decayPenaltyThreshold',
+        'dle-sp-graph-repulsion': 'graphRepulsion', 'dle-sp-graph-spring-length': 'graphSpringLength',
+        'dle-sp-graph-gravity': 'graphGravity', 'dle-sp-graph-damping': 'graphDamping',
+        'dle-sp-graph-hover-dim-distance': 'graphHoverDimDistance', 'dle-sp-graph-hover-dim-opacity': 'graphHoverDimOpacity',
+        'dle-sp-graph-focus-tree-depth': 'graphFocusTreeDepth', 'dle-sp-graph-edge-filter-alpha': 'graphEdgeFilterAlpha',
+        'dle-sp-fuzzy-min-score': 'fuzzySearchMinScore', 'dle-sp-rebuild-gen-interval': 'indexRebuildGenerationInterval',
     };
     for (const [inputId, settingName] of Object.entries(clampMap)) {
         $c(`#${inputId}`).on('blur', function () {
@@ -1233,7 +1233,7 @@ function bindPopupEvents($container) {
 
 export function loadSettingsUI() {
     const settings = getSettings();
-    $('#dle_enabled').prop('checked', settings.enabled);
+    $('#dle-enabled').prop('checked', settings.enabled);
     updateStubStatus();
 
     onIndexUpdated(() => {
@@ -1253,7 +1253,7 @@ function updateStubStatus() {
     const count = vaultIndex.length;
     const status = computeOverallStatus();
     const info = STATUS_DISPLAY[status];
-    const el = document.getElementById('dle_stub_status');
+    const el = document.getElementById('dle-stub-status');
     if (el) {
         el.textContent = count > 0
             ? `${count} entries | ${info.dot} ${info.label}`
@@ -1269,14 +1269,14 @@ function updateStubStatus() {
 export function bindSettingsEvents(buildIndexFn) {
     const settings = getSettings();
 
-    $('#dle_enabled').on('change', function () {
+    $('#dle-enabled').on('change', function () {
         settings.enabled = $(this).prop('checked');
         saveSettingsDebounced();
         setupSyncPolling(buildIndexFn, buildIndexWithReuse);
     });
 
-    $('#dle_open_settings').on('click', () => openSettingsPopup());
-    $('#dle_open_settings').on('keydown', (e) => {
+    $('#dle-open-settings').on('click', () => openSettingsPopup());
+    $('#dle-open-settings').on('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSettingsPopup(); }
     });
 }

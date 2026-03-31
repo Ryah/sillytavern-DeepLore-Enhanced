@@ -21,7 +21,7 @@ import { ds, formatTokensCompact } from './drawer-state.js';
 export function renderFooter() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
-    const $footer = $drawer.find('#dle_drawer_footer');
+    const $footer = $drawer.find('#dle-drawer-footer');
     if (!$footer.length) return;
 
     // ── Context window bar ──

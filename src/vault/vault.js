@@ -264,7 +264,7 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
  */
 export async function buildIndex() {
     if (indexing) {
-        console.debug('[DLE] Index build already in progress, awaiting existing build');
+        if (getSettings().debugMode) console.debug('[DLE] Index build already in progress, awaiting existing build');
         return buildPromise;
     }
 
@@ -387,7 +387,7 @@ export async function buildIndex() {
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
 
-        console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
+        if (settings.debugMode) console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
 
         await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
     } catch (err) {
@@ -442,7 +442,7 @@ export async function hydrateFromCache() {
         // a successful Obsidian fetch confirms the vault is reachable.
         notifyIndexUpdated();
 
-        console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
+        if (getSettings().debugMode) console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
 
         // Background: rebuild from Obsidian to validate cache freshness
         // H3: Capture epoch so stale background rebuilds don't apply to a different chat

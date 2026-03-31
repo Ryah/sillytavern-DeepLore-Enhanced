@@ -29,14 +29,14 @@ export function initGraphSettings(gs, dbg) {
     // ── Normalized slider mapping ──
     // Each slider is -100..+100. 0 = default. Negative = below default, positive = above.
     const sliderMaps = {
-        dle_gs_repulsion:   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 50,    round: 1, power: 1.5 },
-        dle_gs_spring:      { key: 'graphSpringLength',    min: 30,    def: 80,   max: 600,   round: 0, power: 1 },
-        dle_gs_gravity:     { key: 'graphGravity',         min: 0.1,   def: 11.0, max: 20,    round: 1, power: 1.5 },
-        dle_gs_damping:     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1, invert: true },
-        dle_gs_hover_dim:   { key: 'graphHoverDimDistance', min: 0,     def: 2,    max: 15,    round: 0, power: 1 },
-        dle_gs_dim_opacity: { key: 'graphHoverDimOpacity',  min: 0,     def: 0.1,  max: 0.5,   round: 2, power: 1.5 },
-        dle_gs_tree_depth:  { key: 'graphFocusTreeDepth',  min: 1,     def: 2,    max: 15,    round: 0, power: 1 },
-        dle_gs_edge_filter: { key: 'graphEdgeFilterAlpha', min: 0.01,  def: 0.05, max: 0.5,   round: 2, power: 1.5 },
+        'dle-gs-repulsion':   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 50,    round: 1, power: 1.5 },
+        'dle-gs-spring':      { key: 'graphSpringLength',    min: 30,    def: 80,   max: 600,   round: 0, power: 1 },
+        'dle-gs-gravity':     { key: 'graphGravity',         min: 0.1,   def: 11.0, max: 20,    round: 1, power: 1.5 },
+        'dle-gs-damping':     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1, invert: true },
+        'dle-gs-hover-dim':   { key: 'graphHoverDimDistance', min: 0,     def: 2,    max: 15,    round: 0, power: 1 },
+        'dle-gs-dim-opacity': { key: 'graphHoverDimOpacity',  min: 0,     def: 0.1,  max: 0.5,   round: 2, power: 1.5 },
+        'dle-gs-tree-depth':  { key: 'graphFocusTreeDepth',  min: 1,     def: 2,    max: 15,    round: 0, power: 1 },
+        'dle-gs-edge-filter': { key: 'graphEdgeFilterAlpha', min: 0.01,  def: 0.05, max: 0.5,   round: 2, power: 1.5 },
     };
 
     /** Convert actual setting value → normalized slider position (-100..+100) */
@@ -81,23 +81,23 @@ export function initGraphSettings(gs, dbg) {
 
     /** Update the backbone edge count display */
     function updateEdgeCount() {
-        const el = document.getElementById('dle_gs_edge_count');
+        const el = document.getElementById('dle-gs-edge-count');
         if (el && gs._backboneCount != null) {
             el.textContent = `Backbone: ${gs._backboneCount} / ${gs.edges.length} edges`;
         }
     }
 
-    const settingsPanel = document.getElementById('dle_graph_settings_panel');
-    const settingsBtn = document.getElementById('dle_graph_settings_btn');
-    const settingsCloseBtn = document.getElementById('dle_graph_settings_panel_close');
-    const colorModeEl = document.getElementById('dle_graph_color_mode');
+    const settingsPanel = document.getElementById('dle-graph-settings-panel');
+    const settingsBtn = document.getElementById('dle-graph-settings-btn');
+    const settingsCloseBtn = document.getElementById('dle-graph-settings-panel-close');
+    const colorModeEl = document.getElementById('dle-graph-color-mode');
 
     // Sync panel controls from current settings
     function syncSettingsPanel() {
-        const gsColorMode = document.getElementById('dle_gs_color_mode');
+        const gsColorMode = document.getElementById('dle-gs-color-mode');
         if (gsColorMode) gsColorMode.value = gs.colorMode;
 
-        const gsLabels = document.getElementById('dle_gs_labels');
+        const gsLabels = document.getElementById('dle-gs-labels');
         if (gsLabels) gsLabels.checked = gs.showLabels;
 
         for (const [id, map] of Object.entries(sliderMaps)) {
@@ -129,7 +129,7 @@ export function initGraphSettings(gs, dbg) {
         }
 
         // Draggable titlebar
-        const titlebar = document.getElementById('dle_graph_settings_titlebar');
+        const titlebar = document.getElementById('dle-graph-settings-titlebar');
         if (titlebar) {
             let dragPanelActive = false, dpStartX = 0, dpStartY = 0, dpOriginX = 0, dpOriginY = 0;
             titlebar.addEventListener('mousedown', (e) => {
@@ -155,7 +155,7 @@ export function initGraphSettings(gs, dbg) {
         }
 
         // Wire color mode
-        const gsColorMode = document.getElementById('dle_gs_color_mode');
+        const gsColorMode = document.getElementById('dle-gs-color-mode');
         if (gsColorMode) {
             gsColorMode.addEventListener('change', () => {
                 gs.colorMode = gsColorMode.value;
@@ -166,7 +166,7 @@ export function initGraphSettings(gs, dbg) {
         }
 
         // Wire labels
-        const gsLabels = document.getElementById('dle_gs_labels');
+        const gsLabels = document.getElementById('dle-gs-labels');
         if (gsLabels) {
             gsLabels.addEventListener('change', () => {
                 gs.showLabels = gsLabels.checked;
@@ -214,7 +214,7 @@ export function initGraphSettings(gs, dbg) {
         }
 
         // Redraw — clear saved layout and replay BFS rollout animation
-        const redrawBtn = document.getElementById('dle_gs_redraw');
+        const redrawBtn = document.getElementById('dle-gs-redraw');
         if (redrawBtn) {
             redrawBtn.addEventListener('click', () => {
                 if (gs.replayReveal) gs.replayReveal();
@@ -223,7 +223,7 @@ export function initGraphSettings(gs, dbg) {
         }
 
         // Reset to defaults
-        const resetBtn = document.getElementById('dle_gs_reset');
+        const resetBtn = document.getElementById('dle-gs-reset');
         if (resetBtn) {
             resetBtn.addEventListener('click', () => {
                 for (const [, map] of Object.entries(sliderMaps)) {

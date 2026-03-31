@@ -25,7 +25,7 @@ export function initEvents(gs, dbg) {
     // ========================================================================
     // Context menu
     // ========================================================================
-    const contextMenuEl = document.getElementById('dle_graph_context_menu');
+    const contextMenuEl = document.getElementById('dle-graph-context-menu');
 
     function showContextMenu(node, screenX, screenY) {
         if (!contextMenuEl) return;
@@ -367,7 +367,7 @@ export function initEvents(gs, dbg) {
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
-        if (!document.getElementById('dle_graph_canvas')) return;
+        if (!document.getElementById('dle-graph-canvas')) return;
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
 
         switch (e.key) {
@@ -428,13 +428,13 @@ export function initEvents(gs, dbg) {
     // ========================================================================
     // Toolbar event wiring
     // ========================================================================
-    const searchEl = document.getElementById('dle_graph_search');
-    const typeFilterEl = document.getElementById('dle_graph_type_filter');
-    const tagFilterEl = document.getElementById('dle_graph_tag_filter');
-    const colorModeEl = document.getElementById('dle_graph_color_mode');
-    const fitBtn = document.getElementById('dle_graph_fit');
-    const exportPngBtn = document.getElementById('dle_graph_export_png');
-    const exportJsonBtn = document.getElementById('dle_graph_export_json');
+    const searchEl = document.getElementById('dle-graph-search');
+    const typeFilterEl = document.getElementById('dle-graph-type-filter');
+    const tagFilterEl = document.getElementById('dle-graph-tag-filter');
+    const colorModeEl = document.getElementById('dle-graph-color-mode');
+    const fitBtn = document.getElementById('dle-graph-fit');
+    const exportPngBtn = document.getElementById('dle-graph-export-png');
+    const exportJsonBtn = document.getElementById('dle-graph-export-json');
 
     if (searchEl) {
         searchEl.addEventListener('input', () => {
@@ -463,13 +463,13 @@ export function initEvents(gs, dbg) {
             gs.updateTooltip();
         }, lOpt);
     }
-    const backBtn = document.getElementById('dle_graph_back');
+    const backBtn = document.getElementById('dle-graph-back');
     if (backBtn) {
         backBtn.addEventListener('click', () => gs.exitFocusTree(), lOpt);
     }
     // Hop depth +/- buttons for focus tree mode
-    const hopMinusBtn = document.getElementById('dle_graph_hop_minus');
-    const hopPlusBtn = document.getElementById('dle_graph_hop_plus');
+    const hopMinusBtn = document.getElementById('dle-graph-hop-minus');
+    const hopPlusBtn = document.getElementById('dle-graph-hop-plus');
     function adjustHopDepth(delta) {
         if (!gs.focusTreeRoot) return;
         const current = gs.settings.graphFocusTreeDepth || 2;
@@ -495,7 +495,7 @@ export function initEvents(gs, dbg) {
     }
     if (hopMinusBtn) hopMinusBtn.addEventListener('click', () => adjustHopDepth(-1), lOpt);
     if (hopPlusBtn) hopPlusBtn.addEventListener('click', () => adjustHopDepth(+1), lOpt);
-    const unpinAllBtn = document.getElementById('dle_graph_unpin_all');
+    const unpinAllBtn = document.getElementById('dle-graph-unpin-all');
     if (unpinAllBtn) {
         unpinAllBtn.addEventListener('click', () => {
             let count = 0;
@@ -506,7 +506,7 @@ export function initEvents(gs, dbg) {
             gs.needsDraw = true;
         }, lOpt);
     }
-    const resetBtn = document.getElementById('dle_graph_reset');
+    const resetBtn = document.getElementById('dle-graph-reset');
     if (resetBtn) {
         resetBtn.addEventListener('click', () => {
             if (gs.focusTreeRoot) gs.exitFocusTree();
@@ -603,7 +603,7 @@ export function initEvents(gs, dbg) {
     }
 
     // Analyze toggle
-    const analyzeBtn = document.getElementById('dle_graph_analyze');
+    const analyzeBtn = document.getElementById('dle-graph-analyze');
     if (analyzeBtn) {
         analyzeBtn.addEventListener('click', () => {
             gs.gapAnalysisActive = !gs.gapAnalysisActive;
@@ -632,7 +632,7 @@ export function initEvents(gs, dbg) {
     // ========================================================================
     // Interactive legend
     // ========================================================================
-    const legendEl = document.getElementById('dle_graph_legend');
+    const legendEl = document.getElementById('dle-graph-legend');
     if (legendEl) {
         legendEl.querySelectorAll('.dle-graph-legend-item').forEach(item => {
             item.addEventListener('click', () => {
@@ -650,7 +650,7 @@ export function initEvents(gs, dbg) {
     // Sync toolbar color mode → settings panel color mode
     if (colorModeEl) {
         colorModeEl.addEventListener('change', () => {
-            const gsColorMode = document.getElementById('dle_gs_color_mode');
+            const gsColorMode = document.getElementById('dle-gs-color-mode');
             if (gsColorMode) gsColorMode.value = gs.colorMode;
         }, lOpt);
     }

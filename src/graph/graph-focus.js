@@ -180,13 +180,13 @@ export function initFocus(gs, dbg) {
         gs.needsDraw = true;
         gs.hasSpringEnergy = true;
 
-        const backBtn = document.getElementById('dle_graph_back');
+        const backBtn = document.getElementById('dle-graph-back');
         if (backBtn) {
             backBtn.textContent = `← ${rootNode.title} (${depthMap.size} nodes, ${depth}-hop)`;
             backBtn.style.display = 'inline-block';
         }
-        const hopMinus = document.getElementById('dle_graph_hop_minus');
-        const hopPlus = document.getElementById('dle_graph_hop_plus');
+        const hopMinus = document.getElementById('dle-graph-hop-minus');
+        const hopPlus = document.getElementById('dle-graph-hop-plus');
         if (hopMinus) hopMinus.style.display = 'inline-block';
         if (hopPlus) hopPlus.style.display = 'inline-block';
 
@@ -196,7 +196,7 @@ export function initFocus(gs, dbg) {
     }
 
     function updateHints(focusMode) {
-        const el = document.getElementById('dle_graph_hints');
+        const el = document.getElementById('dle-graph-hints');
         if (!el) return;
         if (focusMode) {
             el.textContent = 'Double-click node to re-root · +/- to change depth · Backspace or ← to exit focus · Scroll to zoom · 0 to fit';
@@ -253,10 +253,10 @@ export function initFocus(gs, dbg) {
         gs.needsDraw = true;
         gs.hasSpringEnergy = true;
 
-        const backBtn = document.getElementById('dle_graph_back');
+        const backBtn = document.getElementById('dle-graph-back');
         if (backBtn) backBtn.style.display = 'none';
-        const hopMinus = document.getElementById('dle_graph_hop_minus');
-        const hopPlus = document.getElementById('dle_graph_hop_plus');
+        const hopMinus = document.getElementById('dle-graph-hop-minus');
+        const hopPlus = document.getElementById('dle-graph-hop-plus');
         if (hopMinus) hopMinus.style.display = 'none';
         if (hopPlus) hopPlus.style.display = 'none';
 
@@ -342,7 +342,7 @@ export function initFocus(gs, dbg) {
         }
         gs.needsDraw = true;
         dbg(`Filters applied: query="${q}", type="${gs.typeFilter}", tag="${gs.tagFilter}" → ${matchCount}/${nodes.length} match`);
-        const searchEl = document.getElementById('dle_graph_search');
+        const searchEl = document.getElementById('dle-graph-search');
         if (searchEl && hasFilter) {
             searchEl.title = `${matchCount} of ${nodes.length} entries match`;
         } else if (searchEl) {

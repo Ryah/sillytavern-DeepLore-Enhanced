@@ -97,8 +97,8 @@ export async function showNotebookPopup() {
     container.innerHTML = `
         <h3>Author Notebook</h3>
         <p class="dle-muted dle-text-sm">Persistent scratchpad for this chat. Contents are injected into every generation when enabled. Use for character notes, plot threads, reminders, or anything the AI should always know.</p>
-        <textarea id="dle_notebook_textarea" class="text_pole dle-w-full" rows="15" placeholder="Write notes here...">${escapeHtml(currentContent)}</textarea>
-        <span id="dle_notebook_token_count" class="dle-text-xs dle-faint"></span>
+        <textarea id="dle-notebook-textarea" class="text_pole dle-w-full" rows="15" placeholder="Write notes here...">${escapeHtml(currentContent)}</textarea>
+        <span id="dle-notebook-token-count" class="dle-text-xs dle-faint"></span>
     `;
 
     // Capture textarea value in closure so it's available after popup DOM is destroyed
@@ -110,8 +110,8 @@ export async function showNotebookPopup() {
         okButton: 'Save',
         cancelButton: 'Cancel',
         onOpen: async () => {
-            const textarea = document.getElementById('dle_notebook_textarea');
-            const countEl = document.getElementById('dle_notebook_token_count');
+            const textarea = document.getElementById('dle-notebook-textarea');
+            const countEl = document.getElementById('dle-notebook-token-count');
             if (textarea && countEl) {
                 const updateCount = async () => {
                     try {
@@ -144,8 +144,8 @@ export async function showAiNotepadPopup() {
     container.innerHTML = `
         <h3>AI Notebook</h3>
         <p class="dle-muted dle-text-sm">Session notes written by the AI using &lt;dle-notes&gt; tags. These are stripped from visible chat and reinjected into future messages.</p>
-        <textarea id="dle_ai_notepad_textarea" class="text_pole dle-w-full" rows="15" placeholder="No AI notes yet for this chat.">${escapeHtml(currentNotes)}</textarea>
-        <span id="dle_ai_notepad_token_count" class="dle-text-xs dle-faint"></span>
+        <textarea id="dle-ai-notepad-textarea" class="text_pole dle-w-full" rows="15" placeholder="No AI notes yet for this chat.">${escapeHtml(currentNotes)}</textarea>
+        <span id="dle-ai-notepad-token-count" class="dle-text-xs dle-faint"></span>
     `;
 
     let capturedValue = currentNotes;
@@ -156,8 +156,8 @@ export async function showAiNotepadPopup() {
         okButton: 'Save',
         cancelButton: 'Cancel',
         onOpen: async () => {
-            const textarea = document.getElementById('dle_ai_notepad_textarea');
-            const countEl = document.getElementById('dle_ai_notepad_token_count');
+            const textarea = document.getElementById('dle-ai-notepad-textarea');
+            const countEl = document.getElementById('dle-ai-notepad-token-count');
             if (textarea && countEl) {
                 const updateCount = async () => {
                     try {
@@ -198,8 +198,8 @@ export async function showBrowsePopup() {
     container.innerHTML = `
         <h3>Entry Browser (${vaultIndex.length} entries)</h3>
         <div class="dle-browse-controls">
-            <input id="dle_browse_search" type="text" class="text_pole dle-browse-search" placeholder="Search titles, keywords, content..." />
-            <select id="dle_browse_status" class="text_pole dle-browse-filter">
+            <input id="dle-browse-search" type="text" class="text_pole dle-browse-search" placeholder="Search titles, keywords, content..." />
+            <select id="dle-browse-status" class="text_pole dle-browse-filter">
                 <option value="all">All Status</option>
                 <option value="pinned">Pinned</option>
                 <option value="blocked">Blocked</option>
@@ -209,11 +209,11 @@ export async function showBrowsePopup() {
                 <option value="regular">Regular</option>
                 <option value="never_injected">Never Injected</option>
             </select>
-            <select id="dle_browse_tag" class="text_pole dle-browse-filter">
+            <select id="dle-browse-tag" class="text_pole dle-browse-filter">
                 <option value="">All Tags</option>
                 ${allTags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('')}
             </select>
-            <select id="dle_browse_sort" class="text_pole dle-browse-sort">
+            <select id="dle-browse-sort" class="text_pole dle-browse-sort">
                 <option value="priority_asc">Priority (high→low)</option>
                 <option value="priority_desc">Priority (low→high)</option>
                 <option value="alpha_asc">Alphabetical (A→Z)</option>
@@ -224,8 +224,8 @@ export async function showBrowsePopup() {
                 <option value="injected_asc">Least injected</option>
             </select>
         </div>
-        <div id="dle_browse_list" class="dle-scroll-region"></div>
-        <span id="dle_browse_count" class="dle-text-xs dle-faint"></span>
+        <div id="dle-browse-list" class="dle-scroll-region"></div>
+        <span id="dle-browse-count" class="dle-text-xs dle-faint"></span>
     `;
 
     // H8: Pre-compute search haystacks for browse popup filtering
@@ -235,12 +235,12 @@ export async function showBrowsePopup() {
     }
 
     function renderList() {
-        const searchEl = container.querySelector('#dle_browse_search');
-        const statusEl = container.querySelector('#dle_browse_status');
-        const tagEl = container.querySelector('#dle_browse_tag');
-        const sortEl = container.querySelector('#dle_browse_sort');
-        const listEl = container.querySelector('#dle_browse_list');
-        const countEl = container.querySelector('#dle_browse_count');
+        const searchEl = container.querySelector('#dle-browse-search');
+        const statusEl = container.querySelector('#dle-browse-status');
+        const tagEl = container.querySelector('#dle-browse-tag');
+        const sortEl = container.querySelector('#dle-browse-sort');
+        const listEl = container.querySelector('#dle-browse-list');
+        const countEl = container.querySelector('#dle-browse-count');
 
         const search = (searchEl?.value || '').toLowerCase();
         const status = statusEl?.value || 'all';
@@ -313,14 +313,14 @@ export async function showBrowsePopup() {
 
             const temp = tempMap.get(trackerKey(entry));
             const tempAttr = temp && temp.hue !== 'neutral' ? ` data-temp="${temp.hue}"` : '';
-            html += `<tr class="dle-entry-toggle dle-browse-table-row" data-target="dle_entry_${entryId}" aria-expanded="false"${tempAttr}>`;
+            html += `<tr class="dle-entry-toggle dle-browse-table-row" data-target="dle-entry-${entryId}" aria-expanded="false"${tempAttr}>`;
             html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</td>`;
             html += `<td class="dle-browse-table-keys">${keysDisplay || '<em class="dle-muted">none</em>'}</td>`;
             html += `<td class="dle-text-center">P${entry.priority}</td>`;
             html += `<td class="dle-text-right">~${entry.tokenEstimate}</td>`;
             html += `<td class="dle-text-right" title="matched / injected">${usageStr}</td>`;
             html += `</tr>`;
-            html += `<tr id="dle_entry_${entryId}" class="dle-hidden"><td colspan="5" class="dle-browse-table-detail">`;
+            html += `<tr id="dle-entry-${entryId}" class="dle-hidden"><td colspan="5" class="dle-browse-table-detail">`;
             const truncated = entry.content.length > 500 ? entry.content.substring(0, 500) + '…' : entry.content;
             html += `<div class="dle-preview">${escapeHtml(truncated)}</div>`;
             html += `<div class="dle-text-xs dle-muted dle-mt-1">`;
@@ -333,7 +333,7 @@ export async function showBrowsePopup() {
             html += obsidianLink;
             html += `</div>`;
             if (chat && chat.length > 0 && !entry.constant) {
-                html += `<div id="dle_whynot_${entryId}" class="dle-mt-1"><button class="menu_button dle-whynot-btn dle-text-xs" data-title="${escapeHtml(entry.title)}">Why not injected?</button></div>`;
+                html += `<div id="dle-whynot-${entryId}" class="dle-mt-1"><button class="menu_button dle-whynot-btn dle-text-xs" data-title="${escapeHtml(entry.title)}">Why not injected?</button></div>`;
             }
             html += `</td></tr>`;
         }
@@ -377,13 +377,13 @@ export async function showBrowsePopup() {
             renderList();
             // H8: Debounce search input to avoid re-rendering on every keystroke
             let searchTimer = null;
-            container.querySelector('#dle_browse_search')?.addEventListener('input', () => {
+            container.querySelector('#dle-browse-search')?.addEventListener('input', () => {
                 clearTimeout(searchTimer);
                 searchTimer = setTimeout(renderList, 150);
             });
-            container.querySelector('#dle_browse_status')?.addEventListener('change', renderList);
-            container.querySelector('#dle_browse_tag')?.addEventListener('change', renderList);
-            container.querySelector('#dle_browse_sort')?.addEventListener('change', renderList);
+            container.querySelector('#dle-browse-status')?.addEventListener('change', renderList);
+            container.querySelector('#dle-browse-tag')?.addEventListener('change', renderList);
+            container.querySelector('#dle-browse-sort')?.addEventListener('change', renderList);
         },
     });
 }

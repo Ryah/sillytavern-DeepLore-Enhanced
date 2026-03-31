@@ -40,6 +40,7 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
     const maxTokens = settings.autoSuggestMaxTokens;
 
     if (mode === 'st') {
+        if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
         // Note: generateQuietPrompt cannot be aborted — timed-out generation completes in background
         const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
         // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
@@ -121,7 +122,7 @@ export async function showSuggestionPopup(suggestions) {
     for (let i = 0; i < suggestions.length; i++) {
         const s = suggestions[i];
         cardsHtml += `
-            <div id="dle_suggest_${i}" class="dle-suggest-card dle-card">
+            <div id="dle-suggest-${i}" class="dle-suggest-card dle-card">
                 <div class="dle-card-header dle-mb-1">
                     <strong>${escapeHtml(s.title || 'Untitled')}</strong>
                     <span class="dle-text-xs dle-muted">${escapeHtml(s.type || 'lore')}</span>
@@ -147,7 +148,7 @@ export async function showSuggestionPopup(suggestions) {
         <h3>Suggested Entries (${suggestions.length})</h3>
         <p class="dle-muted dle-text-sm">Review each suggestion. Accept to write to Obsidian, reject to skip.</p>
         <label class="checkbox_label dle-text-sm dle-checkbox-row">
-            <input type="checkbox" class="checkbox" id="dle_suggest_skip_review" ${settings.autoSuggestSkipReview ? 'checked' : ''}>
+            <input type="checkbox" class="checkbox" id="dle-suggest-skip-review" ${settings.autoSuggestSkipReview ? 'checked' : ''}>
             <span>Write directly (skip review)</span>
         </label>
         ${cardsHtml}
@@ -159,7 +160,7 @@ export async function showSuggestionPopup(suggestions) {
         allowVerticalScrolling: true,
         onOpen: () => {
             // E11: Sync skip-review checkbox with settings
-            const skipCheckbox = container.querySelector('#dle_suggest_skip_review');
+            const skipCheckbox = container.querySelector('#dle-suggest-skip-review');
             if (skipCheckbox) {
                 skipCheckbox.addEventListener('change', function () {
                     settings.autoSuggestSkipReview = this.checked;
@@ -173,7 +174,7 @@ export async function showSuggestionPopup(suggestions) {
                     this.disabled = true;
                     const idx = Number(this.dataset.index);
                     const s = suggestions[idx];
-                    const card = document.getElementById(`dle_suggest_${idx}`);
+                    const card = document.getElementById(`dle-suggest-${idx}`);
                     if (!card) { this.disabled = false; return; }
 
                     // Build frontmatter
@@ -225,7 +226,7 @@ ${safeContent}`;
             container.querySelectorAll('.dle-reject-suggest').forEach(btn => {
                 btn.addEventListener('click', function () {
                     const idx = Number(this.dataset.index);
-                    const card = document.getElementById(`dle_suggest_${idx}`);
+                    const card = document.getElementById(`dle-suggest-${idx}`);
                     if (card) {
                         card.classList.add('dle-suggest-card--rejected');
                         // Disable both buttons and update label

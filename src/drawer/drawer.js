@@ -115,8 +115,8 @@ export async function createDrawerPanel() {
                 <div id="deeplore-panelheader" class="fa-solid fa-grip drag-grabber" aria-hidden="true"></div>
                 <div class="dle-drawer-controls">
                     <div class="dle-drawer-pin" title="Pin drawer open">
-                        <input type="checkbox" id="dle_drawer_pin" aria-label="Pin drawer open">
-                        <label for="dle_drawer_pin">
+                        <input type="checkbox" id="dle-drawer-pin" aria-label="Pin drawer open">
+                        <label for="dle-drawer-pin">
                             <div class="fa-solid unchecked fa-unlock right_menu_button" aria-hidden="true"></div>
                             <div class="fa-solid checked fa-lock right_menu_button" aria-hidden="true"></div>
                         </label>
@@ -127,7 +127,7 @@ export async function createDrawerPanel() {
                     <button class="dle-drawer-help" title="Show available commands (/dle-help)" aria-label="Show help">
                         <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
                     </button>
-                    <button id="dle_drawer_close" class="dle-drawer-close" title="Close drawer" aria-label="Close drawer">
+                    <button id="dle-drawer-close" class="dle-drawer-close" title="Close drawer" aria-label="Close drawer">
                         <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
                     </button>
                 </div>
@@ -139,7 +139,7 @@ export async function createDrawerPanel() {
 
     // Inject content into the scrollable area, then move footer outside so it stays pinned
     $drawer.find('.dle-drawer-inner').append(drawerContent);
-    const $footerZone = $drawer.find('#dle_drawer_footer');
+    const $footerZone = $drawer.find('#dle-drawer-footer');
     if ($footerZone.length) $footerZone.insertAfter($drawer.find('.dle-drawer-inner'));
 
     // Add to top-settings-holder (after native drawers)
@@ -204,13 +204,13 @@ export async function createDrawerPanel() {
     // Restore persisted pin state
     const settings = extension_settings[MODULE_NAME] || {};
     if (settings.drawerPinned && !(isMobile && isMobile())) {
-        $drawer.find('#dle_drawer_pin').prop('checked', true);
+        $drawer.find('#dle-drawer-pin').prop('checked', true);
         $drawer.find('#deeplore-panel').addClass('pinnedOpen');
         $drawer.find('#deeploreDrawerIcon').addClass('drawerPinnedOpen');
     }
 
     // Wire up pin toggle — matches ST's native drawer pin pattern
-    $drawer.find('#dle_drawer_pin').on('click', function () {
+    $drawer.find('#dle-drawer-pin').on('click', function () {
         const pinned = $(this).prop('checked');
         if (pinned) {
             $drawer.find('#deeplore-panel').addClass('pinnedOpen');
@@ -231,7 +231,7 @@ export async function createDrawerPanel() {
     });
 
     // Wire up close button — triggers the same toggle as clicking the drawer icon
-    $drawer.find('#dle_drawer_close').on('click', function () {
+    $drawer.find('#dle-drawer-close').on('click', function () {
         // Only close if drawer is actually open (prevent toggle-reopen)
         if ($panel.hasClass('openDrawer')) {
             doNavbarIconClick.call($drawer.find('.drawer-toggle')[0]);
@@ -355,7 +355,7 @@ export async function createDrawerPanel() {
     // E10: Restore last viewed drawer tab
     // ═══════════════════════════════════════════════════════════════════════
     try {
-        const lastTab = localStorage.getItem('dle_last_drawer_tab');
+        const lastTab = localStorage.getItem('dle-last-drawer-tab');
         if (lastTab) switchTab($drawer, lastTab);
     } catch { /* noop */ }
 

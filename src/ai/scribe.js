@@ -137,7 +137,7 @@ export async function runScribe(customPrompt) {
 
         // Bail if chat changed during async scribe work
         if (epoch !== chatEpoch) {
-            console.log('[DLE] Scribe: chat changed during generation, discarding result');
+            if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed during generation, discarding result');
             return;
         }
 
@@ -148,7 +148,7 @@ export async function runScribe(customPrompt) {
         if (data.ok) {
             // Re-check epoch after async writeNote to avoid writing to wrong chat's metadata
             if (epoch !== chatEpoch) {
-                console.log('[DLE] Scribe: chat changed during note write, skipping metadata update');
+                if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed during note write, skipping metadata update');
                 return;
             }
             setLastScribeSummary(sanitizedSummary.trim());

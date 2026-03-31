@@ -171,6 +171,25 @@ Use `/dle-newlore` to trigger on-demand at any time.
 | **Mark Stale After N Skips** | `5` | 2-20 | Consecutive generations an entry is skipped before it gets a freshness boost in the AI manifest. |
 | **Mark Frequent After N Injections** | `2` | 2-10 | Consecutive generations an entry is injected before it gets a frequency penalty in the AI manifest. |
 
+## Relationship Graph
+
+Settings for the interactive entry relationship graph (`/dle-graph`). These are tuned via the graph's built-in settings panel (gear icon in the graph toolbar). Changes are saved to your DLE settings and persist across sessions.
+
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| **Repulsion** | `0.5` | 0.1-50 | Node repulsion strength. Higher values push nodes further apart. |
+| **Spring Length** | `200` | 30-600 | Ideal edge length. Higher values spread connected nodes further apart. |
+| **Gravity** | `5.0` | 0.1-20 | Pull toward center. Higher values keep the graph more compact. |
+| **Damping** | `0.70` | 0.3-0.98 | Velocity damping. Higher values make the simulation settle faster. |
+| **Hover Dim Distance** | `2` | 0-15 | BFS distance for hover dimming. Nodes farther than this are dimmed on hover. 0 = disabled. |
+| **Hover Dim Opacity** | `0.1` | 0-0.9 | Opacity of dimmed nodes/edges on hover. Lower = more aggressive dimming. |
+| **Focus Tree Depth** | `2` | 0-15 | Hop depth for ego-centric focus mode. Controls how many relationship hops are shown from the focused node. |
+| **Edge Filter Alpha** | `0.05` | 0.01-0.5 | Serrano disparity filter threshold. Lower values show fewer (more significant) edges. |
+| **Default Color Mode** | `type` | Dropdown | Initial node coloring scheme. Options: `type` (by entry type), `priority`, `centrality`, `frequency`, `community` (Louvain clusters). |
+| **Show Labels** | On | Toggle | Show node labels on the graph. |
+
+Graph physics presets (Tight, Default, Spread, Galaxy) set these values to recommended combinations. Individual sliders fine-tune from there.
+
 ## Index & Cache
 
 | Setting | Default | Range | Description |

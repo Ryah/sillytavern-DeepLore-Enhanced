@@ -89,41 +89,41 @@ function prefillFromSettings() {
     const v = getPrimaryVault(s);
 
     // Page 2: Connection
-    if (v.name) $wizard.find('#dle_wiz_vault_name').val(v.name);
-    if (v.host) $wizard.find('#dle_wiz_host').val(v.host);
-    if (v.port) $wizard.find('#dle_wiz_port').val(v.port);
-    if (v.apiKey) $wizard.find('#dle_wiz_api_key').val(v.apiKey);
+    if (v.name) $wizard.find('#dle-wiz-vault-name').val(v.name);
+    if (v.host) $wizard.find('#dle-wiz-host').val(v.host);
+    if (v.port) $wizard.find('#dle-wiz-port').val(v.port);
+    if (v.apiKey) $wizard.find('#dle-wiz-api-key').val(v.apiKey);
 
     // Page 3: Tags
-    $wizard.find('#dle_wiz_lorebook_tag').val(s.lorebookTag || 'lorebook');
-    $wizard.find('#dle_wiz_constant_tag').val(s.constantTag || 'lorebook-always');
-    $wizard.find('#dle_wiz_seed_tag').val(s.seedTag || 'lorebook-seed');
-    $wizard.find('#dle_wiz_bootstrap_tag').val(s.bootstrapTag || 'lorebook-bootstrap');
+    $wizard.find('#dle-wiz-lorebook-tag').val(s.lorebookTag || 'lorebook');
+    $wizard.find('#dle-wiz-constant-tag').val(s.constantTag || 'lorebook-always');
+    $wizard.find('#dle-wiz-seed-tag').val(s.seedTag || 'lorebook-seed');
+    $wizard.find('#dle-wiz-bootstrap-tag').val(s.bootstrapTag || 'lorebook-bootstrap');
 
     // Search mode
     if (s.aiSearchEnabled) {
         searchMode = s.aiSearchMode || 'two-stage';
-        $wizard.find(`input[name="dle_wiz_search_mode"][value="${searchMode}"]`).prop('checked', true);
+        $wizard.find(`input[name="dle-wiz-search-mode"][value="${searchMode}"]`).prop('checked', true);
     }
 
     // Page 4: Matching
-    $wizard.find('#dle_wiz_scan_depth').val(s.scanDepth);
-    $wizard.find('#dle_wiz_max_entries').val(s.maxEntries);
-    $wizard.find('#dle_wiz_budget').val(s.maxTokensBudget);
-    $wizard.find('#dle_wiz_fuzzy').prop('checked', s.fuzzySearchEnabled);
-    $wizard.find('#dle_wiz_unlimited_entries').prop('checked', !!s.unlimitedEntries);
-    $wizard.find('#dle_wiz_unlimited_budget').prop('checked', !!s.unlimitedBudget);
-    if (s.unlimitedEntries) $wizard.find('#dle_wiz_max_entries').prop('disabled', true);
-    if (s.unlimitedBudget) $wizard.find('#dle_wiz_budget').prop('disabled', true);
+    $wizard.find('#dle-wiz-scan-depth').val(s.scanDepth);
+    $wizard.find('#dle-wiz-max-entries').val(s.maxEntries);
+    $wizard.find('#dle-wiz-budget').val(s.maxTokensBudget);
+    $wizard.find('#dle-wiz-fuzzy').prop('checked', s.fuzzySearchEnabled);
+    $wizard.find('#dle-wiz-unlimited-entries').prop('checked', !!s.unlimitedEntries);
+    $wizard.find('#dle-wiz-unlimited-budget').prop('checked', !!s.unlimitedBudget);
+    if (s.unlimitedEntries) $wizard.find('#dle-wiz-max-entries').prop('disabled', true);
+    if (s.unlimitedBudget) $wizard.find('#dle-wiz-budget').prop('disabled', true);
 
     // Page 5: AI
     if (s.aiSearchConnectionMode === 'proxy') {
-        $wizard.find('input[name="dle_wiz_ai_mode"][value="proxy"]').prop('checked', true);
-        $wizard.find('#dle_wiz_ai_profile_fields').hide();
-        $wizard.find('#dle_wiz_ai_proxy_fields').show();
+        $wizard.find('input[name="dle-wiz-ai-mode"][value="proxy"]').prop('checked', true);
+        $wizard.find('#dle-wiz-ai-profile-fields').hide();
+        $wizard.find('#dle-wiz-ai-proxy-fields').show();
     }
-    if (s.aiSearchProxyUrl) $wizard.find('#dle_wiz_ai_proxy_url').val(s.aiSearchProxyUrl);
-    if (s.aiSearchModel) $wizard.find('#dle_wiz_ai_model').val(s.aiSearchModel);
+    if (s.aiSearchProxyUrl) $wizard.find('#dle-wiz-ai-proxy-url').val(s.aiSearchProxyUrl);
+    if (s.aiSearchModel) $wizard.find('#dle-wiz-ai-model').val(s.aiSearchModel);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -131,14 +131,14 @@ function prefillFromSettings() {
 // ════════════════════════════════════════════════════════════════════════════
 
 function wireNavigation() {
-    $wizard.find('#dle_wiz_prev').on('click', () => {
+    $wizard.find('#dle-wiz-prev').on('click', () => {
         let target = currentPage - 1;
         // Skip AI page if keywords-only
         if (target === 5 && searchMode === 'keywords') target = 4;
         if (target >= 1) goToPage(target);
     });
 
-    $wizard.find('#dle_wiz_next').on('click', () => {
+    $wizard.find('#dle-wiz-next').on('click', () => {
         if (!validateCurrentPage()) return;
         markStepComplete(currentPage);
         let target = currentPage + 1;
@@ -147,7 +147,7 @@ function wireNavigation() {
         if (target <= TOTAL_PAGES) goToPage(target);
     });
 
-    $wizard.find('#dle_wiz_finish').on('click', async () => {
+    $wizard.find('#dle-wiz-finish').on('click', async () => {
         await applyWizardSettings();
         // Close popup
         const popup = $wizard.closest('.popup');
@@ -177,9 +177,9 @@ function goToPage(page) {
 }
 
 function updateNavButtons() {
-    const $prev = $wizard.find('#dle_wiz_prev');
-    const $next = $wizard.find('#dle_wiz_next');
-    const $finish = $wizard.find('#dle_wiz_finish');
+    const $prev = $wizard.find('#dle-wiz-prev');
+    const $next = $wizard.find('#dle-wiz-next');
+    const $finish = $wizard.find('#dle-wiz-finish');
 
     $prev.toggle(currentPage > 1);
 
@@ -197,8 +197,8 @@ function validateCurrentPage() {
     if (!isPageValid(currentPage)) {
         // Pulse the blocking element
         if (currentPage === 2 && !connectionVerified) {
-            $wizard.find('#dle_wiz_test_conn').addClass('dle-wizard-pulse');
-            setTimeout(() => $wizard.find('#dle_wiz_test_conn').removeClass('dle-wizard-pulse'), 600);
+            $wizard.find('#dle-wiz-test-conn').addClass('dle-wizard-pulse');
+            setTimeout(() => $wizard.find('#dle-wiz-test-conn').removeClass('dle-wizard-pulse'), 600);
         }
         return false;
     }
@@ -237,13 +237,13 @@ function markStepComplete(step) {
 // ════════════════════════════════════════════════════════════════════════════
 
 function wireConnectionTest() {
-    $wizard.find('#dle_wiz_test_conn').on('click', async () => {
-        const $btn = $wizard.find('#dle_wiz_test_conn');
-        const $result = $wizard.find('#dle_wiz_conn_result');
+    $wizard.find('#dle-wiz-test-conn').on('click', async () => {
+        const $btn = $wizard.find('#dle-wiz-test-conn');
+        const $result = $wizard.find('#dle-wiz-conn-result');
 
-        const host = $wizard.find('#dle_wiz_host').val().trim() || '127.0.0.1';
-        const port = parseInt($wizard.find('#dle_wiz_port').val()) || 27123;
-        const apiKey = $wizard.find('#dle_wiz_api_key').val().trim();
+        const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
+        const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
+        const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
 
         $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Testing...');
         $result.hide();
@@ -282,12 +282,12 @@ function wireConnectionTest() {
     });
 
     // Re-enable test if connection fields change
-    $wizard.find('#dle_wiz_host, #dle_wiz_port, #dle_wiz_api_key').on('input', () => {
+    $wizard.find('#dle-wiz-host, #dle-wiz-port, #dle-wiz-api-key').on('input', () => {
         connectionVerified = false;
-        $wizard.find('#dle_wiz_test_conn')
+        $wizard.find('#dle-wiz-test-conn')
             .html('<i class="fa-solid fa-plug"></i> Test Connection')
             .removeClass('dle-wizard-btn-verified');
-        $wizard.find('#dle_wiz_conn_result').hide();
+        $wizard.find('#dle-wiz-conn-result').hide();
         updateNavButtons();
     });
 }
@@ -297,7 +297,7 @@ function wireConnectionTest() {
 // ════════════════════════════════════════════════════════════════════════════
 
 function wireSearchMode() {
-    $wizard.find('input[name="dle_wiz_search_mode"]').on('change', function () {
+    $wizard.find('input[name="dle-wiz-search-mode"]').on('change', function () {
         searchMode = $(this).val();
     });
 }
@@ -315,27 +315,27 @@ function wirePresets() {
         $wizard.find('.dle-wizard-preset').removeClass('active');
         $(this).addClass('active');
 
-        $wizard.find('#dle_wiz_scan_depth').val(values.scanDepth);
-        $wizard.find('#dle_wiz_max_entries').val(values.maxEntries);
-        $wizard.find('#dle_wiz_budget').val(values.budget);
+        $wizard.find('#dle-wiz-scan-depth').val(values.scanDepth);
+        $wizard.find('#dle-wiz-max-entries').val(values.maxEntries);
+        $wizard.find('#dle-wiz-budget').val(values.budget);
 
         const label = preset.charAt(0).toUpperCase() + preset.slice(1);
-        $wizard.find('#dle_wiz_preset_badge')
+        $wizard.find('#dle-wiz-preset-badge')
             .html(`<i class="fa-solid fa-check"></i> Configured for ${label} vault`)
             .addClass('dle-wizard-badge-visible');
 
         // Presets always disable unlimited
-        $wizard.find('#dle_wiz_unlimited_entries').prop('checked', false);
-        $wizard.find('#dle_wiz_unlimited_budget').prop('checked', false);
-        $wizard.find('#dle_wiz_max_entries, #dle_wiz_budget').prop('disabled', false);
+        $wizard.find('#dle-wiz-unlimited-entries').prop('checked', false);
+        $wizard.find('#dle-wiz-unlimited-budget').prop('checked', false);
+        $wizard.find('#dle-wiz-max-entries, #dle-wiz-budget').prop('disabled', false);
     });
 
     // Unlimited toggles
-    $wizard.find('#dle_wiz_unlimited_entries').on('change', function () {
-        $wizard.find('#dle_wiz_max_entries').prop('disabled', this.checked);
+    $wizard.find('#dle-wiz-unlimited-entries').on('change', function () {
+        $wizard.find('#dle-wiz-max-entries').prop('disabled', this.checked);
     });
-    $wizard.find('#dle_wiz_unlimited_budget').on('change', function () {
-        $wizard.find('#dle_wiz_budget').prop('disabled', this.checked);
+    $wizard.find('#dle-wiz-unlimited-budget').on('change', function () {
+        $wizard.find('#dle-wiz-budget').prop('disabled', this.checked);
     });
 }
 
@@ -345,26 +345,26 @@ function wirePresets() {
 
 function wireAiSetup() {
     // Toggle profile/proxy fields
-    $wizard.find('input[name="dle_wiz_ai_mode"]').on('change', function () {
+    $wizard.find('input[name="dle-wiz-ai-mode"]').on('change', function () {
         const mode = $(this).val();
-        $wizard.find('#dle_wiz_ai_profile_fields').toggle(mode === 'profile');
-        $wizard.find('#dle_wiz_ai_proxy_fields').toggle(mode === 'proxy');
+        $wizard.find('#dle-wiz-ai-profile-fields').toggle(mode === 'profile');
+        $wizard.find('#dle-wiz-ai-proxy-fields').toggle(mode === 'proxy');
     });
 
     // Test AI connection
-    $wizard.find('#dle_wiz_test_ai').on('click', async () => {
-        const $btn = $wizard.find('#dle_wiz_test_ai');
-        const $result = $wizard.find('#dle_wiz_ai_result');
+    $wizard.find('#dle-wiz-test-ai').on('click', async () => {
+        const $btn = $wizard.find('#dle-wiz-test-ai');
+        const $result = $wizard.find('#dle-wiz-ai-result');
         $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Testing...');
         $result.hide();
 
         try {
-            const mode = $wizard.find('input[name="dle_wiz_ai_mode"]:checked').val();
+            const mode = $wizard.find('input[name="dle-wiz-ai-mode"]:checked').val();
             let ok = false;
             let detail = '';
 
             if (mode === 'profile') {
-                const profileId = $wizard.find('#dle_wiz_ai_profile').val();
+                const profileId = $wizard.find('#dle-wiz-ai-profile').val();
                 if (!profileId) throw new Error('Select a connection profile first');
                 const { ConnectionManagerRequestService } = await import('../../../../../shared.js')
                     .catch(() => ({ ConnectionManagerRequestService: null }));
@@ -373,10 +373,10 @@ function wireAiSetup() {
                 const profile = ConnectionManagerRequestService.getProfile(profileId);
                 if (!profile) throw new Error('Selected profile not found');
                 ok = true;
-                detail = `Profile: ${$wizard.find('#dle_wiz_ai_profile option:selected').text()}`;
+                detail = `Profile: ${$wizard.find('#dle-wiz-ai-profile option:selected').text()}`;
             } else {
-                const proxyUrl = $wizard.find('#dle_wiz_ai_proxy_url').val().trim();
-                const model = $wizard.find('#dle_wiz_ai_model').val().trim();
+                const proxyUrl = $wizard.find('#dle-wiz-ai-proxy-url').val().trim();
+                const model = $wizard.find('#dle-wiz-ai-model').val().trim();
                 if (!proxyUrl) throw new Error('Enter a proxy URL first');
                 if (!model) throw new Error('Enter a model name first (e.g. claude-haiku-4-5-20251001)');
                 const { testProxyConnection } = await import('../ai/proxy-api.js');
@@ -416,7 +416,7 @@ function wireAiSetup() {
 }
 
 async function loadAiProfiles() {
-    const $select = $wizard.find('#dle_wiz_ai_profile');
+    const $select = $wizard.find('#dle-wiz-ai-profile');
     try {
         const { ConnectionManagerRequestService } = await import('../../../../../shared.js')
             .catch(() => ({ ConnectionManagerRequestService: null }));
@@ -451,13 +451,13 @@ function wireVaultStructure() {
 }
 
 async function runVaultStructureCreation() {
-    const host = $wizard.find('#dle_wiz_host').val().trim() || '127.0.0.1';
-    const port = parseInt($wizard.find('#dle_wiz_port').val()) || 27123;
-    const apiKey = $wizard.find('#dle_wiz_api_key').val().trim();
+    const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
+    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
+    const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
 
     // Field definitions
-    const createFields = $wizard.find('#dle_wiz_create_fields').is(':checked');
-    const $fieldsStatus = $wizard.find('#dle_wiz_fields_status');
+    const createFields = $wizard.find('#dle-wiz-create-fields').is(':checked');
+    const $fieldsStatus = $wizard.find('#dle-wiz-fields-status');
 
     if (createFields) {
         $fieldsStatus.html('<i class="fa-solid fa-spinner fa-spin"></i> Creating field-definitions.yaml...').show();
@@ -479,8 +479,8 @@ async function runVaultStructureCreation() {
     }
 
     // Sessions folder
-    const createSessions = $wizard.find('#dle_wiz_create_sessions').is(':checked');
-    const $sessionsStatus = $wizard.find('#dle_wiz_sessions_status');
+    const createSessions = $wizard.find('#dle-wiz-create-sessions').is(':checked');
+    const $sessionsStatus = $wizard.find('#dle-wiz-sessions-status');
 
     if (createSessions) {
         $sessionsStatus.html('<i class="fa-solid fa-spinner fa-spin"></i> Creating Sessions folder...').show();
@@ -505,19 +505,19 @@ async function runVaultStructureCreation() {
 // ════════════════════════════════════════════════════════════════════════════
 
 function buildSummary() {
-    const $summary = $wizard.find('#dle_wiz_summary');
-    const vaultName = $wizard.find('#dle_wiz_vault_name').val().trim() || 'Primary';
-    const host = $wizard.find('#dle_wiz_host').val().trim() || '127.0.0.1';
-    const port = $wizard.find('#dle_wiz_port').val() || '27123';
+    const $summary = $wizard.find('#dle-wiz-summary');
+    const vaultName = $wizard.find('#dle-wiz-vault-name').val().trim() || 'Primary';
+    const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
+    const port = $wizard.find('#dle-wiz-port').val() || '27123';
 
     const modeLabels = { keywords: 'Keywords Only', 'two-stage': 'Two-Stage (keywords + AI)', 'ai-only': 'AI Only' };
     const modeLabel = modeLabels[searchMode] || searchMode;
 
-    const maxEntries = $wizard.find('#dle_wiz_max_entries').val();
-    const budget = $wizard.find('#dle_wiz_budget').val();
+    const maxEntries = $wizard.find('#dle-wiz-max-entries').val();
+    const budget = $wizard.find('#dle-wiz-budget').val();
 
     // Determine which preset matches (if any)
-    const scanDepth = parseInt($wizard.find('#dle_wiz_scan_depth').val());
+    const scanDepth = parseInt($wizard.find('#dle-wiz-scan-depth').val());
     let presetLabel = 'Custom';
     for (const [name, vals] of Object.entries(PRESETS)) {
         if (vals.scanDepth === scanDepth && vals.maxEntries === parseInt(maxEntries) && vals.budget === parseInt(budget)) {
@@ -526,8 +526,8 @@ function buildSummary() {
         }
     }
 
-    const fieldsCreated = $wizard.find('#dle_wiz_create_fields').is(':checked');
-    const sessionsCreated = $wizard.find('#dle_wiz_create_sessions').is(':checked');
+    const fieldsCreated = $wizard.find('#dle-wiz-create-fields').is(':checked');
+    const sessionsCreated = $wizard.find('#dle-wiz-create-sessions').is(':checked');
 
     const items = [
         `<i class="fa-solid fa-circle-check"></i> Vault connected: <strong>${esc(vaultName)}</strong> on ${esc(host)}:${esc(port)}`,
@@ -569,41 +569,41 @@ async function applyWizardSettings() {
     const settings = getSettings();
 
     // Connection
-    const vaultName = $wizard.find('#dle_wiz_vault_name').val().trim() || 'Primary';
-    const host = $wizard.find('#dle_wiz_host').val().trim() || '127.0.0.1';
-    const port = parseInt($wizard.find('#dle_wiz_port').val()) || 27123;
-    const apiKey = $wizard.find('#dle_wiz_api_key').val().trim();
+    const vaultName = $wizard.find('#dle-wiz-vault-name').val().trim() || 'Primary';
+    const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
+    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
+    const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
 
     settings.enabled = true;
     settings.vaults = [{ name: vaultName, host, port, apiKey, enabled: true }];
 
     // Tags
-    settings.lorebookTag = $wizard.find('#dle_wiz_lorebook_tag').val().trim() || 'lorebook';
-    settings.constantTag = $wizard.find('#dle_wiz_constant_tag').val().trim() || 'lorebook-always';
-    settings.seedTag = $wizard.find('#dle_wiz_seed_tag').val().trim() || 'lorebook-seed';
-    settings.bootstrapTag = $wizard.find('#dle_wiz_bootstrap_tag').val().trim() || 'lorebook-bootstrap';
+    settings.lorebookTag = $wizard.find('#dle-wiz-lorebook-tag').val().trim() || 'lorebook';
+    settings.constantTag = $wizard.find('#dle-wiz-constant-tag').val().trim() || 'lorebook-always';
+    settings.seedTag = $wizard.find('#dle-wiz-seed-tag').val().trim() || 'lorebook-seed';
+    settings.bootstrapTag = $wizard.find('#dle-wiz-bootstrap-tag').val().trim() || 'lorebook-bootstrap';
 
     // Search mode
     settings.aiSearchEnabled = searchMode !== 'keywords';
     if (searchMode !== 'keywords') settings.aiSearchMode = searchMode;
 
     // Matching
-    settings.scanDepth = parseInt($wizard.find('#dle_wiz_scan_depth').val()) || 6;
-    settings.maxEntries = parseInt($wizard.find('#dle_wiz_max_entries').val()) || 15;
-    settings.maxTokensBudget = parseInt($wizard.find('#dle_wiz_budget').val()) || 3072;
-    settings.unlimitedEntries = $wizard.find('#dle_wiz_unlimited_entries').is(':checked');
-    settings.unlimitedBudget = $wizard.find('#dle_wiz_unlimited_budget').is(':checked');
-    settings.fuzzySearchEnabled = $wizard.find('#dle_wiz_fuzzy').is(':checked');
+    settings.scanDepth = parseInt($wizard.find('#dle-wiz-scan-depth').val()) || 6;
+    settings.maxEntries = parseInt($wizard.find('#dle-wiz-max-entries').val()) || 15;
+    settings.maxTokensBudget = parseInt($wizard.find('#dle-wiz-budget').val()) || 3072;
+    settings.unlimitedEntries = $wizard.find('#dle-wiz-unlimited-entries').is(':checked');
+    settings.unlimitedBudget = $wizard.find('#dle-wiz-unlimited-budget').is(':checked');
+    settings.fuzzySearchEnabled = $wizard.find('#dle-wiz-fuzzy').is(':checked');
 
     // AI Search
     if (searchMode !== 'keywords') {
-        const aiMode = $wizard.find('input[name="dle_wiz_ai_mode"]:checked').val();
+        const aiMode = $wizard.find('input[name="dle-wiz-ai-mode"]:checked').val();
         settings.aiSearchConnectionMode = aiMode || 'profile';
         if (aiMode === 'profile') {
-            settings.aiSearchProfileId = $wizard.find('#dle_wiz_ai_profile').val() || '';
+            settings.aiSearchProfileId = $wizard.find('#dle-wiz-ai-profile').val() || '';
         } else {
-            settings.aiSearchProxyUrl = $wizard.find('#dle_wiz_ai_proxy_url').val().trim() || 'http://localhost:42069';
-            settings.aiSearchModel = $wizard.find('#dle_wiz_ai_model').val().trim() || '';
+            settings.aiSearchProxyUrl = $wizard.find('#dle-wiz-ai-proxy-url').val().trim() || 'http://localhost:42069';
+            settings.aiSearchModel = $wizard.find('#dle-wiz-ai-model').val().trim() || '';
         }
     }
 

@@ -15,11 +15,9 @@ import {
     fieldDefinitions,
 } from '../state.js';
 import { dedupWarning } from '../toast-dedup.js';
-// Re-export pure functions from helpers.js (moved there for testability in Node.js)
+// Re-export pure functions from helpers.js for consumers that import from ai.js
 export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
-
-// extractAiResponseClient — imported from ./helpers.js
 
 // ── AI call throttle ──
 // Minimum 2 seconds between actual AI API calls to prevent rapid-generation spam.
@@ -40,7 +38,8 @@ export function getProfileModelHint() {
     try {
         const profile = ConnectionManagerRequestService.getProfile(settings.aiSearchProfileId);
         return profile.model || '';
-    } catch {
+    } catch (err) {
+        if (settings.debugMode) console.debug('[DLE] Could not read profile model hint:', err.message);
         return '';
     }
 }
@@ -302,7 +301,10 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
     const categoryUserMessage = `## Categories\n${categoryManifest}\n\n## Recent Chat\n${chatContext}`;
 
     // BUG-AUDIT-1: Use tryAcquireHalfOpenProbe for actual AI calls (not pure query)
-    if (!tryAcquireHalfOpenProbe()) return null;
+    if (!tryAcquireHalfOpenProbe()) {
+        dedupWarning('circuit-prefilter', 'AI circuit breaker is open — skipping hierarchical pre-filter.', 'DeepLore Enhanced');
+        return null;
+    }
 
     try {
         const result = await callAI(categoryPrompt, categoryUserMessage, {

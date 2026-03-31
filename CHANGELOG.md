@@ -1,169 +1,102 @@
 # Changelog
 
-## 1.0.0-beta
+## 1.0.0-beta (2026-03-30)
 
-### Bug Fix Round (2026-03-30)
+> Feature-complete release. Combines all v0.2.0 development work with v1.0.0 stabilization.
 
-#### Pipeline & State Fixes
-- **Epoch guard on analytics** — `recordAnalytics()` now checks epoch/lock guards like adjacent stages, preventing cross-chat analytics pollution on stale pipelines.
-- **Circuit breaker query purity** — `isAiCircuitOpen()` no longer mutates stale-probe state; cleanup moved to `tryAcquireHalfOpenProbe()` to prevent races between concurrent callers.
-- **Pre-filter failure isolation** — `hierarchicalPreFilter` errors no longer trip the circuit breaker, which was cascading to block the main `aiSearch()` call.
-- **Fuzzy warmup off-by-one** — Entries with `warmup: 1` were bypassing the gate via BM25 fuzzy search (`> 1` → `>= 1`).
-- **Pre-filter empty result** — `hierarchicalPreFilter` returning `[]` (valid zero candidates) was treated as falsy and silently discarded.
+### Custom Frontmatter Fields
 
-#### AI & Timeout Fixes
-- **Timeout=0 semantics** — Scribe and auto-suggest `setTimeout(fn, 0)` would fire instantly; now falls back to 60s default instead of preserving explicit zero.
+Contextual gating is now fully customizable. Define your own frontmatter fields (mood, faction, time_of_day -- anything), configure gating rules, and manage everything from a visual editor. The four built-in fields (era, location, scene_type, character_present) are now just defaults.
 
-#### Graph Fixes
-- **Hit radius div-by-zero** — `hitRadius()` no longer divides by zero when `cachedVisibleCount` is 0 (returns sensible default instead).
-- **Fit timer cleanup** — Three `setTimeout` fit-to-view callbacks now tracked and cancelled on popup close, preventing stale callbacks from firing on rapid reopen.
+- **Field Definition Editor** -- Visual rule builder popup (`Manage Fields` button in Gating tab or Settings) to create, edit, reorder, duplicate, and delete custom gating fields. Supports text, number, boolean, and list types with per-field gating operators (equals, contains, any_of, none_of) and tolerance levels.
+- **YAML-backed definitions** -- Field definitions stored in Obsidian vault (`DeepLore/field-definitions.yaml`) and loaded on index build. Editable from the rule builder or by hand.
+- **Generic commands** -- `/dle-set-field <name> [value]` and `/dle-clear-field <name>` work for any defined field, with tab-completion for field names. Legacy `/dle-set-era` etc. are now aliases.
+- **Drawer integration** -- Gating tab shows status dots (set/unset), multi-value distinction, impact counts ("excluding N entries"), and an empty-state hint for new users. Manage Fields button in toolbar.
+- **Browse tab filters** -- Custom field filter dropdowns appear automatically for any field with values in the vault.
+- **Graph coloring** -- Color nodes by any custom field value. Legend shows field name header and "No value" swatch. Tooltip shows multi-value overflow.
+- **AI manifest labels** -- Field labels (not raw names) shown in AI search manifests.
+- **Inspect details** -- `/dle-inspect` shows per-field mismatch reasons for gated entries (e.g. `era: medieval ≠ renaissance`).
+- **Status command** -- `/dle-status` shows custom field count and names.
 
-#### Versioning
-- Bumped from `0.2.0-beta` to `1.0.0-beta` (feature-complete, community testing phase).
+### AI Notepad
 
-## 0.2.0-BETA
+- **AI-written session notes** -- The AI can maintain running notes about important story details (decisions, relationship changes, revealed secrets) using `<dle-notes>` tags. Notes are stripped from the visible chat, accumulated per-chat in `chat_metadata`, and reinjected into future messages as context.
+- **Configurable injection** -- Position, depth, and role controls (same pattern as Author's Notebook). Custom instruction prompt override available.
+- **Per-message tracking** -- Each message's extracted notes stored on `message.extra.deeplore_ai_notes` and visible in Context Cartographer popup.
+- **`/dle-ai-notepad`** -- View/edit accumulated notes with token count, or `/dle-ai-notepad clear` to reset.
 
-### AI Notepad, Import Summaries & Timeout Caps (2026-03-28)
+### AI Summaries on Import
 
-#### AI Notepad (new feature)
-- **AI-written session notes** — The AI can maintain running notes about important story details (decisions, relationship changes, revealed secrets) using `<dle-notes>` tags. Notes are stripped from the visible chat, accumulated per-chat in `chat_metadata`, and reinjected into future messages as context.
-- **Configurable injection** — Position, depth, and role controls (same pattern as Author's Notebook). Custom instruction prompt override available.
-- **Per-message tracking** — Each message's extracted notes stored on `message.extra.deeplore_ai_notes` and visible in Context Cartographer popup.
-- **`/dle-ai-notepad`** — View/edit accumulated notes with token count, or `/dle-ai-notepad clear` to reset.
-- **Settings UI** — Enable toggle, injection controls, and custom prompt textarea in Features tab.
+- **`/dle-import` → summarize piping** -- After importing World Info entries, DLE offers to generate AI summaries for imported entries that only have placeholder text. Reuses the `/dle-summarize` pipeline.
+- **Extracted `summarizeEntries()`** -- Shared function in `commands-ai.js` used by both `/dle-summarize` and the import flow.
 
-#### AI Summaries on Import
-- **`/dle-import` → summarize piping** — After importing World Info entries, DLE offers to generate AI summaries for imported entries that only have placeholder text. Reuses the `/dle-summarize` pipeline.
-- **Extracted `summarizeEntries()`** — Shared function in `commands-ai.js` used by both `/dle-summarize` and the import flow.
+### Local LLM Timeout Caps
 
-#### Local LLM Timeout Caps
-- **Raised timeout limits** — AI Search timeout cap raised from 30s → 120s. Auto-suggest timeout cap raised from 60s → 120s. Scribe was already 120s.
-- **Local LLM guidance** — Tooltip hints on all timeout inputs: "Local LLMs may need 60-120s. Cloud APIs typically respond in 5-15s."
-- **Wiki updates** — Settings Reference, AI Search, and Troubleshooting pages updated with new ranges and local LLM guidance.
+- **Raised timeout limits** -- AI Search timeout cap raised from 30s → 120s. Auto-suggest timeout cap raised from 60s → 120s. Scribe was already 120s.
+- **Local LLM guidance** -- Tooltip hints on all timeout inputs: "Local LLMs may need 60-120s. Cloud APIs typically respond in 5-15s."
 
-### Custom Frontmatter Fields (2026-03-28)
+### Live Drawer -- Performance & UX Polish
 
-> **Highlights:** Contextual gating is now fully customizable. Define your own frontmatter fields (mood, faction, time_of_day — anything), configure gating rules, and manage everything from a visual editor. The four built-in fields (era, location, scene_type, character_present) are now just defaults.
+- **Smart overlay mode** -- On wide chat layouts, the drawer floats over the chat instead of squeezing it, so you never lose reading space.
+- **Close button** -- Quick-dismiss button next to the lock icon.
+- **Tab count badges** -- See at a glance how many entries are injected, how many are in your vault, and how many gating filters are active.
+- **Gating impact counts** -- Each active filter shows how many entries it's currently blocking, so you know if your filters are too aggressive.
+- **Smooth scrolling for large vaults** -- Browse tab now handles hundreds of entries without slowing down (virtual scroll rendering).
+- **Click-to-expand previews** -- Click any entry in Browse to see its summary, token count, and a direct link to open it in Obsidian.
+- **Responsive layout** -- Drawer adapts gracefully to narrow and short screen sizes.
 
-#### Custom Field System
-- **Field Definition Editor** — Visual rule builder popup (`Manage Fields` button in Gating tab or Settings) to create, edit, reorder, duplicate, and delete custom gating fields. Supports text, number, boolean, and list types with per-field gating operators (equals, contains, any_of, none_of) and tolerance levels.
-- **YAML-backed definitions** — Field definitions stored in Obsidian vault (`DeepLore/field-definitions.yaml`) and loaded on index build. Editable from the rule builder or by hand.
-- **Generic commands** — `/dle-set-field <name> [value]` and `/dle-clear-field <name>` work for any defined field, with tab-completion for field names. Legacy `/dle-set-era` etc. are now aliases.
-- **Drawer integration** — Gating tab shows status dots (set/unset), multi-value distinction, impact counts ("excluding N entries"), and an empty-state hint for new users. Manage Fields button in toolbar.
-- **Browse tab filters** — Custom field filter dropdowns appear automatically for any field with values in the vault.
-- **Graph coloring** — Color nodes by any custom field value. Legend shows field name header and "No value" swatch. Tooltip shows multi-value overflow.
-- **AI manifest labels** — Field labels (not raw names) shown in AI search manifests.
-- **Inspect details** — `/dle-inspect` shows per-field mismatch reasons for gated entries (e.g. `era: medieval ≠ renaissance`).
-- **Status command** — `/dle-status` shows custom field count and names.
-- **Settings integration** — "Edit Fields" button next to field definitions path in settings popup.
-- **Missing file notification** — Toast warning when field definitions file not found in vault.
+### World-Building Tools
 
-#### UI/UX Design Round (94 findings across 8 phases)
-- **Rule builder UX** — Double-click save guard, unsaved changes warning on close, reset confirmation dialog, field reorder (move up/down), duplicate field, scroll-to on add, delete animation, contextKey auto-link toggle, gating-disabled dimming, boolean disables multi, error field highlighting with scroll-to, specific success messages.
-- **CSS foundations** — 10 missing/incomplete CSS definitions fixed: `--dle-bg-2` variable, `.dle-gating-fields-container`, `.dle-rb-header` styling, `.dle-rb-select` theme integration, `.dle-rb-lbl` contrast fix, `.dle-rb-popup` padding, `.dle-manage-fields-btn` toolbar layout, `.dle-gating-group` hover states, chip focus-visible states.
-- **Responsive** — Rule builder adapts at 1024px and 768px breakpoints.
-- **Drawer icon** — Changed from FA scroll to inline Obsidian crystal SVG.
+- **AI Notebook** -- A persistent per-chat scratchpad that the AI sees every turn. Jot down plot notes, character reminders, or session goals with `/dle-notebook` -- they survive reloads and stay with the chat.
+- **Auto Lorebook Creation** -- AI analyzes your chat and suggests new entries for characters, locations, and concepts it notices. Review, edit, and accept -- entries are written directly to Obsidian. Use `/dle-newlore` or let it run automatically.
+- **Optimize Keywords** -- `/dle-optimize-keys` asks AI to suggest better trigger keywords for any entry, so your lore fires when it should.
+- **Auto-Summary Generation** -- `/dle-summarize` writes AI search summaries for entries that are missing them, improving how well the AI selects your lore.
+- **Import from SillyTavern** -- `/dle-import` converts your existing SillyTavern lorebooks (World Info JSON) into Obsidian vault notes with proper frontmatter.
+- **Entry Relationship Graph** -- `/dle-graph` visualizes how your entries connect -- requires, excludes, cascade links, and wiki-links -- as an interactive force-directed graph with LinLog + FA2 physics, Louvain clustering, Serrano disparity filter, ego-centric radial focus, and gap analysis overlay.
 
-### Reliability Overhaul (2026-03-27)
+### Smarter Lore Selection
 
-> **Highlights:** 47 bugs fixed from a comprehensive code audit, 97 new tests, dramatically improved multi-vault and AI search stability, 21% faster startup, and smarter AI entry selection.
+- **Roll the dice** -- New `probability` field lets entries randomly appear when matched (0.0-1.0), adding variety to your lore injection.
+- **Per-chat pin & block** -- Force specific entries on or off for the current chat without editing your vault. `/dle-pin`, `/dle-block`, and friends.
+- **Contextual gating** -- Filter entries by era, location, scene type, or which characters are present. Your Victorian-era lore won't leak into the sci-fi arc.
+- **Entry rotation** -- Entries that haven't appeared in a while get a boost; overused entries get a penalty, keeping your lore fresh.
+- **Injection deduplication** -- Skip re-injecting entries that are already in the AI's recent context, saving token budget for new lore.
+- **Smarter budget management** -- Entries that don't fit the remaining budget are now trimmed to sentence boundaries instead of being dropped entirely. The AI also over-requests and picks the best matches by confidence.
+- **Scribe-informed retrieval** -- Feed the Session Scribe's latest summary into AI search, so entry selection reflects what actually happened in the story.
+- **Large vault support** -- Vaults with 40+ entries are automatically clustered by category for more efficient AI selection.
 
-A thorough code audit identified and resolved 47 bugs across every major subsystem, followed by a stabilization sprint targeting 13 additional high-priority issues. This is the most significant stability release to date.
+### Visibility & Diagnostics
 
-#### Critical fixes
-- **Multi-vault resilience** — If all vaults are temporarily unreachable, your entries are preserved in memory instead of being wiped. A short retry ensures quick recovery.
-- **Special characters in entries** — Entry titles containing `&`, `<`, `>`, or `"` no longer corrupt the AI search manifest.
+- **Entry Browser** -- `/dle-browse` opens a searchable, filterable popup of all your entries with content previews, usage stats, and direct Obsidian links.
+- **Activation Simulation** -- `/dle-simulate` replays your chat history step-by-step, showing exactly which entries activate or deactivate at each message.
+- **"Why Not?" Diagnostics** -- Click any unmatched entry in Test Match to see exactly why it didn't fire and what to fix.
+- **Enhanced Context Cartographer** -- See token usage per entry, injection positions, expandable content previews, and vault attribution for multi-vault setups.
+- **Scribe Session Timeline** -- `/dle-scribe-history` fetches and displays all your session notes from Obsidian.
 
-#### AI search & matching
-- **Smarter AI matching** — AI search now fuzzy-matches entry names, catching typos and minor variations in AI responses that previously caused missed entries.
-- **Better AI prompts** — The category pre-filter and token budget guidance are both more detailed, helping the AI make better entry selection decisions.
-- AI timeouts no longer trigger the safety pause — only genuine failures count.
-- AI search cache now invalidates correctly when you change AI settings (prompt, confidence, summary mode).
-- Connection Manager profile calls now have proper timeouts instead of hanging indefinitely.
-- When two entries exclude each other, the higher-priority entry consistently wins.
-- Pins, blocks, and force-inject are now case-insensitive — "The Crown" and "the crown" match correctly.
-- Category pre-filter no longer miscounts AI usage stats or blocks the main AI call.
-- Fuzzy search handles multi-vault entries correctly (no cross-vault collisions).
-- Cascade-linked entries now bypass warmup requirements as intended.
-- Lenient gating tolerance no longer accidentally skips all filtering.
+### Infrastructure
 
-#### Vault & storage
-- **Multi-vault merge overhaul** — When merging entries across vaults, all fields are now handled correctly (keywords, tags, links, content, summaries) instead of just keywords.
-- **Multi-vault pin/block fix** — Pins and blocks now track which vault an entry belongs to, so entries with the same name in different vaults are handled correctly. Existing pins/blocks are automatically migrated.
-- **Storage cleanup** — Removing or disabling a vault now cleans up its cached data automatically.
-- **Cache rebuild reliability** — Switching chats during a background rebuild no longer causes stale data issues.
-- Index rebuilds no longer trigger redundant double-rebuilds.
-- Stuck index rebuilds are now detected and automatically released.
-- Sync polling handles chat switches gracefully (no orphaned background tasks).
-- Storage errors (quota exceeded, write failures) are now surfaced clearly.
-- Token estimates are validated on both read and write to prevent calculation errors.
-- YAML frontmatter values are now unescaped in the correct order.
+- **Multi-vault support** -- Connect multiple Obsidian vaults with independent settings. Entries are merged with clear vault attribution throughout the UI.
+- **Zero loading delays** -- Your vault index is saved to browser storage for instant page loads. Obsidian is checked in the background to ensure freshness.
+- **Smart caching** -- AI search results are cached and reused when only new chat messages are added (no vault changes), saving API calls.
+- **Automatic error recovery** -- If Obsidian goes down, DeepLore automatically backs off and retries with increasing delays instead of hammering your connection.
+- **Incremental sync** -- On auto-refresh, only new or changed files are downloaded instead of re-fetching everything.
+- **Proxy cache optimization** -- In proxy mode, the manifest is positioned to take advantage of prompt caching on supported providers.
+- **Setup Wizard** -- `/dle-setup` walks you through first-time configuration step by step.
+- **Quick Actions Bar** -- One-click buttons in settings for Browse, Health, Refresh, Graph, Simulate, Analytics, and more.
 
-#### Performance
-- **Faster startup** — The graph visualization module now loads on-demand instead of at startup, cutting initial load time by ~21%.
+### UI/UX Design Round
 
-#### Diagnostics & quality-of-life
-- **Cleaner injection mode switching** — Switching between injection modes no longer leaves stale entries behind in the Prompt Manager.
-- **Auto-suggest stability** — Entry titles with special characters no longer break the suggestion prompt.
-- `/dle-inspect` now shows AI error messages for easier troubleshooting.
-- Importing lorebook entries with unusual keyword formats no longer causes errors.
-- Entry truncation boundaries are more accurate (better character-to-token ratio).
-- Pinned entries no longer share internal data that could cause unexpected side effects.
-
-#### Documentation
-- Wiki: Fixed 5 inaccuracies in Settings Reference and Injection & Context Control pages.
-- Roadmap: Marked 4 shipped items (Browse List Virtualization, Neighborhood Isolation, Entry Clustering, Dead Entry Detection).
-
-### Live Drawer — Performance & UX Polish
-- **Smart overlay mode** — On wide chat layouts, the drawer floats over the chat instead of squeezing it, so you never lose reading space.
-- **Close button** — Quick-dismiss button next to the lock icon.
-- **Tab count badges** — See at a glance how many entries are injected, how many are in your vault, and how many gating filters are active.
-- **Gating impact counts** — Each active filter shows how many entries it's currently blocking, so you know if your filters are too aggressive.
-- **Smooth scrolling for large vaults** — Browse tab now handles hundreds of entries without slowing down (virtual scroll rendering).
-- **Click-to-expand previews** — Click any entry in Browse to see its summary, token count, and a direct link to open it in Obsidian.
-- **Responsive layout** — Drawer adapts gracefully to narrow and short screen sizes.
-
-### New Features
-
-#### World-Building Tools
-- **AI Notebook** — A persistent per-chat scratchpad that the AI sees every turn. Jot down plot notes, character reminders, or session goals with `/dle-notebook` — they survive reloads and stay with the chat.
-- **Auto Lorebook Creation** — AI analyzes your chat and suggests new entries for characters, locations, and concepts it notices. Review, edit, and accept — entries are written directly to Obsidian. Use `/dle-newlore` or let it run automatically.
-- **Optimize Keywords** — `/dle-optimize-keys` asks AI to suggest better trigger keywords for any entry, so your lore fires when it should.
-- **Auto-Summary Generation** — `/dle-summarize` writes AI search summaries for entries that are missing them, improving how well the AI selects your lore.
-- **Import from SillyTavern** — `/dle-import` converts your existing SillyTavern lorebooks (World Info JSON) into Obsidian vault notes with proper frontmatter.
-- **Entry Relationship Graph** — `/dle-graph` visualizes how your entries connect — requires, excludes, cascade links, and wiki-links — as an interactive force-directed graph.
-
-#### Smarter Lore Selection
-- **Roll the dice** — New `probability` field lets entries randomly appear when matched (0.0-1.0), adding variety to your lore injection.
-- **Per-chat pin & block** — Force specific entries on or off for the current chat without editing your vault. `/dle-pin`, `/dle-block`, and friends.
-- **Contextual gating** — Filter entries by era, location, scene type, or which characters are present. Your Victorian-era lore won't leak into the sci-fi arc.
-- **Entry rotation** — Entries that haven't appeared in a while get a boost; overused entries get a penalty, keeping your lore fresh.
-- **Injection deduplication** — Skip re-injecting entries that are already in the AI's recent context, saving token budget for new lore.
-- **Smarter budget management** — Entries that don't fit the remaining budget are now trimmed to sentence boundaries instead of being dropped entirely. The AI also over-requests and picks the best matches by confidence.
-- **Scribe-informed retrieval** — Feed the Session Scribe's latest summary into AI search, so entry selection reflects what actually happened in the story.
-- **Large vault support** — Vaults with 40+ entries are automatically clustered by category for more efficient AI selection.
-
-#### Visibility & Diagnostics
-- **Entry Browser** — `/dle-browse` opens a searchable, filterable popup of all your entries with content previews, usage stats, and direct Obsidian links.
-- **Activation Simulation** — `/dle-simulate` replays your chat history step-by-step, showing exactly which entries activate or deactivate at each message.
-- **"Why Not?" Diagnostics** — Click any unmatched entry in Test Match to see exactly why it didn't fire and what to fix.
-- **Enhanced Context Cartographer** — See token usage per entry, injection positions, expandable content previews, and vault attribution for multi-vault setups.
-- **Scribe Session Timeline** — `/dle-scribe-history` fetches and displays all your session notes from Obsidian.
-
-#### Infrastructure
-- **Multi-vault support** — Connect multiple Obsidian vaults with independent settings. Entries are merged with clear vault attribution throughout the UI.
-- **Zero loading delays** — Your vault index is saved to browser storage for instant page loads. Obsidian is checked in the background to ensure freshness.
-- **Smart caching** — AI search results are cached and reused when only new chat messages are added (no vault changes), saving API calls.
-- **Automatic error recovery** — If Obsidian goes down, DeepLore automatically backs off and retries with increasing delays instead of hammering your connection.
-- **Incremental sync** — On auto-refresh, only new or changed files are downloaded instead of re-fetching everything.
-- **Proxy cache optimization** — In proxy mode, the manifest is positioned to take advantage of prompt caching on supported providers.
-- **Setup Wizard** — `/dle-setup` walks you through first-time configuration step by step.
-- **Quick Actions Bar** — One-click buttons in settings for Browse, Health, Refresh, Graph, Simulate, Analytics, and more.
+- **Rule builder UX** -- Double-click save guard, unsaved changes warning on close, reset confirmation dialog, field reorder (move up/down), duplicate field, scroll-to on add, delete animation, contextKey auto-link toggle, gating-disabled dimming, error field highlighting with scroll-to, specific success messages.
+- **CSS foundations** -- 10 missing/incomplete CSS definitions fixed: `--dle-bg-2` variable, `.dle-gating-fields-container`, `.dle-rb-header` styling, `.dle-rb-select` theme integration, `.dle-rb-lbl` contrast fix, `.dle-rb-popup` padding, `.dle-manage-fields-btn` toolbar layout, `.dle-gating-group` hover states, chip focus-visible states.
+- **Responsive** -- Rule builder adapts at 1024px and 768px breakpoints.
+- **Drawer icon** -- Changed from FA scroll to inline Obsidian crystal SVG.
 
 ### New Slash Commands
+
 | Command | Description |
 |---------|-------------|
 | `/dle-notebook` | Open/edit persistent per-chat AI scratchpad |
+| `/dle-ai-notepad` | View or clear AI-written session notes |
 | `/dle-browse` | Searchable entry browser with content preview |
 | `/dle-graph` | Interactive entry relationship graph |
 | `/dle-simulate` | Replay chat showing entry activation timeline |
@@ -176,40 +109,58 @@ A thorough code audit identified and resolved 47 bugs across every major subsyst
 | `/dle-block` | Block an entry from injecting in the current chat |
 | `/dle-unblock` | Remove a block from the current chat |
 | `/dle-pins` | Show all pins and blocks for the current chat |
-| `/dle-set-era` | Set the active era for contextual gating |
-| `/dle-set-location` | Set the active location for contextual gating |
-| `/dle-set-scene` | Set the active scene type for contextual gating |
-| `/dle-set-characters` | Set the present characters for contextual gating |
-| `/dle-context-state` | Show the current contextual gating state |
+| `/dle-set-field` | Set any custom gating field value |
+| `/dle-clear-field` | Clear a custom gating field value |
+| `/dle-set-era` | Alias: set active era |
+| `/dle-set-location` | Alias: set active location |
+| `/dle-set-scene` | Alias: set active scene type |
+| `/dle-set-characters` | Alias: set present characters |
+| `/dle-context-state` | Show all active gating fields |
 | `/dle-setup` | Run the first-time setup wizard |
 | `/dle-summarize` | Generate AI summaries for entries without one |
 | `/dle-import` | Import SillyTavern World Info JSON into the vault |
+| `/dle-cache-info` | View vault cache status and storage info |
+| `/dle-clear-all-context` | Clear all active gating filters at once |
 
 ### New Frontmatter Fields
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `probability` | number | Chance of triggering when matched (0.0-1.0, null = always) |
-| `era` | string | Contextual gating — entry only injects when the active era matches |
-| `location` | string | Contextual gating — entry only injects when the active location matches |
-| `scene_type` | string | Contextual gating — entry only injects when the active scene type matches |
-| `character_present` | string[] | Contextual gating — entry only injects when any listed character is present |
+| `era` | string | Contextual gating -- entry only injects when the active era matches |
+| `location` | string | Contextual gating -- entry only injects when the active location matches |
+| `scene_type` | string | Contextual gating -- entry only injects when the active scene type matches |
+| `character_present` | string[] | Contextual gating -- entry only injects when any listed character is present |
+| `[custom fields]` | any | User-defined gating fields created via rule builder |
 
 ### Settings Overhaul
-- **Simplified search mode** — One dropdown to pick your search strategy: Keyword Only, Two-Stage (keywords + AI), or AI Only.
-- **Organized AI features** — AI Notebook, Session Scribe, and Auto Lorebook grouped into one collapsible section.
-- **Cleaner settings** — Power-user options hidden behind "Show Advanced" toggles (your preferences are remembered across sessions).
-- **Auto-connect** — Extension automatically connects to Obsidian on startup when enabled.
-- **Helpful tooltips** — Every setting has a descriptive tooltip explaining what it does.
+
+- **Simplified search mode** -- One dropdown to pick your search strategy: Keyword Only, Two-Stage (keywords + AI), or AI Only.
+- **Organized AI features** -- AI Notebook, Session Scribe, and Auto Lorebook grouped into one collapsible section.
+- **Cleaner settings** -- Power-user options hidden behind "Show Advanced" toggles (your preferences are remembered across sessions).
+- **Auto-connect** -- Extension automatically connects to Obsidian on startup when enabled.
+- **Helpful tooltips** -- Every setting has a descriptive tooltip explaining what it does.
 
 ### Self-Healing Diagnostics
+
 - `/dle-health` now runs 30+ automated checks on your vault: circular dependencies, duplicate titles, conflicting rules, orphaned links, misconfigured AI settings, budget warnings, and more.
-- Runs automatically on startup — you'll see a toast if anything needs attention (silent when clean).
+- Runs automatically on startup -- you'll see a toast if anything needs attention (silent when clean).
+
+### Bug Fixes
+
+Fixed ~60 bugs across all severity levels identified through a comprehensive code audit and stabilization sprint:
+
+- **6 critical** -- Multi-vault data loss prevention, special character corruption in AI manifests, circuit breaker mutation races, epoch guard isolation, pre-filter cascading failures, division-by-zero errors
+- **13 high** -- AI search failures, timeout semantics, cache invalidation, fuzzy warmup off-by-one, pre-filter empty results, connection manager timeouts, priority resolution for mutual excludes, case-insensitive pin/block matching, pre-filter AI stats overcounting, cross-vault fuzzy collisions, cascade warmup bypass, lenient gating tolerance, fit timer cleanup leaks
+- **25+ medium** -- Multi-vault field merging, storage cleanup on vault removal, cache rebuild on chat switch, double-rebuild prevention, stuck index detection, sync polling chat-switch handling, storage error surfacing, token estimate validation, YAML unescaping order, injection mode switching, auto-suggest special characters, import keyword format handling, entry truncation accuracy, pinned entry isolation, wiki documentation corrections
+- **10+ low** -- Minor edge cases, UI state fixes, diagnostic detail improvements
 
 ### Under the Hood
-- Decomposed the codebase from one massive file (4619 lines) into 21 focused modules for better maintainability.
-- 200+ bug fixes across all severity levels.
-- 518 passing tests.
-- Bumped version to 0.2.0-BETA.
+
+- Decomposed the codebase from one massive file (4619 lines) into 21+ focused modules for better maintainability.
+- 814 passing tests.
+
+---
 
 ## 0.14.0-ALPHA
 
@@ -246,7 +197,7 @@ A thorough code audit identified and resolved 47 bugs across every major subsyst
 ### Settings
 - New "Connection" radio: "Connection Profile" (default) or "Custom Proxy" in AI Search section.
 - New "Connection Profile" dropdown to select a saved Connection Manager profile.
-- "Model" field renamed to "Model Override" — leave empty to auto-use profile/default model.
+- "Model" field renamed to "Model Override" -- leave empty to auto-use profile/default model.
 
 ### Internal
 - New import: `ConnectionManagerRequestService` from ST's `shared.js`

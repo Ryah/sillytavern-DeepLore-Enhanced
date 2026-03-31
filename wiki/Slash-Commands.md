@@ -267,6 +267,25 @@ Show the current contextual gating state, including all active gating fields (bo
 
 ---
 
+### `/dle-cache-info`
+View vault cache status, size, and browser storage usage.
+
+**Shows:**
+- Number of cached entries and cache age
+- Browser storage estimate (used/quota)
+- Option to clear the cache
+
+**When to use:** Troubleshoot cache issues or check how much browser storage DLE is using.
+
+---
+
+### `/dle-clear-all-context` (alias: `/dle-reset-context`)
+Clear all active gating context fields at once — era, location, scene type, character, and any custom fields.
+
+**When to use:** Quick reset between scenes or arcs instead of clearing each field individually.
+
+---
+
 ### `/dle-setup`
 Run the first-time setup wizard. Walks through Obsidian vault connection, tag configuration, and search mode selection. AI search connection (profile or proxy) must be configured separately in the settings panel. See [[Installation]].
 
@@ -313,6 +332,8 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-set-scene <type>` | Alias: set active scene type |
 | `/dle-set-characters <names>` | Alias: set present characters |
 | `/dle-context-state` | Show all active gating fields |
+| `/dle-cache-info` | View vault cache status and storage |
+| `/dle-clear-all-context` (`/dle-reset-context`) | Clear all gating filters at once |
 | `/dle-setup` | Run setup wizard |
 | `/dle-summarize` | Generate AI summaries for entries |
 | `/dle-import` | Import ST World Info JSON |

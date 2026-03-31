@@ -10,7 +10,7 @@ keys:
   - Duskfrost history
   - timeline
   - historical events
-summary: "Full historical timeline of Duskfrost from pre-Calamity to present. Intentionally oversized (>2000 tokens) — tests seed-oversized health warning."
+summary: "Full historical timeline of Duskfrost from the Antecedent Culture through the Calamity, Reconstruction, Medieval era, and current Renaissance. Select when historical context, era transitions, the Calamity's aftermath, or Triumvirate origins come up."
 ---
 
 # Duskfrost Timeline

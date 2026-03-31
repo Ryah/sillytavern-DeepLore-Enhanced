@@ -34,5 +34,5 @@ Extended examination revealed that the probability warping accelerates when the 
 
 Gorduin Wynlar keeps the Crown in a triple-warded case and has a standing policy that no one enters the vault room where it is stored alone. The policy exists because two of the three occasions when someone has been alone with the Crown, they attempted to wear it. The third occasion, the Crown was simply gone when they arrived, and was found three rooms away with no explanation.
 
-The Crown's connection to the [[War of Glimmering Hope]] is established by a partial inscription on the inner band — the same script used in the battle records of that conflict. What the inscription says is not currently known because the inscription changes.
+The Crown's connection to the [[War of Glimmering Hope]] is established by a partial inscription on the inner band. The inscription employs a variant of Antecedent script that appears to describe events from the War of the Broken Mountain — a conflict that occurred nearly two centuries after the crown's estimated creation date. Whether this represents prophecy, temporal displacement, or scholarly misdating of the artifact remains one of the Archive's most contentious open questions. Complicating matters further, the inscription changes — never while observed, but reliably between observations.
 

@@ -18,7 +18,7 @@ scanDepth: 50
 era:
   - medieval
   - renaissance
-summary: "Senior elf researcher at the Oracles of Might, specialist in Antecedent Culture and pre-Calamity language. Select when ancient history, translation, or pre-Calamity artifacts come up — but ONLY if the text also contains 'ancient', 'elder', or 'pre-Calamity' (refine_keys). Scans deeply (scanDepth:50)."
+summary: "Senior elf researcher at the Oracles of Might, specialist in Antecedent Culture and pre-Calamity language. Select when ancient history, translation, or pre-Calamity artifacts come up."
 ---
 
 # Ayre Waesphyra
@@ -34,5 +34,3 @@ Ayre produced the Waesphyra Translation — the most comprehensive modern render
 Her recent translation of Scribe Fragment 7-C is the most significant piece of primary source research the Oracles have published in a decade. It is also, she notes with characteristic understatement, "somewhat troubling."
 
 She shares a productive working relationship with [[Gorduin Wynlar]] based on mutual competence and the understanding that neither will make dramatic decisions without consulting the other first. This agreement has been violated twice, both times by her, both times because the situation did not allow for consultation.
-
-Her refine_keys requirement — that the text must contain "ancient," "elder," or "pre-Calamity" as well as her name — reflects her narrow professional focus. She is a specialist. Her name appearing without those context words typically indicates a different, less specialized conversation than the one she can most usefully inform.

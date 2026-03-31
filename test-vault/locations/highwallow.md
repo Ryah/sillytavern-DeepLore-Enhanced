@@ -20,5 +20,5 @@ summary: "The marsh district of Duskfrost — flood-prone, overcrowded, site of 
 
 Highwallow is built on unstable ground, periodically floods, contains the Resonance Scar zone, hosts the Hollow Road access points, and houses approximately 20,000 people who have limited options and formidable resilience. The Triumvirate's relationship with the district ranges from neglect to active hostility.
 
-Located within reach of [[Champions Chapel]].
+The district's only sanctioned gathering hall is the Highwallow Commons, where residents organize mutual aid during flood season.
 

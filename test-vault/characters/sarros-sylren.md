@@ -28,4 +28,5 @@ Sarros works under [[Gorduin Wynlar]]'s administrative authority and under [[Ayr
 
 His current research — the conflict patterns preceding the Calamity — has produced three conclusions he considers firmly established and two he considers strongly suggested. He has declined to publish any of them until he is certain of the strongly suggested ones, because what he is suggesting would cause significant institutional alarm if stated before he can defend every premise.
 
-His cascade_links connection to the [[War of Glimmering Hope]] reflects his professional opinion that the current political crisis has the same structural shape as the pre-Calamity conflicts he has been studying — a pattern he recognized two years ago and has been trying to bring to appropriate attention since.
+
+His interest in the [[War of Glimmering Hope]] reflects his professional opinion that the current political crisis has the same structural shape as the pre-Calamity conflicts he has been studying — a pattern he recognized two years ago and has been trying to bring to appropriate attention since.

@@ -29,5 +29,9 @@ Duskfrost occupies a coastal bluff with its wealthiest districts clustered at th
 
 **East Hamp / South Sool / [[Saseopt District]]** — Residential middle districts. Quiet, unremarkable, densely populated.
 
-**[[Rappiop Grove]]** — A park and garden district maintained by the Academy. Popular for outdoor study and clandestine meetings.
+**[[Rappiop Grove]]** — A park and garden neighborhood within [[Amberburgh]], maintained by the Academy. Popular for outdoor study and clandestine meetings.
+
+**[[Rimeborough]]** — A northern district where cold sea winds blow in off the coast year-round. Comfortable for [[Delivese]] but unpleasant for most other species. Working-class, insular, and rarely visited by outsiders.
+
+**[[Redpond]]** — A freshwater lake district on the city's eastern edge. The Redpond Fishers Cooperative operates here, supplying much of Duskfrost's non-ocean catch. Quiet, semi-rural feel within city limits.
 

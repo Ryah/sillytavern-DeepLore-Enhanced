@@ -9,7 +9,7 @@ keys:
   - founding of the Solarguard
   - Solarguard founding
   - Year 243
-era: reconstruction
+era: medieval
 scene_type: social
 summary: "The formal establishment of the Solarguard city watch in Year 243. Select when Solarguard history, law enforcement origins, or Triumvirate negotiations come up."
 ---

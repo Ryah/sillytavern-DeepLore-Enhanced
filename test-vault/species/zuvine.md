@@ -3,7 +3,7 @@ title: Zuvine
 type: species
 priority: 20
 tags:
-  - species
+  - species/aquatic
   - lorebook
   - lorebook-always
 keys:

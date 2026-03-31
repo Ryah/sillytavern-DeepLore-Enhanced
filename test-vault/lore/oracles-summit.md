@@ -32,5 +32,3 @@ The Protocol was last invoked six years ago when the [[Angel Crown]] began chang
 
 [[Gorduin Wynlar]] and [[Ayre Waesphyra]] are the most likely pair to invoke the Protocol at any given time — they are the two researchers with the broadest access to classified materials and the longest track record of disagreeing with management about what constitutes an emergency.
 
-Scholars connect this to the [[Resonance Scar Properties]].
-

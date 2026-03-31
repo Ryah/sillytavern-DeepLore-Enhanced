@@ -28,5 +28,7 @@ The Solarguard wears grey and gold — silver armor with gold insignia for offic
 
 **Relationship with the Academy:** The Solarguard's [[Wardenship]] liaison program gives the Academy enforcement authority over registered practitioners. In practice, this means the Solarguard handles street crime and the Wardenship handles anything arcane, and each pretends the other's jurisdiction is not ambiguous.
 
+**Key Officers:** [[Commander Bryndas Holte]] serves as Castellan's second-in-command and handles day-to-day operational assignments. [[Lieutenant Orvaine Shel]] runs the Bellsummit precinct and is considered Castellan's most reliable district commander. [[Corporal Thresh Dunmore]] leads the harbor patrol unit — a thankless posting in Bonehands territory that Dunmore handles with stubborn professionalism. [[Kasper Lampi]], a civilian investigator attached to the Solarguard under the Academy liaison program, provides arcane forensics support and has been involved in every major magical crime investigation of the last five years.
+
 **Relationship with the Bonehands:** Officially hostile. Practically: a standing cold war with occasional hot incidents in Bayside Shushail. Several Solarguard officers in the harbor district are on Bonehands payroll, a fact that Castellan cannot prove and cannot entirely ignore.
 

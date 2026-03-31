@@ -14,7 +14,7 @@ location: Bellsummit
 scene_type: social
 character_present:
   - Gorduin Wynlar
-summary: "The Oracles' winter solstice ritual in Bellsummit's summit chamber. Injects ONLY when era=medieval AND location=Bellsummit AND scene=social AND Gorduin Wynlar is present. Tests maximum gating restriction."
+summary: "The Oracles of Might's annual winter solstice ceremony in Bellsummit's summit chamber, used to recalibrate arcane instrumentation and covertly monitor the Resonance Scar. Select when seasonal rituals, Oracles ceremonies, arcane calibration, or the Scar's annual fluctuation come up."
 ---
 
 # Solstice Alignment Ritual

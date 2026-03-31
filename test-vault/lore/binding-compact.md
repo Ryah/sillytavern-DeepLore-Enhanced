@@ -19,7 +19,7 @@ summary: "The foundational legal agreement prohibiting armed conflict between Tr
 
 The Binding Compact (Year 145) is the foundational legal agreement that prohibits open armed conflict between Triumvirate houses within Duskfrost city limits. It was signed in [[Bellsummit]] following the Second Consolidation War, which damaged three districts and killed approximately two thousand people.
 
-The Compact is enforced by a joint tribunal — two representatives from each house, two from the Academy — with authority to levy severe economic penalties and, in extreme cases, revoke a house's governance rights for a period of up to ten years.
+The Compact is enforced by a joint tribunal — two representatives from each house, two from the Academy — with authority to levy severe economic penalties and, in extreme cases, revoke a house's governance rights for a period of up to ten years. (Academy seats were added by amendment following the Academy's founding in Year 147; the original Compact predates the Academy by two years.)
 
 The Compact has held, with one major exception (the [[War of the Broken Mountain]] in Year 289, which the tribunal retroactively classified as "enforcement action" to avoid triggering revocation proceedings), for three centuries.
 

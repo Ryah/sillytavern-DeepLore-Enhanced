@@ -17,7 +17,7 @@ summary: "Currency denominations used in Duskfrost. Select when prices, trade, o
 
 Duskfrost uses a three-tier coinage system: **gold crowns** (highest), **silver marks** (middle), **copper bits** (lowest). Twenty copper bits equal one silver mark. Fifty silver marks equal one gold crown.
 
-A laborer earns roughly three copper bits per day. A decent room in [[Amberburgh]] costs two silver marks per week. Academy tuition runs thirty gold crowns per year.
+A laborer earns roughly eight copper bits per day. A decent room in [[Amberburgh]] costs two silver marks per week. Academy tuition runs thirty gold crowns per year.
 
 This system is primarily relevant to [[Bellsummit]] and its surroundings.
 

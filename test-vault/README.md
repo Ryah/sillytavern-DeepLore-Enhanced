@@ -1,24 +1,36 @@
 # Duskfrost Test Vault
 
-A synthetic Obsidian vault for DeepLore Enhanced QA. **~235 entries** covering every frontmatter field, gating mechanism, health-check condition, and graph topology. Versioned with the extension source.
+A fully realized Obsidian lorebook vault for DeepLore Enhanced. **~257 entries** covering the city of Duskfrost — its factions, districts, species, history, and political intrigue — while simultaneously exercising every frontmatter field, gating mechanism, health-check condition, and graph topology the extension supports. Versioned with the extension source.
 
-**Theme:** Duskfrost — a sprawling fantasy city with factions, districts, pre-Calamity ruins, and political intrigue.
+**Theme:** Duskfrost — a sprawling fantasy city built on the ruins of a pre-Calamity civilization. Gritty urban fantasy with political intrigue, faction conflict, underground economies, and magic that always has costs.
 
 ---
 
 ## Directory Structure
 
 ```
-_edge-cases/     27 files — intentionally broken/weird entries
-characters/      40 files — 10 full, 30 skeleton
-events/          25 files — 3 full, 22 skeleton
-items/           20 files — 3 full, 17 skeleton
-locations/       35 files — 5 full, 30 skeleton
-lore/            44 files — 9 full, 35 skeleton
-meta/            10 files — all full (constants, seeds, world rules)
-organizations/   20 files — 3 full, 17 skeleton
-species/         15 files — 3 full, 12 skeleton
+_edge-cases/     27 files — intentionally broken/weird entries (DO NOT EDIT)
+characters/      51 files — faction leaders, officers, criminals, scholars, merchants
+events/          25 files — wars, treaties, disasters, political crises
+items/           20 files — artifacts, tools, weapons, cursed objects
+locations/       35 files — districts, taverns, tunnels, guild halls, markets
+lore/            45 files — magic theory, history, customs, ecology, politics
+meta/            15 files — world rules, geography, timeline, climate, religion, naming
+organizations/   20 files — guilds, factions, cults, enforcement bodies
+species/         18 files — 15 fantasy species + 3 core (elf, dwarf, human)
 ```
+
+---
+
+## World Overview
+
+Duskfrost is a coastal city of ~80,000 residents, governed by three noble houses (the **Triumvirate**: Harcyne, Velkhast, Morveth) in a shifting balance of alliances. The **Duskfrost Academy** regulates arcane practice. The **Solarguard** patrols the wealthy districts while the **Bonehands** control the harbor and marsh. Magic is channeled through sigils and costs something every time.
+
+The current year is **355 PC** (Post-Calamity). The city sits on the ruins of a civilization destroyed by cascading arcane failure ~355 years ago. A recently discovered fragment of the old resonance grid beneath Rappiop Grove has all three houses quietly maneuvering. The Velkhast succession crisis has paralyzed harbor trade. The Champions of Patience are declining. The Keepers of the Scar watch the wound in Highwallow and worry.
+
+**Key districts** (top to bottom of the bluff): Bellsummit (wealth/Academy), Amberburgh (merchants), Scorchhelm (military), Bayside Shushail (harbor/crime), Highwallow (marsh/poverty). Plus: Rimeborough (cold/northern), Redpond (lake/fishing), Saseopt/East Hamp/South Sool (residential).
+
+**15 custom species** with distinct cultures, districts, and politics — from bioluminescent Zuvine salvagers to subterranean Gnaino echolocators to cold-resistant Delivese metalworkers.
 
 ---
 
@@ -158,7 +170,7 @@ Run `/dle-health` with this vault connected (default settings). Expected output:
 
 | Feature | File(s) |
 |---------|---------|
-| Constant (lorebook-always) | `meta/duskfrost-world-rules.md`, `meta/duskfrost-geography.md`, `meta/duskfrost-triumvirate.md`, `meta/duskfrost-law-enforcement.md`, `species/zuvine.md`, `species/cirilae.md` |
+| Constant (lorebook-always) | `meta/duskfrost-world-rules.md`, `meta/duskfrost-geography.md`, `meta/duskfrost-triumvirate.md`, `meta/duskfrost-law-enforcement.md`, `species/zuvine.md`, `species/cirilae.md`, `species/elf.md`, `species/dwarf.md`, `species/human.md` |
 | Seed (lorebook-seed) | `meta/duskfrost-tone-guide.md`, `meta/duskfrost-era-guide.md`, `meta/duskfrost-timeline.md` |
 | Seed oversized >2000 tok (WARN) | `meta/duskfrost-timeline.md` |
 | Bootstrap (lorebook-bootstrap) | `meta/duskfrost-magic-system.md`, `species/bolludine.md` |
@@ -169,13 +181,13 @@ Run `/dle-health` with this vault connected (default settings). Expected output:
 
 | Feature | File |
 |---------|------|
-| Wiki-links `[[Target]]` | most full entries |
+| Wiki-links `[[Target]]` | most entries |
 | Wiki-links with display `[[T\|Display]]` | several lore entries |
 | Unresolved wiki-links (INFO) | `_edge-cases/_unresolved-links.md` |
 | Image embeds `![[img.png]]` (stripped) | `_edge-cases/_image-embeds.md` |
 | Obsidian comments `%%...%%` (stripped) | `_edge-cases/_obsidian-comments.md` |
 | deeplore-exclude blocks (stripped) | `_edge-cases/_deeplore-exclude-block.md` |
-| HTML `<div class="meta-block">` (kept) | all full entries |
+| HTML `<div class="meta-block">` (kept) | most entries |
 | First H1 heading (stripped) | all entries with `# Title` |
 | UTF-8 BOM prefix (stripped) | `_edge-cases/_bom-prefix.md` |
 | YAML block scalar summary `\|` | `_edge-cases/_block-scalar-summary.md` |
@@ -183,7 +195,6 @@ Run `/dle-health` with this vault connected (default settings). Expected output:
 | Number summary `summary: 42` | `_edge-cases/_number-summary.md` |
 | Oversized content >1500 tok (WARN) | `_edge-cases/_oversized-entry.md` |
 | Empty content (WARN) | `_edge-cases/_empty-content.md` |
-| No summary (no AI warn w/ AI off) | several skeleton entries |
 | Duplicate titles (ERROR) | `_duplicate-title-a.md` + `_duplicate-title-b.md` |
 
 ### Graph Topology
@@ -193,7 +204,6 @@ Run `/dle-health` with this vault connected (default settings). Expected output:
 | Hub node (10+ connections) | `characters/gorduin-wynlar.md` |
 | Dense cluster (5+ mutual links) | gorduin-wynlar, ayre-waesphyra, oracles-of-might, bellsummit, duskfrost-magic-system |
 | Isolated pair (no other links) | `events/assault-of-broken-love.md` ↔ `events/battle-of-vryhs.md` |
-| Orphan nodes (no links) | Most items/ entries |
 | Mutual excludes edges | bonehands ↔ solarguard, zuni-dhegevnac ↔ grolgrurim-bluntgut |
 | Requires chain (directional) | adelas → gorduin → oracles-of-might |
 | Cascade chain | angel-crown → war-of-glimmering-hope |
@@ -230,9 +240,6 @@ DENSE CLUSTER (all link to each other):
 
 ISOLATED PAIR (only links to each other):
   Assault of Broken Love ◄──► Battle of Vryhs
-
-ORPHAN NODES (no links):
-  ~13 items/ entries (canopic-chest, divine-tiara, truth-vial, etc.)
 ```
 
 ---
@@ -269,14 +276,14 @@ ORPHAN NODES (no links):
 4. **Expect:** `organizations/solarguard.md` injects; `organizations/bonehands.md` does NOT inject
 
 ### Scenario 6: Warmup (3 occurrences required)
-1. Send: "Snugug is at the docks" → **Expect:** no injection (count 1)
-2. Send: "Snugug blocks the entrance" → **Expect:** no injection (count 2)
-3. Send: "Snugug steps forward" → **Expect:** injection (count 3, warmup satisfied)
+1. Send: "Snugug is at the docks" — **Expect:** no injection (count 1)
+2. Send: "Snugug blocks the entrance" — **Expect:** no injection (count 2)
+3. Send: "Snugug steps forward" — **Expect:** injection (count 3, warmup satisfied)
 
 ### Scenario 7: Cooldown (skip 1 generation)
-1. Send: "Grolgrurim negotiates" → **Expect:** `characters/grolgrurim-bluntgut.md` injects (warmup:1 satisfied)
-2. Send: "Grolgrurim continues the meeting" → **Expect:** no injection (cooldown:1 — skip 1 generation)
-3. Send: "Grolgrurim stands up" → **Expect:** injects again (cooldown expired)
+1. Send: "Grolgrurim negotiates" — **Expect:** `characters/grolgrurim-bluntgut.md` injects (warmup:1 satisfied)
+2. Send: "Grolgrurim continues the meeting" — **Expect:** no injection (cooldown:1 — skip 1 generation)
+3. Send: "Grolgrurim stands up" — **Expect:** injects again (cooldown expired)
 
 ### Scenario 8: All-4-Fields Gating (strict blocks)
 1. Clear all context: `/dle-set-era`, `/dle-set-location`, etc. (no active context)
@@ -309,9 +316,8 @@ ORPHAN NODES (no links):
 1. Run `/dle-graph`
 2. **Verify:** Gorduin Wynlar is a hub node with many connections
 3. **Verify:** Assault of Broken Love and Battle of Vryhs appear as an isolated pair
-4. **Verify:** Most items/ entries appear as orphan nodes
-5. **Verify:** Oracles of Might cluster is visible (gorduin, ayre, bellsummit, oracles-tower, etc.)
-6. **Verify:** Bonehands and Solarguard show excludes edges (if rendered)
+4. **Verify:** Oracles of Might cluster is visible (gorduin, ayre, bellsummit, oracles-tower, etc.)
+5. **Verify:** Bonehands and Solarguard show excludes edges (if rendered)
 
 ### Scenario 13: refine_keys Gate
 1. Send: "Ayre is working today"
@@ -337,56 +343,105 @@ ORPHAN NODES (no links):
 
 ## Vault Entry Index
 
-### characters/ (40 entries)
-Full: gorduin-wynlar, ayre-waesphyra, zuni-dhegevnac, grolgrurim-bluntgut, tybellan-hercyne, sarros-sylren, felicitas-langguth, adelas-gilydark (skeleton w/ requires), snugug (skeleton w/ warmup), kabugbu (skeleton w/ cooldown+prob)
+### characters/ (51 entries)
 
-Skeleton: zoughat, kieran-heixisys, erlathan-ercyne, vulfun-gurdoth, dhymma-dherignol, orirbak-kegfeet, jafrom-deepbeard, dorian-schmitt, kasper-lampi, cecilie-sorensen, + 20 more varied characters
+**Inner Circle (priority ≤30):** Archmage Tessavel Orindal (elf, Academy head), Warden-Captain Orin Castellan (half-elf, Solarguard), High Champion Mira Veldthar (human, Champions of Patience), Gorduin Wynlar (Head Archivist, hub node), Ayre Waesphyra (Senior Researcher)
+
+**Core Cast (priority 31-45):** Corwin Velkhast (succession claimant), Gorbag Thrice-Scarred (orc Bonehands boss), Tybellan Hercyne (Champion field agent), Thalassa Velmorin (Zuvine salvager), Quirkavel Doss (Bolludine courier), Felicitas Langguth, Sarros Sylren, Zuni Dhegevnac, Grolgrurim Bluntgut
+
+**Supporting Cast (priority 46-65):** Barlyn Greymantle (Cirilae mason), Kaldor Echbrine (Gnaino guide), Rhenar Frosthollow (Delivese leader), Elspeth Dunvale (wild mage), Snugug (Bonehands enforcer, warmup:3), Kabugbu (informant, probability:0.1/cooldown:5), Commander Bryndas Holte, Lieutenant Orvaine Shel, Corporal Thresh Dunmore, Kasper Lampi, Innkeeper Roswyn Halse, and 20+ more merchants, scholars, spies, and street runners
 
 ### events/ (25 entries)
-Full: war-of-the-broken-mountain, battle-of-the-vanguard-crossing, founding-of-the-solarguard
-Skeleton (22): assault-of-broken-love, battle-of-vryhs, war-of-kroyhr, attack-of-steel, siege-of-am, night-of-empty-chairs, academy-fire-of-211, velkhast-succession-crisis, resonance-discovery, first-triumvirate-compact, calamity-onset, great-census-of-180, harbour-expansion-project, scar-mapping-expedition, bonehands-founding, watchers-treaty, archive-disappearance, great-flood-of-highwallow, morveth-arcane-monopoly-broken, champions-founding, oracles-schism, zuvine-harbor-treaty
+
+**Pre-Calamity:** War of Kroyhr (ancient ley-line conflict), Calamity Onset (the fall)
+
+**Reconstruction:** Battle of the Vanguard Crossing, First Triumvirate Compact, Great Census of 180, Champions Founding, Attack of Steel, Siege of Am, Assault of Broken Love, Battle of Vryhs
+
+**Medieval:** Solarguard Founding, Academy Fire of 211, Night of Empty Chairs, War of the Broken Mountain, Harbour Expansion Project, Bonehands Founding, Watchers Treaty, Morveth Arcane Monopoly Broken, Great Flood of Highwallow, Oracles Schism, Zuvine Harbor Treaty
+
+**Renaissance:** Velkhast Succession Crisis, Resonance Discovery, Scar Mapping Expedition, Archive Disappearance
 
 ### items/ (20 entries)
-Full: angel-crown, sword-of-enigmas, mirror-of-binding
-Skeleton (17): elemental-band, resurrection-jar, tiara-of-teleportation, canopic-chest-of-serendipity, hells-statue, divine-tiara, jar-of-paradise, speaking-stone, truth-vial, heartwood-staff, ghost-lantern, nullifying-gauntlet, bone-compass, archive-key, echo-lens, severance-dagger, weight-of-regret
+
+Pre-Calamity artifacts and dangerous objects, each with specific provenance, costs, and current whereabouts. Notable: Angel Crown (prophetic inscription, cooldown:2, cascade to War of Glimmering Hope), Severance Dagger (missing, last traced to Bonehands), Tiara of Teleportation (probability:0.3, rumored near Hollow Roads), Sword of Enigmas (probability:0.5, in_chat injection), Mirror of Binding (Archive restricted section)
 
 ### locations/ (35 entries)
-Full: bellsummit, amberburgh, bayside-shushail, scorchhelm, the-hidden-dragonfruit-tavern
-Skeleton (30): south-sool, chorstap-row, east-hamp, saseopt-district, rappiop-grove, highwallow, rimeborough, redpond, the-majestic-boulder, the-jealous-librarian, ye-olde-guinea-pig-inn, scorchhelm-training-grounds, archive-building, resonance-observatory, hollow-road-entrance, compact-vault-scorchhelm, amberburgh-exchange, highwallow-mutual-aid-hall, bolludine-quarter, zuvine-harbor-district, champions-chapel, solarguard-headquarters, academy-main-hall, bonehands-counting-house, the-drowned-anchor, oracles-tower, highwallow-night-clinic, cliff-stairs, redpond-waterfront, rimeborough-market
 
-### lore/ (44 entries)
-Full: war-of-glimmering-hope, battle-of-the-false-prophet, binding-compact, oracles-summit, solstice-ritual, hidden-compact, scribe-fragment, siege-of-am-lore, attack-of-lost-friends
-Skeleton (35): resonance-scar-properties, antecedent-script, hollow-roads, sigil-theory, blood-binding, true-names, resonance-frequency-theory, calamity-theories, arcane-bloodline-inheritance, ley-line-geography, reconstruction-oral-history, + 24 more covering all era/location/scene_type combos
+**Districts:** Bellsummit, Amberburgh, Bayside Shushail, Scorchhelm, Highwallow, Rimeborough, Redpond, East Hamp, Saseopt, South Sool
 
-### meta/ (10 entries, all full)
-duskfrost-world-rules (constant, in_chat/system), duskfrost-geography (constant), duskfrost-tone-guide (seed), duskfrost-era-guide (seed), duskfrost-magic-system (bootstrap), duskfrost-triumvirate (constant), duskfrost-timeline (seed, oversized), duskfrost-law-enforcement (constant), duskfrost-academy (standard), duskfrost-currency (skeleton)
+**Key buildings:** Academy Main Hall, Archive Building, Oracles Tower, Solarguard Headquarters, Bonehands Counting House, Champions Chapel, Compact Vault (Scorchhelm), Resonance Observatory
+
+**Neighborhoods & features:** Bolludine Quarter, Zuvine Harbor District, Chorstap Row (reagent alley), Cliff Stairs, Hollow Road Entrance, Rappiop Grove (Amberburgh park), Redpond Waterfront, Rimeborough Market, Highwallow Mutual Aid Hall, Highwallow Night Clinic
+
+**Taverns & inns:** The Hidden Dragonfruit (Bayside Shushail), The Drowned Anchor (harbor dive), The Jealous Librarian (Academy pub), The Majestic Boulder (Vorruk bar), Ye Olde Guinea Pig Inn
+
+### lore/ (45 entries)
+
+**Magic system:** Sigil Theory, Resonance Frequency Theory, Arcane Bloodline Inheritance, Blood Binding, True Names, Forbidden Sigil Catalog, Ley Line Geography, Resonance Scar Properties, Resonance Scar Tunnels
+
+**History & politics:** Binding Compact, Academy Charter Amendments, Academy Restriction Tiers, Triumvirate Secret Sessions, Guild Hierarchy Laws, Scorchhelm Fortifications
+
+**Culture & customs:** Amberburgh Trade Customs, Nightmarket Customs, Bolludine Shard Politics, Zuvine Song Cycles, Highwallow Underground Economy, Nightwatch Protocol, Mage Dueling Code, Duskfrost Food Economy
+
+**Scholarship:** Antecedent Script, Pre-Calamity Species Records, Thornwick Pallasys Biography, Calamity Theories, Calamity Survivor Adaptations, Reconstruction Oral History, Scribe Fragment
+
+**Restricted/dangerous:** Hidden Compact (scanDepth:0, AI-only), Solstice Ritual (all 4 gating fields), Seven Seals, Phantom Bridge Legend
+
+### meta/ (15 entries)
+
+**Constants (always injected):** Duskfrost World Rules, Duskfrost Geography, Duskfrost Triumvirate, Duskfrost Law Enforcement
+
+**Seeds (AI story context):** Duskfrost Tone Guide, Duskfrost Era Guide, Duskfrost Timeline (oversized)
+
+**Bootstrap (new chat injection):** Duskfrost Magic System
+
+**Standard meta:** Duskfrost Academy, Duskfrost Currency, Duskfrost Climate, Duskfrost Religion, Duskfrost Daily Life, Duskfrost Region, Duskfrost Naming Conventions
 
 ### organizations/ (20 entries)
-Full: oracles-of-might, solarguard, champions-of-patience
-Skeleton (17): marblesmiths (excludeRecursion), bonehands (mutual excludes), mages-of-the-patient, scourge-vitality, velkhast-trading-co, harcyne-granaries, wardenship, bellsummit-council, amberburgh-merchants-league, salvagers-compact, keepers-of-the-scar, old-harbor-brotherhood, highwallow-mutual-aid, academy-fellowship, redpond-fishers, thornwick-society, night-market-guild
 
-### species/ (15 entries)
-Full: zuvine (constant), cirilae (constant), bolludine (bootstrap)
-Skeleton (12): gnaino (excludeRecursion), lorant, delivese, bhissalae, kethvali, thyren, velhari, vorruk, selaveth, crennish, orvathi, halfblood-notes
+**Enforcement:** Solarguard (city watch, ~400 officers), Wardenship (Academy arcane enforcement, 22 wardens)
 
-### _edge-cases/ (27 entries)
+**Criminal:** Bonehands (harbor/marsh crime, Council of Five), Old Harbor Brotherhood (2-block holdout)
+
+**Guilds:** Oracles of Might (arcane research), Marblesmiths (construction, majority Cirilae), Amberburgh Merchants League, Night Market Guild (Orvathi-run), Salvagers Compact (harbor salvage), Redpond Fishers Cooperative, Velkhast Trading Company
+
+**Orders & societies:** Champions of Patience (knightly order, declining), Thornwick Society (scholarly), Academy Alumni Fellowship, Mages of the Patient (theoretical research)
+
+**Other:** Bellsummit District Council, Harcyne Granary Authority (food monopoly), Highwallow Mutual Aid Society, Keepers of the Scar (spiritual), Scourge of Vitality (cult)
+
+### species/ (18 entries)
+
+**Constants (always injected):** Zuvine (aquatic/bioluminescent), Cirilae (stone-bonded), Elf, Dwarf, Human
+
+**Bootstrap:** Bolludine (insectoid couriers)
+
+**Standard species (12):** Bhissalae (amphibious), Crennish (photographic memory), Delivese (cold-resistant), Gnaino (subterranean), Halfblood notes, Kethvali (nomadic traders), Lorant (winged), Orvathi (nocturnal), Selaveth (arcane-sensitive), Thyren (plant-bonded), Velhari (illusory), Vorruk (large laborers)
+
+**Tag subcategories:** species/aquatic, species/humanoid, species/insectoid, species/subterranean, species/winged, species/nocturnal, species/arcane, species/botanical, species/illusory, species/nomadic
+
+### _edge-cases/ (27 entries — DO NOT EDIT)
+
+Intentionally broken/weird entries for health check and parser testing:
 _empty-content, _orphaned-requires, _circular-requires-a, _circular-requires-b, _self-exclude, _disabled-entry, _never-insert, _oversized-entry, _no-keywords, _regex-special-keys, _unicode-keys, _short-keys, _probability-zero, _cooldown-on-constant, _depth-without-inchat, _role-without-inchat, _bom-prefix, _block-scalar-summary, _inline-array-keys, _number-summary, _duplicate-title-a, _duplicate-title-b, _unresolved-links, _obsidian-comments, _deeplore-exclude-block, _image-embeds, _requires-excludes-contradiction
 
 ---
 
 ## How to Use This Vault
 
-### Manual QA
-1. Add a test vault config pointing at this directory
-2. Run `/dle-rebuild` — should index ~230 entries (minus disabled entry)
-3. Run through scenarios above
-4. Run `/dle-health` — verify errors/warnings match expected list
+### For RP Testing
+1. Point DLE at this vault directory
+2. Run `/dle-rebuild` — should index ~230 entries (minus disabled/never-insert)
+3. Set era to `medieval` or `renaissance`, set a location, and start chatting
+4. The vault is a coherent world — entries cross-reference naturally and the AI should produce consistent RP
+
+### For QA Testing
+1. Run through the Manual QA Test Scenarios above
+2. Run `/dle-health` — verify errors/warnings match the expected list
+3. Run `/dle-graph` — verify topology (hub nodes, clusters, isolated pairs, excludes edges)
+4. The `_edge-cases/` directory covers parser edge cases and health check conditions
 
 ### Health Check Baseline
 The expected errors and warnings above serve as the baseline. Any deviation (extra warnings, missing errors) indicates a health check regression.
-
-### Graph Testing
-Run `/dle-graph` after indexing. Use the topology descriptions above to verify cluster rendering, hub node visibility, isolated pairs, and orphan nodes.
 
 ### Future Automated Tests
 Integration tests can read vault files directly, call `buildIndex()`, and assert matching behavior against known inputs without requiring a running Obsidian instance. The deterministic content makes assertions stable.

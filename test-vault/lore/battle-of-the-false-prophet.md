@@ -12,7 +12,7 @@ keys:
 era: medieval
 scene_type: combat
 warmup: 3
-summary: "A medieval-era battle (Year 201) triggered by a religious fraud that nearly caused a civil war. Only triggers after 3 keyword occurrences — rare historical detail. Select when religious manipulation, false prophecy, or Year 201 come up."
+summary: "A medieval-era urban conflict (Year 201) triggered by a charismatic fraud who posed as a pre-Calamity prophet in Highwallow, leading to three days of fighting. Select when religious manipulation, false prophecy, Highwallow unrest, or the Wardenship's origins come up."
 ---
 
 # Battle of the False Prophet

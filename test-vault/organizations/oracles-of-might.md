@@ -31,7 +31,7 @@ The Oracles operate under the principle of "informed risk" — dangerous knowled
 
 **Relationship with the Academy:** Complex. The current Archmage (Tessavel Orindal) is simultaneously the Grand Oracle, which makes the institutional relationship deliberately tangled. Neither body will confirm whether this dual role represents alignment or leverage.
 
-**Relationship with the [[Bonehands]]:** Officially hostile. Practically: a standing cold war with occasional hot incidents in [[Bayside Shushail]]. Several [[Solarguard]] officers in the harbor district are on Bonehands payroll, a fact that Castellan cannot prove and cannot entirely ignore.
+**Relationship with the [[Bonehands]]:** The Oracles maintain discreet channels with artifact dealers in [[Bayside Shushail]], purchasing pre-Calamity items that surface through the harbor's grey market. This practice is technically legal — the Academy's acquisition charter does not extend to the Oracles — but it places them in occasional contact with [[Bonehands]] intermediaries, a relationship neither party acknowledges publicly.
 
 **Notable members:** [[Gorduin Wynlar]] (Head Archivist), [[Ayre Waesphyra]] (Senior Researcher, Antecedent Culture), [[Sarros Sylren]] (Field Researcher).
 

@@ -24,5 +24,7 @@ The Academy occupies the eastern third of Bellsummit, a collection of towers, ha
 
 The Academy's relationship with the Triumvirate is governed by the Founding Charter and its seven subsequent amendments. In practice, this means the houses can influence but not directly control Academy policy. The current Archmage, Tessavel Orindal, is a 90-year-old elf of considerable political sophistication who has maintained the Academy's independence through four Triumvirate power shifts.
 
+Academy tuition is nominally thirty gold crowns per year, but students from non-noble families can attend through merit scholarships funded by the Triumvirate houses or private patronage from guild sponsors. The Marblesmiths and the Velkhast Trading Company are the two largest private patrons; the Academy does not publicize this, because advertising that tradespeople fund the city's arcane education would undermine the institutional mystique.
+
 The Academy maintains its own enforcement arm, the [[Wardenship]], which has authority over registered arcane practitioners anywhere in the city.
 

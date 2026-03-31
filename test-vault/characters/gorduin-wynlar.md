@@ -35,5 +35,3 @@ His relationship with the Angel Crown is the defining professional relationship 
 He works closely with [[Ayre Waesphyra]] on Antecedent Culture research and maintains a formal, productive, and mutually suspicious relationship with [[Tybellan Hercyne]], whose field work has a habit of producing materials that should not exist. He considers [[Felicitas Langguth]] the only person in Duskfrost who reliably gets information to him before it becomes a crisis, which makes her useful.
 
 His connection to [[Scorchhelm]] is indirect: the [[Compact Vault]] there stores documents he has studied extensively and would prefer to have copies of. The [[Solarguard]] has declined to provide copies. This is an ongoing negotiation.
-
-He requires the Oracles of Might to be functioning and funded before his role has context — this is why his entry requires the Oracles of Might to be matched first.

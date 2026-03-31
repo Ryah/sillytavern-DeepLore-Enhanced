@@ -11,6 +11,7 @@ keys:
   - the questioning sword
 position: in_chat
 depth: 1
+role: system
 probability: 0.5
 summary: "A sentient blade that compels its wielder to answer questions honestly. Select when interrogation, truth-compulsion, or unusual weapons come up. 50% trigger chance."
 ---

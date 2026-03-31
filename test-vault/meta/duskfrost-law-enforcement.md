@@ -15,7 +15,7 @@ summary: "Overview of law enforcement in Duskfrost. Always injected — context 
 
 # Duskfrost Law Enforcement
 
-**The [[Solarguard]]** is the official city watch, established in Year 243. Approximately 400 officers across all districts. Headquarters in [[Scorchhelm]]. Nominally answers to the Triumvirate but in practice operates semi-independently under its current commander, Warden-Captain Orin Castellan.
+**The [[Solarguard]]** is the official city watch, established in Year 243. Approximately 400 officers across all districts. Headquarters in [[Scorchhelm]]. Nominally answers to the Triumvirate but in practice operates semi-independently under its current commander, Warden-Captain Orin Castellan. The title was deliberately reduced from the original "Warden-General" by the Triumvirate in Year 267 to limit the office's military authority — a compromise after the previous Warden-General attempted to declare martial law during a dock workers' riot.
 
 **Jurisdiction by district:** Solarguard maintains heavy presence in [[Bellsummit]], [[Amberburgh]], and Scorchhelm. Presence in [[Bayside Shushail]] and [[Highwallow]] is nominal — technically patrolled, practically abandoned to the guilds and the [[Bonehands]].
 

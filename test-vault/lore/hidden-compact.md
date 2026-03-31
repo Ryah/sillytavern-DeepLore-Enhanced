@@ -10,7 +10,7 @@ keys:
   - three sigils compact
   - secret treaty
 scanDepth: 0
-summary: "A secret supplementary agreement to the Binding Compact, known only to three individuals. scanDepth:0 means this entry only reaches AI via manifest, never via keyword scan — tests AI-only retrieval."
+summary: "A secret supplementary agreement to the Binding Compact, known only to three current house heads and one Academy representative. Select when Triumvirate governance, hidden treaties, the Resonance Scar's political implications, or power-sharing agreements come up."
 ---
 
 # Hidden Compact of the Three Sigils
@@ -22,5 +22,3 @@ Its terms are not known outside the three current house heads (and one Academy r
 Those circumstances appear to involve the Resonance Scar. When Scar activity exceeds a certain threshold, the Hidden Compact apparently supersedes normal governance procedures and gives the Academy unusual authority. This has never been publicly invoked.
 
 [[Gorduin Wynlar]] suspects the Hidden Compact exists. He has been unable to confirm it. The evidence is circumstantial: three small meetings between house heads and the Archmage, always at the same Scar measurement threshold, always with no record of what was discussed.
-
-This entry has `scanDepth: 0` — it will never match via keyword scanning. It is only reachable through AI semantic search, testing the AI-only retrieval pathway. See also: [[War of Glimmering Hope]], [[Oracles of Might]], [[Bellsummit]].

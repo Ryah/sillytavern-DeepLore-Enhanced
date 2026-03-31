@@ -3,7 +3,7 @@ title: Bolludine
 type: species
 priority: 35
 tags:
-  - species
+  - species/insectoid
   - lorebook
   - lorebook-bootstrap
 keys:

@@ -31,6 +31,6 @@ Streets in Bellsummit are lit by Academy-maintained arcane lanterns that have no
 
 Access from lower districts is via four main lifts (arcane-powered, theoretically open to all) and the [[Cliffside Stairs]] (always open, rarely used by anyone who has an alternative). The lifts are monitored. The stairs are not.
 
-Notable features: [[The Archive Building]] (three blocks, eastern institutional quarter). The [[Grand Resonance Observatory]] (Academy tower, closed to non-researchers). The [[Compact Vault]] in the Triumvirate Council Hall sub-basement. The Oracles' summit chamber (restricted). [[Gorduin Wynlar]]'s Bellsummit office, which is technically an Archive annex.
+Notable features: [[The Archive Building]] (three blocks, eastern institutional quarter). The [[Grand Resonance Observatory]] (Academy tower, closed to non-researchers). The [[Compact Vault]] beneath the [[Scorchhelm]] fortress. The Oracles' summit chamber (restricted). [[Gorduin Wynlar]]'s Bellsummit office, which is technically an Archive annex.
 
 The [[Scorchhelm]] fortress complex is visible from Bellsummit's eastern edge, a useful reminder of who enforces institutional peace.

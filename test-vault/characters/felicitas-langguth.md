@@ -16,7 +16,7 @@ keys:
 character_present:
   - Gorduin Wynlar
   - Ayre Waesphyra
-summary: "Human city assessor who serves as an unofficial information conduit between the Triumvirate's administrative apparatus and the Oracles of Might. 7 keywords (tests multi-keyword matching). Only inject when BOTH Gorduin Wynlar AND Ayre Waesphyra are present. Select when city administration, intelligence, or cross-institutional coordination come up."
+summary: "Human city assessor who serves as an unofficial information conduit between the Triumvirate's administrative apparatus and the Oracles of Might. Select when city administration, informal intelligence networks, cross-institutional coordination, or Amberburgh bureaucracy come up."
 ---
 
 # Felicitas Langguth
@@ -32,5 +32,3 @@ Felicitas is not technically a spy. She is an assessor who happens to encounter 
 Her regular Monday/Thursday reservations at the [[The Hidden Dragonfruit Tavern]] are the primary venue for most of this professional courtesy. She knows the Dragonfruit's rules and follows them, which is why she has been using the same corner booth for six years.
 
 Her connection to both [[Gorduin Wynlar]] and [[Ayre Waesphyra]] began as a professional relationship (she conducted the Oracles tower's compliance assessment in Year 312) and evolved into something more useful for all parties. She is the only person Gorduin has given a personal contact sigil to outside the Oracles.
-
-Her seven keywords reflect the fact that she is known by several titles and names across different institutional contexts — each keyword represents a different facet of her public-facing role.

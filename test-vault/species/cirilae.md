@@ -3,7 +3,7 @@ title: Cirilae
 type: species
 priority: 22
 tags:
-  - species
+  - species/humanoid
   - lorebook
   - lorebook-always
 keys:

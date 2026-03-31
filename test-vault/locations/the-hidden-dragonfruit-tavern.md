@@ -30,5 +30,3 @@ The neutrality is maintained by three rules: no weapons drawn on the premises, n
 
 Felicitas Langguth is the tavern's most regular patron — she holds a standing reservation of the corner booth on Mondays and Thursdays. Most of what she knows about the harbor district she learned here.
 
-Trade routes connect this area to [[Chorstap Row]].
-

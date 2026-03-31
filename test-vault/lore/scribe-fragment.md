@@ -31,5 +31,3 @@ summary: "A fragment of the Pallasys Translations, lost and recently rediscovere
 
 *Translator's note: This fragment appears to be a first-person account written by a pre-Calamity resonance engineer. Its authenticity cannot be verified. Its implications, if authentic, are significant and have been reported to the Grand Oracle. — A.W.*
 
-Scholars connect this to the [[Nightmarket Customs]].
-

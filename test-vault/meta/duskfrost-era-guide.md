@@ -28,3 +28,5 @@ The following eras are used in contextual gating. When the active era is set, on
 **renaissance** — An emergent period beginning approximately 15 years ago. New arcane discoveries, political upheaval, rising tensions between the Triumvirate houses. Some entries span medieval + renaissance.
 
 The current era is formally dated from the signing of the [[Binding Compact]].
+
+The current year is approximately 355 PC (Post-Calamity).

@@ -16,7 +16,5 @@ summary: "The accumulated amendments to the Academy's founding charter, reflecti
 
 # Academy Charter Amendments
 
-The Academy's original charter (Year 89) has been amended 31 times. Amendments 1-8 expanded the Academy's research autonomy. Amendments 9-19 restricted it, following the False Prophet incident and related scandals. Amendments 20-31 represent the current equilibrium: substantial autonomy within a framework of Triumvirate oversight that all parties publicly endorse and privately consider inadequate.
-
-Understanding requires familiarity with the [[Phantom Bridge Legend]].
+The Academy's original charter (Year 147) has undergone seven major amendments and numerous minor revisions (thirty-one total). The major amendments mark the critical inflection points: the first three expanded the Academy's research autonomy, the middle two restricted it following the False Prophet incident and related scandals, and the final two established the current equilibrium — substantial autonomy within a framework of Triumvirate oversight that all parties publicly endorse and privately consider inadequate.
 

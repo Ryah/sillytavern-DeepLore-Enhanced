@@ -14,7 +14,5 @@ summary: "The Academy's five-tier knowledge restriction system governing access 
 
 # Academy Restriction Tiers
 
-The Academy uses five restriction tiers for dangerous knowledge. Tier 1 is public. Tier 2 requires Academy membership. Tier 3 requires senior researcher status. Tier 4 requires Grand Oracle authorization for each access event. Tier 5 items are not acknowledged to exist. The Academy currently has 847 items at Tier 3, 23 at Tier 4, and an officially nonexistent number at Tier 5.
-
-Scholars connect this to the [[Deep Harbor Ecology]].
+The Academy uses five restriction tiers for dangerous knowledge. Tier 1 is public. Tier 2 requires Academy membership. Tier 3 requires senior researcher status. Tier 4 requires Archmage authorization for each access event. Tier 5 items are not acknowledged to exist. The Academy currently has 847 items at Tier 3, 23 at Tier 4, and an officially nonexistent number at Tier 5.
 

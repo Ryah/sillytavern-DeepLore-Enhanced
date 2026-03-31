@@ -65,7 +65,7 @@ A **lorebook** fixes this by injecting reference entries into the prompt when th
 
 See [Wiki: Pipeline](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Pipeline) for the full technical breakdown.
 
-> **Do NOT run both [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) and DeepLore Enhanced.** They are the same extension family. DeepLore is the stable keyword-only version. Enhanced is a superset that adds AI search and advanced features. Pick one.
+> **Do NOT run both [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) and DeepLore Enhanced.** They are the same extension family. DeepLore is the stable keyword-only version, but is now depreciated. DeepLore Enhanced, this extension, is a superset that adds AI search and advanced features. Use this one.
 
 ---
 

@@ -34,6 +34,8 @@ Automatically summarizes your roleplay sessions and writes them as timestamped m
 - Configurable message window (default: 20 messages) and response token limit (default: 1024)
 - Browse past notes with `/dle-scribe-history`
 
+![Session Scribe output in Obsidian showing the vault folder structure on the left and a timestamped session note with Properties metadata, Key Events and Plot Developments bullet points, and a Character Dynamics section](images/dle-scribe-entry.png)
+
 ---
 
 ## Auto Lorebook

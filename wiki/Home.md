@@ -12,6 +12,8 @@
 
 DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [SillyTavern](https://github.com/SillyTavern/SillyTavern), automatically injecting relevant lore entries into your AI prompts. It combines keyword matching with AI-powered semantic search to find entries that are contextually relevant to your conversation, even when no exact keywords match.
 
+![DLE Drawer panel showing the Browse tab with a filterable entry list, token budget bar, priority badges, and temperature heatmap coloring](images/dle-drawer.png)
+
 > **Looking for the base version?** [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) is the stable, keyword-only version recommended for most users. DeepLore Enhanced is a superset that adds AI search and advanced features.
 
 > **Do NOT run both.** Running DeepLore and DeepLore Enhanced simultaneously will cause conflicts. Pick one.

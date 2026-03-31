@@ -8,6 +8,8 @@ Getting started features and tools for migrating from other lorebook systems.
 
 A guided first-time setup experience. Walks through Obsidian vault connection, tag configuration, and search mode selection. AI search connection (profile or proxy) must be configured separately in the settings panel.
 
+![Setup Wizard welcome screen with step indicator, explanation of the two-stage pipeline, and Next button to begin guided configuration](images/dle-setup-wizard.png)
+
 **Usage:** `/dle-setup` or the Setup button in the Quick Actions bar.
 
 ---
@@ -23,6 +25,8 @@ Uses SillyTavern's standard button styling with Font Awesome icons. All buttons 
 ## ST Lorebook Import Bridge
 
 Convert SillyTavern World Info JSON exports into Obsidian vault notes with proper frontmatter. Handles three formats: WI export JSON, V2 character cards with embedded WI, and raw entry arrays.
+
+![Import SillyTavern World Info popup with three options: select an existing lorebook from dropdown, browse a local JSON file, or paste JSON text directly](images/dle-import-worldbook.png)
 
 **Usage:** `/dle-import` opens a popup where you paste your WI JSON and choose a target folder.
 

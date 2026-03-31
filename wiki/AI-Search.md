@@ -4,6 +4,8 @@ AI search adds a semantic understanding layer on top of keyword matching. Instea
 
 This is the feature that makes DeepLore Enhanced different from base DeepLore.
 
+![Drawer Browse tab showing AI-matched entries with contextual gating filter dropdowns and a highlighted entry selection](images/dle-browser.png)
+
 ---
 
 ## How It Works

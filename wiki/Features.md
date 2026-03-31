@@ -10,6 +10,8 @@ For the core matching pipeline, see [[Pipeline]]. For AI Search specifics, see [
 
 A persistent side panel showing real-time pipeline feedback. See [[Drawer]] for full details.
 
+![DLE Drawer panel showing the Browse tab with entries, priority badges, token counts, and injection frequency heatmap](images/dle-drawer.png)
+
 | Feature | What it does |
 |---------|-------------|
 | **Why? Tab** | Shows which entries were injected and why, with generation-to-generation diff |
@@ -24,6 +26,10 @@ A persistent side panel showing real-time pipeline feedback. See [[Drawer]] for 
 ## Inspection & Diagnostics
 
 Tools for understanding what DLE is doing and why. See [[Inspection and Diagnostics]] for full details.
+
+![Entry Relationship Graph with 209 nodes and 418 edges in a force-directed layout, showing link types and node coloring by entry type](images/dle-graph.png)
+
+![Activation Simulation timeline showing which entries activate and deactivate across 9 chat messages, with blue-highlighted entry names at each step](images/dle-simulate.png)
 
 | Feature | What it does |
 |---------|-------------|
@@ -41,6 +47,8 @@ Tools for understanding what DLE is doing and why. See [[Inspection and Diagnost
 ## AI-Powered Tools
 
 Features that use AI to help you build and maintain your vault. See [[AI-Powered Tools]] for full details.
+
+![Session Scribe note in Obsidian showing a timestamped session summary with Key Events, Plot Developments, and Character Dynamics sections](images/dle-scribe-entry.png)
 
 | Feature | What it does |
 |---------|-------------|

@@ -4,6 +4,8 @@ The Drawer is a persistent side panel that provides live feedback during your ch
 
 The Drawer opens automatically when DLE is enabled and has data to display.
 
+![DLE Drawer panel showing the Browse tab with a scrollable entry list, Idle status indicator, 234 entries indexed, token budget bar at 1,138 tokens, and per-entry priority badges and injection counts](images/dle-drawer.png)
+
 ---
 
 ## Layout
@@ -59,6 +61,8 @@ Shows what happened in the last generation — which entries were injected and w
 ---
 
 ### Browse Tab
+
+![Browse tab with expanded filter dropdowns for Era, Location, Scene Type, and Character Present, showing a selected entry highlighted in red with CONST badges on always-inject entries](images/dle-browser.png)
 
 Searchable, filterable list of all indexed entries with virtual scrolling for large vaults.
 

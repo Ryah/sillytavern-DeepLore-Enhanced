@@ -58,6 +58,13 @@ Your lore lives as plain markdown files in Obsidian — not locked inside a JSON
 
 See the [Wiki: Features](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Features) for the full list.
 
+<!-- TODO: After merging staging → main, update both image URLs below from /staging/ to /main/ -->
+<p align="center">
+  <img src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/wiki/images/dle-drawer.png" alt="DLE Drawer panel showing the Browse tab with a filterable entry list, token budget bar, priority badges, and temperature heatmap coloring across 234 vault entries" width="360">
+  &nbsp;&nbsp;
+  <img src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/wiki/images/dle-graph.png" alt="Entry Relationship Graph visualization showing 209 nodes and 418 edges in a force-directed layout with color-coded node types for Constants, Seeds, Bootstrap, and Regular entries" width="360">
+</p>
+
 ## Get Started in 5 Minutes
 
 **You need:**

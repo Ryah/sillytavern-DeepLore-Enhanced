@@ -102,6 +102,8 @@ Each diagnosis includes a plain-language explanation and, where applicable, a su
 
 ## Activation Simulation
 
+![Activation Simulation popup replaying 9 chat messages, with blue-highlighted entry names showing which vault entries activated at each Assistant and User message](images/dle-simulate.png)
+
 Replay your chat history step-by-step with `/dle-simulate`, showing which entries activate and deactivate at each message.
 
 **How it works:**
@@ -132,6 +134,8 @@ Replay your chat history step-by-step with `/dle-simulate`, showing which entrie
 ---
 
 ## Relationship Graph
+
+![Entry Relationship Graph popup with 209 nodes and 418 edges, toolbar for Fit, Layout, Reset, PNG export, JSON export, and Analyze, with a legend showing Link, Requires, Excludes, and Cascade edge types](images/dle-graph.png)
 
 Visualize entry relationships as an interactive force-directed graph with `/dle-graph`.
 
@@ -165,6 +169,8 @@ Track how often each entry is matched and injected across generations. View with
 ---
 
 ## Entry Health Check
+
+![Health Check results showing 5 errors, 6 warnings, and 12 info items organized by category — Entry Config issues include cooldown on constant and duplicate titles, Gating issues include orphaned requires and circular dependencies](images/dle-health-check.png)
 
 Audit all vault entries for common issues with `/dle-health`. Runs 30+ checks across multiple categories.
 

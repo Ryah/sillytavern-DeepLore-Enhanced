@@ -9,6 +9,10 @@ Get DeepLore Enhanced injecting lore in 5 minutes.
 
 ## Step 1: Connect Your Vault
 
+![Setup Wizard welcome screen explaining what DeepLore Enhanced is, how the two-stage pipeline works, and a Next button to begin configuration](images/dle-setup-wizard.png)
+
+> **Tip:** Run `/dle-setup` to launch the guided setup wizard shown above.
+
 1. Open SillyTavern → Extensions → DeepLore Enhanced
 2. Under **Vault Connections**, your default vault should already be there
 3. Enter the **Port** (default: `27123`) and **API Key** from the Obsidian REST API plugin settings
@@ -54,6 +58,8 @@ The key parts:
 2. Send a message mentioning "magic" or "spellcasting"
 3. Type `/dle-inspect` in chat — you should see your entry in the pipeline trace
 4. Click the **book icon** on the AI message to see which entries were injected (Context Cartographer)
+
+![DLE Status output showing vault connection details, 234 indexed entries with tag breakdown, unlimited budget, AI Search enabled, and session statistics](images/dle-status.png)
 
 ## What's Next?
 

@@ -2,6 +2,8 @@
 
 Complete reference for every DeepLore Enhanced setting, organized by section.
 
+![Settings popup showing the Connection tab with Enable toggle, vault connection configuration for test-vault, Add Vault and Test All buttons, multi-vault conflict resolution dropdown, field definitions path, and Vault Tags section](images/dle-settings.png)
+
 ## Connection
 
 | Setting | Default | Range | Description |
@@ -64,6 +66,8 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 | **Keyword Occurrence Weighting** | Off | Toggle | When on, entries with more keyword occurrences in the scan text are weighted higher during matching. Experimental. |
 | **Contextual Gating Tolerance** | `strict` | Dropdown | How strictly contextual gating filters entries. `strict`: entry must match all set filters exactly. `moderate`: partial matches allowed. `lenient`: only blocks on direct conflicts. Applies to all gating fields (built-in and custom). Custom fields can also have per-field tolerance overrides. |
 | **Field Definitions Path** | `DeepLore/field-definitions.yaml` | Text | Vault path to the YAML file containing custom gating field definitions. **Edit Fields** button opens the visual rule builder where you can add, remove, or modify custom gating fields (type, operator, tolerance). The four default fields (era, location, scene_type, character_present) are configurable defaults that can be modified or removed. |
+
+![Custom Gating Fields editor showing three defined fields — era, location, and scene_type — each with Type, Gating operator, Context Key, Tolerance, and Allowed Values configuration](images/dle-custom-gating.png)
 
 ## Injection
 

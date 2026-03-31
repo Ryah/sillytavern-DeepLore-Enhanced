@@ -50,15 +50,15 @@ A **lorebook** fixes this by injecting reference entries into the prompt when th
 
 ```
  Obsidian Vault                     SillyTavern
- ┌────────────────┐                ┌──────────────────────┐
- │  Markdown notes │    index      │                      │
- │  with YAML      │───────────────▶  DeepLore Enhanced   │
- │  frontmatter    │  (REST API)   │                      │
+ ┌─────────────────┐               ┌───────────────────────┐
+ │  Markdown notes │    index      │                       │
+ │  with YAML      │ ───────────▶ | DeepLore Enhanced     │
+ │  frontmatter    │  (REST API)   │                       │
  │                 │               │  1. Keyword scan      │
  │  #lorebook tag  │               │  2. AI selection      │──▶ Injected into
  │  keys, summary  │               │  3. Gating & filters  │    the AI prompt
  │  priority, etc. │               │  4. Budget & format   │
- └────────────────┘                └──────────────────────┘
+ └─────────────────┘               └───────────────────────┘
 ```
 
 **Keywords cast a wide net; AI narrows it down.** A conversation about "the consequences of breaking an oath" can pull in your Bloodchain entry without the word ever being mentioned. The AI finds what's *contextually* relevant, not just what's lexically matched.

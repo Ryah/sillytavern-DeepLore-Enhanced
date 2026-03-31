@@ -389,20 +389,9 @@ export async function openSettingsPopup() {
         }
     }
 
-    // Main tab click handler — Features activates last sub-tab
-    $container.on('click', '.dle-settings-tab', function () {
-        const $tab = $(this);
-        if ($tab.data('settings-tab') === 'features') {
-            switchSettingsTab($tab);
-            // Restore last sub-tab or default to first
-            const stored = localStorage.getItem('dle-last-features-subtab');
-            const $target = stored
-                ? $container.find(`.dle-features-subtab[data-features-subtab="${stored}"]`)
-                : $container.find('.dle-features-subtab').first();
-            if ($target.length) switchFeaturesSubtab($target);
-            return;
-        }
-        switchSettingsTab($tab);
+    // Main tab click handler — Features header is not clickable (sub-tabs handle it)
+    $container.on('click', '.dle-settings-tab:not(.dle-settings-tab--header)', function () {
+        switchSettingsTab($(this));
     });
 
     // Feature sub-tab click
@@ -410,9 +399,9 @@ export async function openSettingsPopup() {
         switchFeaturesSubtab($(this));
     });
 
-    // Keyboard navigation for main sidebar tabs
-    $container.on('keydown', '.dle-settings-tab', function (e) {
-        const $tabs = $container.find('.dle-settings-tab');
+    // Keyboard navigation for main sidebar tabs (skip non-interactive Features header)
+    $container.on('keydown', '.dle-settings-tab:not(.dle-settings-tab--header)', function (e) {
+        const $tabs = $container.find('.dle-settings-tab:not(.dle-settings-tab--header)');
         const idx = $tabs.index(this);
         let newIdx = idx;
         switch (e.key) {

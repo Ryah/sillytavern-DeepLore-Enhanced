@@ -1909,6 +1909,12 @@ button.dle-browse-block.dle-block-active {
     background: var(--dle-bg-hover);
 }
 
+.dle-settings-tab--header {
+    cursor: default;
+    opacity: 0.7;
+    pointer-events: none;
+}
+
 .dle-settings-tab.active {
     background: var(--dle-bg-hover);
     border-left-color: var(--SmartThemeQuoteColor, #4caf50);

@@ -27,7 +27,7 @@ import {
 } from '../ai/ai.js';
 import { matchEntries } from '../pipeline/pipeline.js';
 import { setupSyncPolling } from '../vault/sync.js';
-import { buildIndexWithReuse } from '../vault/vault.js';
+import { buildIndex, buildIndexWithReuse } from '../vault/vault.js';
 import { showNotebookPopup, showBrowsePopup, showAiNotepadPopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
 
@@ -323,16 +323,16 @@ function updatePopupInjectionModeVisibility($container, settings) {
     $container.find('.dle-injection-ext-controls').find('input, select').prop('disabled', isPromptList);
 }
 
-function updatePopupIndexStats($container) {
-    const statsEl = $container.find('#dle-sp-index-stats');
-    if (statsEl.length === 0) return;
+function updatePopupIndexStats() {
+    const statsEl = document.getElementById('dle-sp-index-stats');
+    if (!statsEl) return;
     if (vaultIndex.length > 0) {
         const totalKeys = vaultIndex.reduce((sum, e) => sum + e.keys.length, 0);
         const constants = vaultIndex.filter(e => e.constant).length;
         const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
-        statsEl.text(`${vaultIndex.length} entries (${totalKeys} keywords, ${constants} always-send, ~${totalTokens} total tokens)`);
+        statsEl.textContent = `${vaultIndex.length} entries (${totalKeys} keywords, ${constants} always-send, ~${totalTokens} total tokens)`;
     } else {
-        statsEl.text('No index loaded.');
+        statsEl.textContent = 'No index loaded.';
     }
 }
 
@@ -489,6 +489,7 @@ export async function openSettingsPopup() {
         wide: true,
         allowVerticalScrolling: true,
         onOpen: () => {
+            updatePopupIndexStats();
             // Click-outside-to-dismiss: clicking the ::backdrop area of the <dialog>
             // fires a click on the dialog element itself with target === dialog.
             const dlg = $container[0]?.closest('dialog');
@@ -680,8 +681,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-autosuggest-max-tokens').val(settings.autoSuggestMaxTokens);
     $c('#dle-sp-autosuggest-timeout').val(settings.autoSuggestTimeout);
 
-    // ── System ──
-    updatePopupIndexStats($container);
+    // ── System ── (index stats updated in onOpen, after DOM is live)
     $c('#dle-sp-cache-ttl').val(settings.cacheTTL);
     $c('#dle-sp-sync-interval').val(settings.syncPollingInterval);
     $c('#dle-sp-index-rebuild-trigger').val(settings.indexRebuildTrigger);
@@ -1110,7 +1110,7 @@ function bindPopupEvents($container) {
     $c('#dle-sp-refresh').on('click', async function () {
         const $btn = $(this), $icon = $btn.find('i');
         $btn.prop('disabled', true); $icon.removeClass('fa-rotate').addClass('fa-spinner fa-spin');
-        try { setVaultIndex([]); setIndexTimestamp(0); await buildIndexWithReuse(); toastr.success(`Indexed ${vaultIndex.length} entries.`, 'DeepLore Enhanced'); updatePopupIndexStats($container); }
+        try { setVaultIndex([]); setIndexTimestamp(0); await buildIndex(); toastr.success(`Indexed ${vaultIndex.length} entries.`, 'DeepLore Enhanced'); updatePopupIndexStats(); }
         catch (err) { toastr.error(String(err), 'DeepLore Enhanced'); }
         finally { $btn.prop('disabled', false); $icon.removeClass('fa-spinner fa-spin').addClass('fa-rotate'); }
     });

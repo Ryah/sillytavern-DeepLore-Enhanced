@@ -413,6 +413,19 @@ export function renderBrowseWindow() {
     // Compute entry temperatures for visual heat indicator
     const tempMap = computeEntryTemperatures();
 
+    // Build rejection reason lookup from pipeline trace (for "why not?" indicators)
+    const rejectionMap = new Map();
+    if (lastPipelineTrace) {
+        const rejGroups = categorizeRejections(lastPipelineTrace, injectedSet);
+        for (const group of rejGroups) {
+            for (const entry of group.entries) {
+                if (!rejectionMap.has(entry.title.toLowerCase())) {
+                    rejectionMap.set(entry.title.toLowerCase(), { label: group.label, icon: group.icon, reason: entry.reason });
+                }
+            }
+        }
+    }
+
     let html = '';
     for (let i = startIdx; i < endIdx; i++) {
         const e = entries[i];
@@ -451,6 +464,11 @@ export function renderBrowseWindow() {
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
         html += `<div class="dle-browse-controls">`;
+        // "Why not?" rejection indicator for non-injected entries
+        const rejection = !isInjected ? rejectionMap.get(tl) : null;
+        if (rejection) {
+            html += `<span class="dle-browse-why-not" title="${escapeHtml(rejection.label)}: ${escapeHtml(rejection.reason)}" aria-label="Not injected: ${escapeHtml(rejection.reason)}"><i class="fa-solid ${escapeHtml(rejection.icon)}" aria-hidden="true"></i></span>`;
+        }
         const browseCount = chatInjectionCounts.get(trackerKey(e)) || 0;
         if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat">${browseCount}×</span>`;
         html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;

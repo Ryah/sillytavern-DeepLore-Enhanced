@@ -4,7 +4,7 @@
  */
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
 import { buildScanText } from '../../core/utils.js';
-import { testEntryMatch, countKeywordOccurrences, formatAndGroup } from '../../core/matching.js';
+import { testEntryMatch, testPrimaryMatchOnly, countKeywordOccurrences, formatAndGroup } from '../../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
@@ -34,6 +34,8 @@ export function matchEntries(chat, snapshot = null) {
     const probabilitySkipped = [];
     /** @type {Array<{title: string, needed: number, found: number}>} */
     const warmupFailed = [];
+    /** @type {Array<{title: string, primaryKey: string, refineKeys: string[]}>} */
+    const refineKeyBlocked = [];
 
     // Always collect constants regardless of scan depth
     for (const entry of entries) {
@@ -74,6 +76,13 @@ export function matchEntries(chat, snapshot = null) {
                 : globalScanText;
 
             const key = testEntryMatch(entry, scanText, settings);
+            if (!key && entry.refineKeys?.length > 0) {
+                // Check if primary key matched but refine keys blocked
+                const primaryHit = testPrimaryMatchOnly(entry, scanText, settings);
+                if (primaryHit) {
+                    refineKeyBlocked.push({ title: entry.title, primaryKey: primaryHit, refineKeys: [...entry.refineKeys] });
+                }
+            }
             if (key) {
                 // Warmup check: require N keyword occurrences before triggering
                 if (entry.warmup !== null) {
@@ -263,7 +272,7 @@ export function matchEntries(chat, snapshot = null) {
         });
     }
 
-    return { matched, matchedKeys, probabilitySkipped, warmupFailed, fuzzyStats };
+    return { matched, matchedKeys, probabilitySkipped, warmupFailed, fuzzyStats, refineKeyBlocked };
 }
 
 /**
@@ -300,6 +309,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         aiFallback: false,
         aiError: '', // BUG-004: Capture AI error message for toast enrichment
         fuzzyStats: null,
+        refineKeyBlocked: [],
     };
 
     let finalEntries;
@@ -352,6 +362,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     trace.probabilitySkipped = kwResult.probabilitySkipped;
                     trace.warmupFailed = kwResult.warmupFailed;
                     trace.fuzzyStats = kwResult.fuzzyStats;
+                    trace.refineKeyBlocked = kwResult.refineKeyBlocked;
                     // Warn if ai-only fallback collapsed to constants-only
                     const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                     if (nonConstant.length === 0 && finalEntries.length > 0) {
@@ -392,6 +403,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
         trace.warmupFailed = keywordResult.warmupFailed;
         trace.fuzzyStats = keywordResult.fuzzyStats;
+        trace.refineKeyBlocked = keywordResult.refineKeyBlocked;
 
         // Wiki-link candidate expansion: add entries referenced by matched entries as AI candidates
         const matchedTitles = new Set(keywordResult.matched.map(e => e.title));
@@ -487,6 +499,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
         trace.warmupFailed = keywordResult.warmupFailed;
         trace.fuzzyStats = keywordResult.fuzzyStats;
+        trace.refineKeyBlocked = keywordResult.refineKeyBlocked;
 
         // BUG-F1: Apply contextual gating in keywords-only mode (was previously skipped)
         if (contextualGatingContext) {

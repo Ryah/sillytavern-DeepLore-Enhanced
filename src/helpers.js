@@ -489,6 +489,14 @@ export function categorizeRejections(trace, injectedTitles) {
         if (entries.length > 0) groups.push({ stage: 'warmup_failed', label: 'Warmup Not Met', icon: 'fa-temperature-low', entries });
     }
 
+    // Refine Key Blocked (object array)
+    if (trace.refineKeyBlocked?.length > 0) {
+        const entries = trace.refineKeyBlocked
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => ({ title: e.title, reason: `Matched "${e.primaryKey}" but refine keys [${e.refineKeys.join(', ')}] not found` }));
+        if (entries.length > 0) groups.push({ stage: 'refine_key_blocked', label: 'Refine Key Blocked', icon: 'fa-filter-circle-xmark', entries });
+    }
+
     return groups;
 }
 

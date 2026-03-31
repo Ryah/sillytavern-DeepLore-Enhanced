@@ -112,6 +112,39 @@ export function testEntryMatch(entry, scanText, settings) {
 }
 
 /**
+ * Test if an entry's primary keys match (ignoring refine keys).
+ * Used to detect entries blocked specifically by refine key filtering.
+ * @param {import('./pipeline.js').VaultEntry} entry
+ * @param {string} scanText
+ * @param {{ caseSensitive: boolean, matchWholeWords: boolean }} settings
+ * @returns {string|null} The matched primary key, or null if no primary match
+ */
+export function testPrimaryMatchOnly(entry, scanText, settings) {
+    if (entry.keys.length === 0) return null;
+
+    const cached = getCachedRegexes(entry, settings);
+    let haystack;
+    if (settings.caseSensitive) {
+        haystack = scanText;
+    } else {
+        if (scanText !== _lastScanText) {
+            _lastScanTextLower = scanText.normalize('NFC').toLowerCase();
+            _lastScanText = scanText;
+        }
+        haystack = _lastScanTextLower;
+    }
+
+    for (const item of cached.primary) {
+        if (settings.matchWholeWords) {
+            if (item.regex.test(haystack)) return item.rawKey;
+        } else {
+            if (haystack.includes(item.key)) return item.rawKey;
+        }
+    }
+    return null;
+}
+
+/**
  * Count how many times an entry's keywords appear in the scan text.
  * Respects case sensitivity and whole-word matching settings.
  * Uses cached compiled regexes for performance (C4).

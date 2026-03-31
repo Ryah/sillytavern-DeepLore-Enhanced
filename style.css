@@ -1244,6 +1244,17 @@ button.dle-chip-x:hover {
     opacity: 0.7;
 }
 
+.dle-browse-why-not {
+    font-size: 0.75em;
+    opacity: 0.5;
+    cursor: help;
+    padding: 0 2px;
+    color: var(--dle-warning, #e8a33d);
+}
+.dle-browse-why-not:hover {
+    opacity: 0.9;
+}
+
 .dle-browse-filters {
     display: flex;
     gap: var(--dle-space-1);

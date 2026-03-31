@@ -227,6 +227,11 @@ export function registerPipelineCommands() {
                 for (const e of t.budgetCut) plainLines.push(`  ${e.title} (pri ${e.priority}, ~${e.tokens} tokens)`);
                 plainLines.push('');
             }
+            if (t.refineKeyBlocked && t.refineKeyBlocked.length > 0) {
+                plainLines.push(`Refine Key Blocked (${t.refineKeyBlocked.length}):`);
+                for (const e of t.refineKeyBlocked) plainLines.push(`  ${e.title} — matched "${e.primaryKey}" but none of [${e.refineKeys.join(', ')}] found`);
+                plainLines.push('');
+            }
             const plainText = plainLines.join('\n');
 
             let html = `<div class="dle-popup">`;
@@ -379,6 +384,16 @@ export function registerPipelineCommands() {
                     html += `<li>${escapeHtml(e.title)} (pri ${e.priority}, ~${e.tokens} tokens)</li>`;
                 }
                 html += '</ul>';
+            }
+
+            // Refine key blocked entries
+            if (t.refineKeyBlocked && t.refineKeyBlocked.length > 0) {
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Refine Key Blocked (${t.refineKeyBlocked.length})</h4><ul>`;
+                for (const e of t.refineKeyBlocked) {
+                    html += `<li>${escapeHtml(e.title)} — matched "<b>${escapeHtml(e.primaryKey)}</b>" but none of [${e.refineKeys.map(k => escapeHtml(k)).join(', ')}] found in scan text</li>`;
+                }
+                html += '</ul>';
+                html += `<p class="dle-text-xs dle-dimmed">Refine keys (AND_ANY mode): primary keyword must match AND at least one refine key must also appear.</p>`;
             }
 
             html += '</div>';

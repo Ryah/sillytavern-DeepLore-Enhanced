@@ -193,6 +193,13 @@ export const defaultSettings = {
     decayEnabled: false,
     decayBoostThreshold: 5,    // Generations without injection before freshness boost
     decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
+    // Librarian (tool-assisted lore retrieval + gap detection)
+    librarianEnabled: false,
+    librarianSearchEnabled: true,       // search_lore tool during generation
+    librarianFlagEnabled: true,         // flag_lore tool during generation
+    librarianMaxSearches: 2,            // max search_lore calls per generation
+    librarianMaxResults: 5,             // max entries returned per search call
+    librarianResultTokenBudget: 1500,   // token budget for search results
     // Analytics
     analyticsData: {},
     // First-run setup wizard completed flag
@@ -253,6 +260,9 @@ export const settingsConstraints = {
     graphEdgeFilterAlpha: { min: 0.01, max: 0.5 },
     decayBoostThreshold: { min: 2, max: 20 },
     decayPenaltyThreshold: { min: 2, max: 10 },
+    librarianMaxSearches: { min: 1, max: 10 },
+    librarianMaxResults: { min: 1, max: 20 },
+    librarianResultTokenBudget: { min: 500, max: 5000 },
     fuzzySearchMinScore: { min: 0.1, max: 2.0 },
     hierarchicalAggressiveness: { min: 0.0, max: 0.8 },
     indexRebuildGenerationInterval: { min: 1, max: 100 },

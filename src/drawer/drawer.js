@@ -16,7 +16,7 @@ import {
     lastInjectionSources,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
-    onIndexingChanged,
+    onIndexingChanged, onLoreGapsChanged,
 } from '../state.js';
 
 // ─── Drawer sub-modules ───
@@ -29,9 +29,11 @@ import {
     renderStatusZone, renderInjectionTab, renderBrowseTab, renderBrowseWindow,
     renderGatingTab, renderTimers, renderFooter,
 } from './drawer-render.js';
+import { renderLibrarianTab } from './drawer-render-librarian.js';
 import {
     switchTab,
     wireToolsTab, wireTabExpand, wireStatusActions, wireInjectionTab, wireBrowseTab, wireGatingTab, wireHealthIcons,
+    wireLibrarianTab,
 } from './drawer-events.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -288,6 +290,7 @@ export async function createDrawerPanel() {
     wireInjectionTab($drawer);
     wireBrowseTab($drawer);
     wireGatingTab($drawer);
+    wireLibrarianTab($drawer);
     wireHealthIcons($drawer);
 
     // Wire browse navigation buttons (Why? tab → Browse tab)
@@ -370,6 +373,7 @@ export async function createDrawerPanel() {
     renderInjectionTab();
     renderBrowseTab();
     renderGatingTab();
+    renderLibrarianTab();
     renderTimers();
     renderFooter();
 
@@ -424,6 +428,10 @@ export async function createDrawerPanel() {
     onIndexingChanged(() => {
         scheduleRender(renderStatusZone);
         scheduleRender(renderBrowseTab);
+    });
+
+    onLoreGapsChanged(() => {
+        scheduleRender(renderLibrarianTab);
     });
 }
 

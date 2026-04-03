@@ -4139,6 +4139,171 @@ test('extractAiNotes: collapses excess newlines after stripping', () => {
 });
 
 // ============================================================================
+// Librarian: validateSessionResponse
+// ============================================================================
+
+import { validateSessionResponse } from '../src/helpers.js';
+
+test('validateSessionResponse: valid minimal response', () => {
+    const r = validateSessionResponse({ message: 'Hello' });
+    assert(r.valid, 'should be valid');
+    assertEqual(r.errors.length, 0, 'no errors');
+});
+
+test('validateSessionResponse: valid response with draft', () => {
+    const r = validateSessionResponse({
+        message: 'Here is a draft',
+        draft: {
+            title: 'Trade Routes',
+            type: 'lore',
+            priority: 50,
+            keys: ['trade', 'routes', 'commerce'],
+            summary: 'When to select this entry.',
+            content: 'This is a longer piece of content that meets the 50 character minimum for validation.',
+        },
+        action: 'update_draft',
+    });
+    assert(r.valid, 'should be valid');
+    assertEqual(r.errors.length, 0, 'no errors');
+});
+
+test('validateSessionResponse: rejects non-object', () => {
+    const r = validateSessionResponse('not an object');
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors[0].includes('JSON object'), 'error mentions JSON object');
+});
+
+test('validateSessionResponse: rejects array', () => {
+    const r = validateSessionResponse([1, 2, 3]);
+    assert(!r.valid, 'should be invalid');
+});
+
+test('validateSessionResponse: rejects null', () => {
+    const r = validateSessionResponse(null);
+    assert(!r.valid, 'should be invalid');
+});
+
+test('validateSessionResponse: rejects missing message', () => {
+    const r = validateSessionResponse({ draft: null });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('message')), 'error about message');
+});
+
+test('validateSessionResponse: rejects invalid action', () => {
+    const r = validateSessionResponse({ message: 'Hi', action: 'invalid_action' });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('action')), 'error about action');
+});
+
+test('validateSessionResponse: rejects draft with empty title', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: '', keys: ['a'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('title')), 'error about title');
+});
+
+test('validateSessionResponse: rejects draft with invalid type', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', type: 'invalid_type', keys: ['a'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('type')), 'error about type');
+});
+
+test('validateSessionResponse: rejects draft with out-of-range priority', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', priority: 200, keys: ['a'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('priority')), 'error about priority');
+});
+
+test('validateSessionResponse: rejects draft with empty keys array', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: [], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('keys')), 'error about keys');
+});
+
+test('validateSessionResponse: rejects draft with empty string in keys', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: ['good', '', 'also good'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('empty strings')), 'error about empty key strings');
+});
+
+test('validateSessionResponse: rejects draft with short content', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: ['a'], content: 'too short' },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('content')), 'error about content');
+});
+
+test('validateSessionResponse: rejects draft with long summary', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: ['a'], summary: 'x'.repeat(601), content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('summary')), 'error about summary');
+});
+
+test('validateSessionResponse: valid work queue', () => {
+    const r = validateSessionResponse({
+        message: 'Here is the queue',
+        queue: [
+            { title: 'Entry 1', action: 'create', reason: 'Needed for story', urgency: 'high' },
+            { title: 'Entry 2', action: 'update', reason: 'Out of date' },
+        ],
+        action: 'propose_queue',
+    });
+    assert(r.valid, 'should be valid');
+});
+
+test('validateSessionResponse: rejects queue with invalid action', () => {
+    const r = validateSessionResponse({
+        message: 'Queue',
+        queue: [{ title: 'Test', action: 'delete', reason: 'reason' }],
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('queue[0].action')), 'error about queue action');
+});
+
+test('validateSessionResponse: rejects queue with missing title', () => {
+    const r = validateSessionResponse({
+        message: 'Queue',
+        queue: [{ action: 'create', reason: 'reason' }],
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('queue[0].title')), 'error about queue title');
+});
+
+test('validateSessionResponse: allows null draft and action', () => {
+    const r = validateSessionResponse({ message: 'Just chatting', draft: null, action: null });
+    assert(r.valid, 'should be valid');
+    assertEqual(r.errors.length, 0, 'no errors');
+});
+
+test('validateSessionResponse: collects multiple errors', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: '', type: 'invalid', priority: -5, keys: 'not an array', content: 'short' },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.length >= 4, `should have many errors, got ${r.errors.length}`);
+});
+
+// ============================================================================
 // Results
 // ============================================================================
 

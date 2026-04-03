@@ -44,6 +44,9 @@
             <button class="dle-features-subtab" data-features-subtab="graph">
                 <i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Graph</span>
             </button>
+            <button class="dle-features-subtab" data-features-subtab="librarian">
+                <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i><span>Librarian</span>
+            </button>
         </div>
         <button class="dle-settings-tab" id="dle-sp-tab-system" data-settings-tab="system" role="tab"
                 aria-selected="false" aria-controls="dle-sp-system">
@@ -1022,6 +1025,85 @@
                             <input id="dle-sp-graph-edge-filter-alpha" type="number" class="text_pole" min="0.01" max="0.5" step="0.01" />
                         </div>
                     </div>
+                </div>
+            </div>
+            </div>
+            </div>
+
+            <!-- Sub-panel: Librarian -->
+            <div class="dle-features-subpanel" id="dle-sp-feat-librarian" data-features-subpanel="librarian"
+                 role="tabpanel" hidden>
+            <div class="dle-settings-section">
+            <h4>Librarian</h4>
+            <p class="dle-section-desc">Tool-assisted lore retrieval and gap detection. Gives your writing AI optional tools to search the vault and flag missing lore during generation.</p>
+
+            <div class="flex-container flexFlowColumn">
+                <label class="checkbox_label" for="dle-sp-librarian-enabled" title="Enable the Librarian feature.">
+                    <input id="dle-sp-librarian-enabled" type="checkbox" class="checkbox">
+                    <span>Enable Librarian</span>
+                </label>
+
+                <div id="dle-sp-librarian-sub" class="flex-container flexFlowColumn" style="margin-left: 20px;">
+                    <label class="checkbox_label" for="dle-sp-librarian-search" title="Allow the AI to search the vault for entries the pipeline missed.">
+                        <input id="dle-sp-librarian-search" type="checkbox" class="checkbox">
+                        <span>Search tool (search_lore)</span>
+                    </label>
+                    <label class="checkbox_label" for="dle-sp-librarian-flag" title="Allow the AI to flag gaps in the lore vault.">
+                        <input id="dle-sp-librarian-flag" type="checkbox" class="checkbox">
+                        <span>Flag tool (flag_lore)</span>
+                    </label>
+
+                    <div class="flex-container">
+                        <div class="flex1" title="Maximum search_lore calls per generation. Default: 2.">
+                            <label for="dle-sp-librarian-max-searches"><small>Max Searches / Gen</small></label>
+                            <input id="dle-sp-librarian-max-searches" type="number" class="text_pole" min="1" max="10" />
+                        </div>
+                        <div class="flex1" title="Maximum entries returned per search call. Default: 5.">
+                            <label for="dle-sp-librarian-max-results"><small>Max Results / Search</small></label>
+                            <input id="dle-sp-librarian-max-results" type="number" class="text_pole" min="1" max="20" />
+                        </div>
+                        <div class="flex1" title="Token budget for search results. Default: 1500.">
+                            <label for="dle-sp-librarian-token-budget"><small>Result Token Budget</small></label>
+                            <input id="dle-sp-librarian-token-budget" type="number" class="text_pole" min="500" max="5000" step="100" />
+                        </div>
+                    </div>
+                </div>
+
+                <p class="dle-section-desc" style="margin-top: 8px;"><small><i class="fa-solid fa-circle-info"></i> Requires a model that supports function calling (tool use). Uses the same AI connection settings as AI Search.</small></p>
+
+                <!-- Token cost stats -->
+                <div class="dle-librarian-stats-panel" style="margin-top: 12px; padding: 8px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 4px;">
+                    <h5 style="margin: 0 0 6px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;">Token Usage</h5>
+                    <table class="dle-librarian-stats-table" style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="opacity: 0.6;">
+                                <th style="text-align: left; padding: 2px 4px;"></th>
+                                <th style="text-align: right; padding: 2px 4px;">Searches</th>
+                                <th style="text-align: right; padding: 2px 4px;">Flags</th>
+                                <th style="text-align: right; padding: 2px 4px;">Est. Tokens</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 2px 4px;">This Chat</td>
+                                <td id="dle-sp-lib-chat-searches" style="text-align: right; padding: 2px 4px;">0</td>
+                                <td id="dle-sp-lib-chat-flags" style="text-align: right; padding: 2px 4px;">0</td>
+                                <td id="dle-sp-lib-chat-tokens" style="text-align: right; padding: 2px 4px;">0</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 2px 4px;">This Session</td>
+                                <td id="dle-sp-lib-session-searches" style="text-align: right; padding: 2px 4px;">0</td>
+                                <td id="dle-sp-lib-session-flags" style="text-align: right; padding: 2px 4px;">0</td>
+                                <td id="dle-sp-lib-session-tokens" style="text-align: right; padding: 2px 4px;">0</td>
+                            </tr>
+                            <tr style="font-weight: 600;">
+                                <td style="padding: 2px 4px;">All-Time</td>
+                                <td id="dle-sp-lib-all-searches" style="text-align: right; padding: 2px 4px;">0</td>
+                                <td id="dle-sp-lib-all-flags" style="text-align: right; padding: 2px 4px;">0</td>
+                                <td id="dle-sp-lib-all-tokens" style="text-align: right; padding: 2px 4px;">-</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
             </div>

@@ -162,6 +162,28 @@ export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }
 export let fuzzySearchIndex = null;
 export function setFuzzySearchIndex(v) { fuzzySearchIndex = v; }
 
+// ── Librarian: tool-assisted lore retrieval + gap detection ──
+
+/** Librarian: gap records for current chat (hydrated from chat_metadata.deeplore_lore_gaps) */
+export let loreGaps = [];
+export function setLoreGaps(v) { loreGaps = v; notifyLoreGapsChanged(); }
+
+/** Librarian: per-generation search_lore call counter (reset at generation start) */
+export let loreGapSearchCount = 0;
+export function setLoreGapSearchCount(v) { loreGapSearchCount = v; }
+
+/** Librarian: whether tools are currently registered with ToolManager */
+export let librarianToolsRegistered = false;
+export function setLibrarianToolsRegistered(v) { librarianToolsRegistered = v; }
+
+/** Librarian: session-scoped stats (reset on page load, NOT persisted) */
+export let librarianSessionStats = { searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 };
+export function setLibrarianSessionStats(v) { librarianSessionStats = v; }
+
+/** Librarian: per-chat stats (reset on CHAT_CHANGED) */
+export let librarianChatStats = { searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 };
+export function setLibrarianChatStats(v) { librarianChatStats = v; }
+
 /** Custom field definitions: loaded from Obsidian YAML or defaults */
 /** @type {import('./fields.js').FieldDefinition[]} */
 export let fieldDefinitions = [];
@@ -441,6 +463,24 @@ export function onIndexingChanged(callback) {
 function notifyIndexingChanged() {
     for (const cb of [...indexingChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Indexing changed callback error:', err.message); }
+    }
+}
+
+// ── Lore gaps changed callbacks ──
+// Fired when lore gap records are added/updated (librarian tools, review popup).
+
+/** @type {Array<() => void>} */
+const loreGapsChangedCallbacks = [];
+
+export function onLoreGapsChanged(callback) {
+    loreGapsChangedCallbacks.push(callback);
+}
+
+export function clearLoreGapsCallbacks() { loreGapsChangedCallbacks.length = 0; }
+
+function notifyLoreGapsChanged() {
+    for (const cb of [...loreGapsChangedCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Lore gaps changed callback error:', err.message); }
     }
 }
 

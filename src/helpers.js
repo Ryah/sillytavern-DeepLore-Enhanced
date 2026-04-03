@@ -679,3 +679,98 @@ export function extractAiNotes(messageText) {
     const cleanedMessage = messageText.replace(noteRegex, '').replace(/\n{3,}/g, '\n\n').trimEnd();
     return { notes: extracted.join('\n'), cleanedMessage };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// Librarian: Session Response Validation
+// ════════════════════════════════════════════════════════════════════════════
+
+const VALID_ENTRY_TYPES = ['character', 'location', 'lore', 'organization', 'story'];
+const VALID_SESSION_ACTIONS = ['update_draft', 'propose_queue', null];
+const VALID_QUEUE_ACTIONS = ['create', 'update'];
+const VALID_URGENCIES = ['low', 'medium', 'high'];
+
+/**
+ * Validate a parsed librarian session response.
+ * Pure function, no side effects. Importable in Node.js tests.
+ * @param {object} parsed - Parsed response object
+ * @returns {{ valid: boolean, errors: string[] }}
+ */
+export function validateSessionResponse(parsed) {
+    const errors = [];
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return { valid: false, errors: ['Response must be a JSON object'] };
+    }
+    if (!parsed.message && typeof parsed.message !== 'string') {
+        errors.push("Missing required 'message' field");
+    }
+    if (parsed.action !== undefined && parsed.action !== null && !VALID_SESSION_ACTIONS.includes(parsed.action)) {
+        errors.push(`'action' must be one of: update_draft, propose_queue, null. Got: '${parsed.action}'`);
+    }
+
+    if (parsed.draft !== undefined && parsed.draft !== null) {
+        if (typeof parsed.draft !== 'object' || Array.isArray(parsed.draft)) {
+            errors.push("'draft' must be an object or null");
+        } else {
+            const d = parsed.draft;
+            if (!d.title || (typeof d.title === 'string' && !d.title.trim())) {
+                errors.push('draft.title is required and cannot be empty');
+            }
+            if (d.type !== undefined && !VALID_ENTRY_TYPES.includes(d.type)) {
+                errors.push(`draft.type must be one of: ${VALID_ENTRY_TYPES.join(', ')}. Got: '${d.type}'`);
+            }
+            if (d.priority !== undefined) {
+                if (typeof d.priority !== 'number' || d.priority < 1 || d.priority > 100) {
+                    errors.push(`draft.priority must be a number between 1 and 100. Got: '${d.priority}'`);
+                }
+            }
+            if (d.keys !== undefined) {
+                if (!Array.isArray(d.keys)) {
+                    errors.push('draft.keys must be an array');
+                } else if (d.keys.length === 0) {
+                    errors.push('draft.keys must contain at least one keyword');
+                } else {
+                    const emptyIndices = d.keys.reduce((acc, k, i) => {
+                        if (typeof k !== 'string' || !k.trim()) acc.push(i);
+                        return acc;
+                    }, []);
+                    if (emptyIndices.length > 0) {
+                        errors.push(`draft.keys contains empty strings at indices: ${emptyIndices.join(', ')}`);
+                    }
+                }
+            }
+            if (d.summary !== undefined && typeof d.summary === 'string' && d.summary.length > 600) {
+                errors.push(`draft.summary exceeds 600 character limit (${d.summary.length} chars)`);
+            }
+            if (d.content !== undefined) {
+                if (typeof d.content !== 'string' || d.content.length < 50) {
+                    errors.push('draft.content is required and must be at least 50 characters');
+                }
+            }
+        }
+    }
+
+    if (parsed.queue !== undefined && parsed.queue !== null) {
+        if (!Array.isArray(parsed.queue)) {
+            errors.push("'queue' must be an array");
+        } else {
+            for (let i = 0; i < parsed.queue.length; i++) {
+                const item = parsed.queue[i];
+                if (!item.title || (typeof item.title === 'string' && !item.title.trim())) {
+                    errors.push(`queue[${i}].title is required`);
+                }
+                if (!VALID_QUEUE_ACTIONS.includes(item.action)) {
+                    errors.push(`queue[${i}].action must be 'create' or 'update'. Got: '${item.action}'`);
+                }
+                if (!item.reason || (typeof item.reason === 'string' && !item.reason.trim())) {
+                    errors.push(`queue[${i}].reason is required`);
+                }
+                if (item.urgency !== undefined && !VALID_URGENCIES.includes(item.urgency)) {
+                    errors.push(`queue[${i}].urgency must be low, medium, or high. Got: '${item.urgency}'`);
+                }
+            }
+        }
+    }
+
+    return { valid: errors.length === 0, errors };
+}

@@ -30,11 +30,16 @@
         <div class="dle-wizard-step-line"></div>
         <button class="dle-wizard-step" data-step="6">
             <span class="dle-wizard-step-dot">6</span>
-            <span class="dle-wizard-step-label">Vault</span>
+            <span class="dle-wizard-step-label">Librarian</span>
         </button>
         <div class="dle-wizard-step-line"></div>
         <button class="dle-wizard-step" data-step="7">
             <span class="dle-wizard-step-dot">7</span>
+            <span class="dle-wizard-step-label">Vault</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="8">
+            <span class="dle-wizard-step-dot">8</span>
             <span class="dle-wizard-step-label">Done</span>
         </button>
     </nav>
@@ -271,8 +276,45 @@
             <div id="dle-wiz-ai-result" class="dle-wizard-result-banner" style="display: none;"></div>
         </div>
 
-        <!-- ═══ Page 6: Vault Structure ═══ -->
+        <!-- ═══ Page 6: Librarian ═══ -->
         <div class="dle-wizard-page" data-wizard-page="6">
+            <h2>Librarian</h2>
+            <p class="dle-wizard-subtitle">Let the AI search for and flag missing lore during generation.</p>
+
+            <div class="dle-wizard-card dle-wizard-card-info">
+                <h3><i class="fa-solid fa-book-bookmark"></i> What is the Librarian?</h3>
+                <p>The Librarian gives your writing AI two optional tools during generation: <strong>search</strong> (look up vault entries the pipeline missed) and <strong>flag</strong> (note a gap in your lore for later). Flagged gaps appear in the drawer's Librarian tab, where you can review them and use an AI-assisted editor to create new entries.</p>
+                <p>This is completely optional and off by default. Most generations should have zero tool calls if your vault is well-maintained.</p>
+            </div>
+
+            <div class="dle-wizard-card dle-wizard-card-warning">
+                <h3><i class="fa-solid fa-coins"></i> Token Cost</h3>
+                <p>Enabling the Librarian increases token usage. Tool definitions add ~300-500 tokens to every generation's system prompt. Each search call adds a round-trip to the generation (the model pauses, searches, then continues). Flag calls are cheaper (no round-trip results). Start with just the flag tool if you want to minimize cost and see what your AI reaches for before enabling search.</p>
+            </div>
+
+            <div class="dle-wizard-card">
+                <label class="checkbox_label dle-wizard-checkbox">
+                    <input id="dle-wiz-librarian-enabled" type="checkbox" class="checkbox" />
+                    <span>Enable Librarian</span>
+                </label>
+
+                <div id="dle-wiz-librarian-sub" style="display: none; margin-top: 8px; padding-left: 20px;">
+                    <label class="checkbox_label dle-wizard-checkbox">
+                        <input id="dle-wiz-librarian-search" type="checkbox" class="checkbox" checked />
+                        <span>Search tool (AI can look up vault entries)</span>
+                    </label>
+                    <label class="checkbox_label dle-wizard-checkbox">
+                        <input id="dle-wiz-librarian-flag" type="checkbox" class="checkbox" checked />
+                        <span>Flag tool (AI can flag missing lore)</span>
+                    </label>
+                </div>
+
+                <p class="dle-wizard-note"><i class="fa-solid fa-circle-info"></i> Requires a model that supports function calling (tool use).</p>
+            </div>
+        </div>
+
+        <!-- ═══ Page 7: Vault Structure ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="7">
             <h2>Vault Structure</h2>
             <p class="dle-wizard-subtitle">Create helper files in your Obsidian vault.</p>
 
@@ -297,8 +339,8 @@
             </div>
         </div>
 
-        <!-- ═══ Page 7: All Done ═══ -->
-        <div class="dle-wizard-page" data-wizard-page="7">
+        <!-- ═══ Page 8: All Done ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="8">
             <div class="dle-wizard-done-header">
                 <div class="dle-wizard-done-check"><i class="fa-solid fa-circle-check"></i></div>
                 <h2>Setup Complete!</h2>

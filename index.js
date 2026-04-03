@@ -38,6 +38,7 @@ import {
     setScribeInProgress, setPreviousSources,
     notifyPipelineComplete, notifyGatingChanged,
     fieldDefinitions,
+    setLoreGaps, setLoreGapSearchCount, setLibrarianChatStats,
 } from './src/state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
@@ -121,6 +122,9 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
     }
     setGenerationLock(true);
+
+    // Reset librarian per-generation search counter
+    setLoreGapSearchCount(0);
 
     // Capture chat epoch to detect stale writes if CHAT_CHANGED fires mid-generation
     const epoch = chatEpoch;
@@ -570,6 +574,14 @@ jQuery(async function () {
         registerSlashCommands();
         setupSyncPolling(buildIndex, buildIndexWithReuse);
 
+        // Initialize Librarian (tool registration) if enabled
+        try {
+            const { initLibrarian } = await import('./src/librarian/librarian.js');
+            initLibrarian();
+        } catch (err) {
+            console.warn('[DLE] Failed to initialize Librarian:', err.message);
+        }
+
         // First-run detection: if no vaults configured and wizard not completed, show wizard
         const firstRunSettings = getSettings();
         const hasEnabledVaults = (firstRunSettings.vaults || []).some(v => v.enabled);
@@ -823,6 +835,12 @@ jQuery(async function () {
             setLastInjectionSources(null);
             setPreviousSources(null);
             resetCartographer();
+
+            // Librarian: hydrate gaps from chat_metadata, reset per-gen counter + per-chat stats
+            const savedGaps = chat_metadata?.deeplore_lore_gaps;
+            setLoreGaps(savedGaps ? [...savedGaps] : []);
+            setLoreGapSearchCount(0);
+            setLibrarianChatStats({ searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 });
 
             // Reset drawer ephemeral state (browse filters, context tokens) and refresh
             resetDrawerState();

@@ -17,6 +17,7 @@ export const TAB_LABELS = {
     browse: 'Browse',
     gating: 'Gating',
     tools: 'Tools',
+    librarian: 'Librarian',
 };
 
 /** Tools tab: data-action → slash command mapping */
@@ -127,6 +128,12 @@ export const ds = {
 
     /** Why? tab filter: 'both' | 'injected' | 'filtered' */
     whyTabFilter: 'injected',
+
+    // Librarian tab state
+    /** Librarian filter: 'all' | 'search' | 'flag' */
+    librarianFilter: 'all',
+    /** Librarian sort: 'newest' | 'frequency' | 'urgency' */
+    librarianSort: 'newest',
 };
 
 // ─── Entry Temperature Computation ───

@@ -249,6 +249,15 @@ export function runHealthCheck() {
         issues.push({ type: 'Size', severity: 'warning', entry: '—', detail: `Constants alone total ~${constantTokenTotal} tokens, exceeding budget of ${settings.maxTokensBudget}` });
     }
 
+    // Librarian: topics searched 3+ times with 0 results
+    try {
+        const unmet = settings.analyticsData?._librarian?.topUnmetQueries || [];
+        const frequentMisses = unmet.filter(u => u.count >= 3);
+        for (const miss of frequentMisses) {
+            issues.push({ type: 'Librarian', severity: 'info', entry: '—', detail: `AI searched for "${miss.query}" ${miss.count} times with no results — consider creating an entry` });
+        }
+    } catch { /* noop */ }
+
     const errors = issues.filter(i => i.severity === 'error').length;
     const warnings = issues.filter(i => i.severity === 'warning').length;
     return { issues, errors, warnings };

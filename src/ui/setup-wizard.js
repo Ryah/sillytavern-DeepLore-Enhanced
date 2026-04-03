@@ -16,7 +16,7 @@ import { serializeFieldDefinitions, DEFAULT_FIELD_DEFINITIONS } from '../fields.
 // Constants
 // ════════════════════════════════════════════════════════════════════════════
 
-const TOTAL_PAGES = 7;
+const TOTAL_PAGES = 8;
 
 const PRESETS = {
     small:  { scanDepth: 4,  maxEntries: 10, budget: 2048 },
@@ -124,6 +124,11 @@ function prefillFromSettings() {
     }
     if (s.aiSearchProxyUrl) $wizard.find('#dle-wiz-ai-proxy-url').val(s.aiSearchProxyUrl);
     if (s.aiSearchModel) $wizard.find('#dle-wiz-ai-model').val(s.aiSearchModel);
+
+    // Page 6: Librarian
+    if (s.librarianEnabled) $wizard.find('#dle-wiz-librarian-enabled').prop('checked', true);
+    if (s.librarianSearchEnabled !== undefined) $wizard.find('#dle-wiz-librarian-search').prop('checked', s.librarianSearchEnabled);
+    if (s.librarianFlagEnabled !== undefined) $wizard.find('#dle-wiz-librarian-flag').prop('checked', s.librarianFlagEnabled);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -133,6 +138,8 @@ function prefillFromSettings() {
 function wireNavigation() {
     $wizard.find('#dle-wiz-prev').on('click', () => {
         let target = currentPage - 1;
+        // Skip Librarian page if keywords-only (no tool calling without AI)
+        if (target === 6 && searchMode === 'keywords') target = 5;
         // Skip AI page if keywords-only
         if (target === 5 && searchMode === 'keywords') target = 4;
         if (target >= 1) goToPage(target);
@@ -144,6 +151,8 @@ function wireNavigation() {
         let target = currentPage + 1;
         // Skip AI page if keywords-only
         if (target === 5 && searchMode === 'keywords') target = 6;
+        // Skip Librarian page if keywords-only (no tool calling without AI)
+        if (target === 6 && searchMode === 'keywords') target = 7;
         if (target <= TOTAL_PAGES) goToPage(target);
     });
 
@@ -172,8 +181,9 @@ function goToPage(page) {
 
     // Page-specific actions on entry
     if (page === 5) loadAiProfiles();
-    if (page === 6) runVaultStructureCreation();
-    if (page === 7) buildSummary();
+    if (page === 6) wireLibrarianToggle();
+    if (page === 7) runVaultStructureCreation();
+    if (page === 8) buildSummary();
 }
 
 function updateNavButtons() {
@@ -443,7 +453,28 @@ async function loadAiProfiles() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Page 6: Vault Structure
+// Page 6: Librarian
+// ════════════════════════════════════════════════════════════════════════════
+
+let librarianToggleWired = false;
+
+function wireLibrarianToggle() {
+    if (librarianToggleWired) return;
+    librarianToggleWired = true;
+
+    const $master = $wizard.find('#dle-wiz-librarian-enabled');
+    const $sub = $wizard.find('#dle-wiz-librarian-sub');
+
+    $master.on('change', function () {
+        $sub.toggle(this.checked);
+    });
+
+    // Sync initial state
+    $sub.toggle($master.is(':checked'));
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Page 7: Vault Structure
 // ════════════════════════════════════════════════════════════════════════════
 
 function wireVaultStructure() {
@@ -501,7 +532,7 @@ async function runVaultStructureCreation() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Page 7: Summary
+// Page 8: Summary
 // ════════════════════════════════════════════════════════════════════════════
 
 function buildSummary() {
@@ -606,6 +637,11 @@ async function applyWizardSettings() {
             settings.aiSearchModel = $wizard.find('#dle-wiz-ai-model').val().trim() || '';
         }
     }
+
+    // Librarian
+    settings.librarianEnabled = $wizard.find('#dle-wiz-librarian-enabled').is(':checked');
+    settings.librarianSearchEnabled = $wizard.find('#dle-wiz-librarian-search').is(':checked');
+    settings.librarianFlagEnabled = $wizard.find('#dle-wiz-librarian-flag').is(':checked');
 
     // Mark wizard completed
     settings._wizardCompleted = true;

@@ -197,6 +197,34 @@ export function registerAiCommands() {
         helpString: 'Generate AI search summaries for entries that are missing them. Each summary is presented for review before writing.',
         returns: 'Summary generation status',
     }));
+
+    // ── Librarian Session ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-librarian',
+        callback: async (_args, subcommand) => {
+            const { openLibrarianPopup } = await import('../librarian/librarian-review.js');
+            const { loreGaps } = await import('../state.js');
+            const sub = (subcommand || '').trim();
+
+            if (sub.startsWith('gap ')) {
+                const gapId = sub.slice(4).trim();
+                const gap = loreGaps.find(g => g.id === gapId);
+                if (!gap) {
+                    toastr.warning(`Gap "${gapId}" not found.`, 'DeepLore Enhanced');
+                    return '';
+                }
+                await openLibrarianPopup('gap', { gap });
+            } else if (sub === 'review') {
+                await openLibrarianPopup('review');
+            } else {
+                await openLibrarianPopup('new');
+            }
+            return '';
+        },
+        helpString: 'Open the Librarian AI session. Usage: /dle-librarian [gap &lt;id&gt; | review]',
+        returns: 'Opens librarian popup',
+    }));
 }
 
 /**

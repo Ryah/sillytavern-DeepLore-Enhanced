@@ -22,6 +22,7 @@ import {
     scheduleRender,
 } from './drawer-state.js';
 import { renderInjectionTab, renderBrowseTab, renderBrowseWindow } from './drawer-render.js';
+import { renderLibrarianTab } from './drawer-render-librarian.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -483,6 +484,41 @@ export function wireHealthIcons($drawer) {
 
     // Also handle Enter/Space for keyboard a11y
     $footer.find('.dle-health-icons').on('keydown', '[data-health]', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).trigger('click');
+        }
+    });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Librarian Tab
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Wire Librarian tab interactions (filter, sort, gap click) */
+export function wireLibrarianTab($drawer) {
+    // Filter toggle buttons
+    $drawer.on('click', '.dle-librarian-filter-btn', function () {
+        ds.librarianFilter = $(this).data('filter') || 'all';
+        scheduleRender(renderLibrarianTab);
+    });
+
+    // Sort select
+    $drawer.on('change', '.dle-librarian-sort', function () {
+        ds.librarianSort = $(this).val() || 'newest';
+        scheduleRender(renderLibrarianTab);
+    });
+
+    // Click on a gap entry — open librarian session (Phase 4)
+    $drawer.on('click', '.dle-librarian-entry', function () {
+        const gapId = $(this).data('gap-id');
+        if (gapId) {
+            executeCommand(`/dle-librarian gap ${gapId}`);
+        }
+    });
+
+    // Keyboard a11y for gap entries
+    $drawer.on('keydown', '.dle-librarian-entry', function (e) {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             $(this).trigger('click');

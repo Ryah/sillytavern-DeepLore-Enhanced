@@ -3324,3 +3324,428 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     .dle-wizard-step-label { display: none; }
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   Librarian Tab
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* --- Librarian filter toggle --- */
+.dle-librarian-filter-toggle {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 6px;
+}
+.dle-librarian-filter-btn {
+    flex: 1;
+    padding: 3px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    text-align: center;
+    border: 1px solid var(--SmartThemeBorderColor);
+    background: transparent;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    border-radius: 3px;
+    transition: background 0.15s, color 0.15s;
+}
+.dle-librarian-filter-btn:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
+}
+.dle-librarian-filter-btn.active {
+    background: var(--SmartThemeQuoteColor);
+    color: var(--SmartThemeBodyColor);
+    border-color: var(--SmartThemeQuoteColor);
+}
+
+/* --- Librarian sort --- */
+.dle-librarian-sort {
+    width: 100%;
+    margin-bottom: 6px;
+    font-size: 10px;
+    padding: 2px 4px;
+    background: var(--SmartThemeBlurTintColor);
+    color: var(--SmartThemeBodyColor);
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 3px;
+}
+
+/* --- Librarian list --- */
+.dle-librarian-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* --- Librarian entry (inbox row) --- */
+.dle-librarian-entry {
+    display: grid;
+    grid-template-columns: 18px 18px 1fr auto;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: background 0.15s;
+    border-left: 3px solid transparent;
+}
+.dle-librarian-entry:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+}
+.dle-librarian-entry:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: -2px;
+}
+
+/* --- Green heatmap --- */
+/* HOT: strong green signal */
+.dle-librarian-entry.dle-gap-hot {
+    background: color-mix(in srgb,
+        hsl(140, calc(var(--dle-gap, 0) * 30%), calc(25% + var(--dle-gap, 0) * 5%))
+        calc(var(--dle-gap, 0) * 22%), transparent);
+    border-left: 3px solid color-mix(in srgb,
+        hsl(140, calc(var(--dle-gap, 0) * 30%), 35%)
+        calc(var(--dle-gap, 0) * 55%), transparent);
+}
+/* WARM: soft green signal */
+.dle-librarian-entry.dle-gap-warm {
+    background: color-mix(in srgb,
+        hsl(140, calc(var(--dle-gap, 0) * 20%), calc(25% + var(--dle-gap, 0) * 3%))
+        calc(var(--dle-gap, 0) * 14%), transparent);
+    border-left: 3px solid color-mix(in srgb,
+        hsl(140, calc(var(--dle-gap, 0) * 20%), 35%)
+        calc(var(--dle-gap, 0) * 35%), transparent);
+}
+
+/* --- Gap status indicator --- */
+.dle-gap-status {
+    font-size: 10px;
+    text-align: center;
+    line-height: 1;
+}
+.dle-gap-pending { color: #e8a838; }
+.dle-gap-acknowledged { color: #8899aa; }
+.dle-gap-in-progress { color: #5588cc; }
+.dle-gap-written { color: #44aa66; }
+.dle-gap-rejected { color: #aa4444; }
+
+/* --- Gap type icon --- */
+.dle-gap-type {
+    font-size: 10px;
+    text-align: center;
+    opacity: 0.7;
+}
+
+/* --- Gap title --- */
+.dle-gap-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+/* --- Gap meta (right side) --- */
+.dle-gap-meta {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    opacity: 0.7;
+    white-space: nowrap;
+}
+.dle-gap-reason {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: none; /* hidden by default, shown on wider drawers */
+}
+.dle-gap-time {
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.5;
+}
+.dle-gap-freq {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 30%, transparent);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 600;
+    font-size: 9px;
+}
+.dle-gap-urgency-high {
+    color: #cc4444;
+    font-weight: 700;
+    font-size: 11px;
+}
+.dle-gap-no-results {
+    color: #cc8844;
+    font-style: italic;
+    font-size: 9px;
+}
+
+/* --- Librarian badge on tab button --- */
+.dle-librarian-badge {
+    display: none;
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 14px;
+    text-align: center;
+    border-radius: 7px;
+    background: #44aa66;
+    color: #fff;
+}
+.dle-librarian-badge.dle-visible {
+    display: block;
+    animation: dle-badge-pulse 600ms ease;
+}
+@keyframes dle-badge-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.3); }
+}
+
+/* Show reason text on wider drawers */
+@media (min-width: 400px) {
+    .dle-gap-reason { display: block; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Librarian Review Popup
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dle-librarian-popup {
+    display: grid;
+    grid-template-columns: 55% 45%;
+    gap: 12px;
+    height: 70vh;
+    min-height: 400px;
+}
+
+/* --- Editor panel (left) --- */
+.dle-librarian-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+.dle-librarian-editor-title {
+    margin: 0 0 4px 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--SmartThemeBodyColor);
+}
+.dle-librarian-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.dle-librarian-field label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.7;
+}
+.dle-librarian-field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.dle-librarian-content-area {
+    flex: 1;
+    min-height: 120px;
+    font-family: monospace;
+    font-size: 12px;
+    resize: vertical;
+}
+
+/* Key chips */
+.dle-librarian-keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+    min-height: 32px;
+    align-items: center;
+}
+.dle-key-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px 6px;
+    font-size: 11px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 30%, transparent);
+    border-radius: 3px;
+    white-space: nowrap;
+}
+.dle-key-remove {
+    background: none;
+    border: none;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 13px;
+    line-height: 1;
+    opacity: 0.6;
+}
+.dle-key-remove:hover { opacity: 1; }
+.dle-key-input {
+    border: none;
+    background: transparent;
+    color: var(--SmartThemeBodyColor);
+    font-size: 11px;
+    min-width: 80px;
+    flex: 1;
+    outline: none;
+}
+
+/* Frontmatter preview */
+.dle-librarian-frontmatter-preview {
+    margin-top: 4px;
+}
+.dle-librarian-frontmatter-preview summary {
+    font-size: 10px;
+    cursor: pointer;
+    opacity: 0.7;
+}
+.dle-librarian-frontmatter-code {
+    font-size: 10px;
+    padding: 6px;
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 50%, transparent);
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* --- Chat panel (right) --- */
+.dle-librarian-chat {
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--SmartThemeBorderColor);
+    padding-left: 12px;
+}
+.dle-librarian-chat-title {
+    margin: 0 0 6px 0;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--SmartThemeBodyColor);
+}
+.dle-librarian-messages {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0;
+    min-height: 0;
+}
+.dle-lib-msg {
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    max-width: 90%;
+    word-wrap: break-word;
+}
+.dle-lib-msg-ai {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 20%, transparent);
+    align-self: flex-start;
+}
+.dle-lib-msg-user {
+    background: color-mix(in srgb, var(--SmartThemeChatMesColorFill, #2a4a6a) 40%, transparent);
+    align-self: flex-end;
+}
+.dle-lib-msg-loading {
+    align-self: flex-start;
+    opacity: 0.6;
+    font-style: italic;
+}
+
+/* Chat input row */
+.dle-librarian-input-row {
+    display: flex;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--SmartThemeBorderColor);
+    margin-top: auto;
+}
+.dle-librarian-input-row .text_pole {
+    flex: 1;
+}
+.dle-librarian-input-row .menu_button {
+    padding: 4px 10px;
+    min-width: 36px;
+}
+
+/* --- Work queue (vault review) --- */
+.dle-librarian-queue {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+    margin: 6px 0;
+    max-height: 150px;
+    overflow-y: auto;
+}
+.dle-lib-queue-header {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 15%, transparent);
+    border-bottom: 1px solid var(--SmartThemeBorderColor);
+}
+.dle-lib-queue-item {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.dle-lib-queue-item:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
+}
+.dle-lib-queue-item.dle-lib-queue-urgent {
+    border-left: 2px solid #cc4444;
+}
+.dle-lib-queue-action {
+    font-weight: 700;
+    text-align: center;
+    color: #44aa66;
+}
+.dle-lib-queue-title {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.dle-lib-queue-reason {
+    opacity: 0.6;
+    font-size: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Responsive: stack panels on small screens */
+@media (max-width: 700px) {
+    .dle-librarian-popup {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr 1fr;
+    }
+    .dle-librarian-chat {
+        border-left: none;
+        border-top: 1px solid var(--SmartThemeBorderColor);
+        padding-left: 0;
+        padding-top: 12px;
+    }
+}
+

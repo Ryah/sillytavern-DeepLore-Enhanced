@@ -19,6 +19,7 @@ import {
     computeOverallStatus,
     setVaultIndex, setIndexTimestamp, setLastHealthResult,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
+    librarianSessionStats, librarianChatStats,
 } from '../state.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 import {
@@ -617,6 +618,26 @@ function loadPopupSettings($container) {
     $c('#dle-sp-graph-hover-dim-opacity').val(settings.graphHoverDimOpacity);
     $c('#dle-sp-graph-edge-filter-alpha').val(settings.graphEdgeFilterAlpha);
 
+    // ── Features — Librarian ──
+    $c('#dle-sp-librarian-enabled').prop('checked', settings.librarianEnabled);
+    $c('#dle-sp-librarian-search').prop('checked', settings.librarianSearchEnabled);
+    $c('#dle-sp-librarian-flag').prop('checked', settings.librarianFlagEnabled);
+    $c('#dle-sp-librarian-max-searches').val(settings.librarianMaxSearches);
+    $c('#dle-sp-librarian-max-results').val(settings.librarianMaxResults);
+    $c('#dle-sp-librarian-token-budget').val(settings.librarianResultTokenBudget);
+    $c('#dle-sp-librarian-sub').toggle(settings.librarianEnabled);
+
+    // Librarian stats
+    $c('#dle-sp-lib-chat-searches').text(librarianChatStats.searchCalls);
+    $c('#dle-sp-lib-chat-flags').text(librarianChatStats.flagCalls);
+    $c('#dle-sp-lib-chat-tokens').text(librarianChatStats.estimatedExtraTokens);
+    $c('#dle-sp-lib-session-searches').text(librarianSessionStats.searchCalls);
+    $c('#dle-sp-lib-session-flags').text(librarianSessionStats.flagCalls);
+    $c('#dle-sp-lib-session-tokens').text(librarianSessionStats.estimatedExtraTokens);
+    const allTime = settings.analyticsData?._librarian || {};
+    $c('#dle-sp-lib-all-searches').text(allTime.totalGapSearches || 0);
+    $c('#dle-sp-lib-all-flags').text(allTime.totalGapFlags || 0);
+
     // ── Features — Notebook ──
     $c('#dle-sp-notebook-enabled').prop('checked', settings.notebookEnabled);
 
@@ -979,6 +1000,27 @@ function bindPopupEvents($container) {
     // BUG-AUDIT-14: Use isNaN check instead of || fallback so 0 is a valid value
     $c('#dle-sp-graph-hover-dim-opacity').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverDimOpacity = isNaN(v) ? 0.1 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-edge-filter-alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
+
+    // ── Librarian settings ──
+    $c('#dle-sp-librarian-enabled').on('change', function () {
+        const enabled = $(this).prop('checked');
+        settings.librarianEnabled = enabled;
+        $c('#dle-sp-librarian-sub').toggle(enabled);
+        saveSettingsDebounced();
+        // Register/unregister tools dynamically
+        try {
+            if (enabled) {
+                import('../librarian/librarian.js').then(m => m.registerLibrarianTools());
+            } else {
+                import('../librarian/librarian.js').then(m => m.unregisterLibrarianTools());
+            }
+        } catch { /* noop */ }
+    });
+    $c('#dle-sp-librarian-search').on('change', function () { settings.librarianSearchEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-max-searches').on('input', function () { settings.librarianMaxSearches = numVal($(this).val(), 2); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-max-results').on('input', function () { settings.librarianMaxResults = numVal($(this).val(), 5); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-token-budget').on('input', function () { settings.librarianResultTokenBudget = numVal($(this).val(), 1500); saveSettingsDebounced(); });
 
     // Test AI / Preview
     $c('#dle-sp-test-ai').on('click', async function () {

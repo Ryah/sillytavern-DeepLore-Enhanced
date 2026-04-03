@@ -79,6 +79,11 @@
                 aria-selected="false" aria-controls="dle-panel-tools" aria-label="Tools — diagnostics, AI tools, and data management" tabindex="-1">
             <i class="fa-solid fa-toolbox" aria-hidden="true"></i>
         </button>
+        <button class="dle-tab" id="dle-tab-librarian" data-tab="librarian" role="tab"
+                aria-selected="false" aria-controls="dle-panel-librarian" aria-label="Librarian — lore gap inbox and draft review" tabindex="-1">
+            <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
+            <span class="dle-tab-badge dle-librarian-badge" data-badge="librarian" aria-hidden="true"></span>
+        </button>
     </div>
 
     <!-- Active tab label -->
@@ -270,6 +275,28 @@
                     <i class="fa-solid fa-circle-info" aria-hidden="true"></i> Help
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- ─── Tab: Librarian (lore gap inbox) ─── -->
+    <div class="dle-tab-panel" id="dle-panel-librarian" data-tab="librarian"
+         role="tabpanel" aria-labelledby="dle-tab-librarian">
+        <div class="dle-panel-toolbar">
+            <div class="dle-librarian-filter-toggle" role="radiogroup" aria-label="Filter gap records">
+                <button class="dle-librarian-filter-btn active" data-filter="all" role="radio" aria-checked="true">All</button>
+                <button class="dle-librarian-filter-btn" data-filter="search" role="radio" aria-checked="false">Searches</button>
+                <button class="dle-librarian-filter-btn" data-filter="flag" role="radio" aria-checked="false">Flags</button>
+            </div>
+            <select class="text_pole dle-librarian-sort" data-sort aria-label="Sort gap records">
+                <option value="newest">Newest</option>
+                <option value="frequency">Frequency</option>
+                <option value="urgency">Urgency</option>
+            </select>
+        </div>
+        <div class="dle-librarian-list" role="list" aria-label="Lore gap records"></div>
+        <div class="dle-empty-state dle-visible" id="dle-librarian-empty">
+            <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
+            <p>No lore gaps recorded yet. When enabled, the Librarian lets the AI search for and flag missing lore during generation.</p>
         </div>
     </div>
 </div>

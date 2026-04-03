@@ -207,6 +207,21 @@ export function registerAdminCommands() {
                 html = '<p>No analytics data yet. Generate some messages first.</p>';
             }
 
+            // Librarian section
+            const libStats = analytics._librarian;
+            if (libStats) {
+                html += '<hr><h4>Librarian</h4>';
+                html += `<p>Searches: ${libStats.totalGapSearches || 0} | Flags: ${libStats.totalGapFlags || 0} | Entries Written: ${libStats.totalEntriesWritten || 0} | Updated: ${libStats.totalEntriesUpdated || 0}</p>`;
+                const unmet = libStats.topUnmetQueries || [];
+                if (unmet.length > 0) {
+                    html += '<h5>Top Unmet Queries</h5><ul>';
+                    for (const u of unmet.slice(0, 10)) {
+                        html += `<li>${escapeHtml(u.query)} (${u.count}x)</li>`;
+                    }
+                    html += '</ul>';
+                }
+            }
+
             html += '</div>';
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
                 wide: true, large: true, allowVerticalScrolling: true,
@@ -379,6 +394,7 @@ export function registerAdminCommands() {
                 { cmd: '/dle-optimize-keys &lt;name&gt;', desc: 'AI keyword suggestions for an entry' },
                 { cmd: '/dle-summarize', desc: 'AI-generate summary fields for all entries missing one' },
                 { cmd: '/dle-review', desc: 'Send entire vault to AI for review and feedback' },
+                { cmd: '/dle-librarian', desc: 'Open Librarian AI session (new entry, gap review, or vault review)' },
                 { cmd: '/dle-import', desc: 'Import SillyTavern World Info into Obsidian vault' },
                 { cmd: '/dle-setup', desc: 'Run guided setup wizard' },
                 { sep: true, label: 'Per-Chat Overrides' },

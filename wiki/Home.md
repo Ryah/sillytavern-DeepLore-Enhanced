@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/docs/icon-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/docs/icon-light.svg">
-    <img alt="DeepLore Enhanced" src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/staging/docs/icon-light.svg" width="96">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/main/docs/icon-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/main/docs/icon-light.svg">
+    <img alt="DeepLore Enhanced" src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/main/docs/icon-light.svg" width="96">
   </picture>
 </p>
 
@@ -14,9 +14,7 @@ DeepLore Enhanced connects your [Obsidian](https://obsidian.md/) vault to [Silly
 
 ![DLE Drawer panel showing the Browse tab with a filterable entry list, token budget bar, priority badges, and temperature heatmap coloring](images/dle-drawer.png)
 
-> **Looking for the base version?** [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) is the stable, keyword-only version recommended for most users. DeepLore Enhanced is a superset that adds AI search and advanced features.
-
-> **Do NOT run both.** Running DeepLore and DeepLore Enhanced simultaneously will cause conflicts. Pick one.
+> **Note:** [Base DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) is deprecated. DeepLore Enhanced is the active project and does everything base DeepLore does and more. Do NOT run both simultaneously — they will conflict.
 
 ## Key Features
 

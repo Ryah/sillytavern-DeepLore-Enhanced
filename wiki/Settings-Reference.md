@@ -181,10 +181,10 @@ Settings for the interactive entry relationship graph (`/dle-graph`). These are 
 
 | Setting | Default | Range | Description |
 |---------|---------|-------|-------------|
-| **Repulsion** | `0.3` | 0.1-50 | Node repulsion strength. Higher values push nodes further apart. |
-| **Spring Length** | `80` | 30-600 | Ideal edge length. Higher values spread connected nodes further apart. |
-| **Gravity** | `11.0` | 0.1-20 | Pull toward center. Higher values keep the graph more compact. |
-| **Damping** | `0.50` | 0.3-0.98 | Velocity damping. Higher values make the simulation settle faster. |
+| **Repulsion** | `0.5` | 0.1-50 | Node repulsion strength. Higher values push nodes further apart. |
+| **Spring Length** | `200` | 30-600 | Ideal edge length. Higher values spread connected nodes further apart. |
+| **Gravity** | `5.0` | 0.1-20 | Pull toward center. Higher values keep the graph more compact. |
+| **Damping** | `0.70` | 0.3-0.98 | Velocity damping. Higher values make the simulation settle faster. |
 | **Hover Dim Distance** | `2` | 0-15 | BFS distance for hover dimming. Nodes farther than this are dimmed on hover. 0 = disabled. |
 | **Hover Dim Opacity** | `0.1` | 0-0.9 | Opacity of dimmed nodes/edges on hover. Lower = more aggressive dimming. |
 | **Focus Tree Depth** | `2` | 0-15 | Hop depth for ego-centric focus mode. Controls how many relationship hops are shown from the focused node. |

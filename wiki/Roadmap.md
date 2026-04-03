@@ -4,7 +4,7 @@ Possible future features for DeepLore Enhanced. Nothing here is promised or on a
 
 Have a feature request? [Open a GitHub issue](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/new) with the `enhancement` label.
 
-> **Note:** Features already shipped are documented on the [[Features]] page and in the [Changelog](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/blob/staging/CHANGELOG.md).
+> **Note:** Features already shipped are documented on the [[Features]] page and in the [Changelog](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/blob/main/CHANGELOG.md).
 
 Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
@@ -72,10 +72,10 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Token Budget Visualizer** | M | Stacked bar chart of budget allocation across entry groups. |
 | **Generation Timeline** | L | Recorded pipeline history in chat_metadata, persistent timeline across generations. |
 | **Batch Health Fix** | L | Auto-fix buttons on health check issues instead of just reporting them. |
-| ~~**Entry Clustering / Smart Grouping**~~ | ~~M~~ | ✅ Shipped in v0.2.0. Hierarchical pre-filter clusters by category; graph has Louvain clustering + gap analysis. |
+| ~~**Entry Clustering / Smart Grouping**~~ | ~~M~~ | ✅ Shipped in 1.0. Hierarchical pre-filter clusters by category; graph has Louvain clustering + gap analysis. |
 | **Keyboard Shortcuts** | S | Ctrl+Shift+B/M/N/R for common drawer and pipeline actions. |
 | **Entry Versioning / History Timeline** | M | Track changes to vault entries over time with diffs. |
-| **Setup Wizard AI Connection Step** | S | Extend `/dle-setup` to also configure AI search connection (profile or proxy), not just vault connection. |
+| ~~**Setup Wizard AI Connection Step**~~ | ~~S~~ | ✅ Shipped in 1.0. Wizard page 5 configures AI search connection (profile or proxy). |
 | **`/dle-summarize` Batch UX** | M | Batch mode for generating summaries across many entries with progress tracking and abort support. |
 | **`/dle-set-characters` Browse Popup** | S | Rich browse-and-select popup for the character gating command, matching the style of `/dle-set-era`. |
 | **Simulation Scope Disclaimer** | S | Add a note to `/dle-simulate` output clarifying that results are approximate and may differ from real generations. |
@@ -83,7 +83,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **`color-mix()` @supports Wrappers** | S | Wrap ~25 `color-mix()` CSS usages in `@supports` blocks for browsers that don't support it. |
 | **Health Icon Colorblind Indicators** | S | Add shape-based indicators (icons, patterns) alongside color for health status, improving accessibility for colorblind users. |
 | **Context Bar Hide for Non-OAI Backends** | S | Hide the context token bar in the drawer footer when using non-OpenAI backends where `CHAT_COMPLETION_PROMPT_READY` never fires. |
-| ~~**Browse List Virtualization**~~ | ~~M~~ | ✅ Shipped in v0.2.0. Virtual scroll with 32px row height, 8-row overscan, absolute positioning. |
+| ~~**Browse List Virtualization**~~ | ~~M~~ | ✅ Shipped in 1.0. Virtual scroll with 32px row height, 8-row overscan, absolute positioning. |
 | **Story Timeline View** | M | Scrollable timeline of Session Scribe notes with one-click expansion to full summaries. Replace popup-based `/dle-scribe-history` with a persistent view. |
 | **Debug Mode Lite** | M | In-drawer panel showing live matching traces, pipeline decisions, and cache state — avoiding the need for browser console or `/dle-inspect`. |
 | **Selectable Graph Algorithm** | M | Let users choose between different graph layout algorithms (force-directed, radial, hierarchical, etc.) for different vault structures and visualization needs. |
@@ -101,12 +101,12 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Sketch & Auto-Create Mode** | L | Draw connections directly on the graph. Click empty space to create a new entry skeleton. Drag between nodes to create requires/excludes edges. Writes back to Obsidian via `writeNote()`. Turns the graph into a worldbuilding tool. |
 | **Interactive HTML Export** | M | Export graph as a standalone .html file with bundled renderer, zero dependencies. Collaborators open in browser, explore vault structure without SillyTavern. |
 | **AI Auto-Suggest Connections** | M | AI analyzes the manifest and suggests "these entries should be linked." One-click "Create Link" writes wikilinks to Obsidian. Surfaces hidden relationships. |
-| ~~**Dead Entry Detection Cluster**~~ | ~~S~~ | ✅ Shipped in v0.2.0. Orphan nodes clustered in separate grid, gap analysis overlay highlights them. |
+| ~~**Dead Entry Detection Cluster**~~ | ~~S~~ | ✅ Shipped in 1.0. Orphan nodes clustered in separate grid, gap analysis overlay highlights them. |
 | **Budget Allocation Simulator** | M | Sidebar showing projected token cost: "If these N entries inject, tokens = X, budget remaining = Y." Drag entries into a "likely" list to plan budget before vault changes. |
 | **"What If" Sandbox** | M | Toggle entries on/off and simulate what would inject. Test dependency chains before running `/dle-simulate` on a full chat. |
 | **Alternative Layouts** | M | Layout dropdown: force-directed (current), family tree (character hierarchies), org chart (factions), timeline (by era field), dependency DAG (requires chains as tree). Animate transitions between layouts. |
 | **Path Finding** | M | Select two nodes, highlight shortest path (BFS). Show edge types along the path. Optional: K-shortest-paths for alternatives. Answers "how does this entry unlock that entry?" |
-| ~~**Neighborhood Isolation**~~ | ~~M~~ | ✅ Shipped in v0.2.0. Ego-centric focus mode with N-hop BFS depth, +/- controls, breadcrumb exit, camera fit. |
+| ~~**Neighborhood Isolation**~~ | ~~M~~ | ✅ Shipped in 1.0. Ego-centric focus mode with N-hop BFS depth, +/- controls, breadcrumb exit, camera fit. |
 | **Multi-Select & Bulk Actions** | M | Shift+click to multi-select, lasso draw. Bulk pin/block, export subset, compare properties, health check selected. |
 | **Node Detail Panel** | M | Click a node to open a side panel with 4 tabs: Metadata, Links (incoming/outgoing with types), Content preview, Actions (pin/block/open in Obsidian/health check). Pattern from Context Cartographer popup. |
 | **Comparison / Diff Mode** | L | Side-by-side graph view after index rebuild. Nodes colored by change type: green = added, red = removed, yellow = modified. Summary: "Added: 3, Removed: 1, Modified: 5." Uses `detectChanges()` from core/sync.js. |
@@ -150,4 +150,4 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 *Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23), 5-perspective review + fixes (2026-03-23), 6-agent graph popup audit (2026-03-24).*
 
-*Last updated: 2026-03-27*
+*Last updated: 2026-04-02*

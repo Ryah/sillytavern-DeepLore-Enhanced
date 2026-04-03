@@ -12,7 +12,7 @@ Before you begin, make sure you have:
   - A saved Connection Manager profile in SillyTavern (any provider: Anthropic, OpenAI, OpenRouter, etc.)
   - [claude-code-proxy](https://github.com/horselock/claude-code-proxy) running locally (requires `enableCorsProxy: true` in `config.yaml`)
 
-> **Do NOT run both DeepLore and DeepLore Enhanced.** They will conflict. Pick one.
+> **Note:** Base DeepLore is deprecated. If you have it installed, remove it. Do NOT run both simultaneously.
 
 ---
 
@@ -46,7 +46,7 @@ Stop and restart SillyTavern to load the new extension.
 
 ## First-Time Setup
 
-> **Quick alternative:** Run `/dle-setup` in the SillyTavern chat input to use the guided setup wizard. It walks through Obsidian vault connection, tag configuration, and search mode selection. Note: AI search connection (profile or proxy) must still be configured separately in the settings panel.
+> **Quick alternative:** Run `/dle-setup` in the SillyTavern chat input to use the guided setup wizard. It walks through Obsidian vault connection, tag configuration, search mode selection, and AI search connection setup — everything in one flow.
 
 ### Obsidian Connection
 

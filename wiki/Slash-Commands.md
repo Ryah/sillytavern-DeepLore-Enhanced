@@ -304,10 +304,10 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | Command | Description |
 |---------|-------------|
 | `/dle-help` | Quick reference of all commands |
-| `/dle-refresh` | Force re-index vault |
+| `/dle-refresh` (`/dle-r`) | Force re-index vault |
 | `/dle-status` | Show connection and index status |
 | `/dle-why` (`/dle-context`) | Preview what would be injected now |
-| `/dle-browse` | Browse all indexed entries |
+| `/dle-browse` (`/dle-b`) | Browse all indexed entries |
 | `/dle-notebook` | Open Author's Notebook editor |
 | `/dle-ai-notepad [clear]` | View or clear AI session notes |
 | `/dle-review [question]` | Send vault to AI for review |
@@ -316,10 +316,10 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-newlore` (`/dle-suggest`) | AI suggests new lorebook entries |
 | `/dle-optimize-keys <name>` | AI optimizes entry keywords |
 | `/dle-simulate` | Replay chat showing entry activation |
-| `/dle-graph` | Visualize entry relationships |
+| `/dle-graph` (`/dle-g`) | Visualize entry relationships |
 | `/dle-analytics` | Entry usage statistics |
-| `/dle-health` | Audit entries for issues (30+ checks) |
-| `/dle-inspect` | Show last pipeline trace |
+| `/dle-health` (`/dle-h`) | Audit entries for issues (30+ checks) |
+| `/dle-inspect` (`/dle-i`) | Show last pipeline trace |
 | `/dle-pin <name>` | Pin entry to always inject in this chat |
 | `/dle-unpin <name>` | Remove a pin |
 | `/dle-block <name>` | Block entry from injecting in this chat |

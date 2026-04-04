@@ -759,7 +759,7 @@ export function parseSessionResponse(text) {
 // ════════════════════════════════════════════════════════════════════════════
 
 const VALID_ENTRY_TYPES = ['character', 'location', 'lore', 'organization', 'story'];
-const VALID_SESSION_ACTIONS = ['update_draft', 'propose_queue'];
+const VALID_SESSION_ACTIONS = ['update_draft', 'propose_queue', 'propose_options'];
 const VALID_QUEUE_ACTIONS = ['create', 'update'];
 const VALID_URGENCIES = ['low', 'medium', 'high'];
 
@@ -841,6 +841,24 @@ export function validateSessionResponse(parsed) {
                 }
                 if (item.urgency !== undefined && !VALID_URGENCIES.includes(item.urgency)) {
                     errors.push(`queue[${i}].urgency must be low, medium, or high. Got: '${item.urgency}'`);
+                }
+            }
+        }
+    }
+
+    if (parsed.options !== undefined && parsed.options !== null) {
+        if (!Array.isArray(parsed.options)) {
+            errors.push("'options' must be an array");
+        } else if (parsed.options.length === 0) {
+            errors.push("'options' must contain at least one option");
+        } else {
+            for (let i = 0; i < parsed.options.length; i++) {
+                const opt = parsed.options[i];
+                if (!opt.label || (typeof opt.label === 'string' && !opt.label.trim())) {
+                    errors.push(`options[${i}].label is required`);
+                }
+                if (!opt.fields || typeof opt.fields !== 'object' || Array.isArray(opt.fields)) {
+                    errors.push(`options[${i}].fields must be an object with draft field values`);
                 }
             }
         }

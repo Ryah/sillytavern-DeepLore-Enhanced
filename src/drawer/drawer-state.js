@@ -16,8 +16,8 @@ export const TAB_LABELS = {
     injection: 'Why?',
     browse: 'Browse',
     gating: 'Gating',
-    tools: 'Tools',
     librarian: 'Librarian',
+    tools: 'Tools',
 };
 
 /** Tools tab: data-action → slash command mapping */

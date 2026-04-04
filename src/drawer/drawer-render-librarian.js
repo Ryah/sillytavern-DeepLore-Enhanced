@@ -80,6 +80,10 @@ export function renderLibrarianTab() {
     // Update sort select
     $drawer.find('.dle-librarian-sort').val(ds.librarianSort);
 
+    // Show/hide Clear Written button
+    const hasCompleted = loreGaps.some(g => g.status === 'written' || g.status === 'rejected');
+    $drawer.find('.dle-librarian-clear-written').css('display', hasCompleted ? '' : 'none');
+
     // Filter gaps
     let gaps = [...loreGaps];
     if (ds.librarianFilter === 'search') {
@@ -141,17 +145,19 @@ export function renderLibrarianTab() {
             : '';
 
         html += `<div class="dle-librarian-entry ${heatClass}" style="--dle-gap:${score.toFixed(2)}" `
-            + `data-gap-id="${escapeHtml(gap.id)}" role="listitem" `
+            + `data-gap-id="${escapeHtml(gap.id)}" data-urgency="${gap.urgency || 'medium'}" role="listitem" `
             + `aria-label="${title}, ${statusInfo.label}, ${gap.urgency || 'medium'} urgency" tabindex="0">`;
         html += `<span class="dle-gap-status ${statusInfo.cls}" title="${statusInfo.label}" aria-label="${statusInfo.label}">${statusInfo.icon}</span>`;
         html += `<span class="dle-gap-type" aria-label="${gap.type === 'search' ? 'Search' : 'Flag'}">${typeIcon}</span>`;
         html += `<span class="dle-gap-title">${title}</span>`;
+        const scoreBadge = score > 0.3 ? `<span class="dle-gap-score" title="Relevance score ${score.toFixed(1)}/3.0" aria-label="Score: ${score.toFixed(1)}">${score.toFixed(1)}</span>` : '';
         html += `<span class="dle-gap-meta">`;
         html += `<span class="dle-gap-reason" title="${escapeHtml(gap.reason || '')}">${reason}</span>`;
         html += `<span class="dle-gap-time">${time}</span>`;
         html += freqBadge;
         html += urgencyBadge;
         html += resultInfo;
+        html += scoreBadge;
         html += `</span>`;
         html += `</div>`;
     }

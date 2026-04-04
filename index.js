@@ -52,6 +52,7 @@ import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
 import { extractAiNotes } from './src/helpers.js';
+import { clearSessionActivityLog } from './src/librarian/librarian-tools.js';
 
 /** Default instruction prompt for the AI Notebook feature. */
 const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
@@ -841,6 +842,7 @@ jQuery(async function () {
             setLoreGaps(savedGaps ? [...savedGaps] : []);
             setLoreGapSearchCount(0);
             setLibrarianChatStats({ searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 });
+            clearSessionActivityLog();
 
             // Reset drawer ephemeral state (browse filters, context tokens) and refresh
             resetDrawerState();

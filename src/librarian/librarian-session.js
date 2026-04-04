@@ -18,8 +18,11 @@ import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
 
 const MAX_VALIDATION_RETRIES = 3;
 const MAX_HISTORY_MESSAGES = 10; // Keep last N messages to bound prompt growth
-const MAX_DRAFT_JSON_CHARS = 4000; // Cap draft state in system prompt
-const MAX_RELATED_ENTRIES_CHARS = 4000; // Cap related entries in system prompt
+// Caps are now configurable via settings — these are fallback defaults
+function getManifestMaxChars() { return getSettings().librarianManifestMaxChars || 8000; }
+function getRelatedMaxChars() { return getSettings().librarianRelatedEntriesMaxChars || 4000; }
+function getDraftMaxChars() { return getSettings().librarianDraftMaxChars || 4000; }
+function getChatContextMaxChars() { return getSettings().librarianChatContextMaxChars || 4000; }
 
 // ════════════════════════════════════════════════════════════════════════════
 // Session Factory
@@ -113,6 +116,8 @@ summary: "Up to 600 chars — see Summary Guidelines below"
 ---
 \`\`\`
 
+Optional frontmatter fields: \`requires\` (array of entry titles that must also be matched), \`excludes\` (array that blocks this entry), \`position\` (before/after/in_chat), \`depth\` (injection depth for in_chat), \`role\` (system/user/assistant), \`cooldown\` (generations to skip after triggering), \`cascade_links\` (entries to pull in when this matches), \`era\`/\`location\`/\`scene_type\`/\`character_present\` (contextual gating fields).
+
 ### Summary Field (CRITICAL)
 The summary is used ONLY to help the AI selection model (Haiku) decide whether to inject this entry. It is NOT sent to the writing AI. Write it as an index card for a librarian, not as prose.
 
@@ -121,9 +126,17 @@ Answer these questions:
 2. **When should it be selected?** Situations, triggers, relevant topics (1-2 sentences)
 3. **Key relationships** Connected entries (brief)
 
-GOOD: "Eris's spymaster, interrogator, and closest enforcer. Inner circle. Select when espionage, intelligence gathering, interrogation, loyalty, or the Triumvirate betrayal comes up. Also relevant for surveillance, Raven's network, and territory enforcement."
+#### Summary examples by type:
 
-BAD: "Eris is a tall, imposing figure with silver hair who serves as a spymaster." (This describes appearance — useless for selection.)
+**Character:** "Eris's spymaster, interrogator, and closest enforcer. Inner circle. Select when espionage, intelligence gathering, interrogation, loyalty, or the Triumvirate betrayal comes up. Also relevant for surveillance, Raven's network, and territory enforcement."
+
+**Location:** "Underground blood bar in the Dusk Quarter, owned by [[Maren]]. Select when nightlife, feeding, blood trade, black-market deals, or the Dusk Quarter comes up. Key meeting point for [[The Syndicate]]."
+
+**Lore:** "The biological dependency created when a vampire feeds from a mortal — same mechanism as Bloodchain via saliva. Select when feeding, biting, addiction, venom, feeding sites, or chattel dynamics come up. Scales with vampire age."
+
+**Organization:** "Eris's intelligence network spanning three districts. Select when espionage, surveillance, information brokering, district politics, or spy recruitment comes up. Rivals with [[The Watchers]]."
+
+**BAD summary** (do NOT write like this): "Eris is a tall, imposing figure with silver hair who serves as a spymaster." — This describes appearance, which is useless for selection. The selection AI needs to know *when* to pick this entry, not what the character looks like.
 
 ### Content Structure
 \`\`\`markdown
@@ -140,13 +153,111 @@ Use [[wikilinks]] to cross-reference other entries.
 \`\`\`
 
 ### Meta-block Fields by Type
-- **Characters:** Species, Role, Callsign, Aliases, Height, Build, Hair, Eyes, Skin, Features, Apparent Age, True Age, Origin, Personality, Speech, Wants, Fears, Powers, Limits, Items, Secret
-- **Locations:** Category, Owner, District, Access, Atmosphere, Function, Layout, Rules, Security, Regulars
-- **Lore:** Category, Scope, Danger, Who Knows, Triggers, Consequences, Related, Enforcement, Misconceptions
-- **Organizations:** Category, Owner, Run By, Public Face, True Purpose, Visibility, Scope, Staff, Key People, Value, Vulnerabilities
+
+Fields are classified by importance:
+- **Critical** (always include): the fields that define the entry's core identity
+- **Important** (strongly recommended): fields that add significant context
+- **Contextual** (as relevant): include when they matter for this specific entry
+- **Rarely needed**: skip unless the entry specifically demands it
+
+**Characters:**
+- Critical: Species, Role, Personality
+- Important: Aliases, Apparent Age, Origin, Speech, Wants, Fears
+- Contextual: Height, Build, Hair, Eyes, Skin, Features, True Age, Powers, Limits, Items
+- Rarely needed: Callsign, Secret (only if plot-critical)
+- Format: Species/Role/Personality as short phrases; Wants/Fears as comma-separated goals; Powers as brief list
+
+**Locations:**
+- Critical: Category, Function, Atmosphere
+- Important: Owner, District, Access, Regulars
+- Contextual: Layout, Rules, Security
+- Rarely needed: (none — locations are usually concise)
+- Format: Category as single word (bar, temple, arena); Atmosphere as 2-3 evocative words; Regulars as [[wikilinked]] names
+
+**Lore:**
+- Critical: Category, Scope, Who Knows
+- Important: Triggers, Consequences, Related
+- Contextual: Danger, Enforcement, Misconceptions
+- Rarely needed: (none)
+- Format: Scope as "personal/local/regional/world"; Who Knows as "common knowledge/restricted/secret"; Related as [[wikilinks]]
+
+**Organizations:**
+- Critical: Public Face, True Purpose, Run By
+- Important: Visibility, Scope, Key People, Vulnerabilities
+- Contextual: Owner, Staff, Value
+- Rarely needed: Category (usually clear from context)
+- Format: Run By/Key People as [[wikilinked]] names; Visibility as "public/underground/secret"
 
 ### Keys
 2-5 trigger keywords that would match in chat text. Include the primary name, common aliases, and thematic keywords that would appear when this entry is relevant. Keys are case-insensitive and matched as substrings.
+
+### Complete Worked Examples
+
+#### Character Entry
+\`\`\`yaml
+---
+fileClass: character
+type: character
+status: active
+priority: 25
+tags:
+  - characters/inner-circle
+  - lorebook
+keys:
+  - Raven
+  - spymaster
+  - intelligence network
+summary: "Eris's spymaster, interrogator, and closest enforcer. Inner circle. Select when espionage, intelligence gathering, interrogation, loyalty, or the Triumvirate betrayal comes up. Also relevant for surveillance, Raven's network, and territory enforcement."
+---
+\`\`\`
+
+\`\`\`markdown
+# Raven
+
+Eris's spymaster and the architect of her intelligence network. Raven has served the Triumvirate for over a century, building a web of informants that spans every district. Her loyalty to Eris is absolute — a fact that makes her dangerous to everyone else.
+
+<div class="meta-block">
+[Species: Vampire | Role: Spymaster, Interrogator | Aliases: The Whisper, R | Apparent Age: mid-30s | Origin: Unknown (deliberately scrubbed) | Personality: Patient, methodical, unsettlingly calm | Speech: Precise, never wastes words, asks questions instead of making statements | Wants: Eris's continued dominance, the Triumvirate's secrets preserved | Fears: Eris discovering what happened in the Eastern Purge | Powers: Enhanced hearing, eidetic memory, minor compulsion | Items: Obsidian ring (communication link to Eris)]
+</div>
+
+## The Network
+Raven operates through three tiers of informants...
+
+## Relationship with [[Eris]]
+Their bond predates the Triumvirate itself...
+\`\`\`
+
+#### Lore Entry
+\`\`\`yaml
+---
+fileClass: lore
+type: lore
+status: active
+priority: 35
+tags:
+  - lore/vampiric
+  - lorebook
+keys:
+  - bloodchain
+  - feeding bond
+  - venom
+  - blood dependency
+summary: "The biological dependency created when a vampire feeds from a mortal — same mechanism as Bloodchain via saliva. Select when feeding, biting, addiction, venom, feeding sites, or chattel dynamics come up. Scales with vampire age."
+---
+\`\`\`
+
+\`\`\`markdown
+# The Feeding Bond
+
+A biochemical dependency that forms between vampire and mortal through repeated feeding. The vampire's saliva contains compounds that create escalating physical need in the mortal — what the old families call a Bloodchain.
+
+<div class="meta-block">
+[Category: Vampiric biology | Scope: Personal (one vampire, one mortal) | Danger: High — can be lethal if bond is severed abruptly | Who Knows: Common knowledge among vampires, poorly understood by mortals | Triggers: 3+ feedings from the same vampire within a lunar cycle | Consequences: Withdrawal (fever, hallucinations, cardiac stress), psychological fixation | Related: [[Chattel]], [[The Blood Trade]], [[Feeding Houses]]]
+</div>
+
+## Mechanism
+The bond forms through repeated exposure to vampiric saliva compounds...
+\`\`\`
 `;
 
 /**
@@ -159,10 +270,22 @@ function buildSystemPrompt(session) {
     const lorebookTag = settings.lorebookTag || 'lorebook';
     const parts = [];
 
-    parts.push(`You are a lorebook editor for a roleplay setting. You help create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".`);
+    const promptMode = settings.librarianSystemPromptMode || 'default';
+    const customPrompt = settings.librarianCustomSystemPrompt || '';
 
-    // Entry writing guide
-    parts.push(ENTRY_WRITING_GUIDE);
+    if (promptMode === 'override' && customPrompt.trim()) {
+        // Full override — custom prompt replaces everything
+        parts.push(customPrompt);
+    } else {
+        parts.push(`You are a lorebook editor for a roleplay setting. You help create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".`);
+
+        // Entry writing guide
+        parts.push(ENTRY_WRITING_GUIDE);
+
+        if (promptMode === 'append' && customPrompt.trim()) {
+            parts.push('\n## Additional Instructions\n' + customPrompt);
+        }
+    }
 
     // Entry point context
     if (session.entryPoint === 'gap' && session.gapRecord) {
@@ -182,24 +305,27 @@ function buildSystemPrompt(session) {
 
     // Manifest
     if (session.manifest) {
-        const truncatedManifest = session.manifest.length > 8000
-            ? session.manifest.slice(0, 8000) + '\n[...truncated]'
+        const manifestMax = getManifestMaxChars();
+        const truncatedManifest = session.manifest.length > manifestMax
+            ? session.manifest.slice(0, manifestMax) + '\n[...truncated]'
             : session.manifest;
         parts.push(`\n## Existing vault entries (manifest):\n${truncatedManifest}`);
     }
 
     // Related entries for gap review (capped to prevent prompt bloat)
     if (session.relatedEntries) {
-        const truncated = session.relatedEntries.length > MAX_RELATED_ENTRIES_CHARS
-            ? session.relatedEntries.slice(0, MAX_RELATED_ENTRIES_CHARS) + '\n[...truncated]'
+        const relatedMax = getRelatedMaxChars();
+        const truncated = session.relatedEntries.length > relatedMax
+            ? session.relatedEntries.slice(0, relatedMax) + '\n[...truncated]'
             : session.relatedEntries;
         parts.push(`\n## Related existing entries:\n${truncated}`);
     }
 
     // Chat context
     if (session.chatContext) {
-        const truncatedChat = session.chatContext.length > 4000
-            ? session.chatContext.slice(0, 4000) + '\n[...truncated]'
+        const chatMax = getChatContextMaxChars();
+        const truncatedChat = session.chatContext.length > chatMax
+            ? session.chatContext.slice(0, chatMax) + '\n[...truncated]'
             : session.chatContext;
         parts.push(`\n## Recent chat context:\n${truncatedChat}`);
     }
@@ -207,7 +333,7 @@ function buildSystemPrompt(session) {
     // Current draft (capped to prevent prompt bloat)
     if (session.draftState) {
         let draftJson = JSON.stringify(session.draftState, null, 2);
-        if (draftJson.length > MAX_DRAFT_JSON_CHARS) {
+        if (draftJson.length > getDraftMaxChars()) {
             // Truncate content field first (largest field)
             const trimmed = { ...session.draftState };
             if (trimmed.content && trimmed.content.length > 1000) {
@@ -223,9 +349,15 @@ function buildSystemPrompt(session) {
     // Response format
     parts.push(`
 ## Response Format
-Respond as JSON:
+Always respond as JSON. Each field has a specific purpose:
+
+- **message** (string, required): Your conversational response shown to the user in the chat panel. Explain what you changed and why. Be concise.
+- **draft** (object or null): The entry fields to update in the editor. Only include fields you're changing — omitted fields keep their current value. Set to null if you're just conversing.
+- **action** (string or null): What the UI should do with this response. "update_draft" applies draft fields to the editor. null means conversation only.
+
+\`\`\`json
 {
-  "message": "Your conversational response — explain what you did and why",
+  "message": "I've drafted the keys and summary based on the gap context.",
   "draft": {
     "title": "Entry Title",
     "type": "character|location|lore|organization|story",
@@ -237,17 +369,38 @@ Respond as JSON:
   },
   "action": "update_draft"
 }
+\`\`\`
 
-Set "draft" to null and "action" to null if you're just conversing without updating the entry.
+**Partial updates are fine.** If the user asks you to improve just the keys, only send \`"draft": { "keys": [...] }\` — don't resend the entire content. The UI merges your draft fields into the current state.
 
-If proposing a work queue (vault review), use:
+**Conversation only** (no editor changes):
+\`\`\`json
+{ "message": "That looks good. Want me to adjust anything?", "draft": null, "action": null }
+\`\`\`
+
+**Work queue** (vault review mode — propose entries to create/update):
+\`\`\`json
 {
-  "message": "Here's what I found...",
+  "message": "I found 3 entries worth creating from the recent chat.",
   "queue": [
-    {"title": "...", "action": "create"|"update", "reason": "...", "urgency": "high"|"medium"|"low"}
+    {"title": "Entry Name", "action": "create", "reason": "Referenced but no vault entry exists", "urgency": "high"}
   ],
   "action": "propose_queue"
 }
+\`\`\`
+
+**Field alternatives** (when the user asks for options/alternatives for specific fields):
+\`\`\`json
+{
+  "message": "Here are 3 alternatives for keys and summary:",
+  "options": [
+    { "label": "Option A — Focus on espionage", "fields": { "keys": ["spy", "network"], "summary": "..." } },
+    { "label": "Option B — Focus on relationships", "fields": { "keys": ["loyalty", "betrayal"], "summary": "..." } }
+  ],
+  "action": "propose_options"
+}
+\`\`\`
+Each option has a \`label\` (user-facing description) and \`fields\` (draft fields to apply if chosen). The user picks one and it updates the editor.
 
 ## Rules
 - Only modify draft fields the user asked about (or that obviously need fixing)
@@ -255,7 +408,8 @@ If proposing a work queue (vault review), use:
 - Summary MUST be written for AI selection (what/when/relationships), NOT prose description
 - Include the lorebook tag "${lorebookTag}" in tags
 - Use [[wikilinks]] to reference other vault entries when relevant
-- Keys should be 2-5 trigger words that would appear in chat when this entry is relevant`);
+- Keys should be 2-5 trigger words that would appear in chat when this entry is relevant
+- Prefer partial draft updates over resending unchanged fields`);
 
     return parts.join('\n');
 }
@@ -336,6 +490,9 @@ export async function sendMessage(session, userMessage) {
             if (parsed.queue) {
                 session.workQueue = parsed.queue;
             }
+            if (parsed.options) {
+                session.lastOptions = parsed.options;
+            }
             session.messages.push({ role: 'assistant', content: parsed.message || result.text });
             return { parsed, valid: true, exhausted: false, lastErrors: [] };
         }
@@ -370,6 +527,54 @@ function buildUserPromptFromHistory(messages) {
         const role = m.role === 'user' ? 'User' : 'Assistant';
         return `${role}: ${m.content}`;
     }).join('\n\n');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Edit & Regenerate
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Edit a user message and re-send from that point.
+ * Truncates history to the edited message, then calls sendMessage with the new text.
+ * @param {LibrarianSession} session
+ * @param {number} messageIndex - Index into session.messages of the user message to edit
+ * @param {string} newText - Edited message text
+ * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
+ */
+export async function editMessage(session, messageIndex, newText) {
+    // Truncate history: keep everything before the edited message
+    session.messages = session.messages.slice(0, messageIndex);
+    // sendMessage will append the new user message and call AI
+    return sendMessage(session, newText);
+}
+
+/**
+ * Regenerate the last AI response.
+ * Removes the last assistant message and re-sends the last user message.
+ * @param {LibrarianSession} session
+ * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
+ */
+export async function regenerateResponse(session) {
+    // Find and remove the last assistant message
+    let lastUserMsg = '';
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+        if (session.messages[i].role === 'assistant') {
+            session.messages.splice(i, 1);
+            break;
+        }
+    }
+    // Find the last user message to re-send
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+        if (session.messages[i].role === 'user') {
+            lastUserMsg = session.messages[i].content;
+            session.messages.splice(i, 1); // remove it, sendMessage will re-add it
+            break;
+        }
+    }
+    if (!lastUserMsg) {
+        return { parsed: null, valid: false, exhausted: true, lastErrors: ['No message to regenerate'] };
+    }
+    return sendMessage(session, lastUserMsg);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

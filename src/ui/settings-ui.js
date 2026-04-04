@@ -631,6 +631,15 @@ function loadPopupSettings($container) {
     $c('#dle-sp-librarian-write-folder').val(settings.librarianWriteFolder || '');
     $c('#dle-sp-librarian-auto-send').prop('checked', settings.librarianAutoSendOnGap !== false);
     $c('#dle-sp-librarian-sub').toggle(settings.librarianEnabled);
+    // Advanced budget fields
+    $c('#dle-sp-librarian-manifest-max').val(settings.librarianManifestMaxChars || 8000);
+    $c('#dle-sp-librarian-related-max').val(settings.librarianRelatedEntriesMaxChars || 4000);
+    $c('#dle-sp-librarian-chat-context-max').val(settings.librarianChatContextMaxChars || 4000);
+    $c('#dle-sp-librarian-draft-max').val(settings.librarianDraftMaxChars || 4000);
+    // System prompt mode
+    $c(`input[name="dle-sp-librarian-prompt-mode"][value="${settings.librarianSystemPromptMode || 'default'}"]`).prop('checked', true);
+    $c('#dle-sp-librarian-custom-prompt').val(settings.librarianCustomSystemPrompt || '');
+    $c('#dle-sp-librarian-custom-prompt').toggle((settings.librarianSystemPromptMode || 'default') !== 'default');
 
     // Librarian stats
     $c('#dle-sp-lib-chat-searches').text(librarianChatStats.searchCalls);
@@ -642,6 +651,17 @@ function loadPopupSettings($container) {
     const allTime = settings.analyticsData?._librarian || {};
     $c('#dle-sp-lib-all-searches').text(allTime.totalGapSearches || 0);
     $c('#dle-sp-lib-all-flags').text(allTime.totalGapFlags || 0);
+    // Entries written + top unmet queries
+    $c('#dle-sp-lib-entries-written').text(`Entries written: ${allTime.totalEntriesWritten || 0}`);
+    const unmet = allTime.topUnmetQueries || [];
+    if (unmet.length > 0) {
+        let unmetHtml = '<h5 class="dle-settings-subsection-label">Top Unmet Queries</h5><div class="dle-text-xs" style="opacity: 0.7;">';
+        for (const u of unmet.slice(0, 10)) {
+            unmetHtml += `<div>${escapeHtml(u.query)} (${u.count}×)</div>`;
+        }
+        unmetHtml += '</div>';
+        $c('#dle-sp-lib-unmet-queries').html(unmetHtml);
+    }
 
     // ── Features — Notebook ──
     $c('#dle-sp-notebook-enabled').prop('checked', settings.notebookEnabled);
@@ -1031,6 +1051,18 @@ function bindPopupEvents($container) {
     $c('#dle-sp-librarian-session-timeout').on('input', function () { settings.librarianSessionTimeout = numVal($(this).val(), 60) * 1000; saveSettingsDebounced(); });
     $c('#dle-sp-librarian-write-folder').on('input', function () { settings.librarianWriteFolder = $(this).val().trim(); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-auto-send').on('change', function () { settings.librarianAutoSendOnGap = $(this).prop('checked'); saveSettingsDebounced(); });
+    // Advanced budget fields
+    $c('#dle-sp-librarian-manifest-max').on('input', function () { settings.librarianManifestMaxChars = numVal($(this).val(), 8000); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-related-max').on('input', function () { settings.librarianRelatedEntriesMaxChars = numVal($(this).val(), 4000); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-chat-context-max').on('input', function () { settings.librarianChatContextMaxChars = numVal($(this).val(), 4000); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-draft-max').on('input', function () { settings.librarianDraftMaxChars = numVal($(this).val(), 4000); saveSettingsDebounced(); });
+    // System prompt mode
+    $c('input[name="dle-sp-librarian-prompt-mode"]').on('change', function () {
+        settings.librarianSystemPromptMode = $(this).val();
+        $c('#dle-sp-librarian-custom-prompt').toggle(settings.librarianSystemPromptMode !== 'default');
+        saveSettingsDebounced();
+    });
+    $c('#dle-sp-librarian-custom-prompt').on('input', function () { settings.librarianCustomSystemPrompt = $(this).val(); saveSettingsDebounced(); });
 
     // Test AI / Preview
     $c('#dle-sp-test-ai').on('click', async function () {

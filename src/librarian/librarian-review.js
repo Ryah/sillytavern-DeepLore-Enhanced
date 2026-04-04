@@ -11,7 +11,8 @@ import { writeNote } from '../vault/obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
-import { createSession, sendMessage, updateGapStatus } from './librarian-session.js';
+import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus } from './librarian-session.js';
+import { getSessionActivityLog } from './librarian-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -43,7 +44,7 @@ function buildPopupHTML(session) {
 
     return `
 <div class="dle-librarian-popup">
-    <div class="dle-librarian-editor">
+    <div class="dle-librarian-editor" role="form" aria-label="Entry editor">
         <h4 class="dle-librarian-editor-title">Entry Editor</h4>
         <div class="dle-librarian-field">
             <label for="dle-lib-title">Title</label>
@@ -84,20 +85,25 @@ function buildPopupHTML(session) {
             <label for="dle-lib-content">Content</label>
             <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Entry content (markdown with meta-block, prose, [[wikilinks]])">${escapeHtml(draft.content || '')}</textarea>
         </div>
-        <div class="dle-librarian-frontmatter-preview">
-            <div class="dle-librarian-frontmatter-label">Frontmatter Preview</div>
+        <div class="dle-librarian-frontmatter-preview" id="dle-lib-frontmatter-wrap">
+            <div class="dle-librarian-frontmatter-label" id="dle-lib-frontmatter-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="dle-lib-frontmatter">
+                <i class="fa-solid fa-chevron-right dle-frontmatter-chevron" aria-hidden="true"></i> Frontmatter Preview
+            </div>
             <pre id="dle-lib-frontmatter" class="dle-librarian-frontmatter-code"></pre>
         </div>
     </div>
-    <div class="dle-librarian-chat">
+    <div class="dle-librarian-chat" role="region" aria-label="AI assistant">
         <div class="dle-librarian-chat-header">
             <h4 class="dle-librarian-chat-title">Librarian</h4>
             <button class="dle-lib-activity-toggle menu_button_icon" id="dle-lib-activity-btn" title="Toggle activity log" aria-label="Toggle activity log" aria-expanded="false">
                 <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
             </button>
+            <button class="menu_button_icon" id="dle-lib-chat-collapse" title="Toggle chat panel" aria-label="Toggle chat panel" aria-expanded="true">
+                <i class="fa-solid fa-chevron-right" aria-hidden="true"></i>
+            </button>
         </div>
         <div class="dle-lib-activity-log" id="dle-lib-activity" hidden aria-label="Tool use activity log"></div>
-        <div class="dle-librarian-messages" id="dle-lib-messages">
+        <div class="dle-librarian-messages" id="dle-lib-messages" role="log" aria-live="polite">
             <div class="dle-lib-msg dle-lib-msg-ai">${welcomeMsg}</div>
         </div>
         ${isReview && session.workQueue ? `<div class="dle-librarian-queue" id="dle-lib-queue"></div>` : ''}
@@ -165,6 +171,8 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     editorTitle.textContent = 'Entry Editor \u2022';
                     editorTitle.classList.add('dle-librarian-dirty');
                 }
+                const ep = container.querySelector('.dle-librarian-editor');
+                if (ep) ep.classList.toggle('dle-librarian-editor--dirty', dirty);
             }
 
             function syncDraftFromFields() {
@@ -284,77 +292,334 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 }
             });
 
+            // ─── Frontmatter toggle ───
+            const fmToggle = container.querySelector('#dle-lib-frontmatter-toggle');
+            const fmWrap = container.querySelector('#dle-lib-frontmatter-wrap');
+            if (fmToggle && fmWrap) {
+                fmToggle.addEventListener('click', () => {
+                    const expanded = fmWrap.classList.toggle('dle-frontmatter-expanded');
+                    fmToggle.setAttribute('aria-expanded', String(expanded));
+                });
+                fmToggle.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fmToggle.click(); }
+                });
+            }
+
             // ─── Chat interaction ───
             const messagesDiv = container.querySelector('#dle-lib-messages');
             const chatInput = container.querySelector('#dle-lib-chat-input');
             const sendBtn = container.querySelector('#dle-lib-send');
 
+            /** Track message index for edit/regenerate mapping */
+            let msgCounter = 0;
+
             function appendMessage(role, content) {
                 const div = document.createElement('div');
+                const msgIdx = msgCounter++;
                 div.className = `dle-lib-msg dle-lib-msg-${role}`;
+                div.dataset.msgIdx = msgIdx;
+
                 if (role === 'ai') {
                     // Basic markdown rendering for AI messages (safe: escapeHtml first)
                     let html = escapeHtml(content);
                     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
                     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
                     html = html.replace(/\n/g, '<br>');
-                    div.innerHTML = html;
+                    div.innerHTML = `<div class="dle-lib-msg-content">${html}</div>`
+                        + `<button class="dle-lib-msg-action dle-lib-msg-regen" title="Regenerate" aria-label="Regenerate response"><i class="fa-solid fa-rotate-right"></i></button>`;
                 } else {
-                    div.textContent = content;
+                    div.innerHTML = `<div class="dle-lib-msg-content">${escapeHtml(content)}</div>`
+                        + `<button class="dle-lib-msg-action dle-lib-msg-edit" title="Edit" aria-label="Edit message"><i class="fa-solid fa-pen"></i></button>`;
                 }
                 messagesDiv.appendChild(div);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }
 
-            function showLoading(show) {
-                if (show) {
-                    const spinner = document.createElement('div');
-                    spinner.className = 'dle-lib-msg dle-lib-msg-loading';
-                    spinner.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Thinking...';
-                    spinner.id = 'dle-lib-loading';
-                    messagesDiv.appendChild(spinner);
-                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-                } else {
-                    const el = messagesDiv.querySelector('#dle-lib-loading');
-                    if (el) el.remove();
-                }
-            }
+            // Edit user message
+            messagesDiv.addEventListener('click', async (e) => {
+                const editBtn = e.target.closest('.dle-lib-msg-edit');
+                if (!editBtn || sending) return;
 
-            async function handleSend() {
-                const text = chatInput.value.trim();
-                if (!text || sending) return;
+                const msgDiv = editBtn.closest('.dle-lib-msg');
+                const contentDiv = msgDiv.querySelector('.dle-lib-msg-content');
+                const originalText = contentDiv.textContent;
+
+                // Replace content with textarea
+                const textarea = document.createElement('textarea');
+                textarea.className = 'text_pole dle-lib-msg-edit-area';
+                textarea.value = originalText;
+                textarea.rows = 3;
+                contentDiv.replaceWith(textarea);
+                editBtn.style.display = 'none';
+                textarea.focus();
+
+                // Submit/cancel buttons
+                const btnRow = document.createElement('div');
+                btnRow.className = 'dle-lib-msg-edit-btns';
+                btnRow.innerHTML = '<button class="menu_button_icon dle-lib-msg-edit-submit" title="Send edited message"><i class="fa-solid fa-check"></i></button>'
+                    + '<button class="menu_button_icon dle-lib-msg-edit-cancel" title="Cancel edit"><i class="fa-solid fa-xmark"></i></button>';
+                msgDiv.appendChild(btnRow);
+
+                function cancelEdit() {
+                    const newContent = document.createElement('div');
+                    newContent.className = 'dle-lib-msg-content';
+                    newContent.textContent = originalText;
+                    textarea.replaceWith(newContent);
+                    editBtn.style.display = '';
+                    btnRow.remove();
+                }
+
+                btnRow.querySelector('.dle-lib-msg-edit-cancel').addEventListener('click', cancelEdit);
+                textarea.addEventListener('keydown', (ke) => {
+                    if (ke.key === 'Escape') { ke.stopPropagation(); cancelEdit(); }
+                    if (ke.key === 'Enter' && ke.ctrlKey) { ke.preventDefault(); btnRow.querySelector('.dle-lib-msg-edit-submit').click(); }
+                });
+
+                btnRow.querySelector('.dle-lib-msg-edit-submit').addEventListener('click', async () => {
+                    const newText = textarea.value.trim();
+                    if (!newText) return;
+
+                    // Find the session message index — count user messages up to this DOM element
+                    const allMsgs = [...messagesDiv.querySelectorAll('.dle-lib-msg')];
+                    const domIdx = allMsgs.indexOf(msgDiv);
+                    // Map to session.messages index (skip welcome msg at index 0)
+                    let sessionIdx = -1;
+                    let userCount = 0;
+                    for (let i = 0; i < session.messages.length; i++) {
+                        if (session.messages[i].role === 'user') {
+                            // Count DOM user messages before this one
+                            if (allMsgs.filter((m, mi) => mi <= domIdx && m.classList.contains('dle-lib-msg-user')).length === userCount + 1) {
+                                sessionIdx = i;
+                                break;
+                            }
+                            userCount++;
+                        }
+                    }
+
+                    // Remove all messages after this one in the DOM
+                    while (msgDiv.nextElementSibling) {
+                        msgDiv.nextElementSibling.remove();
+                    }
+
+                    // Restore the edited message display
+                    const newContent = document.createElement('div');
+                    newContent.className = 'dle-lib-msg-content';
+                    newContent.textContent = newText;
+                    textarea.replaceWith(newContent);
+                    editBtn.style.display = '';
+                    btnRow.remove();
+                    newContent.parentElement.querySelector('.dle-lib-msg-content').textContent = newText;
+
+                    // Send edited message
+                    sending = true;
+                    setSendingUI(true);
+                    showLoading(true, 'Calling AI...');
+
+                    try {
+                        const response = sessionIdx >= 0
+                            ? await editMessage(session, sessionIdx, newText)
+                            : await sendMessage(session, newText);
+                        showLoading(false);
+                        processAIResponse(response);
+                    } catch (err) {
+                        showLoading(false);
+                        appendMessage('ai', `Error: ${classifyError(err)}`);
+                    }
+                    sending = false;
+                    setSendingUI(false);
+                });
+            });
+
+            // Regenerate AI response
+            messagesDiv.addEventListener('click', async (e) => {
+                const regenBtn = e.target.closest('.dle-lib-msg-regen');
+                if (!regenBtn || sending) return;
+
                 sending = true;
-                chatInput.value = '';
-                appendMessage('user', text);
-                showLoading(true);
+                setSendingUI(true);
+
+                // Mark old response as stale
+                const msgDiv = regenBtn.closest('.dle-lib-msg');
+                msgDiv.classList.add('dle-lib-msg-stale');
+
+                showLoading(true, 'Regenerating...');
 
                 try {
-                    const response = await sendMessage(session, text);
+                    const response = await regenerateResponse(session);
                     showLoading(false);
-
-                    if (response.valid && response.parsed) {
-                        appendMessage('ai', response.parsed.message || '(no message)');
-                        // Update editor fields from any draft changes
-                        if (response.parsed.draft) {
-                            updateFieldsFromDraft();
-                            dirty = true;
-                        }
-                        // Show work queue if proposed
-                        if (response.parsed.queue) {
-                            renderWorkQueue(container, session, response.parsed.queue);
-                        }
-                    } else if (response.exhausted) {
-                        appendMessage('ai',
-                            `I could not produce a valid response after ${3} attempts. `
-                            + `Last errors: ${response.lastErrors.join('; ')}. `
-                            + `You can try rephrasing your request, or edit the fields manually.`
-                        );
-                    }
+                    msgDiv.remove();
+                    processAIResponse(response);
                 } catch (err) {
                     showLoading(false);
                     appendMessage('ai', `Error: ${classifyError(err)}`);
                 }
                 sending = false;
+                setSendingUI(false);
+            });
+
+            let loadingTimers = [];
+            function showLoading(show, stage = 'Building prompt...') {
+                if (show) {
+                    // Clear any previous loading state
+                    const existing = messagesDiv.querySelector('#dle-lib-loading');
+                    if (existing) existing.remove();
+                    loadingTimers.forEach(t => clearTimeout(t));
+                    loadingTimers = [];
+
+                    const spinner = document.createElement('div');
+                    spinner.className = 'dle-lib-msg dle-lib-msg-loading';
+                    spinner.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span class="dle-lib-loading-text">${stage}</span>`;
+                    spinner.id = 'dle-lib-loading';
+                    messagesDiv.appendChild(spinner);
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+                    // Staged timeout feedback
+                    const textEl = spinner.querySelector('.dle-lib-loading-text');
+                    loadingTimers.push(setTimeout(() => {
+                        if (textEl) textEl.textContent = 'Still waiting...';
+                    }, 15000));
+                    loadingTimers.push(setTimeout(() => {
+                        if (textEl) textEl.textContent = 'Taking longer than usual...';
+                    }, 30000));
+                } else {
+                    loadingTimers.forEach(t => clearTimeout(t));
+                    loadingTimers = [];
+                    const el = messagesDiv.querySelector('#dle-lib-loading');
+                    if (el) el.remove();
+                }
+            }
+            function updateLoadingStage(text) {
+                const textEl = messagesDiv.querySelector('#dle-lib-loading .dle-lib-loading-text');
+                if (textEl) textEl.textContent = text;
+            }
+
+            function setSendingUI(isSending) {
+                sendBtn.disabled = isSending;
+                chatInput.disabled = isSending;
+                const icon = sendBtn.querySelector('i');
+                if (icon) icon.className = isSending
+                    ? 'fa-solid fa-spinner fa-spin'
+                    : 'fa-solid fa-paper-plane';
+            }
+
+            /** Shared handler for all AI response types (draft, queue, options, exhaust) */
+            function processAIResponse(response) {
+                if (response.valid && response.parsed) {
+                    appendMessage('ai', response.parsed.message || '(no message)');
+                    if (response.parsed.draft) {
+                        updateFieldsFromDraft();
+                        dirty = true;
+                    }
+                    if (response.parsed.queue) {
+                        renderWorkQueue(container, session, response.parsed.queue);
+                    }
+                    if (response.parsed.options) {
+                        renderOptionsCards(response.parsed.options);
+                    }
+                } else if (response.exhausted) {
+                    const retryNote = response.lastErrors.length > 0
+                        ? ` Last errors: ${response.lastErrors.join('; ')}.`
+                        : '';
+                    appendMessage('ai',
+                        `Could not produce a valid response after 3 attempts.${retryNote} `
+                        + `Try rephrasing your request, or edit the fields manually.`
+                    );
+                }
+            }
+
+            /** Render options picker cards in the chat panel */
+            function renderOptionsCards(options) {
+                // Remove any existing options cards
+                messagesDiv.querySelectorAll('.dle-lib-options').forEach(el => el.remove());
+
+                const wrap = document.createElement('div');
+                wrap.className = 'dle-lib-options';
+
+                for (let i = 0; i < options.length; i++) {
+                    const opt = options[i];
+                    const card = document.createElement('div');
+                    card.className = 'dle-lib-option-card';
+
+                    let fieldsHtml = '';
+                    for (const [key, val] of Object.entries(opt.fields || {})) {
+                        const display = Array.isArray(val) ? val.join(', ') : String(val);
+                        const truncated = display.length > 120 ? display.slice(0, 117) + '...' : display;
+                        fieldsHtml += `<div class="dle-lib-option-field"><strong>${escapeHtml(key)}:</strong> ${escapeHtml(truncated)}</div>`;
+                    }
+
+                    card.innerHTML = `<div class="dle-lib-option-label">${escapeHtml(opt.label || `Option ${i + 1}`)}</div>`
+                        + `<div class="dle-lib-option-fields">${fieldsHtml}</div>`
+                        + `<button class="menu_button dle-lib-option-apply" data-option-idx="${i}">Apply This</button>`;
+                    wrap.appendChild(card);
+                }
+
+                messagesDiv.appendChild(wrap);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+                // Wire apply buttons
+                wrap.addEventListener('click', (e) => {
+                    const applyBtn = e.target.closest('.dle-lib-option-apply');
+                    if (!applyBtn) return;
+                    const idx = parseInt(applyBtn.dataset.optionIdx, 10);
+                    const chosen = options[idx];
+                    if (!chosen?.fields) return;
+
+                    // Apply chosen fields to draft
+                    const filtered = Object.fromEntries(
+                        Object.entries(chosen.fields).filter(([, v]) => v != null),
+                    );
+                    session.draftState = { ...session.draftState, ...filtered };
+                    dirty = true;
+                    updateFieldsFromDraft();
+
+                    // Remove the options cards
+                    wrap.remove();
+                    appendMessage('ai', `Applied: ${chosen.label || `Option ${idx + 1}`}`);
+                });
+            }
+
+            async function handleSend() {
+                const text = chatInput.value.trim();
+                if (sending) return;
+                if (!text) {
+                    // Empty message shake
+                    chatInput.classList.remove('dle-shake');
+                    void chatInput.offsetWidth;
+                    chatInput.classList.add('dle-shake');
+                    return;
+                }
+                // /options shortcut: /options 3 keys summary → natural language request
+                let finalText = text;
+                const optionsMatch = text.match(/^\/options?\s+(\d+)\s+(.+)/i);
+                if (optionsMatch) {
+                    const count = optionsMatch[1];
+                    const fields = optionsMatch[2].trim();
+                    finalText = `Propose ${count} alternative options for ${fields}. Use the propose_options response format.`;
+                }
+
+                sending = true;
+                setSendingUI(true);
+                chatInput.value = '';
+                appendMessage('user', text);
+                showLoading(true, 'Building prompt...');
+
+                try {
+                    updateLoadingStage('Calling AI...');
+                    const response = await sendMessage(session, finalText);
+                    if (!sending) {
+                        // Cancelled while waiting
+                        showLoading(false);
+                        return;
+                    }
+                    updateLoadingStage('Validating response...');
+                    showLoading(false);
+                    processAIResponse(response);
+                } catch (err) {
+                    showLoading(false);
+                    appendMessage('ai', `Error: ${classifyError(err)}`);
+                }
+                sending = false;
+                setSendingUI(false);
                 chatInput.focus();
             }
 
@@ -363,6 +628,24 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     handleSend();
+                }
+                // Ctrl+Enter also sends
+                if (e.key === 'Enter' && e.ctrlKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
+                // Escape: don't let popup close, just blur
+                if (e.key === 'Escape') {
+                    e.stopPropagation();
+                    chatInput.blur();
+                }
+            });
+            // Ctrl+S anywhere in popup → Write to Vault
+            container.addEventListener('keydown', (e) => {
+                if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    const okBtn = popup?.dlg?.querySelector('.popup-button-ok');
+                    if (okBtn) okBtn.click();
                 }
             });
 
@@ -374,26 +657,46 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             const activityPanel = container.querySelector('#dle-lib-activity');
 
             function renderActivityLog() {
-                const gaps = [...loreGaps].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-                if (gaps.length === 0) {
-                    activityPanel.innerHTML = '<div class="dle-lib-activity-empty">No tool activity recorded for this chat.</div>';
+                const log = getSessionActivityLog();
+                if (log.length === 0) {
+                    activityPanel.innerHTML = '<div class="dle-lib-activity-empty">No tool activity recorded this session.</div>';
                     return;
                 }
-                let html = '';
-                for (const gap of gaps) {
-                    const icon = gap.type === 'search'
-                        ? '<i class="fa-solid fa-magnifying-glass"></i>'
-                        : '<i class="fa-solid fa-flag"></i>';
-                    const results = gap.type === 'search'
-                        ? (gap.hadResults ? `${(gap.resultTitles || []).length} results` : '0 results')
-                        : (gap.urgency || 'medium');
-                    const time = gap.timestamp ? new Date(gap.timestamp).toLocaleTimeString() : '';
-                    html += `<div class="dle-lib-activity-row">`;
-                    html += `<span class="dle-lib-activity-icon">${icon}</span>`;
-                    html += `<span class="dle-lib-activity-query">${escapeHtml(gap.query || '')}</span>`;
-                    html += `<span class="dle-lib-activity-result">${results}</span>`;
-                    html += `<span class="dle-lib-activity-time">${time}</span>`;
-                    html += `</div>`;
+
+                // Summary line
+                const searches = log.filter(e => e.type === 'search').length;
+                const flags = log.filter(e => e.type === 'flag').length;
+                const totalTokens = log.reduce((sum, e) => sum + (e.tokens || 0), 0);
+                let html = `<div class="dle-lib-activity-summary">${searches} search${searches !== 1 ? 'es' : ''}, ${flags} flag${flags !== 1 ? 's' : ''}, ~${totalTokens} tokens this session</div>`;
+
+                // Group by generation
+                const byGen = new Map();
+                for (const entry of log) {
+                    const gen = entry.generation || 0;
+                    if (!byGen.has(gen)) byGen.set(gen, []);
+                    byGen.get(gen).push(entry);
+                }
+
+                // Render groups (newest generation first)
+                const genKeys = [...byGen.keys()].sort((a, b) => b - a);
+                for (const gen of genKeys) {
+                    const entries = byGen.get(gen);
+                    html += `<div class="dle-lib-activity-gen-label">Gen #${gen}</div>`;
+                    for (const entry of entries) {
+                        const icon = entry.type === 'search'
+                            ? '<i class="fa-solid fa-magnifying-glass"></i>'
+                            : '<i class="fa-solid fa-flag"></i>';
+                        const results = entry.type === 'search'
+                            ? `${entry.resultCount} result${entry.resultCount !== 1 ? 's' : ''}`
+                            : '';
+                        const tokens = entry.tokens ? `~${entry.tokens}tok` : '';
+                        html += `<div class="dle-lib-activity-row">`;
+                        html += `<span class="dle-lib-activity-icon">${icon}</span>`;
+                        html += `<span class="dle-lib-activity-query">${escapeHtml(entry.query || '')}</span>`;
+                        html += `<span class="dle-lib-activity-result">${results}</span>`;
+                        html += `<span class="dle-lib-activity-tokens">${tokens}</span>`;
+                        html += `</div>`;
+                    }
                 }
                 activityPanel.innerHTML = html;
             }
@@ -403,6 +706,33 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 activityPanel.hidden = !expanded;
                 activityBtn.setAttribute('aria-expanded', String(expanded));
                 if (expanded) renderActivityLog();
+            });
+
+            // ─── Chat panel collapse toggle ───
+            const collapseBtn = container.querySelector('#dle-lib-chat-collapse');
+            const popupEl = container.querySelector('.dle-librarian-popup');
+            const chatPanel = container.querySelector('.dle-librarian-chat');
+
+            function setChatCollapsed(collapsed) {
+                popupEl.classList.toggle('dle-librarian-chat-collapsed', collapsed);
+                collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+                const icon = collapseBtn.querySelector('i');
+                if (icon) icon.className = collapsed
+                    ? 'fa-solid fa-chevron-left'
+                    : 'fa-solid fa-chevron-right';
+                try { localStorage.setItem('dle-librarian-panel-state', collapsed ? 'collapsed' : 'both'); } catch {}
+            }
+
+            // Restore saved state
+            try {
+                if (localStorage.getItem('dle-librarian-panel-state') === 'collapsed') {
+                    setChatCollapsed(true);
+                }
+            } catch {}
+
+            collapseBtn.addEventListener('click', () => {
+                const isCollapsed = popupEl.classList.contains('dle-librarian-chat-collapsed');
+                setChatCollapsed(!isCollapsed);
             });
 
             // If gap review and auto-send enabled, send initial prompt

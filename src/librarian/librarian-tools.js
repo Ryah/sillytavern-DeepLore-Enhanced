@@ -19,6 +19,27 @@ import {
 } from '../state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
+// Session Activity Log
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Per-session activity log — records every search/flag tool invocation.
+ * Reset on chat change (via clearSessionActivityLog).
+ * @type {Array<{type: string, query: string, resultCount: number, resultTitles: string[], tokens: number, timestamp: number, generation: number}>}
+ */
+let sessionActivityLog = [];
+
+/** Get the current session activity log (immutable copy). */
+export function getSessionActivityLog() {
+    return [...sessionActivityLog];
+}
+
+/** Clear the session activity log (call on CHAT_CHANGED). */
+export function clearSessionActivityLog() {
+    sessionActivityLog = [];
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -196,6 +217,17 @@ export async function searchLoreAction(args) {
     // Guard: don't persist if chat changed during generation
     if (epoch === chatEpoch) persistGaps(updatedGaps);
 
+    // Activity log entry
+    sessionActivityLog.push({
+        type: 'search',
+        query,
+        resultCount: results.length,
+        resultTitles: results.map(r => r.title),
+        tokens: estimatedTokens,
+        timestamp: Date.now(),
+        generation: generationCount,
+    });
+
     // Analytics
     updateAnalytics('totalGapSearches');
     if (results.length === 0) trackUnmetQuery(query);
@@ -257,6 +289,17 @@ export async function flagLoreAction(args) {
     }
     // Guard: don't persist if chat changed during generation
     if (epoch === chatEpoch) persistGaps(updatedGaps);
+
+    // Activity log entry
+    sessionActivityLog.push({
+        type: 'flag',
+        query: title,
+        resultCount: 0,
+        resultTitles: [],
+        tokens: 10,
+        timestamp: Date.now(),
+        generation: generationCount,
+    });
 
     // Analytics + stats (flags have minimal token overhead)
     updateAnalytics('totalGapFlags');

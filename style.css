@@ -3430,6 +3430,19 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
         calc(var(--dle-gap, 0) * 35%), transparent);
 }
 
+/* Urgency-colored left border (when no heatmap class overrides) */
+.dle-librarian-entry[data-urgency="high"]:not(.dle-gap-hot):not(.dle-gap-warm) {
+    border-left-color: var(--dle-error);
+}
+.dle-librarian-entry[data-urgency="medium"]:not(.dle-gap-hot):not(.dle-gap-warm) {
+    border-left-color: var(--dle-warning);
+}
+
+/* Entrance animation for gap list entries */
+.dle-librarian-entry {
+    animation: dle-entry-in 200ms ease-out both;
+}
+
 /* --- Gap status indicator (FA icons) --- */
 .dle-gap-status {
     font-size: 9px;
@@ -3494,6 +3507,64 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     color: var(--dle-warning);
     font-style: italic;
     font-size: 9px;
+}
+
+/* --- Gap score badge (colorblind fallback) --- */
+.dle-gap-score {
+    font-size: 8px;
+    font-weight: 700;
+    opacity: var(--dle-opacity-faint);
+    min-width: 20px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Gap expanded detail (inline triage) --- */
+.dle-gap-expanded {
+    height: auto !important;
+}
+.dle-gap-detail {
+    grid-column: 1 / -1;
+    padding: 6px 8px 8px;
+    border-top: 1px solid color-mix(in srgb, var(--dle-border) 30%, transparent);
+    animation: dle-entry-in 200ms ease-out;
+}
+.dle-gap-detail-reason {
+    font-size: var(--dle-text-xs);
+    line-height: 1.4;
+    margin-bottom: 4px;
+    opacity: var(--dle-opacity-muted);
+}
+.dle-gap-detail-meta {
+    font-size: 10px;
+    opacity: 0.5;
+    margin-bottom: 6px;
+}
+.dle-gap-detail-results {
+    font-size: 10px;
+    margin-bottom: 6px;
+}
+.dle-gap-detail-results-label {
+    font-weight: 600;
+}
+.dle-gap-detail-results-list {
+    opacity: 0.6;
+    margin-top: 2px;
+}
+.dle-gap-detail-actions {
+    display: flex;
+    gap: 6px;
+}
+.dle-gap-detail-actions .dle-gap-action {
+    font-size: 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: var(--dle-radius-sm);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.dle-gap-detail-actions .dle-gap-action:hover {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
 }
 
 /* --- Librarian badge on tab button --- */
@@ -3579,21 +3650,36 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
    Librarian Review Popup
    ═══════════════════════════════════════════════════════════════════════════ */
 
+.dle-librarian-review {
+    max-width: 95vw !important;
+    min-width: min(1200px, 95vw) !important;
+}
 .dle-librarian-popup {
     display: grid;
-    grid-template-columns: 60% 40%;
+    grid-template-columns: 1fr minmax(320px, 380px);
     gap: 16px;
     height: 80vh;
     min-height: 500px;
+    transition: grid-template-columns 200ms ease;
+}
+.dle-librarian-popup.dle-librarian-chat-collapsed {
+    grid-template-columns: 1fr;
+}
+.dle-librarian-chat-collapsed .dle-librarian-chat {
+    display: none;
 }
 
 /* --- Editor panel (left) --- */
 .dle-librarian-editor {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--dle-space-2);
     overflow-y: auto;
     padding-right: 12px;
+}
+.dle-librarian-editor.dle-librarian-editor--dirty {
+    border-left: 3px solid var(--dle-warning);
+    padding-left: 9px;
 }
 .dle-librarian-editor-title {
     margin: 0 0 4px 0;
@@ -3607,22 +3693,24 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-librarian-field {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: var(--dle-space-1);
 }
 .dle-librarian-field label {
-    font-size: 11px;
+    font-size: var(--dle-text-xs);
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    opacity: 0.8;
+    color: var(--dle-text-muted);
+    opacity: var(--dle-opacity-muted);
 }
 .dle-librarian-field-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--dle-space-2);
 }
 .dle-librarian-field-row-3 {
     grid-template-columns: 1fr 1fr 1fr;
+    padding-bottom: var(--dle-space-2);
+    border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 30%, transparent);
+    margin-bottom: var(--dle-space-1);
 }
 .dle-priority-hint,
 .dle-field-hint {
@@ -3638,7 +3726,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 }
 .dle-librarian-content-area {
     flex: 1;
-    min-height: 150px;
+    min-height: 200px;
     font-family: monospace;
     font-size: 12px;
     line-height: 1.5;
@@ -3649,10 +3737,10 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-librarian-keys {
     display: flex;
     flex-wrap: wrap;
-    gap: 5px;
-    padding: 6px;
+    gap: var(--dle-space-1);
+    padding: var(--dle-space-2);
     border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 4px;
+    border-radius: var(--dle-radius-sm);
     min-height: 36px;
     align-items: center;
     transition: border-color 0.15s;
@@ -3663,9 +3751,9 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-key-chip {
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    padding: 3px 8px;
-    font-size: 11px;
+    gap: var(--dle-space-1);
+    padding: 3px var(--dle-space-2);
+    font-size: var(--dle-text-xs);
     font-weight: 500;
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 25%, transparent);
     border: 1px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 40%, transparent);
@@ -3697,19 +3785,40 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     flex: 1;
     outline: none;
 }
+.dle-key-input:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: 1px;
+    border-radius: 2px;
+}
 
-/* Frontmatter preview (always visible) */
+/* Frontmatter preview (collapsible, default collapsed) */
 .dle-librarian-frontmatter-preview {
-    margin-top: 4px;
+    margin-top: var(--dle-space-1);
     flex-shrink: 0;
 }
 .dle-librarian-frontmatter-label {
-    font-size: 10px;
+    font-size: var(--dle-text-xs);
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    opacity: 0.6;
-    margin-bottom: 3px;
+    opacity: var(--dle-opacity-faint);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
+}
+.dle-librarian-frontmatter-label:hover { opacity: var(--dle-opacity-muted); }
+.dle-librarian-frontmatter-label .dle-frontmatter-chevron {
+    transition: transform 200ms ease;
+    font-size: 9px;
+}
+.dle-librarian-frontmatter-preview.dle-frontmatter-expanded .dle-frontmatter-chevron {
+    transform: rotate(90deg);
+}
+.dle-librarian-frontmatter-code {
+    display: none;
+}
+.dle-librarian-frontmatter-preview.dle-frontmatter-expanded .dle-librarian-frontmatter-code {
+    display: block;
 }
 .dle-librarian-frontmatter-code {
     font-size: 10px;
@@ -3734,9 +3843,19 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-librarian-chat-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 4px;
     margin-bottom: 6px;
 }
+.dle-librarian-chat-title {
+    flex: 1;
+}
+#dle-lib-chat-collapse {
+    font-size: 12px;
+    padding: 2px 6px;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+}
+#dle-lib-chat-collapse:hover { opacity: 1; }
 .dle-librarian-chat-title {
     margin: 0;
     font-size: 13px;
@@ -3793,32 +3912,87 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     opacity: 0.5;
     font-style: italic;
 }
+.dle-lib-activity-summary {
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    opacity: var(--dle-opacity-muted);
+    border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 30%, transparent);
+}
+.dle-lib-activity-gen-label {
+    padding: 2px 8px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    opacity: 0.4;
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 5%, transparent);
+}
+.dle-lib-activity-tokens {
+    opacity: 0.4;
+    font-size: 10px;
+    white-space: nowrap;
+}
 .dle-librarian-messages {
     flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 4px 0;
+    gap: var(--dle-space-3);
+    padding: var(--dle-space-1) 0;
     min-height: 0;
 }
 .dle-lib-msg {
-    padding: 8px 12px;
-    border-radius: 10px;
-    font-size: 12px;
+    position: relative;
+    padding: var(--dle-space-2) var(--dle-space-3);
+    font-size: var(--dle-text-sm);
     line-height: 1.5;
     max-width: 88%;
     word-wrap: break-word;
     white-space: pre-wrap;
+    animation: dle-entry-in 200ms ease-out both;
+}
+.dle-lib-msg-action {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 10px;
+    padding: 2px 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    background: none;
+    border: none;
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+}
+.dle-lib-msg:hover .dle-lib-msg-action { opacity: 0.5; }
+.dle-lib-msg:hover .dle-lib-msg-action:hover { opacity: 1; }
+.dle-lib-msg-stale { opacity: 0.4; }
+.dle-lib-msg-edit-area {
+    width: 100%;
+    resize: vertical;
+    font-size: var(--dle-text-sm);
+    margin-bottom: 4px;
+}
+.dle-lib-msg-edit-btns {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+.dle-lib-msg-edit-btns button {
+    font-size: 10px;
+    padding: 2px 6px;
 }
 .dle-lib-msg-ai {
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 15%, transparent);
     border-left: 3px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 40%, transparent);
+    border-radius: var(--dle-radius-sm) var(--dle-radius-lg) var(--dle-radius-lg) var(--dle-radius-sm);
     align-self: flex-start;
 }
 .dle-lib-msg-user {
     background: color-mix(in srgb, var(--SmartThemeChatMesColorFill, #2a4a6a) 35%, transparent);
     border-right: 3px solid color-mix(in srgb, var(--SmartThemeChatMesColorFill, #2a4a6a) 60%, transparent);
+    border-radius: var(--dle-radius-lg) var(--dle-radius-sm) var(--dle-radius-sm) var(--dle-radius-lg);
     align-self: flex-end;
 }
 .dle-lib-msg-loading {
@@ -3826,6 +4000,41 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     opacity: 0.6;
     font-style: italic;
     border-left: 3px solid transparent;
+}
+
+/* Options picker cards */
+.dle-lib-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--dle-space-2);
+    padding: var(--dle-space-2) 0;
+    animation: dle-entry-in 200ms ease-out both;
+}
+.dle-lib-option-card {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: var(--dle-radius-md);
+    padding: var(--dle-space-2) var(--dle-space-3);
+    transition: border-color 0.15s;
+}
+.dle-lib-option-card:hover {
+    border-color: var(--SmartThemeQuoteColor);
+}
+.dle-lib-option-label {
+    font-size: var(--dle-text-sm);
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.dle-lib-option-fields {
+    margin-bottom: 6px;
+}
+.dle-lib-option-field {
+    font-size: var(--dle-text-xs);
+    line-height: 1.4;
+    opacity: var(--dle-opacity-muted);
+}
+.dle-lib-option-apply {
+    font-size: 10px !important;
+    padding: 2px 10px !important;
 }
 
 /* Chat input row */
@@ -3892,6 +4101,29 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Shake animation for empty submit */
+@keyframes dle-shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-4px); }
+    40% { transform: translateX(4px); }
+    60% { transform: translateX(-3px); }
+    80% { transform: translateX(2px); }
+}
+.dle-shake {
+    animation: dle-shake 300ms ease-out;
+}
+
+/* Clear Written button — only visible when written gaps exist */
+.dle-librarian-clear-written {
+    font-size: var(--dle-text-xs);
+    padding: 2px 6px;
+    opacity: var(--dle-opacity-muted);
+    transition: opacity 0.15s;
+}
+.dle-librarian-clear-written:hover {
+    opacity: 1;
 }
 
 /* Responsive: stack panels on small screens */

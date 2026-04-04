@@ -10,6 +10,7 @@ import {
     aiSearchStats, lastInjectionSources,
     notifyGatingChanged, notifyPinBlockChanged,
     fieldDefinitions,
+    loreGaps, setLoreGaps,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { normalizePinBlock } from '../helpers.js';
@@ -509,20 +510,126 @@ export function wireLibrarianTab($drawer) {
         scheduleRender(renderLibrarianTab);
     });
 
-    // Click on a gap entry — open librarian session (Phase 4)
-    $drawer.on('click', '.dle-librarian-entry', function () {
-        const gapId = $(this).data('gap-id');
-        if (gapId) {
+    // Click status icon → cycle pending→acknowledged→rejected (quick-toggle)
+    $drawer.on('click', '.dle-gap-status', function (e) {
+        e.stopPropagation();
+        const $entry = $(this).closest('.dle-librarian-entry');
+        const gapId = $entry.data('gap-id');
+        const gap = loreGaps.find(g => g.id === gapId);
+        if (!gap) return;
+
+        const cycle = { pending: 'acknowledged', acknowledged: 'rejected', rejected: 'pending' };
+        gap.status = cycle[gap.status] || 'acknowledged';
+        setLoreGaps([...loreGaps]); // trigger observers
+        scheduleRender(renderLibrarianTab);
+    });
+
+    // Click gap action buttons (inside expanded view)
+    $drawer.on('click', '.dle-gap-action', function (e) {
+        e.stopPropagation();
+        const action = $(this).data('action');
+        const $entry = $(this).closest('.dle-librarian-entry');
+        const gapId = $entry.data('gap-id');
+        const gap = loreGaps.find(g => g.id === gapId);
+        if (!gap) return;
+
+        if (action === 'acknowledge') {
+            gap.status = 'acknowledged';
+            setLoreGaps([...loreGaps]);
+            scheduleRender(renderLibrarianTab);
+        } else if (action === 'reject') {
+            gap.status = 'rejected';
+            setLoreGaps([...loreGaps]);
+            scheduleRender(renderLibrarianTab);
+        } else if (action === 'open-editor') {
             executeCommand(`/dle-librarian gap ${gapId}`);
         }
     });
 
-    // Keyboard a11y for gap entries
+    // Click on a gap entry (not status icon, not action buttons) → toggle expand
+    $drawer.on('click', '.dle-librarian-entry', function (e) {
+        if ($(e.target).closest('.dle-gap-status, .dle-gap-action').length) return;
+
+        const $entry = $(this);
+        const $existing = $entry.find('.dle-gap-detail');
+
+        if ($existing.length) {
+            // Collapse
+            $existing.remove();
+            $entry.removeClass('dle-gap-expanded');
+            return;
+        }
+
+        // Collapse any other expanded entry
+        $drawer.find('.dle-gap-detail').remove();
+        $drawer.find('.dle-librarian-entry').removeClass('dle-gap-expanded');
+
+        // Build expanded detail
+        const gapId = $entry.data('gap-id');
+        const gap = loreGaps.find(g => g.id === gapId);
+        if (!gap) return;
+
+        let detailHtml = '<div class="dle-gap-detail">';
+        detailHtml += `<div class="dle-gap-detail-reason">${escapeHtml(gap.reason || 'No reason provided')}</div>`;
+        detailHtml += `<div class="dle-gap-detail-meta">`;
+        detailHtml += `Frequency: ${gap.frequency || 1}× &middot; Urgency: ${gap.urgency || 'medium'} &middot; Status: ${gap.status || 'pending'}`;
+        detailHtml += `</div>`;
+
+        if (gap.type === 'search' && gap.resultTitles?.length > 0) {
+            detailHtml += `<div class="dle-gap-detail-results">`;
+            detailHtml += `<span class="dle-gap-detail-results-label">Search results: ${gap.resultTitles.length} entries</span>`;
+            detailHtml += `<div class="dle-gap-detail-results-list">${gap.resultTitles.map(t => escapeHtml(t)).join(' &middot; ')}</div>`;
+            detailHtml += `</div>`;
+        } else if (gap.type === 'search') {
+            detailHtml += `<div class="dle-gap-detail-results"><span class="dle-gap-detail-results-label">No search results found</span></div>`;
+        }
+
+        detailHtml += `<div class="dle-gap-detail-actions">`;
+        detailHtml += `<button class="menu_button_icon dle-gap-action" data-action="acknowledge" title="Acknowledge (a)"><i class="fa-solid fa-check"></i> Acknowledge</button>`;
+        detailHtml += `<button class="menu_button_icon dle-gap-action" data-action="open-editor" title="Open Editor (Enter)"><i class="fa-solid fa-pen-to-square"></i> Open Editor</button>`;
+        detailHtml += `<button class="menu_button_icon dle-gap-action" data-action="reject" title="Reject (x)"><i class="fa-solid fa-xmark"></i> Reject</button>`;
+        detailHtml += `</div>`;
+        detailHtml += '</div>';
+
+        $entry.append(detailHtml);
+        $entry.addClass('dle-gap-expanded');
+    });
+
+    // Keyboard shortcuts on focused gap entries
     $drawer.on('keydown', '.dle-librarian-entry', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') {
+        const gapId = $(this).data('gap-id');
+        const gap = loreGaps.find(g => g.id === gapId);
+
+        if (e.key === 'a' && gap) {
+            e.preventDefault();
+            gap.status = 'acknowledged';
+            setLoreGaps([...loreGaps]);
+            scheduleRender(renderLibrarianTab);
+        } else if (e.key === 'x' && gap) {
+            e.preventDefault();
+            gap.status = 'rejected';
+            setLoreGaps([...loreGaps]);
+            scheduleRender(renderLibrarianTab);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if ($(this).find('.dle-gap-detail').length) {
+                // If already expanded, Enter opens editor
+                if (gapId) executeCommand(`/dle-librarian gap ${gapId}`);
+            } else {
+                // First Enter expands
+                $(this).trigger('click');
+            }
+        } else if (e.key === ' ') {
             e.preventDefault();
             $(this).trigger('click');
         }
+    });
+
+    // Clear Written/Rejected button
+    $drawer.on('click', '.dle-librarian-clear-written', function () {
+        const remaining = loreGaps.filter(g => g.status !== 'written' && g.status !== 'rejected');
+        setLoreGaps(remaining);
+        scheduleRender(renderLibrarianTab);
     });
 
     // New Entry button in empty state

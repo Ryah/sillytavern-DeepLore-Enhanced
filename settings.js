@@ -205,6 +205,12 @@ export const defaultSettings = {
     librarianSessionModel: '',          // override model for session (blank = use AI search model)
     librarianSessionMaxTokens: 4096,    // max tokens for session responses
     librarianSessionTimeout: 60000,     // session AI call timeout (ms)
+    librarianManifestMaxChars: 8000,    // max chars for vault manifest in session prompt
+    librarianRelatedEntriesMaxChars: 4000, // max chars for related entries context
+    librarianDraftMaxChars: 4000,       // max chars for draft JSON in session prompt
+    librarianChatContextMaxChars: 4000, // max chars for chat context in session prompt
+    librarianSystemPromptMode: 'default', // 'default' | 'append' | 'override'
+    librarianCustomSystemPrompt: '',    // custom system prompt text (used in append/override modes)
     // Analytics
     analyticsData: {},
     // First-run setup wizard completed flag

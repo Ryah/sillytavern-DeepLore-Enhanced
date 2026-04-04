@@ -1033,9 +1033,11 @@
             <!-- Sub-panel: Librarian -->
             <div class="dle-features-subpanel" id="dle-sp-feat-librarian" data-features-subpanel="librarian"
                  role="tabpanel" hidden>
+
+            <!-- Section 1: Tools (generation-time behavior) -->
             <div class="dle-settings-section">
-            <h4>Librarian</h4>
-            <p class="dle-section-desc">Tool-assisted lore retrieval and gap detection. Gives your writing AI optional tools to search the vault and flag missing lore during generation.</p>
+            <h4>Tools</h4>
+            <p class="dle-section-desc">Generation-time tools the writing AI can use to search the vault and flag lore gaps.</p>
 
             <div class="flex-container flexFlowColumn">
                 <label class="checkbox_label" for="dle-sp-librarian-enabled" title="Enable the Librarian feature.">
@@ -1044,8 +1046,6 @@
                 </label>
 
                 <div id="dle-sp-librarian-sub" class="flex-container flexFlowColumn" style="margin-left: 20px;">
-                    <!-- Passive Tools -->
-                    <h5 class="dle-settings-subsection-label">Passive Tools</h5>
                     <label class="checkbox_label" for="dle-sp-librarian-search" title="Allow the AI to search the vault for entries the pipeline missed.">
                         <input id="dle-sp-librarian-search" type="checkbox" class="checkbox">
                         <span>Search tool (search_lore)</span>
@@ -1071,73 +1071,128 @@
                     </div>
 
                     <p class="dle-section-desc" style="margin-top: 4px;"><small><i class="fa-solid fa-circle-info"></i> Requires a model that supports function calling (tool use).</small></p>
-
-                    <!-- Session Settings -->
-                    <h5 class="dle-settings-subsection-label" style="margin-top: 12px;">Session</h5>
-                    <div class="flex-container">
-                        <div class="flex1" title="Override model for Librarian session. Leave blank to use AI Search model.">
-                            <label for="dle-sp-librarian-session-model"><small>Model Override</small></label>
-                            <input id="dle-sp-librarian-session-model" type="text" class="text_pole" placeholder="Use AI Search model" />
-                        </div>
-                    </div>
-                    <div class="flex-container">
-                        <div class="flex1" title="Max tokens for session AI responses. Default: 4096.">
-                            <label for="dle-sp-librarian-session-max-tokens"><small>Session Max Tokens</small></label>
-                            <input id="dle-sp-librarian-session-max-tokens" type="number" class="text_pole" min="1024" max="16384" />
-                        </div>
-                        <div class="flex1" title="Timeout for session AI calls in seconds. Default: 60.">
-                            <label for="dle-sp-librarian-session-timeout"><small>Session Timeout (s)</small></label>
-                            <input id="dle-sp-librarian-session-timeout" type="number" class="text_pole" min="10" max="120" />
-                        </div>
-                    </div>
-                    <div class="flex-container">
-                        <div class="flex1" title="Folder path for written entries (relative to vault root). Leave blank for root.">
-                            <label for="dle-sp-librarian-write-folder"><small>Write Folder</small></label>
-                            <input id="dle-sp-librarian-write-folder" type="text" class="text_pole" placeholder="Root of vault" />
-                        </div>
-                    </div>
-                    <label class="checkbox_label" for="dle-sp-librarian-auto-send" title="Automatically send a draft prompt when opening a gap from the inbox.">
-                        <input id="dle-sp-librarian-auto-send" type="checkbox" class="checkbox">
-                        <span>Auto-draft when opening a gap</span>
-                    </label>
-                </div>
-
-                <!-- Token cost stats -->
-                <div class="dle-librarian-stats-panel">
-                    <h5 class="dle-librarian-stats-heading">Token Usage</h5>
-                    <table class="dle-librarian-stats-table">
-                        <thead>
-                            <tr>
-                                <th></th>
-                                <th>Searches</th>
-                                <th>Flags</th>
-                                <th>Est. Tokens</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>This Chat</td>
-                                <td id="dle-sp-lib-chat-searches">0</td>
-                                <td id="dle-sp-lib-chat-flags">0</td>
-                                <td id="dle-sp-lib-chat-tokens">0</td>
-                            </tr>
-                            <tr>
-                                <td>This Session</td>
-                                <td id="dle-sp-lib-session-searches">0</td>
-                                <td id="dle-sp-lib-session-flags">0</td>
-                                <td id="dle-sp-lib-session-tokens">0</td>
-                            </tr>
-                            <tr class="dle-librarian-stats-alltime">
-                                <td>All-Time</td>
-                                <td id="dle-sp-lib-all-searches">0</td>
-                                <td id="dle-sp-lib-all-flags">0</td>
-                                <td id="dle-sp-lib-all-tokens">-</td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </div>
             </div>
             </div>
+
+            <!-- Section 2: Writing Sessions -->
+            <div class="dle-settings-section">
+            <h4>Writing Sessions</h4>
+            <p class="dle-section-desc">Settings for the Librarian AI editor popup.</p>
+
+            <div class="flex-container flexFlowColumn">
+                <div class="flex-container">
+                    <div class="flex1" title="Override model for Librarian session. Leave blank to use AI Search model.">
+                        <label for="dle-sp-librarian-session-model"><small>Model Override</small></label>
+                        <input id="dle-sp-librarian-session-model" type="text" class="text_pole" placeholder="Use AI Search model" />
+                    </div>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Max tokens for session AI responses. Default: 4096.">
+                        <label for="dle-sp-librarian-session-max-tokens"><small>Session Max Tokens</small></label>
+                        <input id="dle-sp-librarian-session-max-tokens" type="number" class="text_pole" min="1024" max="16384" />
+                    </div>
+                    <div class="flex1" title="Timeout for session AI calls in seconds. Default: 60.">
+                        <label for="dle-sp-librarian-session-timeout"><small>Session Timeout (s)</small></label>
+                        <input id="dle-sp-librarian-session-timeout" type="number" class="text_pole" min="10" max="120" />
+                    </div>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Folder path for written entries (relative to vault root). Leave blank for root.">
+                        <label for="dle-sp-librarian-write-folder"><small>Write Folder</small></label>
+                        <input id="dle-sp-librarian-write-folder" type="text" class="text_pole" placeholder="Root of vault" />
+                    </div>
+                </div>
+                <label class="checkbox_label" for="dle-sp-librarian-auto-send" title="Automatically send a draft prompt when opening a gap from the inbox.">
+                    <input id="dle-sp-librarian-auto-send" type="checkbox" class="checkbox">
+                    <span>Auto-draft when opening a gap</span>
+                </label>
+
+                <!-- Advanced (collapsible) -->
+                <div class="dle-advanced-toggle" data-section="sp_librarian_advanced" tabindex="0" role="button" aria-expanded="false">
+                    <i class="fa-solid fa-chevron-right fa-xs dle-advanced-chevron" aria-hidden="true"></i>
+                    <span>Show Advanced</span>
+                </div>
+                <div class="dle-advanced-content" data-section="sp_librarian_advanced" style="display: none;">
+                    <div class="flex-container">
+                        <div class="flex1" title="Maximum chars for vault manifest in session prompt. Larger = more context but higher token cost. Default: 8000.">
+                            <label for="dle-sp-librarian-manifest-max"><small>Manifest Budget (chars)</small></label>
+                            <input id="dle-sp-librarian-manifest-max" type="number" class="text_pole" min="2000" max="30000" step="500" />
+                        </div>
+                        <div class="flex1" title="Maximum chars for related entries context. Default: 4000.">
+                            <label for="dle-sp-librarian-related-max"><small>Related Entries Budget</small></label>
+                            <input id="dle-sp-librarian-related-max" type="number" class="text_pole" min="1000" max="10000" step="500" />
+                        </div>
+                    </div>
+                    <div class="flex-container">
+                        <div class="flex1" title="Maximum chars for chat context in session prompt. Default: 4000.">
+                            <label for="dle-sp-librarian-chat-context-max"><small>Chat Context Budget</small></label>
+                            <input id="dle-sp-librarian-chat-context-max" type="number" class="text_pole" min="1000" max="10000" step="500" />
+                        </div>
+                        <div class="flex1" title="Maximum chars for draft JSON in session prompt. Default: 4000.">
+                            <label for="dle-sp-librarian-draft-max"><small>Draft Budget</small></label>
+                            <input id="dle-sp-librarian-draft-max" type="number" class="text_pole" min="2000" max="10000" step="500" />
+                        </div>
+                    </div>
+
+                    <h5 class="dle-settings-subsection-label" style="margin-top: 12px;">System Prompt</h5>
+                    <div class="flex-container flexFlowColumn">
+                        <div class="radio_group">
+                            <label class="checkbox_label" title="Use the built-in entry writing guide.">
+                                <input type="radio" name="dle-sp-librarian-prompt-mode" value="default" class="checkbox"> Default
+                            </label>
+                            <label class="checkbox_label" title="Append custom text after the built-in guide.">
+                                <input type="radio" name="dle-sp-librarian-prompt-mode" value="append" class="checkbox"> Append
+                            </label>
+                            <label class="checkbox_label" title="Replace the entire system prompt with custom text.">
+                                <input type="radio" name="dle-sp-librarian-prompt-mode" value="override" class="checkbox"> Override
+                            </label>
+                        </div>
+                        <textarea id="dle-sp-librarian-custom-prompt" class="text_pole" rows="6" placeholder="Custom system prompt text..." style="display: none;"></textarea>
+                    </div>
+                </div>
+            </div>
+            </div>
+
+            <!-- Section 3: Analytics -->
+            <div class="dle-settings-section">
+            <h4>Analytics</h4>
+            <div class="dle-librarian-stats-panel">
+                <table class="dle-librarian-stats-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th>Searches</th>
+                            <th>Flags</th>
+                            <th>Est. Tokens</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>This Chat</td>
+                            <td id="dle-sp-lib-chat-searches">0</td>
+                            <td id="dle-sp-lib-chat-flags">0</td>
+                            <td id="dle-sp-lib-chat-tokens">0</td>
+                        </tr>
+                        <tr>
+                            <td>This Session</td>
+                            <td id="dle-sp-lib-session-searches">0</td>
+                            <td id="dle-sp-lib-session-flags">0</td>
+                            <td id="dle-sp-lib-session-tokens">0</td>
+                        </tr>
+                        <tr class="dle-librarian-stats-alltime">
+                            <td>All-Time</td>
+                            <td id="dle-sp-lib-all-searches">0</td>
+                            <td id="dle-sp-lib-all-flags">0</td>
+                            <td id="dle-sp-lib-all-tokens">-</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div id="dle-sp-lib-entries-written" class="dle-text-xs" style="margin-top: 6px; opacity: 0.6;"></div>
+                <div id="dle-sp-lib-unmet-queries" style="margin-top: 8px;"></div>
+            </div>
+            </div>
+
             </div>
         </div>
 

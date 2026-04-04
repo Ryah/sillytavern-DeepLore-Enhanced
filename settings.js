@@ -200,6 +200,11 @@ export const defaultSettings = {
     librarianMaxSearches: 2,            // max search_lore calls per generation
     librarianMaxResults: 5,             // max entries returned per search call
     librarianResultTokenBudget: 1500,   // token budget for search results
+    librarianAutoSendOnGap: true,       // auto-send draft prompt when opening a gap
+    librarianWriteFolder: '',           // destination folder for written entries
+    librarianSessionModel: '',          // override model for session (blank = use AI search model)
+    librarianSessionMaxTokens: 4096,    // max tokens for session responses
+    librarianSessionTimeout: 60000,     // session AI call timeout (ms)
     // Analytics
     analyticsData: {},
     // First-run setup wizard completed flag
@@ -263,6 +268,8 @@ export const settingsConstraints = {
     librarianMaxSearches: { min: 1, max: 10 },
     librarianMaxResults: { min: 1, max: 20 },
     librarianResultTokenBudget: { min: 500, max: 5000 },
+    librarianSessionMaxTokens: { min: 1024, max: 16384 },
+    librarianSessionTimeout: { min: 10000, max: 120000 },
     fuzzySearchMinScore: { min: 0.1, max: 2.0 },
     hierarchicalAggressiveness: { min: 0.0, max: 0.8 },
     indexRebuildGenerationInterval: { min: 1, max: 100 },

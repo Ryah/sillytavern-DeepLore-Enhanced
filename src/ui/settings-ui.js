@@ -625,6 +625,11 @@ function loadPopupSettings($container) {
     $c('#dle-sp-librarian-max-searches').val(settings.librarianMaxSearches);
     $c('#dle-sp-librarian-max-results').val(settings.librarianMaxResults);
     $c('#dle-sp-librarian-token-budget').val(settings.librarianResultTokenBudget);
+    $c('#dle-sp-librarian-session-model').val(settings.librarianSessionModel || '');
+    $c('#dle-sp-librarian-session-max-tokens').val(settings.librarianSessionMaxTokens);
+    $c('#dle-sp-librarian-session-timeout').val(Math.round((settings.librarianSessionTimeout || 60000) / 1000));
+    $c('#dle-sp-librarian-write-folder').val(settings.librarianWriteFolder || '');
+    $c('#dle-sp-librarian-auto-send').prop('checked', settings.librarianAutoSendOnGap !== false);
     $c('#dle-sp-librarian-sub').toggle(settings.librarianEnabled);
 
     // Librarian stats
@@ -1021,6 +1026,11 @@ function bindPopupEvents($container) {
     $c('#dle-sp-librarian-max-searches').on('input', function () { settings.librarianMaxSearches = numVal($(this).val(), 2); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-max-results').on('input', function () { settings.librarianMaxResults = numVal($(this).val(), 5); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-token-budget').on('input', function () { settings.librarianResultTokenBudget = numVal($(this).val(), 1500); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-session-model').on('input', function () { settings.librarianSessionModel = $(this).val().trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-session-max-tokens').on('input', function () { settings.librarianSessionMaxTokens = numVal($(this).val(), 4096); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-session-timeout').on('input', function () { settings.librarianSessionTimeout = numVal($(this).val(), 60) * 1000; saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-write-folder').on('input', function () { settings.librarianWriteFolder = $(this).val().trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-auto-send').on('change', function () { settings.librarianAutoSendOnGap = $(this).prop('checked'); saveSettingsDebounced(); });
 
     // Test AI / Preview
     $c('#dle-sp-test-ai').on('click', async function () {

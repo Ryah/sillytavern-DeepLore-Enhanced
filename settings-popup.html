@@ -1044,6 +1044,8 @@
                 </label>
 
                 <div id="dle-sp-librarian-sub" class="flex-container flexFlowColumn" style="margin-left: 20px;">
+                    <!-- Passive Tools -->
+                    <h5 class="dle-settings-subsection-label">Passive Tools</h5>
                     <label class="checkbox_label" for="dle-sp-librarian-search" title="Allow the AI to search the vault for entries the pipeline missed.">
                         <input id="dle-sp-librarian-search" type="checkbox" class="checkbox">
                         <span>Search tool (search_lore)</span>
@@ -1067,9 +1069,38 @@
                             <input id="dle-sp-librarian-token-budget" type="number" class="text_pole" min="500" max="5000" step="100" />
                         </div>
                     </div>
-                </div>
 
-                <p class="dle-section-desc" style="margin-top: 8px;"><small><i class="fa-solid fa-circle-info"></i> Requires a model that supports function calling (tool use). Uses the same AI connection settings as AI Search.</small></p>
+                    <p class="dle-section-desc" style="margin-top: 4px;"><small><i class="fa-solid fa-circle-info"></i> Requires a model that supports function calling (tool use).</small></p>
+
+                    <!-- Session Settings -->
+                    <h5 class="dle-settings-subsection-label" style="margin-top: 12px;">Session</h5>
+                    <div class="flex-container">
+                        <div class="flex1" title="Override model for Librarian session. Leave blank to use AI Search model.">
+                            <label for="dle-sp-librarian-session-model"><small>Model Override</small></label>
+                            <input id="dle-sp-librarian-session-model" type="text" class="text_pole" placeholder="Use AI Search model" />
+                        </div>
+                    </div>
+                    <div class="flex-container">
+                        <div class="flex1" title="Max tokens for session AI responses. Default: 4096.">
+                            <label for="dle-sp-librarian-session-max-tokens"><small>Session Max Tokens</small></label>
+                            <input id="dle-sp-librarian-session-max-tokens" type="number" class="text_pole" min="1024" max="16384" />
+                        </div>
+                        <div class="flex1" title="Timeout for session AI calls in seconds. Default: 60.">
+                            <label for="dle-sp-librarian-session-timeout"><small>Session Timeout (s)</small></label>
+                            <input id="dle-sp-librarian-session-timeout" type="number" class="text_pole" min="10" max="120" />
+                        </div>
+                    </div>
+                    <div class="flex-container">
+                        <div class="flex1" title="Folder path for written entries (relative to vault root). Leave blank for root.">
+                            <label for="dle-sp-librarian-write-folder"><small>Write Folder</small></label>
+                            <input id="dle-sp-librarian-write-folder" type="text" class="text_pole" placeholder="Root of vault" />
+                        </div>
+                    </div>
+                    <label class="checkbox_label" for="dle-sp-librarian-auto-send" title="Automatically send a draft prompt when opening a gap from the inbox.">
+                        <input id="dle-sp-librarian-auto-send" type="checkbox" class="checkbox">
+                        <span>Auto-draft when opening a gap</span>
+                    </label>
+                </div>
 
                 <!-- Token cost stats -->
                 <div class="dle-librarian-stats-panel" style="margin-top: 12px; padding: 8px; border: 1px solid var(--SmartThemeBorderColor); border-radius: 4px;">

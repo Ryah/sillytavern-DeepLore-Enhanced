@@ -68,6 +68,16 @@
     color: var(--dle-text-muted);
     margin: 2px 0 6px;
 }
+.dle-settings-subsection-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.6;
+    margin: 8px 0 4px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 50%, transparent);
+}
 
 /* --- Status indicators --- */
 .dle-settings .dle-status {
@@ -3329,31 +3339,35 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* --- Librarian filter toggle --- */
-.dle-librarian-filter-toggle {
+/* --- Librarian sub-tabs --- */
+.dle-librarian-sub-tabs {
     display: flex;
-    gap: 2px;
+    gap: 0;
+    border-bottom: 2px solid var(--SmartThemeBorderColor);
     margin-bottom: 6px;
 }
-.dle-librarian-filter-btn {
+.dle-librarian-sub-tab {
     flex: 1;
-    padding: 3px 6px;
-    font-size: 10px;
+    padding: 5px 10px;
+    font-size: 11px;
     font-weight: 600;
     text-align: center;
-    border: 1px solid var(--SmartThemeBorderColor);
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
     background: transparent;
     color: var(--SmartThemeBodyColor);
+    opacity: 0.6;
     cursor: pointer;
-    border-radius: 3px;
-    transition: background 0.15s, color 0.15s;
+    transition: opacity 0.15s, border-color 0.2s;
 }
-.dle-librarian-filter-btn:hover {
-    background: color-mix(in srgb, var(--SmartThemeBodyColor) 10%, transparent);
+.dle-librarian-sub-tab:hover {
+    opacity: 0.85;
 }
-.dle-librarian-filter-btn.active {
-    background: var(--SmartThemeQuoteColor);
+.dle-librarian-sub-tab.active {
+    opacity: 1;
+    border-bottom-color: var(--SmartThemeQuoteColor);
     color: var(--SmartThemeBodyColor);
-    border-color: var(--SmartThemeQuoteColor);
 }
 
 /* --- Librarian sort --- */
@@ -3416,15 +3430,16 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
         calc(var(--dle-gap, 0) * 35%), transparent);
 }
 
-/* --- Gap status indicator --- */
+/* --- Gap status indicator (FA icons) --- */
 .dle-gap-status {
-    font-size: 10px;
+    font-size: 9px;
     text-align: center;
     line-height: 1;
+    width: 14px;
 }
 .dle-gap-pending { color: #e8a838; }
 .dle-gap-acknowledged { color: #8899aa; }
-.dle-gap-in-progress { color: #5588cc; }
+.dle-gap-in-progress { color: #5588cc; font-size: 8px; }
 .dle-gap-written { color: #44aa66; }
 .dle-gap-rejected { color: #aa4444; }
 
@@ -3512,16 +3527,31 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     .dle-gap-reason { display: block; }
 }
 
+/* --- Field update flash (when AI changes a field) --- */
+@keyframes dle-field-flash {
+    0% { box-shadow: 0 0 0 2px color-mix(in srgb, var(--SmartThemeQuoteColor) 60%, transparent); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+}
+.dle-field-updated {
+    animation: dle-field-flash 0.8s ease-out;
+}
+
+/* --- New Entry button in Librarian empty state --- */
+.dle-librarian-new-entry-btn {
+    margin-top: 8px;
+    font-size: 11px;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Librarian Review Popup
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .dle-librarian-popup {
     display: grid;
-    grid-template-columns: 55% 45%;
-    gap: 12px;
-    height: 70vh;
-    min-height: 400px;
+    grid-template-columns: 60% 40%;
+    gap: 16px;
+    height: 80vh;
+    min-height: 500px;
 }
 
 /* --- Editor panel (left) --- */
@@ -3530,7 +3560,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     flex-direction: column;
     gap: 8px;
     overflow-y: auto;
-    padding-right: 8px;
+    padding-right: 12px;
 }
 .dle-librarian-editor-title {
     margin: 0 0 4px 0;
@@ -3538,51 +3568,80 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     font-weight: 700;
     color: var(--SmartThemeBodyColor);
 }
+.dle-librarian-editor-title.dle-librarian-dirty {
+    color: var(--SmartThemeQuoteColor);
+}
 .dle-librarian-field {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
 }
 .dle-librarian-field label {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    opacity: 0.7;
+    letter-spacing: 0.4px;
+    opacity: 0.8;
 }
 .dle-librarian-field-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
 }
+.dle-librarian-field-row-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+}
+.dle-priority-hint,
+.dle-field-hint {
+    font-weight: 400;
+    font-size: 9px;
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0.55;
+}
+.dle-librarian-field-grow {
+    flex: 1;
+    min-height: 0;
+}
 .dle-librarian-content-area {
     flex: 1;
-    min-height: 120px;
+    min-height: 150px;
     font-family: monospace;
     font-size: 12px;
-    resize: vertical;
+    line-height: 1.5;
+    resize: none;
 }
 
 /* Key chips */
 .dle-librarian-keys {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    padding: 4px;
+    gap: 5px;
+    padding: 6px;
     border: 1px solid var(--SmartThemeBorderColor);
     border-radius: 4px;
-    min-height: 32px;
+    min-height: 36px;
     align-items: center;
+    transition: border-color 0.15s;
+}
+.dle-librarian-keys:focus-within {
+    border-color: var(--SmartThemeQuoteColor);
 }
 .dle-key-chip {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    padding: 2px 6px;
+    gap: 3px;
+    padding: 3px 8px;
     font-size: 11px;
-    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 30%, transparent);
-    border-radius: 3px;
+    font-weight: 500;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 25%, transparent);
+    border: 1px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 40%, transparent);
+    border-radius: 4px;
     white-space: nowrap;
+    transition: background 0.1s;
+}
+.dle-key-chip:hover {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 35%, transparent);
 }
 .dle-key-remove {
     background: none;
@@ -3592,7 +3651,8 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     padding: 0 2px;
     font-size: 13px;
     line-height: 1;
-    opacity: 0.6;
+    opacity: 0.5;
+    transition: opacity 0.1s;
 }
 .dle-key-remove:hover { opacity: 1; }
 .dle-key-input {
@@ -3600,29 +3660,35 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     background: transparent;
     color: var(--SmartThemeBodyColor);
     font-size: 11px;
-    min-width: 80px;
+    min-width: 100px;
     flex: 1;
     outline: none;
 }
 
-/* Frontmatter preview */
+/* Frontmatter preview (always visible) */
 .dle-librarian-frontmatter-preview {
     margin-top: 4px;
+    flex-shrink: 0;
 }
-.dle-librarian-frontmatter-preview summary {
+.dle-librarian-frontmatter-label {
     font-size: 10px;
-    cursor: pointer;
-    opacity: 0.7;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    opacity: 0.6;
+    margin-bottom: 3px;
 }
 .dle-librarian-frontmatter-code {
     font-size: 10px;
-    padding: 6px;
+    padding: 8px;
     background: color-mix(in srgb, var(--SmartThemeBlurTintColor) 50%, transparent);
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 50%, transparent);
     border-radius: 4px;
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 200px;
+    max-height: 160px;
     overflow-y: auto;
+    line-height: 1.4;
 }
 
 /* --- Chat panel (right) --- */
@@ -3632,11 +3698,67 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     border-left: 1px solid var(--SmartThemeBorderColor);
     padding-left: 12px;
 }
+.dle-librarian-chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
 .dle-librarian-chat-title {
-    margin: 0 0 6px 0;
+    margin: 0;
     font-size: 13px;
     font-weight: 700;
     color: var(--SmartThemeBodyColor);
+}
+.dle-lib-activity-toggle {
+    font-size: 12px;
+    padding: 2px 6px;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+.dle-lib-activity-toggle:hover { opacity: 1; }
+.dle-lib-activity-toggle[aria-expanded="true"] { opacity: 1; color: var(--SmartThemeQuoteColor); }
+
+/* Activity log */
+.dle-lib-activity-log {
+    max-height: 140px;
+    overflow-y: auto;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+.dle-lib-activity-row {
+    display: grid;
+    grid-template-columns: 18px 1fr auto auto;
+    gap: 6px;
+    padding: 3px 8px;
+    align-items: center;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 40%, transparent);
+}
+.dle-lib-activity-row:last-child { border-bottom: none; }
+.dle-lib-activity-icon { opacity: 0.6; text-align: center; }
+.dle-lib-activity-query {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+}
+.dle-lib-activity-result {
+    opacity: 0.6;
+    font-size: 10px;
+    white-space: nowrap;
+}
+.dle-lib-activity-time {
+    opacity: 0.4;
+    font-size: 10px;
+    white-space: nowrap;
+}
+.dle-lib-activity-empty {
+    padding: 8px;
+    text-align: center;
+    opacity: 0.5;
+    font-style: italic;
 }
 .dle-librarian-messages {
     flex: 1;
@@ -3648,25 +3770,29 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     min-height: 0;
 }
 .dle-lib-msg {
-    padding: 6px 10px;
-    border-radius: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
     font-size: 12px;
-    line-height: 1.4;
-    max-width: 90%;
+    line-height: 1.5;
+    max-width: 88%;
     word-wrap: break-word;
+    white-space: pre-wrap;
 }
 .dle-lib-msg-ai {
-    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 20%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 15%, transparent);
+    border-left: 3px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 40%, transparent);
     align-self: flex-start;
 }
 .dle-lib-msg-user {
-    background: color-mix(in srgb, var(--SmartThemeChatMesColorFill, #2a4a6a) 40%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeChatMesColorFill, #2a4a6a) 35%, transparent);
+    border-right: 3px solid color-mix(in srgb, var(--SmartThemeChatMesColorFill, #2a4a6a) 60%, transparent);
     align-self: flex-end;
 }
 .dle-lib-msg-loading {
     align-self: flex-start;
     opacity: 0.6;
     font-style: italic;
+    border-left: 3px solid transparent;
 }
 
 /* Chat input row */
@@ -3736,10 +3862,13 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 }
 
 /* Responsive: stack panels on small screens */
-@media (max-width: 700px) {
+@media (max-width: 800px) {
     .dle-librarian-popup {
         grid-template-columns: 1fr;
         grid-template-rows: 1fr 1fr;
+    }
+    .dle-librarian-field-row-3 {
+        grid-template-columns: 1fr 1fr;
     }
     .dle-librarian-chat {
         border-left: none;

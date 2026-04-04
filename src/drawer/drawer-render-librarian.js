@@ -13,13 +13,13 @@ import { ds, scheduleRender } from './drawer-state.js';
 /** Urgency → normalized score for heatmap */
 const URGENCY_SCORE = { low: 0.2, medium: 0.5, high: 1.0 };
 
-/** Status → icon mapping */
+/** Status → icon mapping (FontAwesome) */
 const STATUS_ICONS = {
-    pending: { icon: '&#x25CF;', cls: 'dle-gap-pending', label: 'Pending' },
-    acknowledged: { icon: '&#x25CB;', cls: 'dle-gap-acknowledged', label: 'Acknowledged' },
-    in_progress: { icon: '&#x21BB;', cls: 'dle-gap-in-progress', label: 'In progress' },
-    written: { icon: '&#x2713;', cls: 'dle-gap-written', label: 'Written' },
-    rejected: { icon: '&#x2717;', cls: 'dle-gap-rejected', label: 'Rejected' },
+    pending: { icon: '<i class="fa-solid fa-circle"></i>', cls: 'dle-gap-pending', label: 'Pending' },
+    acknowledged: { icon: '<i class="fa-regular fa-circle"></i>', cls: 'dle-gap-acknowledged', label: 'Acknowledged' },
+    in_progress: { icon: '<i class="fa-solid fa-spinner fa-spin"></i>', cls: 'dle-gap-in-progress', label: 'In progress' },
+    written: { icon: '<i class="fa-solid fa-check"></i>', cls: 'dle-gap-written', label: 'Written' },
+    rejected: { icon: '<i class="fa-solid fa-xmark"></i>', cls: 'dle-gap-rejected', label: 'Rejected' },
 };
 
 /**
@@ -70,10 +70,10 @@ export function renderLibrarianTab() {
     const $list = $drawer.find('.dle-librarian-list');
     const $empty = $drawer.find('#dle-panel-librarian .dle-empty-state');
 
-    // Update filter button active states
-    const $filterToggle = $drawer.find('.dle-librarian-filter-toggle');
-    $filterToggle.find('.dle-librarian-filter-btn').removeClass('active').attr('aria-checked', 'false');
-    $filterToggle.find(`[data-filter="${ds.librarianFilter}"]`).addClass('active').attr('aria-checked', 'true');
+    // Update sub-tab active states
+    const $subTabs = $drawer.find('.dle-librarian-sub-tabs');
+    $subTabs.find('.dle-librarian-sub-tab').removeClass('active').attr('aria-selected', 'false');
+    $subTabs.find(`[data-filter="${ds.librarianFilter}"]`).addClass('active').attr('aria-selected', 'true');
 
     // Update sort select
     $drawer.find('.dle-librarian-sort').val(ds.librarianSort);

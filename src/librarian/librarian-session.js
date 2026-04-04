@@ -83,30 +83,97 @@ export function createSession(entryPoint, options = {}) {
 // System Prompt Builder
 // ════════════════════════════════════════════════════════════════════════════
 
+// ════════════════════════════════════════════════════════════════════════════
+// Entry writing guide (embedded in system prompt)
+// ════════════════════════════════════════════════════════════════════════════
+
+const ENTRY_WRITING_GUIDE = `
+## How to Write a Vault Entry
+
+### Frontmatter
+Every entry needs YAML frontmatter:
+\`\`\`yaml
+---
+fileClass: character  # omit for story type
+type: character       # character|location|lore|organization|story
+status: active
+priority: 50          # 20=inner circle, 35=core lore, 50=standard, 60=secondary, 80=background
+tags:
+  - lorebook          # REQUIRED — makes it a lorebook entry
+  - category/subcategory
+keys:
+  - Primary Name
+  - alias
+  - trigger keyword
+summary: "Up to 600 chars — see Summary Guidelines below"
+---
+\`\`\`
+
+### Summary Field (CRITICAL)
+The summary is used ONLY to help the AI selection model (Haiku) decide whether to inject this entry. It is NOT sent to the writing AI. Write it as an index card for a librarian, not as prose.
+
+Answer these questions:
+1. **What is this?** Category, role, core identity (1 sentence)
+2. **When should it be selected?** Situations, triggers, relevant topics (1-2 sentences)
+3. **Key relationships** Connected entries (brief)
+
+GOOD: "Eris's spymaster, interrogator, and closest enforcer. Inner circle. Select when espionage, intelligence gathering, interrogation, loyalty, or the Triumvirate betrayal comes up. Also relevant for surveillance, Raven's network, and territory enforcement."
+
+BAD: "Eris is a tall, imposing figure with silver hair who serves as a spymaster." (This describes appearance — useless for selection.)
+
+### Content Structure
+\`\`\`markdown
+# Entry Title
+
+One-paragraph introduction — what this is, in narrative prose.
+
+<div class="meta-block">
+[Field1: value | Field2: value | Field3: value]
+</div>
+
+Remaining prose sections with full lore content.
+Use [[wikilinks]] to cross-reference other entries.
+\`\`\`
+
+### Meta-block Fields by Type
+- **Characters:** Species, Role, Callsign, Aliases, Height, Build, Hair, Eyes, Skin, Features, Apparent Age, True Age, Origin, Personality, Speech, Wants, Fears, Powers, Limits, Items, Secret
+- **Locations:** Category, Owner, District, Access, Atmosphere, Function, Layout, Rules, Security, Regulars
+- **Lore:** Category, Scope, Danger, Who Knows, Triggers, Consequences, Related, Enforcement, Misconceptions
+- **Organizations:** Category, Owner, Run By, Public Face, True Purpose, Visibility, Scope, Staff, Key People, Value, Vulnerabilities
+
+### Keys
+2-5 trigger keywords that would match in chat text. Include the primary name, common aliases, and thematic keywords that would appear when this entry is relevant. Keys are case-insensitive and matched as substrings.
+`;
+
 /**
  * Build the system prompt for the librarian AI session.
  * @param {LibrarianSession} session
  * @returns {string}
  */
 function buildSystemPrompt(session) {
+    const settings = getSettings();
+    const lorebookTag = settings.lorebookTag || 'lorebook';
     const parts = [];
 
-    parts.push(`You are a lorebook editor for a roleplay setting. You help create and improve lore entries for an Obsidian vault used by DeepLore Enhanced.`);
+    parts.push(`You are a lorebook editor for a roleplay setting. You help create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".`);
+
+    // Entry writing guide
+    parts.push(ENTRY_WRITING_GUIDE);
 
     // Entry point context
     if (session.entryPoint === 'gap' && session.gapRecord) {
         const gap = session.gapRecord;
-        parts.push(`\nA gap was detected during generation:`);
-        parts.push(`Topic: ${gap.query}`);
-        parts.push(`Reason: ${gap.reason}`);
-        parts.push(`Urgency: ${gap.urgency || 'medium'}`);
+        parts.push(`## Gap Context\nA gap was detected during generation:`);
+        parts.push(`- **Topic:** ${gap.query}`);
+        parts.push(`- **Reason:** ${gap.reason}`);
+        parts.push(`- **Urgency:** ${gap.urgency || 'medium'}`);
         if (gap.resultTitles && gap.resultTitles.length > 0) {
-            parts.push(`Search results found: ${gap.resultTitles.join(', ')}`);
+            parts.push(`- **Search results found:** ${gap.resultTitles.join(', ')}`);
         } else if (gap.type === 'search') {
-            parts.push(`Search results: none found`);
+            parts.push(`- **Search results:** none found`);
         }
     } else if (session.entryPoint === 'review') {
-        parts.push(`\nThe following chat history has not yet been integrated into the lore vault. Review it and propose entries to create or update, prioritized by importance.`);
+        parts.push(`\n## Vault Review Mode\nThe following chat history has not yet been integrated into the lore vault. Review it and propose entries to create or update, prioritized by importance.`);
     }
 
     // Manifest
@@ -139,15 +206,23 @@ function buildSystemPrompt(session) {
 
     // Response format
     parts.push(`
+## Response Format
 Respond as JSON:
 {
-  "message": "Your conversational response",
+  "message": "Your conversational response — explain what you did and why",
   "draft": {
-    "title": "...", "type": "...", "priority": N,
-    "keys": [...], "summary": "...", "content": "..."
-  } or null,
-  "action": "update_draft" | "propose_queue" | null
+    "title": "Entry Title",
+    "type": "character|location|lore|organization|story",
+    "priority": 50,
+    "tags": ["${lorebookTag}"],
+    "keys": ["keyword1", "keyword2"],
+    "summary": "Selection-oriented summary (see guidelines above)",
+    "content": "Full markdown content with # heading, meta-block, prose, [[wikilinks]]"
+  },
+  "action": "update_draft"
 }
+
+Set "draft" to null and "action" to null if you're just conversing without updating the entry.
 
 If proposing a work queue (vault review), use:
 {
@@ -158,13 +233,13 @@ If proposing a work queue (vault review), use:
   "action": "propose_queue"
 }
 
-Guidelines:
+## Rules
 - Only modify draft fields the user asked about (or that obviously need fixing)
-- Keys: 2-5 trigger words that would match in chat text
-- Summary: describe when to select (~100 words, written for AI retrieval, not prose)
-- Content: structured markdown with meta-block, prose sections, [[wikilinks]]
-- Priority: 20=inner circle, 35=core, 50=standard, 60=secondary, 80=background
-- Include lorebook tag in tags`);
+- Content MUST start with \`# Title\` heading, then intro paragraph, then meta-block, then prose
+- Summary MUST be written for AI selection (what/when/relationships), NOT prose description
+- Include the lorebook tag "${lorebookTag}" in tags
+- Use [[wikilinks]] to reference other vault entries when relevant
+- Keys should be 2-5 trigger words that would appear in chat when this entry is relevant`);
 
     return parts.join('\n');
 }
@@ -245,9 +320,9 @@ function getConnectionConfig() {
         mode: settings.aiSearchConnectionMode,
         profileId: settings.aiSearchProfileId,
         proxyUrl: settings.aiSearchProxyUrl,
-        model: settings.aiSearchModel,
-        maxTokens: settings.aiSearchMaxTokens || 4096,
-        timeout: settings.aiSearchTimeout || 30000,
+        model: settings.librarianSessionModel || settings.aiSearchModel,
+        maxTokens: settings.librarianSessionMaxTokens || 4096,
+        timeout: settings.librarianSessionTimeout || 60000,
         skipThrottle: true, // Session calls should not be throttled
     };
 }

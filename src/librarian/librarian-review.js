@@ -3,7 +3,7 @@
  * Two-panel UI: entry editor (left) + AI chat session (right).
  * Entry points: gap review, new entry, vault review.
  */
-import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../popup.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { yamlEscape, classifyError } from '../../core/utils.js';
 import { writeNote } from '../vault/obsidian-api.js';
@@ -58,6 +58,10 @@ function buildPopupHTML(session) {
         welcomeMsg = 'Ready to help create a new lore entry. Describe what you need, or just say "draft something" and I will get started.';
     }
 
+    const settings = getSettings();
+    const lorebookTag = settings.lorebookTag || 'lorebook';
+    const tagsVal = draft.tags ? draft.tags.join(', ') : lorebookTag;
+
     return `
 <div class="dle-librarian-popup">
     <div class="dle-librarian-editor">
@@ -66,7 +70,7 @@ function buildPopupHTML(session) {
             <label for="dle-lib-title">Title</label>
             <input type="text" id="dle-lib-title" class="text_pole" value="${escapeHtml(draft.title || '')}" placeholder="Entry title">
         </div>
-        <div class="dle-librarian-field-row">
+        <div class="dle-librarian-field-row dle-librarian-field-row-3">
             <div class="dle-librarian-field">
                 <label for="dle-lib-type">Type</label>
                 <select id="dle-lib-type" class="text_pole">
@@ -78,32 +82,42 @@ function buildPopupHTML(session) {
                 </select>
             </div>
             <div class="dle-librarian-field">
-                <label for="dle-lib-priority">Priority</label>
+                <label for="dle-lib-priority">Priority <span class="dle-priority-hint">(20=core 50=std 80=bg)</span></label>
                 <input type="number" id="dle-lib-priority" class="text_pole" min="1" max="100" value="${draft.priority || 50}" placeholder="50">
+            </div>
+            <div class="dle-librarian-field">
+                <label for="dle-lib-tags">Tags</label>
+                <input type="text" id="dle-lib-tags" class="text_pole" value="${escapeHtml(tagsVal)}" placeholder="${escapeHtml(lorebookTag)}" title="Comma-separated tags. Must include the lorebook tag.">
             </div>
         </div>
         <div class="dle-librarian-field">
             <label>Keys</label>
             <div class="dle-librarian-keys" id="dle-lib-keys">
                 ${(draft.keys || []).map(k => `<span class="dle-key-chip">${escapeHtml(k)}<button class="dle-key-remove" data-key="${escapeHtml(k)}" aria-label="Remove key ${escapeHtml(k)}">&times;</button></span>`).join('')}
-                <input type="text" class="dle-key-input" id="dle-lib-key-input" placeholder="Add key..." aria-label="Add keyword">
+                <input type="text" class="dle-key-input" id="dle-lib-key-input" placeholder="Add key (Enter or comma)..." aria-label="Add keyword">
             </div>
         </div>
         <div class="dle-librarian-field">
-            <label for="dle-lib-summary">Summary</label>
-            <textarea id="dle-lib-summary" class="text_pole" rows="3" placeholder="When should this entry be selected? (for AI retrieval)">${escapeHtml(draft.summary || '')}</textarea>
+            <label for="dle-lib-summary">Summary <span class="dle-field-hint">(for AI selection, not the writing AI)</span></label>
+            <textarea id="dle-lib-summary" class="text_pole" rows="4" placeholder="What is this? When should it be selected? Key relationships?">${escapeHtml(draft.summary || '')}</textarea>
         </div>
-        <div class="dle-librarian-field">
+        <div class="dle-librarian-field dle-librarian-field-grow">
             <label for="dle-lib-content">Content</label>
-            <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" rows="10" placeholder="Entry content (markdown)">${escapeHtml(draft.content || '')}</textarea>
+            <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Entry content (markdown with meta-block, prose, [[wikilinks]])">${escapeHtml(draft.content || '')}</textarea>
         </div>
-        <details class="dle-librarian-frontmatter-preview">
-            <summary>Frontmatter preview</summary>
+        <div class="dle-librarian-frontmatter-preview">
+            <div class="dle-librarian-frontmatter-label">Frontmatter Preview</div>
             <pre id="dle-lib-frontmatter" class="dle-librarian-frontmatter-code"></pre>
-        </details>
+        </div>
     </div>
     <div class="dle-librarian-chat">
-        <h4 class="dle-librarian-chat-title">Librarian</h4>
+        <div class="dle-librarian-chat-header">
+            <h4 class="dle-librarian-chat-title">Librarian</h4>
+            <button class="dle-lib-activity-toggle menu_button_icon" id="dle-lib-activity-btn" title="Toggle activity log" aria-label="Toggle activity log" aria-expanded="false">
+                <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="dle-lib-activity-log" id="dle-lib-activity" hidden aria-label="Tool use activity log"></div>
         <div class="dle-librarian-messages" id="dle-lib-messages">
             <div class="dle-lib-msg dle-lib-msg-ai">${welcomeMsg}</div>
         </div>
@@ -142,40 +156,63 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
     let sending = false;
 
     const result = await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
-        wide: true,
+        wider: true,
         large: true,
         allowVerticalScrolling: true,
         okButton: 'Write to Vault',
         cancelButton: 'Close',
-        onOpen: () => {
+        onOpen: (popup) => {
+            // Add custom class for CSS targeting
+            if (popup?.dlg) popup.dlg.classList.add('dle-librarian-review');
+
             // ─── Editor field sync ───
             const titleInput = container.querySelector('#dle-lib-title');
             const typeSelect = container.querySelector('#dle-lib-type');
             const priorityInput = container.querySelector('#dle-lib-priority');
+            const tagsInput = container.querySelector('#dle-lib-tags');
             const summaryInput = container.querySelector('#dle-lib-summary');
             const contentInput = container.querySelector('#dle-lib-content');
             const frontmatterPre = container.querySelector('#dle-lib-frontmatter');
+            const editorTitle = container.querySelector('.dle-librarian-editor-title');
+
+            function updateDirtyIndicator() {
+                if (dirty && editorTitle) {
+                    editorTitle.textContent = 'Entry Editor \u2022';
+                    editorTitle.classList.add('dle-librarian-dirty');
+                }
+            }
 
             function syncDraftFromFields() {
                 if (!session.draftState) session.draftState = {};
                 session.draftState.title = titleInput.value.trim();
                 session.draftState.type = typeSelect.value;
                 session.draftState.priority = Number(priorityInput.value) || 50;
+                session.draftState.tags = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
                 session.draftState.summary = summaryInput.value;
                 session.draftState.content = contentInput.value;
                 dirty = true;
+                updateDirtyIndicator();
                 updateFrontmatterPreview();
+            }
+
+            function flashField(el) {
+                el.classList.remove('dle-field-updated');
+                // Force reflow to restart animation
+                void el.offsetWidth;
+                el.classList.add('dle-field-updated');
             }
 
             function updateFieldsFromDraft() {
                 if (!session.draftState) return;
                 const d = session.draftState;
-                if (d.title !== undefined) titleInput.value = d.title;
-                if (d.type !== undefined) typeSelect.value = d.type;
-                if (d.priority !== undefined) priorityInput.value = d.priority;
-                if (d.summary !== undefined) summaryInput.value = d.summary;
-                if (d.content !== undefined) contentInput.value = d.content;
+                if (d.title !== undefined && titleInput.value !== d.title) { titleInput.value = d.title; flashField(titleInput); }
+                if (d.type !== undefined && typeSelect.value !== d.type) { typeSelect.value = d.type; flashField(typeSelect); }
+                if (d.priority !== undefined && String(priorityInput.value) !== String(d.priority)) { priorityInput.value = d.priority; flashField(priorityInput); }
+                if (d.tags !== undefined) { const tv = d.tags.join(', '); if (tagsInput.value !== tv) { tagsInput.value = tv; flashField(tagsInput); } }
+                if (d.summary !== undefined && summaryInput.value !== d.summary) { summaryInput.value = d.summary; flashField(summaryInput); }
+                if (d.content !== undefined && contentInput.value !== d.content) { contentInput.value = d.content; flashField(contentInput); }
                 rebuildKeyChips();
+                updateDirtyIndicator();
                 updateFrontmatterPreview();
             }
 
@@ -183,11 +220,16 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 const d = session.draftState || {};
                 const settings = getSettings();
                 const keysYaml = (d.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
+                const tags = d.tags?.length ? d.tags : [settings.lorebookTag || 'lorebook'];
+                const tagsYaml = tags.map(t => `  - ${yamlEscape(t)}`).join('\n');
+                const typeStr = d.type || 'lore';
+                const fileClassLine = typeStr !== 'story' ? `fileClass: ${yamlEscape(typeStr)}\n` : '';
                 frontmatterPre.textContent = `---
-type: ${yamlEscape(d.type || 'lore')}
+${fileClassLine}type: ${yamlEscape(typeStr)}
+status: active
 priority: ${d.priority || 50}
 tags:
-  - ${settings.lorebookTag || 'lorebook'}
+${tagsYaml}
 keys:
 ${keysYaml || '  - (none)'}
 summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
@@ -209,22 +251,41 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             }
 
             // Wire editor field changes
-            [titleInput, typeSelect, priorityInput, summaryInput, contentInput].forEach(el => {
+            [titleInput, typeSelect, priorityInput, tagsInput, summaryInput, contentInput].forEach(el => {
                 el.addEventListener('input', syncDraftFromFields);
             });
 
             // Wire key chip add/remove
             const keyInput = container.querySelector('#dle-lib-key-input');
+
+            function addKeyFromInput() {
+                const val = keyInput.value.trim();
+                if (!val) return false;
+                if (!session.draftState) session.draftState = {};
+                if (!session.draftState.keys) session.draftState.keys = [];
+                // Split on comma to support pasting multiple keys
+                const newKeys = val.split(',').map(k => k.trim()).filter(Boolean);
+                for (const k of newKeys) {
+                    if (!session.draftState.keys.includes(k)) {
+                        session.draftState.keys.push(k);
+                    }
+                }
+                keyInput.value = '';
+                dirty = true;
+                rebuildKeyChips();
+                updateFrontmatterPreview();
+                return true;
+            }
+
             keyInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && keyInput.value.trim()) {
+                if ((e.key === 'Enter' || e.key === 'Tab') && keyInput.value.trim()) {
                     e.preventDefault();
-                    if (!session.draftState) session.draftState = {};
-                    if (!session.draftState.keys) session.draftState.keys = [];
-                    session.draftState.keys.push(keyInput.value.trim());
-                    keyInput.value = '';
-                    dirty = true;
-                    rebuildKeyChips();
-                    updateFrontmatterPreview();
+                    addKeyFromInput();
+                }
+                // Comma triggers add (but don't prevent default — the comma char will be caught by input event)
+                if (e.key === ',') {
+                    // Use timeout so the comma character is in the value before we process
+                    setTimeout(() => addKeyFromInput(), 0);
                 }
             });
             container.querySelector('#dle-lib-keys').addEventListener('click', (e) => {
@@ -314,18 +375,58 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             // Initial frontmatter preview
             updateFrontmatterPreview();
 
-            // If gap review, auto-send initial prompt
-            if (entryPoint === 'gap' && session.gapRecord) {
+            // ─── Activity log toggle ───
+            const activityBtn = container.querySelector('#dle-lib-activity-btn');
+            const activityPanel = container.querySelector('#dle-lib-activity');
+
+            function renderActivityLog() {
+                const gaps = [...loreGaps].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+                if (gaps.length === 0) {
+                    activityPanel.innerHTML = '<div class="dle-lib-activity-empty">No tool activity recorded for this chat.</div>';
+                    return;
+                }
+                let html = '';
+                for (const gap of gaps) {
+                    const icon = gap.type === 'search'
+                        ? '<i class="fa-solid fa-magnifying-glass"></i>'
+                        : '<i class="fa-solid fa-flag"></i>';
+                    const results = gap.type === 'search'
+                        ? (gap.hadResults ? `${(gap.resultTitles || []).length} results` : '0 results')
+                        : (gap.urgency || 'medium');
+                    const time = gap.timestamp ? new Date(gap.timestamp).toLocaleTimeString() : '';
+                    html += `<div class="dle-lib-activity-row">`;
+                    html += `<span class="dle-lib-activity-icon">${icon}</span>`;
+                    html += `<span class="dle-lib-activity-query">${escapeHtml(gap.query || '')}</span>`;
+                    html += `<span class="dle-lib-activity-result">${results}</span>`;
+                    html += `<span class="dle-lib-activity-time">${time}</span>`;
+                    html += `</div>`;
+                }
+                activityPanel.innerHTML = html;
+            }
+
+            activityBtn.addEventListener('click', () => {
+                const expanded = activityPanel.hidden;
+                activityPanel.hidden = !expanded;
+                activityBtn.setAttribute('aria-expanded', String(expanded));
+                if (expanded) renderActivityLog();
+            });
+
+            // If gap review and auto-send enabled, send initial prompt
+            if (entryPoint === 'gap' && session.gapRecord && getSettings().librarianAutoSendOnGap !== false) {
                 setTimeout(() => {
                     chatInput.value = `Draft an entry for "${session.gapRecord.query}".`;
                     handleSend();
                 }, 300);
             }
         },
-        onClosing: () => {
+        onClosing: async () => {
             // Warn on unsaved changes (unless writing to vault)
             if (dirty && session.draftState?.title) {
-                return confirm('You have unsaved changes. Close without saving?');
+                const confirmResult = await callGenericPopup(
+                    'You have unsaved changes. Discard them?',
+                    POPUP_TYPE.CONFIRM,
+                );
+                return confirmResult === POPUP_RESULT.AFFIRMATIVE;
             }
             return true;
         },
@@ -352,16 +453,21 @@ async function writeToVault(session) {
 
     const vault = getPrimaryVault(settings);
     const safeTitle = sanitizeFilename(draft.title);
-    const folder = settings.autoSuggestFolder || '';
+    const folder = settings.librarianWriteFolder || settings.autoSuggestFolder || '';
     const filename = folder ? `${folder}/${safeTitle}.md` : `${safeTitle}.md`;
 
     const keysYaml = (draft.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
+    const tags = draft.tags?.length ? draft.tags : [settings.lorebookTag || 'lorebook'];
+    const tagsYaml = tags.map(t => `  - ${yamlEscape(t)}`).join('\n');
+    const typeStr = draft.type || 'lore';
+    const fileClassLine = typeStr !== 'story' ? `fileClass: ${yamlEscape(typeStr)}\n` : '';
     const safeContent = stripObsidianSyntax(draft.content || '');
     const fileContent = `---
-type: ${yamlEscape(draft.type || 'lore')}
+${fileClassLine}type: ${yamlEscape(typeStr)}
+status: active
 priority: ${draft.priority || 50}
 tags:
-  - ${settings.lorebookTag || 'lorebook'}
+${tagsYaml}
 keys:
 ${keysYaml}
 summary: "${(draft.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
@@ -370,10 +476,22 @@ summary: "${(draft.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').re
 
 ${safeContent}`;
 
+    // Preview before writing
+    const previewHtml = document.createElement('div');
+    previewHtml.innerHTML = `<div style="margin-bottom:8px"><strong>File:</strong> <code>${escapeHtml(filename)}</code></div>`
+        + `<pre style="max-height:400px;overflow-y:auto;font-size:11px;padding:8px;background:var(--SmartThemeBlurTintColor);border-radius:4px;white-space:pre-wrap;word-break:break-word">${escapeHtml(fileContent)}</pre>`;
+    const confirmWrite = await callGenericPopup(previewHtml, POPUP_TYPE.CONFIRM, '', {
+        wider: true,
+        allowVerticalScrolling: true,
+        okButton: 'Write',
+        cancelButton: 'Cancel',
+    });
+    if (confirmWrite !== POPUP_RESULT.AFFIRMATIVE) return;
+
     try {
         const data = await writeNote(vault.host, vault.port, vault.apiKey, filename, fileContent);
         if (data.ok) {
-            toastr.success(`Created: ${draft.title}`, 'DeepLore Enhanced');
+            toastr.success(`Created: ${draft.title} (${filename})`, 'DeepLore Enhanced');
 
             // Update gap status if applicable
             if (session.gapRecord?.id) {

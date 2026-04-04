@@ -497,8 +497,8 @@ export function wireHealthIcons($drawer) {
 
 /** Wire Librarian tab interactions (filter, sort, gap click) */
 export function wireLibrarianTab($drawer) {
-    // Filter toggle buttons
-    $drawer.on('click', '.dle-librarian-filter-btn', function () {
+    // Sub-tab buttons
+    $drawer.on('click', '.dle-librarian-sub-tab', function () {
         ds.librarianFilter = $(this).data('filter') || 'all';
         scheduleRender(renderLibrarianTab);
     });
@@ -523,5 +523,10 @@ export function wireLibrarianTab($drawer) {
             e.preventDefault();
             $(this).trigger('click');
         }
+    });
+
+    // New Entry button in empty state
+    $drawer.on('click', '.dle-librarian-new-entry-btn', function () {
+        executeCommand('/dle-librarian');
     });
 }

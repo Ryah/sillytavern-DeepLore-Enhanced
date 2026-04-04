@@ -13,9 +13,10 @@
  * @param {number} maxTokens - Max tokens for response
  * @param {number} [timeout=15000] - Timeout in ms
  * @param {{ stablePrefix?: string, dynamicSuffix?: string }} [cacheHints] - Optional cache-aware content blocks for Anthropic prompt caching
+ * @param {AbortSignal} [externalSignal] - Optional AbortSignal for caller-initiated cancellation
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
-export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000, cacheHints) {
+export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000, cacheHints, externalSignal) {
     // Validate proxy URL to prevent SSRF via internal network
     try {
         const parsed = new URL(proxyUrl);
@@ -65,6 +66,15 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
+
+    // Wire external signal (user cancellation) to our internal controller
+    if (externalSignal) {
+        if (externalSignal.aborted) {
+            controller.abort();
+        } else {
+            externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+        }
+    }
 
     // Build user content — if cache hints provided, split into blocks with cache_control
     let userContent;
@@ -127,6 +137,11 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
         };
     } catch (err) {
         if (err.name === 'AbortError') {
+            if (externalSignal?.aborted) {
+                const abortErr = new Error('Request aborted by user');
+                abortErr.name = 'AbortError';
+                throw abortErr;
+            }
             throw new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`);
         }
         throw err;

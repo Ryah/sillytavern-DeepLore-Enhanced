@@ -55,7 +55,7 @@ export function getProfileModelHint() {
  * @param {string} [modelOverride] - Model override (defaults to aiSearchModel)
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
-export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, modelOverride) {
+export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, modelOverride, externalSignal) {
     const settings = getSettings();
     const resolvedProfileId = profileId || settings.aiSearchProfileId;
     const resolvedModel = modelOverride !== undefined ? modelOverride : settings.aiSearchModel;
@@ -81,6 +81,11 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
+    // Wire external signal (user cancellation) to abort the internal controller
+    if (externalSignal) {
+        if (externalSignal.aborted) { clearTimeout(timer); const err = new Error('Request aborted'); err.name = 'AbortError'; throw err; }
+        externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
 
     try {
         // BUG-028: Use Promise.race to enforce timeout even if CMRS ignores AbortSignal
@@ -156,13 +161,20 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
         }
     }
 
-    const { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints } = connectionConfig;
+    const { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints, signal } = connectionConfig;
+
+    // Check if already aborted before making the call
+    if (signal?.aborted) {
+        const err = new Error('Request aborted');
+        err.name = 'AbortError';
+        throw err;
+    }
 
     // BUG-039 + BUG-H1: Set throttle timestamp only on SUCCESS.
     // Failed calls must not consume the throttle window (prevents blocking retries).
     let result;
     if (mode === 'profile') {
-        result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model);
+        result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model, signal);
     } else {
         // Proxy mode
         result = await callProxyViaCorsBridge(
@@ -173,6 +185,7 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
             maxTokens,
             timeout,
             cacheHints,
+            signal,
         );
     }
     // Only stamp throttle on success, and only for non-skipped calls

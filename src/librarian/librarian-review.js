@@ -11,7 +11,7 @@ import { writeNote } from '../vault/obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
-import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus } from './librarian-session.js';
+import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession } from './librarian-session.js';
 import { getSessionActivityLog } from './librarian-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -31,11 +31,11 @@ function buildPopupHTML(session) {
     // Initial welcome message for chat
     let welcomeMsg = '';
     if (isGap && session.gapRecord) {
-        welcomeMsg = `Gap detected: "${escapeHtml(session.gapRecord.query)}". ${escapeHtml(session.gapRecord.reason || '')} What would you like to do?`;
+        welcomeMsg = `*shuffles papers* So your vault name-drops "<b>${escapeHtml(session.gapRecord.query)}</b>" but nobody bothered to write the entry. ${escapeHtml(session.gapRecord.reason || '')} Classic. Tell me what you want, or I'll just start drafting.`;
     } else if (isReview) {
-        welcomeMsg = 'Ready to review your vault. Send a message to start, or I can analyze your recent chat for entries that need creating or updating.';
+        welcomeMsg = `*leans back, flips through your vault* Alright, let's see what kind of mess we're working with. Send me a direction or I'll start pulling threads from your recent chat.`;
     } else {
-        welcomeMsg = 'Ready to help create a new lore entry. Describe what you need, or just say "draft something" and I will get started.';
+        welcomeMsg = `*pulls out a blank card, uncaps a pen* New entry. What are we documenting? Give me a name, a concept, a fever dream — I'll make it canon.`;
     }
 
     const settings = getSettings();
@@ -95,6 +95,9 @@ function buildPopupHTML(session) {
     <div class="dle-librarian-chat" role="region" aria-label="AI assistant">
         <div class="dle-librarian-chat-header">
             <h4 class="dle-librarian-chat-title">Librarian</h4>
+            <button class="menu_button_icon" id="dle-lib-clear-chat" title="Clear chat history" aria-label="Clear chat history">
+                <i class="fa-solid fa-eraser" aria-hidden="true"></i>
+            </button>
             <button class="dle-lib-activity-toggle menu_button_icon" id="dle-lib-activity-btn" title="Toggle activity log" aria-label="Toggle activity log" aria-expanded="false">
                 <i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i>
             </button>
@@ -112,6 +115,9 @@ function buildPopupHTML(session) {
             <button id="dle-lib-send" class="menu_button" aria-label="Send message">
                 <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
             </button>
+            <button id="dle-lib-stop" class="menu_button dle-lib-stop-btn" style="display:none" aria-label="Stop generation">
+                <i class="fa-solid fa-stop" aria-hidden="true"></i>
+            </button>
         </div>
     </div>
 </div>`;
@@ -127,10 +133,29 @@ function buildPopupHTML(session) {
  * @param {object} [options] - Options (e.g. { gap: gapRecord })
  */
 export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
-    const session = createSession(entryPoint, options);
+    // Check for saved session from a previous page refresh
+    let session;
+    let isRestored = false;
+    const saved = loadSessionState();
+    if (saved && saved.messages?.length > 0) {
+        const resume = await callGenericPopup(
+            'You have a previous Librarian session in progress. Resume where you left off?',
+            POPUP_TYPE.CONFIRM,
+            '', { okButton: 'Resume', cancelButton: 'Start Fresh' },
+        );
+        if (resume === POPUP_RESULT.AFFIRMATIVE) {
+            session = restoreSession(saved);
+            isRestored = true;
+        } else {
+            clearSessionState();
+            session = createSession(entryPoint, options);
+        }
+    } else {
+        session = createSession(entryPoint, options);
+    }
 
     // If gap, mark it in-progress
-    if (entryPoint === 'gap' && options.gap?.id) {
+    if (!isRestored && entryPoint === 'gap' && options.gap?.id) {
         updateGapStatus(options.gap.id, 'in_progress');
     }
 
@@ -140,6 +165,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
     let dirty = false;
     let sending = false;
     let writingToVault = false;
+    let _saveTimer = null;
 
     const result = await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
         wider: true,
@@ -186,6 +212,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 dirty = true;
                 updateDirtyIndicator();
                 updateFrontmatterPreview();
+                debouncedSaveSession();
             }
 
             function flashField(el) {
@@ -309,6 +336,8 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             const messagesDiv = container.querySelector('#dle-lib-messages');
             const chatInput = container.querySelector('#dle-lib-chat-input');
             const sendBtn = container.querySelector('#dle-lib-send');
+            const stopBtn = container.querySelector('#dle-lib-stop');
+            let abortController = null;
 
             /** Track message index for edit/regenerate mapping */
             let msgCounter = 0;
@@ -414,16 +443,19 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                     sending = true;
                     setSendingUI(true);
                     showLoading(true, 'Calling AI...');
+                    const editOpts = buildSendOptions();
 
                     try {
                         const response = sessionIdx >= 0
-                            ? await editMessage(session, sessionIdx, newText)
-                            : await sendMessage(session, newText);
+                            ? await editMessage(session, sessionIdx, newText, editOpts)
+                            : await sendMessage(session, newText, editOpts);
                         showLoading(false);
                         processAIResponse(response);
                     } catch (err) {
                         showLoading(false);
-                        appendMessage('ai', `Error: ${classifyError(err)}`);
+                        if (err.name !== 'AbortError') {
+                            appendMessage('ai', `Error: ${classifyError(err)}`);
+                        }
                     }
                     sending = false;
                     setSendingUI(false);
@@ -443,15 +475,18 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 msgDiv.classList.add('dle-lib-msg-stale');
 
                 showLoading(true, 'Regenerating...');
+                const regenOpts = buildSendOptions();
 
                 try {
-                    const response = await regenerateResponse(session);
+                    const response = await regenerateResponse(session, regenOpts);
                     showLoading(false);
                     msgDiv.remove();
                     processAIResponse(response);
                 } catch (err) {
                     showLoading(false);
-                    appendMessage('ai', `Error: ${classifyError(err)}`);
+                    if (err.name !== 'AbortError') {
+                        appendMessage('ai', `Error: ${classifyError(err)}`);
+                    }
                 }
                 sending = false;
                 setSendingUI(false);
@@ -476,10 +511,10 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                     // Staged timeout feedback
                     const textEl = spinner.querySelector('.dle-lib-loading-text');
                     loadingTimers.push(setTimeout(() => {
-                        if (textEl) textEl.textContent = 'Still waiting...';
+                        if (textEl) textEl.textContent = 'Still thinking...';
                     }, 15000));
                     loadingTimers.push(setTimeout(() => {
-                        if (textEl) textEl.textContent = 'Taking longer than usual...';
+                        if (textEl) textEl.textContent = 'Working through a lot — hang tight...';
                     }, 30000));
                 } else {
                     loadingTimers.forEach(t => clearTimeout(t));
@@ -494,16 +529,129 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             }
 
             function setSendingUI(isSending) {
-                sendBtn.disabled = isSending;
                 chatInput.disabled = isSending;
-                const icon = sendBtn.querySelector('i');
-                if (icon) icon.className = isSending
-                    ? 'fa-solid fa-spinner fa-spin'
-                    : 'fa-solid fa-paper-plane';
+                sendBtn.style.display = isSending ? 'none' : '';
+                stopBtn.style.display = isSending ? '' : 'none';
+            }
+
+            // ─── Stop button ───
+            stopBtn.addEventListener('click', () => {
+                if (abortController) abortController.abort();
+                sending = false;
+                setSendingUI(false);
+                showLoading(false);
+                appendMessage('ai', '*(Stopped by user)*');
+            });
+
+            // ─── Tool activity helpers ───
+            /** Track tool divs created during a single turn for collapsing */
+            let turnToolDivs = [];
+
+            function appendToolActivity(name, args) {
+                const div = document.createElement('div');
+                div.className = 'dle-lib-msg dle-lib-msg-tool';
+                div.dataset.toolName = name;
+                const argsStr = Object.entries(args || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
+                div.innerHTML = `<div class="dle-lib-tool-header">`
+                    + `<i class="fa-solid fa-wrench"></i> ${escapeHtml(name)}(${escapeHtml(argsStr)})`
+                    + ` <i class="fa-solid fa-spinner fa-spin dle-lib-tool-spinner"></i>`
+                    + `</div>`
+                    + `<div class="dle-lib-tool-result" hidden></div>`;
+                div.querySelector('.dle-lib-tool-header').addEventListener('click', () => {
+                    const resultDiv = div.querySelector('.dle-lib-tool-result');
+                    resultDiv.hidden = !resultDiv.hidden;
+                });
+                // Insert before the loading spinner so it stays at the bottom
+                const loadingEl = messagesDiv.querySelector('#dle-lib-loading');
+                if (loadingEl) {
+                    messagesDiv.insertBefore(div, loadingEl);
+                } else {
+                    messagesDiv.appendChild(div);
+                }
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                turnToolDivs.push(div);
+                return div;
+            }
+
+            function completeToolActivity(toolDiv, result) {
+                const spinner = toolDiv.querySelector('.dle-lib-tool-spinner');
+                if (spinner) spinner.remove();
+                const resultDiv = toolDiv.querySelector('.dle-lib-tool-result');
+                if (resultDiv) {
+                    resultDiv.textContent = result.length > 500 ? result.slice(0, 497) + '...' : result;
+                }
+            }
+
+            /** Collapse all tool divs from this turn into a single summary line */
+            function collapseToolActivity() {
+                if (turnToolDivs.length === 0) return;
+                // Count tool calls by name
+                const counts = {};
+                for (const div of turnToolDivs) {
+                    const name = div.dataset.toolName || 'tool';
+                    counts[name] = (counts[name] || 0) + 1;
+                }
+                const summary = Object.entries(counts).map(([n, c]) => c > 1 ? `${n} x${c}` : n).join(', ');
+
+                // Create collapsed summary node
+                const wrap = document.createElement('div');
+                wrap.className = 'dle-lib-msg dle-lib-msg-tool dle-lib-tool-collapsed';
+                wrap.innerHTML = `<div class="dle-lib-tool-header">`
+                    + `<i class="fa-solid fa-wrench"></i> ${escapeHtml(summary)}`
+                    + ` <i class="fa-solid fa-chevron-down dle-lib-tool-expand-icon"></i>`
+                    + `</div>`
+                    + `<div class="dle-lib-tool-expanded" hidden></div>`;
+
+                // Move all individual tool divs inside the expandable area
+                const expandArea = wrap.querySelector('.dle-lib-tool-expanded');
+                for (const div of turnToolDivs) {
+                    div.remove();
+                    expandArea.appendChild(div);
+                }
+
+                wrap.querySelector('.dle-lib-tool-header').addEventListener('click', () => {
+                    const expanded = expandArea.hidden;
+                    expandArea.hidden = !expanded;
+                    const icon = wrap.querySelector('.dle-lib-tool-expand-icon');
+                    if (icon) icon.className = expanded
+                        ? 'fa-solid fa-chevron-up dle-lib-tool-expand-icon'
+                        : 'fa-solid fa-chevron-down dle-lib-tool-expand-icon';
+                });
+
+                // Insert before the last AI message (or append)
+                const lastAiMsg = messagesDiv.querySelector('.dle-lib-msg-ai:last-of-type');
+                if (lastAiMsg) {
+                    messagesDiv.insertBefore(wrap, lastAiMsg);
+                } else {
+                    messagesDiv.appendChild(wrap);
+                }
+
+                turnToolDivs = [];
+            }
+
+            /** Build sendMessage options with signal and tool callbacks */
+            function buildSendOptions() {
+                abortController = new AbortController();
+                turnToolDivs = [];
+                let currentToolDiv = null;
+                return {
+                    signal: abortController.signal,
+                    onToolCall: (name, args) => {
+                        currentToolDiv = appendToolActivity(name, args);
+                        updateLoadingStage(`Running ${name}...`);
+                    },
+                    onToolResult: (name, result) => {
+                        if (currentToolDiv) completeToolActivity(currentToolDiv, result);
+                        currentToolDiv = null;
+                    },
+                };
             }
 
             /** Shared handler for all AI response types (draft, queue, options, exhaust) */
             function processAIResponse(response) {
+                // Collapse tool activity from this turn before adding the AI's response
+                collapseToolActivity();
+
                 if (response.valid && response.parsed) {
                     appendMessage('ai', response.parsed.message || '(no message)');
                     if (response.parsed.draft) {
@@ -525,6 +673,7 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                         + `Try rephrasing your request, or edit the fields manually.`
                     );
                 }
+                debouncedSaveSession();
             }
 
             /** Render options picker cards in the chat panel */
@@ -552,6 +701,21 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                         + `<button class="menu_button dle-lib-option-apply" data-option-idx="${i}">Apply This</button>`;
                     wrap.appendChild(card);
                 }
+
+                // Dismiss button at the bottom
+                const dismissBtn = document.createElement('button');
+                dismissBtn.className = 'menu_button dle-lib-option-dismiss';
+                dismissBtn.textContent = 'Dismiss';
+                dismissBtn.addEventListener('click', () => {
+                    // Abort any in-flight call
+                    if (abortController) abortController.abort();
+                    sending = false;
+                    setSendingUI(false);
+                    showLoading(false);
+                    wrap.remove();
+                    appendMessage('ai', '*(Options dismissed)*');
+                });
+                wrap.appendChild(dismissBtn);
 
                 messagesDiv.appendChild(wrap);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -602,12 +766,12 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 chatInput.value = '';
                 appendMessage('user', text);
                 showLoading(true, 'Building prompt...');
+                const opts = buildSendOptions();
 
                 try {
                     updateLoadingStage('Calling AI...');
-                    const response = await sendMessage(session, finalText);
+                    const response = await sendMessage(session, finalText, opts);
                     if (!sending) {
-                        // Cancelled while waiting
                         showLoading(false);
                         return;
                     }
@@ -616,7 +780,9 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                     processAIResponse(response);
                 } catch (err) {
                     showLoading(false);
-                    appendMessage('ai', `Error: ${classifyError(err)}`);
+                    if (err.name !== 'AbortError') {
+                        appendMessage('ai', `Error: ${classifyError(err)}`);
+                    }
                 }
                 sending = false;
                 setSendingUI(false);
@@ -651,6 +817,33 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
 
             // Initial frontmatter preview
             updateFrontmatterPreview();
+
+            // ─── Clear chat ───
+            const clearChatBtn = container.querySelector('#dle-lib-clear-chat');
+            clearChatBtn.addEventListener('click', () => {
+                // Abort any in-flight call
+                if (abortController) abortController.abort();
+                sending = false;
+                setSendingUI(false);
+                showLoading(false);
+
+                // Clear session messages but keep draft state
+                session.messages = [];
+                msgCounter = 0;
+
+                // Clear DOM — re-add welcome message
+                messagesDiv.innerHTML = '';
+                const welcomeDiv = document.createElement('div');
+                welcomeDiv.className = 'dle-lib-msg dle-lib-msg-ai';
+                welcomeDiv.innerHTML = `<em>*dusts off the desk*</em> Clean slate. What are we working on?`;
+                messagesDiv.appendChild(welcomeDiv);
+
+                // Remove any options cards or queue
+                messagesDiv.querySelectorAll('.dle-lib-options').forEach(el => el.remove());
+
+                debouncedSaveSession();
+                chatInput.focus();
+            });
 
             // ─── Activity log toggle ───
             const activityBtn = container.querySelector('#dle-lib-activity-btn');
@@ -735,8 +928,50 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 setChatCollapsed(!isCollapsed);
             });
 
-            // If gap review and auto-send enabled, send initial prompt
-            if (entryPoint === 'gap' && session.gapRecord && getSettings().librarianAutoSendOnGap !== false) {
+            // ─── Session persistence ───
+            function debouncedSaveSession() {
+                clearTimeout(_saveTimer);
+                _saveTimer = setTimeout(() => saveSessionState(session), 500);
+            }
+
+            // ─── Restore session from saved state ───
+            if (isRestored) {
+                // Replay messages to DOM
+                for (const msg of session.messages) {
+                    if (msg.role === 'tool_result') {
+                        // Render tool results as collapsed tool nodes
+                        const div = document.createElement('div');
+                        div.className = 'dle-lib-msg dle-lib-msg-tool';
+                        div.innerHTML = `<div class="dle-lib-tool-header">`
+                            + `<i class="fa-solid fa-wrench"></i> Tool Results`
+                            + `</div>`
+                            + `<div class="dle-lib-tool-result" hidden></div>`;
+                        const resultDiv = div.querySelector('.dle-lib-tool-result');
+                        resultDiv.textContent = msg.content.length > 500 ? msg.content.slice(0, 497) + '...' : msg.content;
+                        div.querySelector('.dle-lib-tool-header').addEventListener('click', () => {
+                            resultDiv.hidden = !resultDiv.hidden;
+                        });
+                        messagesDiv.appendChild(div);
+                    } else {
+                        appendMessage(msg.role === 'user' ? 'user' : 'ai', msg.content);
+                    }
+                }
+                // Restore draft fields to editor
+                if (session.draftState) {
+                    dirty = true;
+                    updateFieldsFromDraft();
+                    updateDirtyIndicator();
+                    updateFrontmatterPreview();
+                }
+                // Restore work queue
+                if (session.workQueue?.length) {
+                    renderWorkQueue(container, session, session.workQueue);
+                }
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+
+            // If gap review and auto-send enabled, send initial prompt (skip if restored)
+            if (!isRestored && entryPoint === 'gap' && session.gapRecord && getSettings().librarianAutoSendOnGap !== false) {
                 session._autoSendTimer = setTimeout(() => {
                     chatInput.value = `Draft an entry for "${session.gapRecord.query}".`;
                     handleSend();
@@ -746,16 +981,29 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
         onClosing: async () => {
             // Clear auto-send timer to prevent wasted API call
             if (session._autoSendTimer) clearTimeout(session._autoSendTimer);
+            clearTimeout(_saveTimer);
             // Skip discard prompt when writing to vault (OK button was clicked)
-            if (writingToVault) return true;
+            if (writingToVault) {
+                clearSessionState();
+                return true;
+            }
             // Warn on unsaved changes when closing without writing
             if (dirty && session.draftState?.title) {
                 const confirmResult = await callGenericPopup(
-                    'You have unsaved changes. Discard them?',
+                    'You have unsaved changes. Discard draft, or keep session for later?',
                     POPUP_TYPE.CONFIRM,
+                    '', { okButton: 'Discard', cancelButton: 'Keep for Later' },
                 );
-                return confirmResult === POPUP_RESULT.AFFIRMATIVE;
+                if (confirmResult === POPUP_RESULT.AFFIRMATIVE) {
+                    clearSessionState();
+                    return true;
+                }
+                // "Keep for Later" — save and close
+                saveSessionState(session);
+                return true;
             }
+            // No unsaved changes — clear saved state
+            clearSessionState();
             return true;
         },
     });
@@ -865,8 +1113,10 @@ function renderWorkQueue(container, session, queue) {
         chatDiv.insertBefore(queueDiv, inputRow);
     }
 
-    let html = '<div class="dle-lib-queue-header">Work Queue</div>';
-    for (let i = 0; i < queue.length; i++) {
+    const MAX_QUEUE_ITEMS = 5;
+    const capped = queue.slice(0, MAX_QUEUE_ITEMS);
+    let html = '<div class="dle-lib-queue-header">Suggestions — click to draft</div>';
+    for (let i = 0; i < capped.length; i++) {
         const item = queue[i];
         const urgencyClass = item.urgency === 'high' ? 'dle-lib-queue-urgent' : '';
         html += `<div class="dle-lib-queue-item ${urgencyClass}" data-queue-idx="${i}">

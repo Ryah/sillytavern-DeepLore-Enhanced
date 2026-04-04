@@ -759,7 +759,7 @@ export function parseSessionResponse(text) {
 // ════════════════════════════════════════════════════════════════════════════
 
 const VALID_ENTRY_TYPES = ['character', 'location', 'lore', 'organization', 'story'];
-const VALID_SESSION_ACTIONS = ['update_draft', 'propose_queue', 'propose_options'];
+const VALID_SESSION_ACTIONS = ['update_draft', 'propose_queue', 'propose_options', 'tool_call'];
 const VALID_QUEUE_ACTIONS = ['create', 'update'];
 const VALID_URGENCIES = ['low', 'medium', 'high'];
 
@@ -779,7 +779,28 @@ export function validateSessionResponse(parsed) {
         errors.push("Missing required 'message' field (must be a non-empty string)");
     }
     if (parsed.action !== undefined && parsed.action !== null && !VALID_SESSION_ACTIONS.includes(parsed.action)) {
-        errors.push(`'action' must be one of: update_draft, propose_queue, null. Got: '${parsed.action}'`);
+        errors.push(`'action' must be one of: ${VALID_SESSION_ACTIONS.join(', ')}, null. Got: '${parsed.action}'`);
+    }
+
+    // Validate tool_calls when action is tool_call
+    if (parsed.action === 'tool_call') {
+        if (!Array.isArray(parsed.tool_calls) || parsed.tool_calls.length === 0) {
+            errors.push("'tool_calls' must be a non-empty array when action is 'tool_call'");
+        } else {
+            for (let i = 0; i < parsed.tool_calls.length; i++) {
+                const tc = parsed.tool_calls[i];
+                if (!tc || typeof tc !== 'object') {
+                    errors.push(`tool_calls[${i}] must be an object`);
+                } else {
+                    if (typeof tc.name !== 'string' || !tc.name.trim()) {
+                        errors.push(`tool_calls[${i}].name must be a non-empty string`);
+                    }
+                    if (tc.args !== undefined && tc.args !== null && (typeof tc.args !== 'object' || Array.isArray(tc.args))) {
+                        errors.push(`tool_calls[${i}].args must be an object`);
+                    }
+                }
+            }
+        }
     }
 
     if (parsed.draft !== undefined && parsed.draft !== null) {

@@ -11,12 +11,14 @@ import { queryBM25 } from '../vault/bm25.js';
 import { getSettings, resolveConnectionConfig } from '../../settings.js';
 import { vaultIndex, fuzzySearchIndex, loreGaps, setLoreGaps } from '../state.js';
 import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
+import { executeToolCall, buildToolsPromptSection } from './librarian-chat-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Constants
 // ════════════════════════════════════════════════════════════════════════════
 
 const MAX_VALIDATION_RETRIES = 3;
+const MAX_TOOL_CALLS_PER_TURN = 15;
 const MAX_HISTORY_MESSAGES = 10; // Keep last N messages to bound prompt growth
 // Caps are now configurable via settings — these are fallback defaults
 function getManifestMaxChars() { return getSettings().librarianManifestMaxChars || 8000; }
@@ -84,6 +86,77 @@ export function createSession(entryPoint, options = {}) {
     };
 
     return session;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Session Persistence (survives page refresh via localStorage)
+// ════════════════════════════════════════════════════════════════════════════
+
+const SESSION_STORAGE_KEY = 'deeplore_librarian_session';
+
+/**
+ * Save session state to localStorage for persistence across page refreshes.
+ * Uses localStorage instead of chat_metadata so the session survives
+ * regardless of whether a chat is selected.
+ * @param {LibrarianSession} session
+ */
+export function saveSessionState(session) {
+    try {
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+            messages: session.messages,
+            draftState: session.draftState,
+            entryPoint: session.entryPoint,
+            gapRecord: session.gapRecord,
+            manifest: session.manifest,
+            chatContext: session.chatContext,
+            relatedEntries: session.relatedEntries,
+            workQueue: session.workQueue,
+            savedAt: Date.now(),
+        }));
+    } catch (e) {
+        console.warn('[DLE] Failed to save librarian session:', e.message);
+    }
+}
+
+/**
+ * Load saved session state from localStorage.
+ * @returns {object|null} Saved session state, or null if none exists
+ */
+export function loadSessionState() {
+    try {
+        const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Clear saved session state from localStorage.
+ */
+export function clearSessionState() {
+    try {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+    } catch {}
+}
+
+/**
+ * Restore a session from saved state.
+ * Rebuilds the session object from persisted data.
+ * @param {object} saved - Saved session state from loadSessionState()
+ * @returns {LibrarianSession}
+ */
+export function restoreSession(saved) {
+    return {
+        messages: saved.messages || [],
+        draftState: saved.draftState || null,
+        gapRecord: saved.gapRecord || null,
+        entryPoint: saved.entryPoint || 'new',
+        manifest: saved.manifest || '',
+        chatContext: saved.chatContext || '',
+        relatedEntries: saved.relatedEntries || '',
+        workQueue: saved.workQueue || null,
+    };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -277,7 +350,10 @@ function buildSystemPrompt(session) {
         // Full override — custom prompt replaces everything
         parts.push(customPrompt);
     } else {
-        parts.push(`You are a lorebook editor for a roleplay setting. You help create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".`);
+        parts.push(`You are a lorebook editor for a roleplay setting. You help create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".
+
+## Personality (chat messages only — never in draft content)
+In your "message" responses, channel the energy of an overqualified, sardonic librarian who ended up cataloguing fictional lore instead of doing something respectable. Dry wit, deadpan observations, occasional eye-rolls at the state of the vault. You're competent and you know it — you just wish you didn't have to be. Keep it brief and sharp; never let the attitude slow down the actual work.`);
 
         // Entry writing guide
         parts.push(ENTRY_WRITING_GUIDE);
@@ -345,6 +421,9 @@ function buildSystemPrompt(session) {
     } else {
         parts.push(`\n## Current draft:\nNo draft yet. Help the user create one.`);
     }
+
+    // Vault query tools
+    parts.push(buildToolsPromptSection());
 
     // Response format
     parts.push(`
@@ -431,73 +510,138 @@ function getConnectionConfig() {
 
 /**
  * Send a message in a librarian session.
- * Includes validation gate with auto-retry.
+ * Includes validation gate with auto-retry and agentic tool loop.
  *
  * @param {LibrarianSession} session - The active session
  * @param {string} userMessage - User's message
+ * @param {object} [options]
+ * @param {AbortSignal} [options.signal] - AbortSignal for user cancellation
+ * @param {function} [options.onToolCall] - Callback(name, args) when tool call starts
+ * @param {function} [options.onToolResult] - Callback(name, result) when tool call completes
  * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
  */
-export async function sendMessage(session, userMessage) {
+export async function sendMessage(session, userMessage, options = {}) {
+    const { signal, onToolCall, onToolResult } = options;
+
     // Append user message to history
     session.messages.push({ role: 'user', content: userMessage });
 
     const systemPrompt = buildSystemPrompt(session);
-    const connectionConfig = getConnectionConfig();
+    const connectionConfig = { ...getConnectionConfig(), signal };
 
-    let messageToSend = buildUserPromptFromHistory(session.messages);
-    let lastErrors = [];
+    let toolCallCount = 0;
 
-    for (let attempt = 0; attempt < MAX_VALIDATION_RETRIES; attempt++) {
-        let result;
-        try {
-            result = await callAI(systemPrompt, messageToSend, connectionConfig);
-        } catch (err) {
-            // Connection/timeout errors are retryable once
-            lastErrors = [`AI call failed: ${err.message || err}`];
-            if (attempt < MAX_VALIDATION_RETRIES - 1) continue;
+    // Outer loop: handles tool_call → re-enter AI cycle
+    // Each iteration gets its own validation retry gate
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        if (signal?.aborted) {
+            return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+        }
+
+        let messageToSend = buildUserPromptFromHistory(session.messages);
+        let lastErrors = [];
+        let validParsed = null;
+
+        // Inner loop: validation retries for this AI call
+        for (let attempt = 0; attempt < MAX_VALIDATION_RETRIES; attempt++) {
+            if (signal?.aborted) {
+                return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+            }
+
+            let result;
+            try {
+                result = await callAI(systemPrompt, messageToSend, connectionConfig);
+            } catch (err) {
+                if (err.name === 'AbortError' || signal?.aborted) {
+                    return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+                }
+                lastErrors = [`AI call failed: ${err.message || err}`];
+                if (attempt < MAX_VALIDATION_RETRIES - 1) continue;
+                return { parsed: null, valid: false, exhausted: true, lastErrors };
+            }
+
+            const parsed = parseSessionResponse(result.text);
+
+            if (!parsed) {
+                const correction = `[SYSTEM: Your previous response could not be parsed as JSON. `
+                    + `Respond with a valid JSON object matching the format in the system prompt. `
+                    + `Do not include any text outside the JSON object.]\n\n`;
+                messageToSend = correction + buildUserPromptFromHistory(session.messages);
+                lastErrors = ['Response could not be parsed as JSON'];
+                continue;
+            }
+
+            const { valid, errors } = validateSessionResponse(parsed);
+            if (valid) {
+                validParsed = parsed;
+                break;
+            }
+
+            lastErrors = errors;
+            const rejection = `[SYSTEM: Your response was rejected due to ${errors.length} validation error(s):\n`
+                + errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
+                + `\nPlease fix these issues and resend your response in the correct format.]\n\n`;
+            messageToSend = rejection + buildUserPromptFromHistory(session.messages);
+        }
+
+        // Validation retries exhausted without a valid response
+        if (!validParsed) {
             return { parsed: null, valid: false, exhausted: true, lastErrors };
         }
-        const parsed = parseSessionResponse(result.text);
 
-        if (!parsed) {
-            // Total parse failure -- retry with correction prepended to full history
-            const correction = `[SYSTEM: Your previous response could not be parsed as JSON. `
-                + `Respond with a valid JSON object matching the format in the system prompt. `
-                + `Do not include any text outside the JSON object.]\n\n`;
-            messageToSend = correction + buildUserPromptFromHistory(session.messages);
-            lastErrors = ['Response could not be parsed as JSON'];
+        // ── Handle tool_call action ──
+        if (validParsed.action === 'tool_call' && Array.isArray(validParsed.tool_calls) && validParsed.tool_calls.length > 0) {
+            // Add AI's intermediate message to history if present
+            if (validParsed.message) {
+                session.messages.push({ role: 'assistant', content: validParsed.message });
+            }
+
+            // Execute each tool call
+            const results = [];
+            for (const tc of validParsed.tool_calls) {
+                if (signal?.aborted) {
+                    return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+                }
+                onToolCall?.(tc.name, tc.args);
+                const toolResult = executeToolCall(tc.name, tc.args || {});
+                onToolResult?.(tc.name, toolResult);
+                results.push(`**${tc.name}**(${JSON.stringify(tc.args || {})})\n${toolResult}`);
+                toolCallCount++;
+            }
+
+            // Append tool results to message history
+            session.messages.push({ role: 'tool_result', content: results.join('\n\n---\n\n') });
+
+            // Check tool call budget
+            if (toolCallCount >= MAX_TOOL_CALLS_PER_TURN) {
+                // Force the AI to give a final response
+                session.messages.push({
+                    role: 'user',
+                    content: '[SYSTEM: Tool call limit reached. Provide your final response now — no more tool calls.]',
+                });
+            }
+
+            // Re-enter the outer loop for the next AI call
             continue;
         }
 
-        const { valid, errors } = validateSessionResponse(parsed);
-        if (valid) {
-            // Apply valid response — filter out null/undefined draft fields to prevent erasure (M5)
-            if (parsed.draft) {
-                const filtered = Object.fromEntries(
-                    Object.entries(parsed.draft).filter(([, v]) => v != null),
-                );
-                session.draftState = { ...session.draftState, ...filtered };
-            }
-            if (parsed.queue) {
-                session.workQueue = parsed.queue;
-            }
-            if (parsed.options) {
-                session.lastOptions = parsed.options;
-            }
-            session.messages.push({ role: 'assistant', content: parsed.message || result.text });
-            return { parsed, valid: true, exhausted: false, lastErrors: [] };
+        // ── Normal response (not tool_call) — apply and return ──
+        if (validParsed.draft) {
+            const filtered = Object.fromEntries(
+                Object.entries(validParsed.draft).filter(([, v]) => v != null),
+            );
+            session.draftState = { ...session.draftState, ...filtered };
         }
-
-        // Build specific rejection prepended to full history
-        lastErrors = errors;
-        const rejection = `[SYSTEM: Your response was rejected due to ${errors.length} validation error(s):\n`
-            + errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
-            + `\nPlease fix these issues and resend your response in the correct format.]\n\n`;
-        messageToSend = rejection + buildUserPromptFromHistory(session.messages);
+        if (validParsed.queue) {
+            session.workQueue = validParsed.queue;
+        }
+        if (validParsed.options) {
+            session.lastOptions = validParsed.options;
+        }
+        session.messages.push({ role: 'assistant', content: validParsed.message || '' });
+        return { parsed: validParsed, valid: true, exhausted: false, lastErrors: [] };
     }
-
-    // Retries exhausted
-    return { parsed: null, valid: false, exhausted: true, lastErrors };
 }
 
 /**
@@ -515,6 +659,7 @@ function buildUserPromptFromHistory(messages) {
         ? `[...${messages.length - MAX_HISTORY_MESSAGES} earlier messages omitted]\n\n`
         : '';
     return prefix + recent.map(m => {
+        if (m.role === 'tool_result') return `Tool Results:\n${m.content}`;
         const role = m.role === 'user' ? 'User' : 'Assistant';
         return `${role}: ${m.content}`;
     }).join('\n\n');
@@ -530,22 +675,24 @@ function buildUserPromptFromHistory(messages) {
  * @param {LibrarianSession} session
  * @param {number} messageIndex - Index into session.messages of the user message to edit
  * @param {string} newText - Edited message text
+ * @param {object} [options] - Options passed through to sendMessage (signal, onToolCall, onToolResult)
  * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
  */
-export async function editMessage(session, messageIndex, newText) {
+export async function editMessage(session, messageIndex, newText, options = {}) {
     // Truncate history: keep everything before the edited message
     session.messages = session.messages.slice(0, messageIndex);
     // sendMessage will append the new user message and call AI
-    return sendMessage(session, newText);
+    return sendMessage(session, newText, options);
 }
 
 /**
  * Regenerate the last AI response.
  * Removes the last assistant message and re-sends the last user message.
  * @param {LibrarianSession} session
+ * @param {object} [options] - Options passed through to sendMessage (signal, onToolCall, onToolResult)
  * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
  */
-export async function regenerateResponse(session) {
+export async function regenerateResponse(session, options = {}) {
     // Find and remove the last assistant message
     let lastUserMsg = '';
     for (let i = session.messages.length - 1; i >= 0; i--) {
@@ -565,7 +712,7 @@ export async function regenerateResponse(session) {
     if (!lastUserMsg) {
         return { parsed: null, valid: false, exhausted: true, lastErrors: ['No message to regenerate'] };
     }
-    return sendMessage(session, lastUserMsg);
+    return sendMessage(session, lastUserMsg, options);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

@@ -43,19 +43,19 @@ export function renderFooter() {
         });
 
         const label = contextUsed
-            ? `Context | ${contextUsed.toLocaleString()} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
-            : `Context | ${responseTokens.toLocaleString()} res / ${maxContext.toLocaleString()}`;
+            ? `${contextUsed.toLocaleString()} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
+            : `+ ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`;
         $footer.find('.dle-context-bar-label').text(label);
 
-        const contextTitle = `${contextUsed.toLocaleString()} tokens used + ${responseTokens.toLocaleString()} reserved for the AI's response, out of ${maxContext.toLocaleString()} total`;
+        const contextTitle = `${contextUsed.toLocaleString()} tokens used (+ ${responseTokens.toLocaleString()} output tokens) / ${maxContext.toLocaleString()} total allotted context tokens`;
         $barContainer.attr('aria-valuenow', contextUsed + responseTokens).attr('aria-valuemax', maxContext);
         $barContainer.attr('title', contextTitle);
     } else {
         $footer.find('.dle-context-bar-context').css('width', '0%');
         $footer.find('.dle-context-bar-response').css({ left: '0%', width: '0%' });
-        $footer.find('.dle-context-bar-label').text('Context | — / —');
+        $footer.find('.dle-context-bar-label').text('Context data unavailable \u2014 waiting for first generation');
         $barContainer.attr('aria-valuenow', 0).attr('aria-valuemax', 0);
-        $barContainer.attr('title', 'Context window: waiting for data');
+        $barContainer.attr('title', 'Context data unavailable \u2014 waiting for first generation');
     }
 
     // ── Health icons ──

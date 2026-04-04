@@ -274,7 +274,7 @@ export function buildScanText(chat, depth) {
     if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
-        .filter(m => m != null)
+        .filter(m => m != null && !m.extra?.tool_invocations && !m.is_system)
         .map(m => `${m.name || ''}: ${typeof m.mes === 'string' ? m.mes : ''}`)
         .join('\n');
 }
@@ -290,7 +290,7 @@ export function buildAiChatContext(chat, depth) {
     if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
-        .filter(m => m != null)
+        .filter(m => m != null && !m.extra?.tool_invocations && !m.is_system)
         .map(m => {
             const speaker = m.name || 'Unknown';
             const role = m.is_user ? '(user)' : '(character)';

@@ -1065,7 +1065,7 @@ ${safeContent}`;
     if (confirmWrite !== POPUP_RESULT.AFFIRMATIVE) return;
 
     try {
-        const data = await writeNote(vault.host, vault.port, vault.apiKey, filename, fileContent);
+        const data = await writeNote(vault.host, vault.port, vault.apiKey, filename, fileContent, !!vault.https);
         if (data.ok) {
             toastr.success(`Created: ${draft.title} (${filename})`, 'DeepLore Enhanced');
 

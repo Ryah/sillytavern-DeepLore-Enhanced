@@ -140,12 +140,13 @@ export function validateVaultPath(filename) {
 }
 
 /**
- * Make an HTTP request to the Obsidian Local REST API.
+ * Make an HTTP/HTTPS request to the Obsidian Local REST API.
  * @param {object} options
  * @param {string} [options.host='127.0.0.1'] - Obsidian host (IP or hostname)
  * @param {number} options.port - Obsidian REST API port
  * @param {string} options.apiKey - Bearer token
  * @param {string} options.path - API path (e.g. /vault/)
+ * @param {boolean} [options.https=false] - Use HTTPS (requires trusted certificate)
  * @param {string} [options.method='GET'] - HTTP method
  * @param {string} [options.accept='application/json'] - Accept header
  * @param {string|null} [options.body=null] - Request body
@@ -153,7 +154,7 @@ export function validateVaultPath(filename) {
  * @param {number} [options.timeout=30000] - Timeout in ms
  * @returns {Promise<{status: number, data: string}>}
  */
-export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT }) {
+export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, https: useHttps = false, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT }) {
     // Circuit breaker key: host:port for multi-vault isolation
     const circuitKey = `${host}:${port}`;
     // Circuit breaker: reject immediately if circuit is open
@@ -174,7 +175,8 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, me
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
-        const response = await fetch(`http://${host || '127.0.0.1'}:${port}${path}`, {
+        const protocol = useHttps ? 'https' : 'http';
+        const response = await fetch(`${protocol}://${host || '127.0.0.1'}:${port}${path}`, {
             method,
             headers,
             body: body ?? undefined,
@@ -207,12 +209,12 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, me
  * @param {number} [depth=0] - Current recursion depth
  * @returns {Promise<string[]>} Array of full file paths
  */
-export async function listAllFiles(host, port, apiKey, directory = '', depth = 0) {
+export async function listAllFiles(host, port, apiKey, directory = '', depth = 0, useHttps = false) {
     if (depth >= 20) {
         throw new Error(`Directory nesting too deep at "${directory}"`);
     }
     const urlPath = directory ? `/vault/${encodeVaultPath(directory)}/` : '/vault/';
-    const res = await obsidianFetch({ host, port, apiKey, path: urlPath });
+    const res = await obsidianFetch({ host, port, apiKey, https: useHttps, path: urlPath });
 
     if (res.status !== 200) {
         throw new Error(`Failed to list files at "${directory}": HTTP ${res.status}`);
@@ -242,7 +244,7 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
     // Fetch sibling directories in parallel — use allSettled so one failure doesn't kill the whole index
     if (dirs.length > 0) {
         const dirResults = await Promise.allSettled(
-            dirs.map(fullDirPath => listAllFiles(host, port, apiKey, fullDirPath, depth + 1)),
+            dirs.map(fullDirPath => listAllFiles(host, port, apiKey, fullDirPath, depth + 1, useHttps)),
         );
         for (const result of dirResults) {
             if (result.status === 'fulfilled') {
@@ -262,7 +264,7 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
  * @param {string} apiKey
  * @returns {Promise<{ok: boolean, authenticated?: boolean, versions?: object, error?: string}>}
  */
-export async function testConnection(host, port, apiKey) {
+export async function testConnection(host, port, apiKey, useHttps = false) {
     try {
         // Force-reset circuit breaker for explicit user-initiated test.
         const circuitKey = `${host || '127.0.0.1'}:${port}`;
@@ -270,7 +272,7 @@ export async function testConnection(host, port, apiKey) {
         cb.state = 'closed';
         cb.failures = 0;
         cb.halfOpenProbe = false;
-        const result = await obsidianFetch({ host, port, apiKey: apiKey || '', path: '/vault/', timeout: 10000 });
+        const result = await obsidianFetch({ host, port, apiKey: apiKey || '', https: useHttps, path: '/vault/', timeout: 10000 });
         if (result.status === 200) {
             return { ok: true, authenticated: true };
         }
@@ -279,6 +281,16 @@ export async function testConnection(host, port, apiKey) {
         }
         return { ok: false, error: `HTTP ${result.status}` };
     } catch (err) {
+        // Detect self-signed certificate errors (browser blocks HTTPS to untrusted certs)
+        if (useHttps && (err instanceof TypeError || err.message?.includes('Failed to fetch'))) {
+            const certUrl = `https://${host || '127.0.0.1'}:${port}`;
+            return {
+                ok: false,
+                certError: true,
+                certUrl,
+                error: `HTTPS connection failed — the certificate may not be trusted yet. Open ${certUrl} in your browser, accept the certificate, then try again.`,
+            };
+        }
         return { ok: false, error: err.message };
     }
 }
@@ -289,8 +301,8 @@ export async function testConnection(host, port, apiKey) {
  * @param {string} apiKey
  * @returns {Promise<{files: Array<{filename: string, content: string}>, total: number, failed: number}>}
  */
-export async function fetchAllMdFiles(host, port, apiKey) {
-    const allFiles = await listAllFiles(host, port, apiKey);
+export async function fetchAllMdFiles(host, port, apiKey, useHttps = false) {
+    const allFiles = await listAllFiles(host, port, apiKey, '', 0, useHttps);
     const mdFiles = allFiles.filter(f => f.endsWith('.md'));
 
     const BATCH_SIZE = OBSIDIAN_BATCH_SIZE;
@@ -306,6 +318,7 @@ export async function fetchAllMdFiles(host, port, apiKey) {
                         host,
                         port,
                         apiKey,
+                        https: useHttps,
                         path: `/vault/${encodeVaultPath(filename)}`,
                         accept: 'text/markdown',
                     });
@@ -339,13 +352,14 @@ export async function fetchAllMdFiles(host, port, apiKey) {
  * @param {string} content - Markdown content
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
-export async function writeNote(host, port, apiKey, filename, content) {
+export async function writeNote(host, port, apiKey, filename, content, useHttps = false) {
     try {
         const normalizedPath = validateVaultPath(filename);
         const result = await obsidianFetch({
             host,
             port,
             apiKey,
+            https: useHttps,
             path: `/vault/${encodeVaultPath(normalizedPath)}`,
             method: 'PUT',
             body: content,
@@ -369,13 +383,14 @@ export async function writeNote(host, port, apiKey, filename, content) {
  * @param {string} filePath - Vault-relative path (e.g., 'DeepLore/field-definitions.yaml')
  * @returns {Promise<{ok: boolean, content?: string, error?: string}>}
  */
-export async function fetchFieldDefinitions(host, port, apiKey, filePath) {
+export async function fetchFieldDefinitions(host, port, apiKey, filePath, useHttps = false) {
     try {
         const normalizedPath = validateVaultPath(filePath);
         const result = await obsidianFetch({
             host,
             port,
             apiKey,
+            https: useHttps,
             path: `/vault/${encodeVaultPath(normalizedPath)}`,
             method: 'GET',
             accept: 'text/plain',
@@ -401,13 +416,14 @@ export async function fetchFieldDefinitions(host, port, apiKey, filePath) {
  * @param {string} content - Serialized YAML string
  * @returns {Promise<{ok: boolean, error?: string}>}
  */
-export async function writeFieldDefinitions(host, port, apiKey, filePath, content) {
+export async function writeFieldDefinitions(host, port, apiKey, filePath, content, useHttps = false) {
     try {
         const normalizedPath = validateVaultPath(filePath);
         const result = await obsidianFetch({
             host,
             port,
             apiKey,
+            https: useHttps,
             path: `/vault/${encodeVaultPath(normalizedPath)}`,
             method: 'PUT',
             body: content,
@@ -430,11 +446,11 @@ export async function writeFieldDefinitions(host, port, apiKey, filePath, conten
  * @param {string} folder - Folder path within vault
  * @returns {Promise<{ok: boolean, notes?: Array<{filename: string, content: string}>, error?: string}>}
  */
-export async function fetchScribeNotes(host, port, apiKey, folder) {
+export async function fetchScribeNotes(host, port, apiKey, folder, useHttps = false) {
     // BUG-040: Validate folder path to prevent directory traversal
     validateVaultPath(folder);
     try {
-        const allFiles = await listAllFiles(host, port, apiKey, folder);
+        const allFiles = await listAllFiles(host, port, apiKey, folder, 0, useHttps);
         const mdFiles = allFiles.filter(f => f.endsWith('.md'));
         const BATCH_SIZE = OBSIDIAN_BATCH_SIZE;
         const notes = [];
@@ -447,6 +463,7 @@ export async function fetchScribeNotes(host, port, apiKey, folder) {
                         host,
                         port,
                         apiKey,
+                        https: useHttps,
                         path: `/vault/${encodeVaultPath(filepath)}`,
                         accept: 'text/markdown',
                     });

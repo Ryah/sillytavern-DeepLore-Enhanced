@@ -283,6 +283,7 @@ export function initEvents(gs, dbg) {
 
     // Double-click: Focus Tree
     canvas.addEventListener('dblclick', (e) => {
+        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return;
         const rect = freshRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
         const w = gs.toWorld(mx, my);

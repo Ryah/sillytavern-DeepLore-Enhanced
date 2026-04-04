@@ -16,7 +16,6 @@ import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { normalizePinBlock } from '../helpers.js';
 import { buildIndex } from '../vault/vault.js';
 import { buildObsidianURI } from '../helpers.js';
-import { openSettingsPopup } from '../ui/settings-ui.js';
 import { openRuleBuilder } from '../ui/rule-builder.js';
 import {
     ds, TAB_LABELS, TOOL_ACTIONS, EXPAND_ACTIONS, BROWSE_ROW_HEIGHT,
@@ -141,7 +140,6 @@ export function wireStatusActions($drawer) {
         const action = $(this).data('action');
         switch (action) {
             case 'refresh': buildIndex(); break;
-            case 'settings': openSettingsPopup(); break;
             case 'scribe': executeCommand('/dle-scribe'); break;
             case 'newlore': executeCommand('/dle-newlore'); break;
         }

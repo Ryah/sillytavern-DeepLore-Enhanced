@@ -44,6 +44,7 @@ export async function importEntries(entries, folder, onProgress) {
                     host: vault.host,
                     port: vault.port,
                     apiKey: vault.apiKey,
+                    https: !!vault.https,
                     path: `/vault/${encodeVaultPath(fullPath)}`,
                     accept: 'text/markdown',
                 });
@@ -63,6 +64,7 @@ export async function importEntries(entries, folder, onProgress) {
                                 host: vault.host,
                                 port: vault.port,
                                 apiKey: vault.apiKey,
+                                https: !!vault.https,
                                 path: `/vault/${encodeVaultPath(candidatePath)}`,
                                 accept: 'text/markdown',
                             });
@@ -103,7 +105,7 @@ export async function importEntries(entries, folder, onProgress) {
                 continue;
             }
 
-            const result = await writeNote(vault.host, vault.port, vault.apiKey, fullPath, content);
+            const result = await writeNote(vault.host, vault.port, vault.apiKey, fullPath, content, !!vault.https);
             if (result.ok) {
                 imported++;
             } else {

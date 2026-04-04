@@ -17,7 +17,7 @@ import { vaultIndex, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe } from 
 import { stripObsidianSyntax } from '../helpers.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 
-const DEFAULT_AUTO_SUGGEST_PROMPT = `You are a lore analyst for a roleplay session. Analyze the recent chat and identify characters, locations, items, concepts, or events that are mentioned but do NOT have an existing lorebook entry.
+export const DEFAULT_AUTO_SUGGEST_PROMPT = `You are a lore analyst for a roleplay session. Analyze the recent chat and identify characters, locations, items, concepts, or events that are mentioned but do NOT have an existing lorebook entry.
 
 For each suggested entry, provide:
 - "title": A short, unique title for the entry
@@ -81,7 +81,7 @@ export async function runAutoSuggest() {
     // BUG 3 FIX: Use a proper scan depth, not the interval frequency
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth || 20);
 
-    const systemPrompt = DEFAULT_AUTO_SUGGEST_PROMPT;
+    const systemPrompt = settings.autoSuggestPrompt?.trim() || DEFAULT_AUTO_SUGGEST_PROMPT;
     const userMessage = `## Existing lorebook entries (do NOT suggest these):\n${existingTitles}\n\n## Recent Chat:\n${chatContext}\n\nSuggest new lorebook entries as a JSON array.`;
 
     const result = await callAutoSuggest(systemPrompt, userMessage);
@@ -202,7 +202,7 @@ ${safeContent}`;
 
                     try {
                         const suggestVault = getPrimaryVault(settings);
-                        const data = await writeNote(suggestVault.host, suggestVault.port, suggestVault.apiKey, filename, fileContent);
+                        const data = await writeNote(suggestVault.host, suggestVault.port, suggestVault.apiKey, filename, fileContent, !!suggestVault.https);
                         if (data.ok) {
                             card.classList.add('dle-suggest-card--accepted');
                             this.disabled = true;

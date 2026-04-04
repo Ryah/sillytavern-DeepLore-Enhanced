@@ -314,9 +314,14 @@ export async function createDrawerPanel() {
             // Lazy-load promptManager to avoid breaking module graph for non-OAI backends
             if (!ds.promptManagerRef) {
                 try {
-                    const oai = await import('../../../../openai.js');
+                    const oai = await import('../../../../../openai.js');
                     ds.promptManagerRef = oai.promptManager;
                 } catch { /* non-OAI backend, context bar stays at 0 */ }
+            }
+            // Hydrate immediately from last-known tokenUsage (survives chat load without waiting for generation)
+            if (ds.promptManagerRef?.tokenUsage) {
+                ds.contextTokens = ds.promptManagerRef.tokenUsage;
+                scheduleRender(renderFooter);
             }
             stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, () => {
                 ds.contextTokens = ds.promptManagerRef?.tokenUsage || 0;

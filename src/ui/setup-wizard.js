@@ -11,12 +11,13 @@ import { setIndexTimestamp } from '../state.js';
 import { testConnection, writeNote, writeFieldDefinitions } from '../vault/obsidian-api.js';
 import { buildIndex } from '../vault/vault.js';
 import { serializeFieldDefinitions, DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
+import { parseWorldInfoJson, importEntries } from '../vault/import.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Constants
 // ════════════════════════════════════════════════════════════════════════════
 
-const TOTAL_PAGES = 8;
+const TOTAL_PAGES = 9;
 
 const PRESETS = {
     small:  { scanDepth: 4,  maxEntries: 10, budget: 2048 },
@@ -32,6 +33,7 @@ let currentPage = 1;
 let connectionVerified = false;
 let aiConnectionVerified = false;
 let searchMode = 'keywords'; // tracks page 3 radio selection
+let importResult = null; // { imported, failed, renamed } from import page
 let $wizard = null;
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -49,6 +51,7 @@ export async function showSetupWizard(startPage = 1) {
     connectionVerified = false;
     aiConnectionVerified = false;
     searchMode = 'keywords';
+    importResult = null;
 
     await callGenericPopup(html, POPUP_TYPE.DISPLAY, '', {
         wide: true,
@@ -66,6 +69,7 @@ export async function showSetupWizard(startPage = 1) {
             wirePresets();
             wireSearchMode();
             wireVaultStructure();
+            wireImport();
             wireDoneActions();
             wireStepIndicator();
 
@@ -93,6 +97,7 @@ function prefillFromSettings() {
     if (v.host) $wizard.find('#dle-wiz-host').val(v.host);
     if (v.port) $wizard.find('#dle-wiz-port').val(v.port);
     if (v.apiKey) $wizard.find('#dle-wiz-api-key').val(v.apiKey);
+    $wizard.find('#dle-wiz-https').prop('checked', v.https !== false);
 
     // Page 3: Tags
     $wizard.find('#dle-wiz-lorebook-tag').val(s.lorebookTag || 'lorebook');
@@ -183,7 +188,8 @@ function goToPage(page) {
     if (page === 5) loadAiProfiles();
     if (page === 6) wireLibrarianToggle();
     if (page === 7) runVaultStructureCreation();
-    if (page === 8) buildSummary();
+    if (page === 8) loadImportLorebooks();
+    if (page === 9) buildSummary();
 }
 
 function updateNavButtons() {
@@ -252,16 +258,26 @@ function wireConnectionTest() {
         const $result = $wizard.find('#dle-wiz-conn-result');
 
         const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
-        const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
+        const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27124;
         const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
+        const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
         $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Testing...');
         $result.hide();
 
         try {
-            const result = await testConnection(host, port, apiKey);
+            const result = await testConnection(host, port, apiKey, useHttps);
+            // Show cert trust link if HTTPS cert error detected
+            if (result.certError) {
+                const $trustLink = $wizard.find('#dle-wiz-trust-cert');
+                $trustLink.attr('href', result.certUrl).show().off('click').on('click', (e) => {
+                    e.preventDefault();
+                    window.open(result.certUrl, '_blank');
+                });
+            }
             if (result.ok) {
                 connectionVerified = true;
+                $wizard.find('#dle-wiz-trust-cert').hide();
                 $result
                     .html('<i class="fa-solid fa-circle-check"></i> Connected to Obsidian vault successfully')
                     .removeClass('dle-wizard-result-error')
@@ -289,6 +305,20 @@ function wireConnectionTest() {
 
         $btn.prop('disabled', false);
         updateNavButtons();
+    });
+
+    // Auto-switch port when HTTPS is toggled (convenience — user can override)
+    $wizard.find('#dle-wiz-https').on('change', function () {
+        const currentPort = parseInt($wizard.find('#dle-wiz-port').val());
+        if (this.checked && currentPort === 27123) {
+            $wizard.find('#dle-wiz-port').val(27124);
+        } else if (!this.checked && currentPort === 27124) {
+            $wizard.find('#dle-wiz-port').val(27123);
+        }
+        connectionVerified = false;
+        $wizard.find('#dle-wiz-test-conn')
+            .html('<i class="fa-solid fa-plug"></i> Test Connection')
+            .prop('disabled', false);
     });
 
     // Re-enable test if connection fields change
@@ -483,8 +513,9 @@ function wireVaultStructure() {
 
 async function runVaultStructureCreation() {
     const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
-    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
+    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27124;
     const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
+    const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
     // Field definitions
     const createFields = $wizard.find('#dle-wiz-create-fields').is(':checked');
@@ -496,7 +527,7 @@ async function runVaultStructureCreation() {
             const yaml = serializeFieldDefinitions(DEFAULT_FIELD_DEFINITIONS);
             const s = getSettings();
             const path = s.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
-            await writeFieldDefinitions(host, port, apiKey, path, yaml);
+            await writeFieldDefinitions(host, port, apiKey, path, yaml, useHttps);
             $fieldsStatus
                 .html('<i class="fa-solid fa-circle-check dle-wizard-status-ok"></i> field-definitions.yaml created')
                 .addClass('dle-wizard-file-ok');
@@ -517,7 +548,7 @@ async function runVaultStructureCreation() {
         $sessionsStatus.html('<i class="fa-solid fa-spinner fa-spin"></i> Creating Sessions folder...').show();
         try {
             // Write a placeholder note to create the folder
-            await writeNote(host, port, apiKey, 'Sessions/.gitkeep', '# Session Scribe\nThis folder is used by DeepLore Enhanced Session Scribe.\n');
+            await writeNote(host, port, apiKey, 'Sessions/.gitkeep', '# Session Scribe\nThis folder is used by DeepLore Enhanced Session Scribe.\n', useHttps);
             $sessionsStatus
                 .html('<i class="fa-solid fa-circle-check dle-wizard-status-ok"></i> Sessions/ folder created')
                 .addClass('dle-wizard-file-ok');
@@ -532,7 +563,140 @@ async function runVaultStructureCreation() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Page 8: Summary
+// Page 8: Import
+// ════════════════════════════════════════════════════════════════════════════
+
+let importJsonData = ''; // captured JSON from any import method
+
+function wireImport() {
+    // Toggle visible fields based on import method
+    $wizard.find('input[name="dle-wiz-import-method"]').on('change', function () {
+        const method = $(this).val();
+        $wizard.find('#dle-wiz-import-lb-fields').toggle(method === 'lorebook');
+        $wizard.find('#dle-wiz-import-file-fields').toggle(method === 'file');
+        $wizard.find('#dle-wiz-import-paste-fields').toggle(method === 'paste');
+        $wizard.find('#dle-wiz-import-folder-row').toggle(method !== 'skip');
+        $wizard.find('#dle-wiz-import-action').toggle(method !== 'skip');
+        $wizard.find('#dle-wiz-import-result').hide();
+        importJsonData = '';
+    });
+
+    // File browse
+    $wizard.find('#dle-wiz-import-browse').on('click', () => {
+        $wizard.find('#dle-wiz-import-file')[0]?.click();
+    });
+    $wizard.find('#dle-wiz-import-file').on('change', function () {
+        const file = this.files?.[0];
+        if (!file) return;
+        $wizard.find('#dle-wiz-import-file-name').text(file.name);
+        const reader = new FileReader();
+        reader.onload = () => { importJsonData = /** @type {string} */ (reader.result); };
+        reader.onerror = () => { toastr.error('Failed to read file.', 'DeepLore Enhanced'); };
+        reader.readAsText(file);
+    });
+
+    // Lorebook dropdown change
+    $wizard.find('#dle-wiz-import-lorebook').on('change', async function () {
+        const name = $(this).val();
+        if (!name) { importJsonData = ''; return; }
+        try {
+            const { loadWorldInfo } = await import('../../../../../world-info.js');
+            const data = await loadWorldInfo(name);
+            if (!data) {
+                toastr.error(`Failed to load lorebook "${name}".`, 'DeepLore Enhanced');
+                return;
+            }
+            importJsonData = JSON.stringify(data, null, 2);
+        } catch (err) {
+            console.error('[DLE] Wizard loadWorldInfo error:', err);
+            toastr.error(`Load error: ${err.message}`, 'DeepLore Enhanced');
+        }
+    });
+
+    // Import button
+    $wizard.find('#dle-wiz-import-btn').on('click', async function () {
+        const $btn = $(this);
+        const $result = $wizard.find('#dle-wiz-import-result');
+        const method = $wizard.find('input[name="dle-wiz-import-method"]:checked').val();
+
+        // Get JSON from the active source
+        let jsonText = '';
+        if (method === 'paste') {
+            jsonText = $wizard.find('#dle-wiz-import-json').val()?.trim() || '';
+        } else {
+            jsonText = importJsonData;
+        }
+
+        if (!jsonText) {
+            toastr.warning('No data to import. Select a lorebook, upload a file, or paste JSON first.', 'DeepLore Enhanced');
+            return;
+        }
+
+        // Parse
+        let entries, source;
+        try {
+            ({ entries, source } = parseWorldInfoJson(jsonText));
+        } catch (err) {
+            $result.html(`<i class="fa-solid fa-circle-xmark"></i> ${esc(err.message)}`)
+                .removeClass('dle-wizard-result-success').addClass('dle-wizard-result-error').show();
+            return;
+        }
+
+        if (!entries || entries.length === 0) {
+            $result.html('<i class="fa-solid fa-circle-info"></i> No entries found in the provided data.')
+                .removeClass('dle-wizard-result-success dle-wizard-result-error').show();
+            return;
+        }
+
+        const folder = $wizard.find('#dle-wiz-import-folder').val()?.trim() || '';
+
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Importing...');
+        $result.html(`<i class="fa-solid fa-spinner fa-spin"></i> Importing 0/${entries.length}...`)
+            .removeClass('dle-wizard-result-success dle-wizard-result-error').show();
+
+        try {
+            const result = await importEntries(entries, folder, (done, total) => {
+                $result.html(`<i class="fa-solid fa-spinner fa-spin"></i> Importing ${done}/${total}...`);
+            });
+
+            importResult = result;
+            const renamedNote = result.renamed > 0 ? ` (${result.renamed} renamed to avoid overwrite)` : '';
+            if (result.failed > 0) {
+                $result.html(`<i class="fa-solid fa-triangle-exclamation"></i> Imported ${result.imported}/${entries.length} from "${esc(source)}"${renamedNote}. ${result.failed} failed.`)
+                    .addClass('dle-wizard-result-error').removeClass('dle-wizard-result-success').show();
+            } else {
+                $result.html(`<i class="fa-solid fa-circle-check"></i> Imported ${result.imported} entries from "${esc(source)}"${renamedNote}`)
+                    .addClass('dle-wizard-result-success').removeClass('dle-wizard-result-error').show();
+            }
+            $btn.html('<i class="fa-solid fa-circle-check"></i> Import Complete');
+        } catch (err) {
+            $result.html(`<i class="fa-solid fa-circle-xmark"></i> Import error: ${esc(err.message)}`)
+                .addClass('dle-wizard-result-error').removeClass('dle-wizard-result-success').show();
+            $btn.html('<i class="fa-solid fa-file-import"></i> Import Entries').prop('disabled', false);
+        }
+    });
+}
+
+async function loadImportLorebooks() {
+    const $select = $wizard.find('#dle-wiz-import-lorebook');
+    try {
+        const { world_names } = await import('../../../../../world-info.js');
+        if (!Array.isArray(world_names) || world_names.length === 0) {
+            $select.html('<option value="">No lorebooks available</option>');
+            return;
+        }
+        let options = '<option value="">— Select a lorebook —</option>';
+        for (const name of world_names) {
+            options += `<option value="${esc(name)}">${esc(name)}</option>`;
+        }
+        $select.html(options);
+    } catch {
+        $select.html('<option value="">Failed to load lorebooks</option>');
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Page 9: Summary
 // ════════════════════════════════════════════════════════════════════════════
 
 function buildSummary() {
@@ -568,6 +732,9 @@ function buildSummary() {
 
     if (fieldsCreated) items.push('<i class="fa-solid fa-circle-check"></i> Field definitions created');
     if (sessionsCreated) items.push('<i class="fa-solid fa-circle-check"></i> Sessions folder created');
+    if (importResult && importResult.imported > 0) {
+        items.push(`<i class="fa-solid fa-circle-check"></i> Imported <strong>${importResult.imported}</strong> entries${importResult.failed > 0 ? ` (${importResult.failed} failed)` : ''}`);
+    }
 
     $summary.html(items.map((item, i) => `<div class="dle-wizard-summary-item" style="animation-delay: ${i * 120}ms">${item}</div>`).join(''));
 }
@@ -602,11 +769,12 @@ async function applyWizardSettings() {
     // Connection
     const vaultName = $wizard.find('#dle-wiz-vault-name').val().trim() || 'Primary';
     const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
-    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
+    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27124;
     const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
+    const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
     settings.enabled = true;
-    settings.vaults = [{ name: vaultName, host, port, apiKey, enabled: true }];
+    settings.vaults = [{ name: vaultName, host, port, apiKey, https: useHttps, enabled: true }];
 
     // Tags
     settings.lorebookTag = $wizard.find('#dle-wiz-lorebook-tag').val().trim() || 'lorebook';

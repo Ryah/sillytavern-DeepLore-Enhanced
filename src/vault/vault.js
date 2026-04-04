@@ -284,7 +284,7 @@ export async function buildIndex() {
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
         let loadedFieldDefs = [...DEFAULT_FIELD_DEFINITIONS];
         try {
-            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath);
+            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath, !!primaryVault.https);
             if (fdResult.ok && fdResult.content) {
                 const { definitions, errors } = parseFieldDefinitionYaml(fdResult.content);
                 if (definitions.length > 0) {
@@ -322,7 +322,7 @@ export async function buildIndex() {
         setLastVaultAttemptCount(enabledVaults.length);
         for (const vault of enabledVaults) {
             try {
-                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey, !!vault.https);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Vault "${vault.name}" returned invalid data`);
                     continue;
@@ -512,7 +512,7 @@ export async function buildIndexWithReuse() {
         const primaryVault = enabledVaults[0];
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
         try {
-            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath);
+            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath, !!primaryVault.https);
             if (fdResult.ok && fdResult.content) {
                 const { definitions } = parseFieldDefinitionYaml(fdResult.content);
                 if (definitions.length > 0) {
@@ -544,7 +544,7 @@ export async function buildIndexWithReuse() {
             try {
                 // Fetch ALL file contents to detect content changes via hash comparison.
                 // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
-                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey, !!vault.https);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;

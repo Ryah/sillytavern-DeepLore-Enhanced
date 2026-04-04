@@ -17,8 +17,17 @@ import { saveSettingsDebounced } from '../../../../../../script.js';
  */
 export function initPhysics(gs) {
 
+    const MAX_SIMULATION_MS = 90_000; // Hard clamp: force-settle after 90 seconds
+
     function simulate() {
         if (gs.focusTreePhysics) return;
+
+        // Hard clamp: if simulation has run longer than 90s, force-settle immediately
+        if (gs.simulationStartTime && Date.now() - gs.simulationStartTime > MAX_SIMULATION_MS) {
+            forceSettle();
+            return;
+        }
+
         const frozenNode = gs.dragNode || gs.hoverNode;
         if (frozenNode) { gs.hasSpringEnergy = true; }
 
@@ -243,25 +252,42 @@ export function initPhysics(gs) {
             gs.settings.graphSavedLayout = { positions, timestamp: Date.now() };
             invalidateSettingsCache();
             saveSettingsDebounced();
-            // Show "Layout saved" on color legend, then CSS fade-out
-            gs.layoutNotice = '✓ Layout saved';
-            if (gs.updateTooltip) gs.updateTooltip();
-            // Add fade-out class after a tick so the animation triggers
-            requestAnimationFrame(() => {
-                const el = gs.tooltipEl?.querySelector('.dle-graph-layout-notice');
-                if (el) el.classList.add('dle-fade-out');
-            });
-            // Clear notice text after animation completes
-            setTimeout(() => {
-                if (gs.layoutNotice === '✓ Layout saved') {
-                    gs.layoutNotice = '';
-                    if (gs.updateTooltip) gs.updateTooltip();
-                }
-            }, 4000);
-            // Auto-fit after settling
-            if (gs.fitToView) gs.fitToView(true);
+            gs.simulationStartTime = 0;
+            gs.needsDraw = true;
+            if (gs.onSettleComplete) gs.onSettleComplete();
         }
     }
 
-    return { simulate };
+    /** Force physics to settle immediately — saves layout, clears overlay, fires callback. */
+    function forceSettle() {
+        gs.alpha = 0;
+        gs.hasSpringEnergy = false;
+        gs.maxDelta = 0;
+        // Reveal any remaining hidden batches so the graph is complete
+        while (gs.revealedBatch < gs.revealBatches.length) {
+            const batch = gs.revealBatches[gs.revealedBatch];
+            for (const id of batch) {
+                gs.nodes[id].hidden = false;
+                gs.nodes[id]._revealScale = 1;
+                gs.nodes[id].vx = 0;
+                gs.nodes[id].vy = 0;
+            }
+            gs.revealedBatch++;
+        }
+        if (!gs.layoutSaved) {
+            gs.layoutSaved = true;
+            const positions = {};
+            for (const n of gs.nodes) {
+                if (!n.orphan) positions[n.title] = { x: n.x, y: n.y };
+            }
+            gs.settings.graphSavedLayout = { positions, timestamp: Date.now() };
+            invalidateSettingsCache();
+            saveSettingsDebounced();
+        }
+        gs.simulationStartTime = 0;
+        gs.needsDraw = true;
+        if (gs.onSettleComplete) gs.onSettleComplete();
+    }
+
+    return { simulate, forceSettle };
 }

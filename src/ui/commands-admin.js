@@ -99,7 +99,7 @@ export function registerAdminCommands() {
 
             try {
                 const histVault = getPrimaryVault(settings);
-                const data = await fetchScribeNotes(histVault.host, histVault.port, histVault.apiKey, settings.scribeFolder);
+                const data = await fetchScribeNotes(histVault.host, histVault.port, histVault.apiKey, settings.scribeFolder, !!histVault.https);
                 if (!data.ok) throw new Error(data.error || 'Failed to fetch notes');
 
                 if (!data.notes || data.notes.length === 0) {

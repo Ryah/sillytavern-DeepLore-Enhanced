@@ -137,7 +137,7 @@ export async function runScribe(customPrompt) {
 
         // Write to Obsidian directly (uses primary vault)
         const scribeVault = getPrimaryVault(settings);
-        const data = await writeNote(scribeVault.host, scribeVault.port, scribeVault.apiKey, filename, noteContent);
+        const data = await writeNote(scribeVault.host, scribeVault.port, scribeVault.apiKey, filename, noteContent, !!scribeVault.https);
 
         if (data.ok) {
             // Re-check epoch after async writeNote to avoid writing to wrong chat's metadata

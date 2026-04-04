@@ -744,11 +744,13 @@ export async function showGraphPopup() {
         isPanning: false, panStartX: 0, panStartY: 0, panOriginX: 0, panOriginY: 0,
         hoverDistances: null,
         contextMenuNode: null, tempPinnedNode: null,
-        settlingUntil: restoredLayout ? 0 : Date.now() + 5000, // G8: ignore mouse interaction for 5s during initial layout
+        settlingUntil: 0, // Set dynamically when layout overlay is shown
         releaseStabilizeFrames: 0, // G6: extra damping frames after drag release
         layoutSaved: restoredLayout, // Whether positions have been saved this session
         restoredLayout, // Whether we skipped reveal due to saved positions
-        layoutNotice: restoredLayout ? '' : 'Calculating layout…', // Status notice on color legend
+        layoutNotice: restoredLayout ? '' : 'Calculating layout\u2026 standby (no more than 90 seconds)',
+        simulationStartTime: restoredLayout ? 0 : Date.now(), // For 90s hard clamp
+        onSettleComplete: null, // Set below after overlay is created
         // Simulation
         isRunning: true, alpha: restoredLayout ? 0.3 : 1.0,
         hasSpringEnergy: true, maxDelta: 0, simFrame: 0,
@@ -837,12 +839,24 @@ export async function showGraphPopup() {
         gs.revealFrameCounter = 0;
         gs.alpha = 1.0;
         gs.simFrame = 0;
-        gs.settlingUntil = Date.now() + 5000;
+        gs.simulationStartTime = Date.now();
+        gs.settlingUntil = Date.now() + 91_000;
+        gs.layoutSaved = false;
         gs.panX = gs.W / 2; gs.panY = gs.H / 2; gs.zoom = 1;
         gs.needsDraw = true;
-        // Show calculating notice on color legend overlay
-        gs.layoutNotice = 'Calculating layout…';
+        // Show calculating overlay
+        gs.layoutNotice = 'Calculating layout\u2026 standby (no more than 90 seconds)';
         if (gs.updateTooltip) gs.updateTooltip();
+        // Re-add overlay if not present
+        if (!layoutOverlay && canvas.parentNode) {
+            layoutOverlay = document.createElement('div');
+            layoutOverlay.className = 'dle-graph-layout-overlay';
+            layoutOverlay.innerHTML = `<div class="dle-graph-layout-overlay-text">
+                <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                Calculating layout\u2026 standby (no more than 90 seconds)
+            </div>`;
+            canvas.parentNode.appendChild(layoutOverlay);
+        }
         // Auto-fit 1s + 2s + 6s after redraw starts (don't wait for settle)
         // BUG-FIX: Store timer IDs so they can be cancelled on popup close
         for (const id of gs._fitTimers || []) clearTimeout(id);
@@ -906,6 +920,44 @@ export async function showGraphPopup() {
 
         gs.animationFrameId = requestAnimationFrame(tick);
     }
+
+    // ========================================================================
+    // Layout overlay — blocks input and shows progress during settling
+    // ========================================================================
+    let layoutOverlay = null;
+    if (!restoredLayout) {
+        layoutOverlay = document.createElement('div');
+        layoutOverlay.className = 'dle-graph-layout-overlay';
+        layoutOverlay.innerHTML = `<div class="dle-graph-layout-overlay-text">
+            <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+            Calculating layout\u2026 standby (no more than 90 seconds)
+        </div>`;
+        canvas.parentNode.style.position = 'relative'; // ensure overlay positioning works
+        canvas.parentNode.appendChild(layoutOverlay);
+        gs.settlingUntil = Date.now() + 91_000; // slightly beyond the 90s hard clamp
+    }
+
+    gs.onSettleComplete = () => {
+        // Remove overlay, clear notice, show "Layout saved" briefly, auto-fit
+        if (layoutOverlay) {
+            layoutOverlay.remove();
+            layoutOverlay = null;
+        }
+        gs.settlingUntil = 0;
+        gs.layoutNotice = '\u2713 Layout saved';
+        if (gs.updateTooltip) gs.updateTooltip();
+        requestAnimationFrame(() => {
+            const el = gs.tooltipEl?.querySelector('.dle-graph-layout-notice');
+            if (el) el.classList.add('dle-fade-out');
+        });
+        setTimeout(() => {
+            if (gs.layoutNotice === '\u2713 Layout saved') {
+                gs.layoutNotice = '';
+                if (gs.updateTooltip) gs.updateTooltip();
+            }
+        }, 4000);
+        if (gs.fitToView) gs.fitToView(true);
+    };
 
     // ========================================================================
     // Start

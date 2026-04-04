@@ -493,7 +493,7 @@ export function showSimulationPopup(timeline) {
 // Optimize Keys
 // ============================================================================
 
-const DEFAULT_OPTIMIZE_KEYS_PROMPT = `You are a keyword optimization assistant for a lorebook system. Given an entry's title, content, and current keywords, suggest improved keywords that will trigger this entry when relevant topics come up in conversation.
+export const DEFAULT_OPTIMIZE_KEYS_PROMPT = `You are a keyword optimization assistant for a lorebook system. Given an entry's title, content, and current keywords, suggest improved keywords that will trigger this entry when relevant topics come up in conversation.
 
 Guidelines:
 - Include the entry title and common aliases
@@ -514,7 +514,7 @@ export async function optimizeEntryKeys(entry) {
         ? 'This system uses KEYWORD-ONLY matching (no AI filter). Be precise — avoid generic words.'
         : 'This system uses TWO-STAGE matching (keywords → AI filter). Be broader — the AI will refine.';
 
-    const systemPrompt = DEFAULT_OPTIMIZE_KEYS_PROMPT;
+    const systemPrompt = settings.optimizeKeysPrompt?.trim() || DEFAULT_OPTIMIZE_KEYS_PROMPT;
     const userMessage = `Mode: ${modeHint}\n\nTitle: ${entry.title}\nCurrent keywords: ${entry.keys.join(', ')}\nContent:\n${entry.content.substring(0, 1500)}\n\nSuggest optimized keywords as JSON.`;
 
     const result = await callAutoSuggest(systemPrompt, userMessage);
@@ -590,7 +590,7 @@ export async function showOptimizePopup(entry, result) {
             }
             newContent += `---\n${body}`;
 
-            const data = await writeNote(optVault.host, optVault.port, optVault.apiKey, entry.filename, newContent);
+            const data = await writeNote(optVault.host, optVault.port, optVault.apiKey, entry.filename, newContent, !!optVault.https);
             if (data.ok) {
                 toastr.success(`Keywords updated for "${entry.title}"`, 'DeepLore Enhanced');
                 setVaultIndex([]);

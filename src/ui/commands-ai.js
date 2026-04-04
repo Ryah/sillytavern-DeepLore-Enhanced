@@ -296,6 +296,7 @@ export async function summarizeEntries(entries) {
                 host: vault.host,
                 port: vault.port,
                 apiKey: vault.apiKey,
+                https: !!vault.https,
                 path: `/vault/${encodeVaultPath(entry.filename)}`,
                 accept: 'text/markdown',
             });
@@ -319,7 +320,7 @@ export async function summarizeEntries(entries) {
                 }
             }
 
-            const writeResult = await writeNote(vault.host, vault.port, vault.apiKey, entry.filename, fileContent);
+            const writeResult = await writeNote(vault.host, vault.port, vault.apiKey, entry.filename, fileContent, !!vault.https);
             if (writeResult.ok) {
                 generated++;
             } else {

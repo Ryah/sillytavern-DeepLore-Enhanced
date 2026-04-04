@@ -40,6 +40,11 @@
         <div class="dle-wizard-step-line"></div>
         <button class="dle-wizard-step" data-step="8">
             <span class="dle-wizard-step-dot">8</span>
+            <span class="dle-wizard-step-label">Import</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="9">
+            <span class="dle-wizard-step-dot">9</span>
             <span class="dle-wizard-step-label">Done</span>
         </button>
     </nav>
@@ -85,12 +90,22 @@
             <div class="dle-wizard-row">
                 <div class="dle-wizard-field" style="flex: 1;">
                     <label for="dle-wiz-port">Port</label>
-                    <input id="dle-wiz-port" class="text_pole" type="number" value="27123" />
+                    <input id="dle-wiz-port" class="text_pole" type="number" value="27124" />
                 </div>
                 <div class="dle-wizard-field" style="flex: 2;">
                     <label for="dle-wiz-api-key">API Key</label>
                     <input id="dle-wiz-api-key" class="text_pole" type="password" placeholder="From Obsidian REST API plugin settings" />
                 </div>
+            </div>
+            <div class="dle-wizard-field">
+                <label class="checkbox_label">
+                    <input id="dle-wiz-https" type="checkbox" checked />
+                    <span>Use HTTPS</span>
+                    <small class="dle-wizard-muted">(recommended — default port 27124)</small>
+                </label>
+                <a id="dle-wiz-trust-cert" href="#" class="dle-wizard-muted" style="font-size: 0.85em; display: none;">
+                    <i class="fa-solid fa-shield-halved"></i> Trust Certificate (open in new tab)
+                </a>
             </div>
 
             <button id="dle-wiz-test-conn" class="menu_button dle-wizard-action-btn">
@@ -339,8 +354,98 @@
             </div>
         </div>
 
-        <!-- ═══ Page 8: All Done ═══ -->
+        <!-- ═══ Page 8: Import ═══ -->
         <div class="dle-wizard-page" data-wizard-page="8">
+            <h2>Import Existing Lorebook</h2>
+            <p class="dle-wizard-subtitle">Already have a SillyTavern lorebook? Import entries into your Obsidian vault.</p>
+
+            <div class="dle-wizard-card dle-wizard-card-info">
+                <p><i class="fa-solid fa-circle-info"></i> This step is optional. You can always import later with <code>/dle-import</code>.</p>
+            </div>
+
+            <div class="dle-wizard-field">
+                <label>Import Method</label>
+                <div class="dle-wizard-radio-group">
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="skip" checked />
+                        <div>
+                            <strong>Skip Import</strong>
+                            <span class="dle-wizard-field-hint">I'll set up entries in Obsidian manually or import later.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="lorebook" />
+                        <div>
+                            <strong>From SillyTavern Lorebook</strong>
+                            <span class="dle-wizard-field-hint">Import from an existing ST World Info book.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="file" />
+                        <div>
+                            <strong>From JSON File</strong>
+                            <span class="dle-wizard-field-hint">Upload a World Info export JSON or V2 character card.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="paste" />
+                        <div>
+                            <strong>Paste JSON</strong>
+                            <span class="dle-wizard-field-hint">Paste World Info JSON directly.</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Lorebook dropdown (shown when lorebook method selected) -->
+            <div id="dle-wiz-import-lb-fields" style="display: none;">
+                <div class="dle-wizard-field">
+                    <label for="dle-wiz-import-lorebook">Select Lorebook</label>
+                    <select id="dle-wiz-import-lorebook" class="text_pole">
+                        <option value="">— Select a lorebook —</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- File upload (shown when file method selected) -->
+            <div id="dle-wiz-import-file-fields" style="display: none;">
+                <input type="file" id="dle-wiz-import-file" accept=".json" class="dle-hidden" />
+                <button id="dle-wiz-import-browse" class="menu_button menu_button_icon" style="display: inline-flex;">
+                    <i class="fa-solid fa-file-import"></i>
+                    <span>Browse local JSON file...</span>
+                </button>
+                <span id="dle-wiz-import-file-name" class="dle-wizard-field-hint" style="margin-left: 8px;"></span>
+            </div>
+
+            <!-- JSON paste (shown when paste method selected) -->
+            <div id="dle-wiz-import-paste-fields" style="display: none;">
+                <div class="dle-wizard-field">
+                    <label for="dle-wiz-import-json">Paste JSON</label>
+                    <textarea id="dle-wiz-import-json" class="text_pole dle-import-textarea" placeholder="Paste World Info JSON here..." rows="6"></textarea>
+                </div>
+            </div>
+
+            <!-- Target folder -->
+            <div id="dle-wiz-import-folder-row" style="display: none;">
+                <div class="dle-wizard-field">
+                    <label for="dle-wiz-import-folder">Target Folder (optional)</label>
+                    <span class="dle-wizard-field-hint">Entries will be created in this folder in your vault. Leave blank for vault root.</span>
+                    <input id="dle-wiz-import-folder" class="text_pole" type="text" placeholder="e.g. Imported" />
+                </div>
+            </div>
+
+            <!-- Import button + results -->
+            <div id="dle-wiz-import-action" style="display: none;">
+                <button id="dle-wiz-import-btn" class="menu_button dle-wizard-action-btn">
+                    <i class="fa-solid fa-file-import"></i> Import Entries
+                </button>
+            </div>
+
+            <div id="dle-wiz-import-result" class="dle-wizard-result-banner" style="display: none;"></div>
+        </div>
+
+        <!-- ═══ Page 9: All Done ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="9">
             <div class="dle-wizard-done-header">
                 <div class="dle-wizard-done-check"><i class="fa-solid fa-circle-check"></i></div>
                 <h2>Setup Complete!</h2>

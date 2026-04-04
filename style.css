@@ -3437,11 +3437,11 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     line-height: 1;
     width: 14px;
 }
-.dle-gap-pending { color: #e8a838; }
-.dle-gap-acknowledged { color: #8899aa; }
-.dle-gap-in-progress { color: #5588cc; font-size: 8px; }
-.dle-gap-written { color: #44aa66; }
-.dle-gap-rejected { color: #aa4444; }
+.dle-gap-pending { color: var(--dle-warning); }
+.dle-gap-acknowledged { color: var(--SmartThemeBotMesColorName, #8899aa); }
+.dle-gap-in-progress { color: var(--dle-info); font-size: 8px; }
+.dle-gap-written { color: var(--dle-success); }
+.dle-gap-rejected { color: var(--dle-error); }
 
 /* --- Gap type icon --- */
 .dle-gap-type {
@@ -3486,12 +3486,12 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     font-size: 9px;
 }
 .dle-gap-urgency-high {
-    color: #cc4444;
+    color: var(--dle-error);
     font-weight: 700;
     font-size: 11px;
 }
 .dle-gap-no-results {
-    color: #cc8844;
+    color: var(--dle-warning);
     font-style: italic;
     font-size: 9px;
 }
@@ -3510,8 +3510,8 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     line-height: 14px;
     text-align: center;
     border-radius: 7px;
-    background: #44aa66;
-    color: #fff;
+    background: var(--dle-success);
+    color: var(--SmartThemeBodyColor, #fff);
 }
 .dle-librarian-badge.dle-visible {
     display: block;
@@ -3521,6 +3521,39 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.3); }
 }
+
+/* --- Librarian stats table (settings popup) --- */
+.dle-librarian-stats-panel {
+    margin-top: 12px;
+    padding: 8px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 4px;
+}
+.dle-librarian-stats-heading {
+    margin: 0 0 6px 0;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.7;
+}
+.dle-librarian-stats-table {
+    width: 100%;
+    font-size: 11px;
+    border-collapse: collapse;
+}
+.dle-librarian-stats-table thead tr { opacity: 0.6; }
+.dle-librarian-stats-table th,
+.dle-librarian-stats-table td {
+    padding: 2px 4px;
+}
+.dle-librarian-stats-table th:not(:first-child),
+.dle-librarian-stats-table td:not(:first-child) {
+    text-align: right;
+}
+.dle-librarian-stats-table tbody tr:nth-child(even) {
+    background: color-mix(in srgb, var(--SmartThemeBodyColor) 4%, transparent);
+}
+.dle-librarian-stats-alltime { font-weight: 600; }
 
 /* Show reason text on wider drawers */
 @media (min-width: 400px) {
@@ -3840,12 +3873,12 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
 }
 .dle-lib-queue-item.dle-lib-queue-urgent {
-    border-left: 2px solid #cc4444;
+    border-left: 2px solid var(--dle-error);
 }
 .dle-lib-queue-action {
     font-weight: 700;
     text-align: center;
-    color: #44aa66;
+    color: var(--dle-success);
 }
 .dle-lib-queue-title {
     font-weight: 600;

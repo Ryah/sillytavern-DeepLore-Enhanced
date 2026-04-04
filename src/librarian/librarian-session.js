@@ -3,19 +3,23 @@
  * Manages multi-turn conversations with the librarian AI for entry creation/editing.
  * Includes response validation gate with auto-retry.
  */
+import { saveChatDebounced } from '../../../../../../script.js';
 import { getContext } from '../../../../../extensions.js';
 import { buildAiChatContext } from '../../core/utils.js';
 import { callAI, buildCandidateManifest } from '../ai/ai.js';
 import { queryBM25 } from '../vault/bm25.js';
 import { getSettings } from '../../settings.js';
 import { vaultIndex, fuzzySearchIndex, loreGaps, setLoreGaps } from '../state.js';
-import { validateSessionResponse } from '../helpers.js';
+import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Constants
 // ════════════════════════════════════════════════════════════════════════════
 
 const MAX_VALIDATION_RETRIES = 3;
+const MAX_HISTORY_MESSAGES = 10; // Keep last N messages to bound prompt growth
+const MAX_DRAFT_JSON_CHARS = 4000; // Cap draft state in system prompt
+const MAX_RELATED_ENTRIES_CHARS = 4000; // Cap related entries in system prompt
 
 // ════════════════════════════════════════════════════════════════════════════
 // Session Factory
@@ -184,9 +188,12 @@ function buildSystemPrompt(session) {
         parts.push(`\n## Existing vault entries (manifest):\n${truncatedManifest}`);
     }
 
-    // Related entries for gap review
+    // Related entries for gap review (capped to prevent prompt bloat)
     if (session.relatedEntries) {
-        parts.push(`\n## Related existing entries:\n${session.relatedEntries}`);
+        const truncated = session.relatedEntries.length > MAX_RELATED_ENTRIES_CHARS
+            ? session.relatedEntries.slice(0, MAX_RELATED_ENTRIES_CHARS) + '\n[...truncated]'
+            : session.relatedEntries;
+        parts.push(`\n## Related existing entries:\n${truncated}`);
     }
 
     // Chat context
@@ -197,9 +204,18 @@ function buildSystemPrompt(session) {
         parts.push(`\n## Recent chat context:\n${truncatedChat}`);
     }
 
-    // Current draft
+    // Current draft (capped to prevent prompt bloat)
     if (session.draftState) {
-        parts.push(`\n## Current draft (editing):\n${JSON.stringify(session.draftState, null, 2)}`);
+        let draftJson = JSON.stringify(session.draftState, null, 2);
+        if (draftJson.length > MAX_DRAFT_JSON_CHARS) {
+            // Truncate content field first (largest field)
+            const trimmed = { ...session.draftState };
+            if (trimmed.content && trimmed.content.length > 1000) {
+                trimmed.content = trimmed.content.slice(0, 1000) + '\n[...content truncated, see editor]';
+            }
+            draftJson = JSON.stringify(trimmed, null, 2);
+        }
+        parts.push(`\n## Current draft (editing):\n${draftJson}`);
     } else {
         parts.push(`\n## Current draft:\nNo draft yet. Help the user create one.`);
     }
@@ -244,66 +260,7 @@ If proposing a work queue (vault review), use:
     return parts.join('\n');
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Response Parsing
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * Parse the AI response text into a structured object.
- * Handles raw JSON, code-fenced JSON, and plain text fallback.
- * @param {string} text - Raw AI response
- * @returns {object|null} Parsed response or null on total failure
- */
-function parseSessionResponse(text) {
-    if (!text || typeof text !== 'string') return null;
-
-    // Try direct JSON parse
-    try {
-        const parsed = JSON.parse(text);
-        if (typeof parsed === 'object' && parsed !== null) return parsed;
-    } catch { /* noop */ }
-
-    // Try code fence extraction
-    const fenceMatch = text.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/);
-    if (fenceMatch) {
-        try {
-            const parsed = JSON.parse(fenceMatch[1].trim());
-            if (typeof parsed === 'object' && parsed !== null) return parsed;
-        } catch { /* noop */ }
-    }
-
-    // Try finding first { ... } block via bracket balancing
-    const firstBrace = text.indexOf('{');
-    if (firstBrace >= 0) {
-        let depth = 0;
-        let inString = false;
-        let escape = false;
-        for (let i = firstBrace; i < text.length; i++) {
-            const ch = text[i];
-            if (escape) { escape = false; continue; }
-            if (ch === '\\' && inString) { escape = true; continue; }
-            if (ch === '"') { inString = !inString; continue; }
-            if (inString) continue;
-            if (ch === '{') depth++;
-            else if (ch === '}') {
-                depth--;
-                if (depth === 0) {
-                    try {
-                        const parsed = JSON.parse(text.slice(firstBrace, i + 1));
-                        if (typeof parsed === 'object' && parsed !== null) return parsed;
-                    } catch { /* noop */ }
-                    break;
-                }
-            }
-        }
-    }
-
-    return null;
-}
-
-// validateSessionResponse is imported from helpers.js (pure, testable in Node)
-// Re-export for convenience
-export { validateSessionResponse } from '../helpers.js';
+// parseSessionResponse and validateSessionResponse imported from helpers.js (pure, testable in Node)
 
 // ════════════════════════════════════════════════════════════════════════════
 // Send Message (with validation + retry)
@@ -346,23 +303,35 @@ export async function sendMessage(session, userMessage) {
     let lastErrors = [];
 
     for (let attempt = 0; attempt < MAX_VALIDATION_RETRIES; attempt++) {
-        const result = await callAI(systemPrompt, messageToSend, connectionConfig);
+        let result;
+        try {
+            result = await callAI(systemPrompt, messageToSend, connectionConfig);
+        } catch (err) {
+            // Connection/timeout errors are retryable once
+            lastErrors = [`AI call failed: ${err.message || err}`];
+            if (attempt < MAX_VALIDATION_RETRIES - 1) continue;
+            return { parsed: null, valid: false, exhausted: true, lastErrors };
+        }
         const parsed = parseSessionResponse(result.text);
 
         if (!parsed) {
-            // Total parse failure -- retry with explicit instruction
-            messageToSend = `Your response could not be parsed as JSON. `
+            // Total parse failure -- retry with correction prepended to full history
+            const correction = `[SYSTEM: Your previous response could not be parsed as JSON. `
                 + `Respond with a valid JSON object matching the format in the system prompt. `
-                + `Do not include any text outside the JSON object.`;
+                + `Do not include any text outside the JSON object.]\n\n`;
+            messageToSend = correction + buildUserPromptFromHistory(session.messages);
             lastErrors = ['Response could not be parsed as JSON'];
             continue;
         }
 
         const { valid, errors } = validateSessionResponse(parsed);
         if (valid) {
-            // Apply valid response
+            // Apply valid response — filter out null/undefined draft fields to prevent erasure (M5)
             if (parsed.draft) {
-                session.draftState = { ...session.draftState, ...parsed.draft };
+                const filtered = Object.fromEntries(
+                    Object.entries(parsed.draft).filter(([, v]) => v != null),
+                );
+                session.draftState = { ...session.draftState, ...filtered };
             }
             if (parsed.queue) {
                 session.workQueue = parsed.queue;
@@ -371,11 +340,12 @@ export async function sendMessage(session, userMessage) {
             return { parsed, valid: true, exhausted: false, lastErrors: [] };
         }
 
-        // Build specific rejection -- note: rejected responses are NOT appended to session.messages
+        // Build specific rejection prepended to full history
         lastErrors = errors;
-        messageToSend = `Your response was rejected due to ${errors.length} validation error(s):\n`
+        const rejection = `[SYSTEM: Your response was rejected due to ${errors.length} validation error(s):\n`
             + errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
-            + `\n\nPlease fix these issues and resend your response in the correct format.`;
+            + `\nPlease fix these issues and resend your response in the correct format.]\n\n`;
+        messageToSend = rejection + buildUserPromptFromHistory(session.messages);
     }
 
     // Retries exhausted
@@ -389,9 +359,16 @@ export async function sendMessage(session, userMessage) {
  * @returns {string}
  */
 function buildUserPromptFromHistory(messages) {
-    return messages.map(m => {
-        const prefix = m.role === 'user' ? 'User' : 'Assistant';
-        return `${prefix}: ${m.content}`;
+    // Keep last N messages to bound prompt growth
+    const recent = messages.length > MAX_HISTORY_MESSAGES
+        ? messages.slice(-MAX_HISTORY_MESSAGES)
+        : messages;
+    const prefix = messages.length > MAX_HISTORY_MESSAGES
+        ? `[...${messages.length - MAX_HISTORY_MESSAGES} earlier messages omitted]\n\n`
+        : '';
+    return prefix + recent.map(m => {
+        const role = m.role === 'user' ? 'User' : 'Assistant';
+        return `${role}: ${m.content}`;
     }).join('\n\n');
 }
 
@@ -416,5 +393,6 @@ export function updateGapStatus(gapId, newStatus) {
     const ctx = getContext();
     if (ctx?.chat_metadata) {
         ctx.chat_metadata.deeplore_lore_gaps = updated;
+        saveChatDebounced();
     }
 }

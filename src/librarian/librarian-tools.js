@@ -2,6 +2,7 @@
  * DeepLore Enhanced — Librarian Tool Action Implementations
  * search_lore and flag_lore tool actions called by ToolManager during generation.
  */
+import { saveChatDebounced } from '../../../../../../script.js';
 import { getContext } from '../../../../../extensions.js';
 import { truncateToSentence } from '../../core/utils.js';
 import { queryBM25, tokenize } from '../vault/bm25.js';
@@ -12,6 +13,7 @@ import {
     lastInjectionSources,
     fuzzySearchIndex,
     generationCount,
+    chatEpoch,
     librarianSessionStats, setLibrarianSessionStats,
     librarianChatStats, setLibrarianChatStats,
 } from '../state.js';
@@ -58,7 +60,7 @@ function persistGaps(updatedGaps) {
     const ctx = getContext();
     if (ctx?.chat_metadata) {
         ctx.chat_metadata.deeplore_lore_gaps = updatedGaps;
-        ctx.saveSettingsDebounced();
+        saveChatDebounced();
     }
 }
 
@@ -98,13 +100,13 @@ function trackUnmetQuery(query) {
 function incrementStats(field, extraTokens = 0) {
     setLibrarianSessionStats({
         ...librarianSessionStats,
-        [field]: librarianSessionStats[field] + 1,
-        estimatedExtraTokens: librarianSessionStats.estimatedExtraTokens + extraTokens,
+        [field]: (librarianSessionStats[field] || 0) + 1,
+        estimatedExtraTokens: (librarianSessionStats.estimatedExtraTokens || 0) + extraTokens,
     });
     setLibrarianChatStats({
         ...librarianChatStats,
-        [field]: librarianChatStats[field] + 1,
-        estimatedExtraTokens: librarianChatStats.estimatedExtraTokens + extraTokens,
+        [field]: (librarianChatStats[field] || 0) + 1,
+        estimatedExtraTokens: (librarianChatStats.estimatedExtraTokens || 0) + extraTokens,
     });
 }
 
@@ -119,6 +121,7 @@ function incrementStats(field, extraTokens = 0) {
  */
 export async function searchLoreAction(args) {
     const settings = getSettings();
+    const epoch = chatEpoch; // Snapshot for stale-guard
     const query = args?.query?.trim();
     if (!query) return 'No query provided.';
 
@@ -166,11 +169,14 @@ export async function searchLoreAction(args) {
     const existingGap = findSimilarGap(loreGaps, query, 'search');
     let updatedGaps;
     if (existingGap) {
-        existingGap.frequency++;
-        existingGap.timestamp = Date.now();
-        existingGap.hadResults = results.length > 0;
-        existingGap.resultTitles = results.map(r => r.title);
-        updatedGaps = [...loreGaps];
+        const updated = {
+            ...existingGap,
+            frequency: existingGap.frequency + 1,
+            timestamp: Date.now(),
+            hadResults: results.length > 0,
+            resultTitles: results.map(r => r.title),
+        };
+        updatedGaps = loreGaps.map(g => g === existingGap ? updated : g);
     } else {
         const newGap = {
             id: gapId(),
@@ -187,7 +193,8 @@ export async function searchLoreAction(args) {
         };
         updatedGaps = [...loreGaps, newGap];
     }
-    persistGaps(updatedGaps);
+    // Guard: don't persist if chat changed during generation
+    if (epoch === chatEpoch) persistGaps(updatedGaps);
 
     // Analytics
     updateAnalytics('totalGapSearches');
@@ -207,6 +214,7 @@ export async function searchLoreAction(args) {
  * @returns {Promise<string>} Confirmation text
  */
 export async function flagLoreAction(args) {
+    const epoch = chatEpoch; // Snapshot for stale-guard
     const title = args?.title?.trim();
     const reason = args?.reason?.trim();
     if (!title) return 'No title provided.';
@@ -218,18 +226,19 @@ export async function flagLoreAction(args) {
     const existingGap = findSimilarGap(loreGaps, title, 'flag');
     let updatedGaps;
     if (existingGap) {
-        existingGap.frequency++;
-        existingGap.timestamp = Date.now();
-        // Escalate urgency if new flag is higher
         const urgencyOrder = { low: 0, medium: 1, high: 2 };
-        if (urgencyOrder[urgency] > urgencyOrder[existingGap.urgency]) {
-            existingGap.urgency = urgency;
-        }
-        // Append reason if different
-        if (!existingGap.reason.includes(reason)) {
-            existingGap.reason = `${existingGap.reason}; ${reason}`;
-        }
-        updatedGaps = [...loreGaps];
+        const escalatedUrgency = urgencyOrder[urgency] > urgencyOrder[existingGap.urgency]
+            ? urgency : existingGap.urgency;
+        const mergedReason = existingGap.reason.includes(reason)
+            ? existingGap.reason : `${existingGap.reason}; ${reason}`;
+        const updated = {
+            ...existingGap,
+            frequency: existingGap.frequency + 1,
+            timestamp: Date.now(),
+            urgency: escalatedUrgency,
+            reason: mergedReason,
+        };
+        updatedGaps = loreGaps.map(g => g === existingGap ? updated : g);
     } else {
         const newGap = {
             id: gapId(),
@@ -246,7 +255,8 @@ export async function flagLoreAction(args) {
         };
         updatedGaps = [...loreGaps, newGap];
     }
-    persistGaps(updatedGaps);
+    // Guard: don't persist if chat changed during generation
+    if (epoch === chatEpoch) persistGaps(updatedGaps);
 
     // Analytics + stats (flags have minimal token overhead)
     updateAnalytics('totalGapFlags');

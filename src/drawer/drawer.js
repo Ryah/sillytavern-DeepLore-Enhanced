@@ -55,6 +55,8 @@ export function resetDrawerState() {
     ds.contextTokens = 0;
     // Note: ds.stGenerating is NOT reset here — it tracks ST's generation state
     // which persists across chat switches. GENERATION_ENDED clears it.
+    ds.librarianFilter = 'all';
+    ds.librarianSort = 'newest';
     if (ds.browseSearchTimeout) { clearTimeout(ds.browseSearchTimeout); ds.browseSearchTimeout = null; }
     // Clear the search input and filter selects if drawer exists
     const $input = $(`#${DRAWER_ID} .dle-browse-input`);
@@ -65,6 +67,8 @@ export function resetDrawerState() {
     if ($tag.length) $tag.val('');
     const $sort = $(`#${DRAWER_ID} [data-sort]`);
     if ($sort.length) $sort.val('priority_asc');
+    // Re-render librarian tab to clear stale gaps from previous chat
+    scheduleRender(renderLibrarianTab);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

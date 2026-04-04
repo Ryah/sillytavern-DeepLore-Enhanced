@@ -1019,7 +1019,7 @@ function bindPopupEvents($container) {
             } else {
                 import('../librarian/librarian.js').then(m => m.unregisterLibrarianTools());
             }
-        } catch { /* noop */ }
+        } catch (err) { console.warn('[DLE] Librarian tool registration error:', err); }
     });
     $c('#dle-sp-librarian-search').on('change', function () { settings.librarianSearchEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });

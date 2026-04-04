@@ -5,6 +5,22 @@
  */
 import { yamlEscape } from '../core/utils.js';
 
+// ── Filename Sanitization ──
+
+/**
+ * Sanitize a title for use as an Obsidian vault filename.
+ * Removes OS-reserved characters, leading/trailing dots, and Windows reserved names.
+ * @param {string} title
+ * @returns {string} Safe filename
+ */
+export function sanitizeFilename(title) {
+    let safe = title.replace(/[<>:"/\\|?*]/g, '_');
+    safe = safe.replace(/^\.+|\.+$/g, '');
+    safe = safe.trimEnd();
+    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(safe)) safe = '_' + safe;
+    return safe || 'Untitled';
+}
+
 // ── Content Sanitization ──
 
 /**
@@ -681,11 +697,69 @@ export function extractAiNotes(messageText) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Librarian: Session Response Parsing
+// ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Parse the AI response text into a structured object.
+ * Handles raw JSON, code-fenced JSON, and bracket-balanced extraction.
+ * Pure function, no side effects. Importable in Node.js tests.
+ * @param {string} text - Raw AI response
+ * @returns {object|null} Parsed response or null on total failure
+ */
+export function parseSessionResponse(text) {
+    if (!text || typeof text !== 'string') return null;
+
+    // Try direct JSON parse
+    try {
+        const parsed = JSON.parse(text);
+        if (typeof parsed === 'object' && parsed !== null) return parsed;
+    } catch { /* noop */ }
+
+    // Try code fence extraction
+    const fenceMatch = text.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/);
+    if (fenceMatch) {
+        try {
+            const parsed = JSON.parse(fenceMatch[1].trim());
+            if (typeof parsed === 'object' && parsed !== null) return parsed;
+        } catch { /* noop */ }
+    }
+
+    // Try finding first { ... } block via bracket balancing
+    const firstBrace = text.indexOf('{');
+    if (firstBrace >= 0) {
+        let depth = 0;
+        let inString = false;
+        let escape = false;
+        for (let i = firstBrace; i < text.length; i++) {
+            const ch = text[i];
+            if (escape) { escape = false; continue; }
+            if (ch === '\\' && inString) { escape = true; continue; }
+            if (ch === '"') { inString = !inString; continue; }
+            if (inString) continue;
+            if (ch === '{') depth++;
+            else if (ch === '}') {
+                depth--;
+                if (depth === 0) {
+                    try {
+                        const parsed = JSON.parse(text.slice(firstBrace, i + 1));
+                        if (typeof parsed === 'object' && parsed !== null) return parsed;
+                    } catch { /* noop */ }
+                    break;
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Librarian: Session Response Validation
 // ════════════════════════════════════════════════════════════════════════════
 
 const VALID_ENTRY_TYPES = ['character', 'location', 'lore', 'organization', 'story'];
-const VALID_SESSION_ACTIONS = ['update_draft', 'propose_queue', null];
+const VALID_SESSION_ACTIONS = ['update_draft', 'propose_queue'];
 const VALID_QUEUE_ACTIONS = ['create', 'update'];
 const VALID_URGENCIES = ['low', 'medium', 'high'];
 
@@ -701,8 +775,8 @@ export function validateSessionResponse(parsed) {
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
         return { valid: false, errors: ['Response must be a JSON object'] };
     }
-    if (!parsed.message && typeof parsed.message !== 'string') {
-        errors.push("Missing required 'message' field");
+    if (typeof parsed.message !== 'string' || !parsed.message.trim()) {
+        errors.push("Missing required 'message' field (must be a non-empty string)");
     }
     if (parsed.action !== undefined && parsed.action !== null && !VALID_SESSION_ACTIONS.includes(parsed.action)) {
         errors.push(`'action' must be one of: update_draft, propose_queue, null. Got: '${parsed.action}'`);

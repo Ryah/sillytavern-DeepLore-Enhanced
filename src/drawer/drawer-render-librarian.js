@@ -4,6 +4,7 @@
  */
 import { escapeHtml } from '../../../../../utils.js';
 import { loreGaps } from '../state.js';
+import { getSettings } from '../../settings.js';
 import { ds, scheduleRender } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -28,7 +29,8 @@ const STATUS_ICONS = {
  */
 function computeGapScore(gap) {
     const urgency = URGENCY_SCORE[gap.urgency] || 0.5;
-    const frequency = Math.min(gap.frequency || 1, 10);
+    // Normalize frequency to 0-1 range (1 → 0, 10+ → 1)
+    const freqNorm = Math.min(1, ((gap.frequency || 1) - 1) / 9);
 
     // Recency: 1.0 at <1hr, decays to 0 at 24hr
     const ageMs = Date.now() - (gap.timestamp || 0);
@@ -38,7 +40,7 @@ function computeGapScore(gap) {
     // Unmet search bonus
     const unmetBonus = (gap.type === 'search' && !gap.hadResults) ? 0.2 : 0;
 
-    return Math.min(3, (frequency * 0.3) + (urgency * 0.3) + (recency * 0.2) + unmetBonus);
+    return Math.min(3, (freqNorm * 0.3) + (urgency * 0.3) + (recency * 0.2) + unmetBonus);
 }
 
 /**
@@ -102,9 +104,14 @@ export function renderLibrarianTab() {
             break;
     }
 
-    // Empty state
+    // Empty state — show dynamic enabled/disabled status
     if (gaps.length === 0) {
         $list.empty();
+        const enabled = getSettings().librarianEnabled;
+        const $text = $empty.find('.dle-librarian-empty-text');
+        $text.text(enabled
+            ? 'No lore gaps recorded yet. Gaps will appear here after your next generation.'
+            : 'Librarian is disabled. Enable it in Settings \u2192 Features \u2192 Librarian.');
         $empty.addClass('dle-visible');
         return;
     }

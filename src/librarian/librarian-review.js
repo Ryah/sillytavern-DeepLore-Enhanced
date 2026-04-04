@@ -6,8 +6,9 @@
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../popup.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { yamlEscape, classifyError } from '../../core/utils.js';
+import { stripObsidianSyntax, sanitizeFilename } from '../helpers.js';
 import { writeNote } from '../vault/obsidian-api.js';
-import { getSettings } from '../../settings.js';
+import { getSettings, getPrimaryVault } from '../../settings.js';
 import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { createSession, sendMessage, updateGapStatus } from './librarian-session.js';
@@ -16,28 +17,6 @@ import { createSession, sendMessage, updateGapStatus } from './librarian-session
 // Helpers
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Get the primary vault connection info */
-function getPrimaryVault(settings) {
-    if (settings.vaults && settings.vaults.length > 0) {
-        const v = settings.vaults.find(v => v.enabled) || settings.vaults[0];
-        return { host: v.host || 'localhost', port: v.port, apiKey: v.apiKey };
-    }
-    return { host: 'localhost', port: settings.obsidianPort, apiKey: settings.obsidianApiKey };
-}
-
-/** Sanitize a title for use as a filename */
-function sanitizeFilename(title) {
-    let safe = title.replace(/[<>:"/\\|?*]/g, '_');
-    safe = safe.replace(/^\.+|\.+$/g, '');
-    safe = safe.trimEnd();
-    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(safe)) safe = '_' + safe;
-    return safe || 'Untitled';
-}
-
-/** Strip Obsidian-interpretable syntax from AI content */
-function stripObsidianSyntax(text) {
-    return text.replace(/^---$/gm, '- - -');
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Popup HTML
@@ -154,6 +133,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
 
     let dirty = false;
     let sending = false;
+    let writingToVault = false;
 
     const result = await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
         wider: true,
@@ -163,7 +143,12 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
         cancelButton: 'Close',
         onOpen: (popup) => {
             // Add custom class for CSS targeting
-            if (popup?.dlg) popup.dlg.classList.add('dle-librarian-review');
+            if (popup?.dlg) {
+                popup.dlg.classList.add('dle-librarian-review');
+                // Set writingToVault flag when OK button is clicked (before onClosing fires)
+                const okBtn = popup.dlg.querySelector('.popup-button-ok');
+                if (okBtn) okBtn.addEventListener('click', () => { writingToVault = true; });
+            }
 
             // ─── Editor field sync ───
             const titleInput = container.querySelector('#dle-lib-title');
@@ -307,7 +292,16 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             function appendMessage(role, content) {
                 const div = document.createElement('div');
                 div.className = `dle-lib-msg dle-lib-msg-${role}`;
-                div.textContent = content;
+                if (role === 'ai') {
+                    // Basic markdown rendering for AI messages (safe: escapeHtml first)
+                    let html = escapeHtml(content);
+                    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+                    html = html.replace(/\n/g, '<br>');
+                    div.innerHTML = html;
+                } else {
+                    div.textContent = content;
+                }
                 messagesDiv.appendChild(div);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }
@@ -413,14 +407,18 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
 
             // If gap review and auto-send enabled, send initial prompt
             if (entryPoint === 'gap' && session.gapRecord && getSettings().librarianAutoSendOnGap !== false) {
-                setTimeout(() => {
+                session._autoSendTimer = setTimeout(() => {
                     chatInput.value = `Draft an entry for "${session.gapRecord.query}".`;
                     handleSend();
                 }, 300);
             }
         },
         onClosing: async () => {
-            // Warn on unsaved changes (unless writing to vault)
+            // Clear auto-send timer to prevent wasted API call
+            if (session._autoSendTimer) clearTimeout(session._autoSendTimer);
+            // Skip discard prompt when writing to vault (OK button was clicked)
+            if (writingToVault) return true;
+            // Warn on unsaved changes when closing without writing
             if (dirty && session.draftState?.title) {
                 const confirmResult = await callGenericPopup(
                     'You have unsaved changes. Discard them?',
@@ -433,7 +431,7 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
     });
 
     // Handle result
-    if (result === POPUP_TYPE.TEXT) {
+    if (result === POPUP_RESULT.AFFIRMATIVE) {
         // "Write to Vault" clicked
         await writeToVault(session);
     }
@@ -500,12 +498,17 @@ ${safeContent}`;
 
             // Update analytics
             const s = getSettings();
-            if (s.analyticsData._librarian) {
-                s.analyticsData._librarian.totalEntriesWritten =
-                    (s.analyticsData._librarian.totalEntriesWritten || 0) + 1;
-                const stCtx = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
-                if (stCtx?.saveSettingsDebounced) stCtx.saveSettingsDebounced();
+            if (!s.analyticsData._librarian) {
+                s.analyticsData._librarian = {
+                    totalGapSearches: 0, totalGapFlags: 0,
+                    totalEntriesWritten: 0, totalEntriesUpdated: 0,
+                    topUnmetQueries: [],
+                };
             }
+            s.analyticsData._librarian.totalEntriesWritten =
+                (s.analyticsData._librarian.totalEntriesWritten || 0) + 1;
+            const stCtx = getContext();
+            if (stCtx?.saveSettingsDebounced) stCtx.saveSettingsDebounced();
 
             // Trigger index rebuild
             buildIndex(true);

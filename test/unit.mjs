@@ -4303,6 +4303,99 @@ test('validateSessionResponse: collects multiple errors', () => {
     assert(r.errors.length >= 4, `should have many errors, got ${r.errors.length}`);
 });
 
+test('validateSessionResponse: rejects empty string message', () => {
+    const r = validateSessionResponse({ message: '' });
+    assert(!r.valid, 'empty string message should be invalid');
+    assert(r.errors.some(e => e.includes('message')), 'error about message');
+});
+
+test('validateSessionResponse: rejects numeric message', () => {
+    const r = validateSessionResponse({ message: 42 });
+    assert(!r.valid, 'numeric message should be invalid');
+});
+
+// ============================================================================
+// Librarian: parseSessionResponse
+// ============================================================================
+
+import { parseSessionResponse, sanitizeFilename } from '../src/helpers.js';
+
+test('parseSessionResponse: parses raw JSON', () => {
+    const result = parseSessionResponse('{"message": "hello", "draft": null}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'hello', 'message field');
+});
+
+test('parseSessionResponse: parses code-fenced JSON', () => {
+    const result = parseSessionResponse('Here is my response:\n```json\n{"message": "hi"}\n```');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'hi', 'message field');
+});
+
+test('parseSessionResponse: parses bracket-balanced JSON with preamble', () => {
+    const result = parseSessionResponse('I will help you. {"message": "ok", "draft": null}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'ok', 'message field');
+});
+
+test('parseSessionResponse: handles braces inside strings', () => {
+    const result = parseSessionResponse('{"message": "a { b } c", "draft": null}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'a { b } c', 'message with braces');
+});
+
+test('parseSessionResponse: returns null for non-string input', () => {
+    assertEqual(parseSessionResponse(null), null, 'null');
+    assertEqual(parseSessionResponse(undefined), null, 'undefined');
+    assertEqual(parseSessionResponse(42), null, 'number');
+    assertEqual(parseSessionResponse(''), null, 'empty string');
+});
+
+test('parseSessionResponse: returns null for unparseable text', () => {
+    assertEqual(parseSessionResponse('just some random text'), null, 'no JSON');
+    assertEqual(parseSessionResponse('{broken json'), null, 'broken JSON');
+});
+
+test('parseSessionResponse: handles escaped quotes in bracket balancer', () => {
+    const result = parseSessionResponse('prefix {"message": "say \\"hello\\""}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'say "hello"', 'escaped quotes');
+});
+
+// ============================================================================
+// Librarian: sanitizeFilename
+// ============================================================================
+
+test('sanitizeFilename: normal title passes through', () => {
+    assertEqual(sanitizeFilename('My Entry Title'), 'My Entry Title');
+});
+
+test('sanitizeFilename: strips reserved characters', () => {
+    assertEqual(sanitizeFilename('test<>:"/\\|?*file'), 'test_________file');
+});
+
+test('sanitizeFilename: strips leading/trailing dots', () => {
+    assertEqual(sanitizeFilename('...hidden...'), 'hidden');
+});
+
+test('sanitizeFilename: prefixes Windows reserved names', () => {
+    assertEqual(sanitizeFilename('CON'), '_CON');
+    assertEqual(sanitizeFilename('nul'), '_nul');
+    assertEqual(sanitizeFilename('COM1'), '_COM1');
+});
+
+test('sanitizeFilename: returns Untitled for empty result', () => {
+    assertEqual(sanitizeFilename(''), 'Untitled');
+});
+
+test('sanitizeFilename: replaces all special chars', () => {
+    assertEqual(sanitizeFilename('***'), '___');
+});
+
+test('sanitizeFilename: trims trailing whitespace', () => {
+    assertEqual(sanitizeFilename('test   '), 'test');
+});
+
 // ============================================================================
 // Results
 // ============================================================================

@@ -435,7 +435,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // BUG-AUDIT-1: Use tryAcquireHalfOpenProbe for actual AI calls (not pure query)
     if (!tryAcquireHalfOpenProbe()) {
         if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
-        dedupWarning('AI search temporarily paused after repeated failures. Using keyword matching.', 'ai_circuit', { timeOut: 8000 });
+        dedupWarning('AI search paused after 2 consecutive failures — auto-retrying in ~30s. Keywords active.', 'ai_circuit', { timeOut: 8000 });
         return { results: [], error: true, errorMessage: 'AI search temporarily paused' };
     }
 

@@ -379,7 +379,7 @@ export function initRender(gs) {
         for (const [type, edgeList] of Object.entries(edgesByType)) {
             if (edgeList.length === 0) continue;
             ctx.strokeStyle = edgeColors[type] || '#555';
-            if (type === 'excludes') { ctx.setLineDash([7, 5]); } else if (type === 'cascade') { ctx.setLineDash([2, 4]); } else { ctx.setLineDash([]); }
+            if (type === 'excludes') { ctx.setLineDash([7, 5]); } else if (type === 'cascade') { ctx.setLineDash([2, 4]); } else if (type === 'requires') { ctx.setLineDash([12, 4]); } else { ctx.setLineDash([]); }
 
             for (const edge of edgeList) {
                 const fromFiltered = nodes[edge.from].filtered;

@@ -65,7 +65,7 @@ A **lorebook** fixes this by injecting reference entries into the prompt when th
 
 See [Wiki: Pipeline](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Pipeline) for the full technical breakdown.
 
-> **Do NOT run both [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) and DeepLore Enhanced.** They are the same extension family. DeepLore is the stable keyword-only version, but is now depreciated. DeepLore Enhanced, this extension, is a superset that adds AI search and advanced features. Use this one.
+> **Do NOT run both [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) and DeepLore Enhanced.** They are the same extension family. DeepLore is the stable keyword-only version, but is now deprecated. DeepLore Enhanced is a superset that adds AI search and advanced features. Use this one.
 
 ---
 
@@ -75,24 +75,37 @@ See [Wiki: Pipeline](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/
   <img src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/main/wiki/images/dle-graph.png" alt="Entry Relationship Graph visualization showing 209 nodes and 418 edges in a force-directed layout with color-coded node types for Constants, Seeds, Bootstrap, and Regular entries" width="360">
 </p>
 
+## Who is this for?
+
+- **You have an Obsidian vault full of characters, factions, and history** — and you want the AI to actually use it.
+- **You're tired of World Info keyword matching missing the point** of the conversation.
+- **You want one source of truth** for your world that works in Obsidian AND in SillyTavern.
+
 ## Features
 
-- **The AI picks your lore for you** — Two-stage pipeline (keywords then AI) or AI-only mode, so the right entries show up even when keywords aren't mentioned
-- **Works with any AI provider** — Anthropic, OpenAI, OpenRouter, or anything SillyTavern's Connection Manager supports
-- **Your lore stays in Obsidian** — Plain markdown files with backlinks, templates, and the full Obsidian ecosystem
-- **Connect multiple vaults** — Merge entries from separate Obsidian vaults with clear attribution
-- **Control what injects per chat** — Pin entries to force-inject, block entries to suppress, without editing your vault
-- **Custom gating fields** — Define your own frontmatter fields (mood, faction, time_of_day — anything) with a visual rule builder, then filter entries dynamically by era, location, scene type, characters, or any custom field
-- **AI Notepad** — The AI maintains running session notes about story details, decisions, and reveals — stripped from chat, reinjected as context
-- **See exactly what the AI received** — Context Cartographer shows token usage, injection positions, and content previews per message
-- **Auto-write session notes** — Session Scribe summarizes your roleplay to Obsidian with a timeline view
-- **AI suggests new entries** — Auto Lorebook analyzes your chat for characters and concepts you haven't documented yet
-- **Import existing lorebooks** — Convert SillyTavern World Info exports into vault notes with AI-generated summaries
-- **Interactive relationship graph** — Visualize how your entries connect with force-directed layout, Louvain clustering, ego-centric focus mode, and gap analysis
-- **Live drawer panel** — Real-time view of injected entries, vault browser with temperature heatmap, and gating controls without leaving the chat
-- **Diagnose everything** — 30+ health checks, pipeline inspector, activation simulation, "Why Not?" diagnostics on any unmatched entry
-- **Zero loading delays** — Instant page loads from browser cache, with background sync to keep entries fresh
-- **Fine-grained matching** — Cooldowns, warmup thresholds, probability rolls, BM25 fuzzy search, refine keys, cascade links, and per-entry injection overrides
+### Smart Selection
+- **Two-stage matching** — keywords find candidates, AI picks what's actually relevant
+- **BM25 fuzzy search** catches near-misses that exact keywords would drop
+- **Hierarchical pre-filtering** — AI picks relevant categories first, then individual entries
+- **Works with any AI provider** — Anthropic, OpenAI, OpenRouter, or anything SillyTavern supports
+
+### Your Lore, Your Rules
+- **Contextual gating** — era, location, scene type, character presence filters
+- **Custom field definitions** with visual rule builder (mood, faction, time_of_day — anything)
+- **Per-chat pins and blocks**, cooldowns, warmup thresholds, probability gates
+- **Multiple vaults** — merge entries from separate Obsidian vaults with clear attribution
+
+### AI-Powered Tools
+- **Session Scribe** — auto-summarize chats back to your vault with timeline view
+- **AI Review** — get feedback on your entire vault's entries
+- **Auto Lorebook** — AI suggests new entries from chat context
+- **AI Notepad** — the AI maintains running session notes, reinjected as context
+
+### See Everything
+- **Live drawer panel** — Why?/Browse/Gating/Tools tabs without leaving the chat
+- **Relationship graph** — force-directed layout with clustering, focus mode, and gap analysis
+- **Context Cartographer** — see exactly which entries injected and why, per message
+- **30+ health checks**, pipeline inspector, activation simulation, "Why Not?" diagnostics
 
 See [Wiki: Features](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Features) for the full list.
 
@@ -168,50 +181,7 @@ See [Wiki: AI Search](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced
 
 ## Slash Commands
 
-Type these in the SillyTavern chat input. Run `/dle-help` for the full in-app reference.
-
-### Diagnostics
-
-| Command | Description |
-|---------|-------------|
-| `/dle-status` | Connection info, entry counts, AI stats, cache status |
-| `/dle-inspect` | Pipeline trace from the last generation |
-| `/dle-why` | Preview what would be injected right now |
-| `/dle-simulate` | Replay chat showing entry activation timeline |
-| `/dle-browse` | Searchable entry browser |
-| `/dle-graph` | Interactive entry relationship graph |
-| `/dle-health` | 30+ automated entry health checks |
-| `/dle-analytics` | Entry usage statistics |
-
-### AI Tools
-
-| Command | Description |
-|---------|-------------|
-| `/dle-scribe [focus]` | Write a session summary to Obsidian |
-| `/dle-newlore` | AI suggests new lorebook entries from chat |
-| `/dle-optimize-keys <name>` | AI suggests better keywords for an entry |
-| `/dle-summarize` | Generate AI summaries for entries missing one |
-| `/dle-notebook` | Per-chat Author's Notebook editor |
-
-### Per-Chat Overrides
-
-| Command | Description |
-|---------|-------------|
-| `/dle-pin <name>` | Force-inject this entry in the current chat |
-| `/dle-block <name>` | Suppress this entry in the current chat |
-| `/dle-set-era [era]` | Set the active era for contextual gating |
-| `/dle-set-location [loc]` | Set the active location |
-| `/dle-set-field <name> [val]` | Set any gating field (built-in or custom) |
-
-### Utility
-
-| Command | Description |
-|---------|-------------|
-| `/dle-refresh` | Force re-index vault from Obsidian |
-| `/dle-setup` | Guided first-time setup wizard |
-| `/dle-import` | Import SillyTavern World Info JSON into vault |
-
-See [Wiki: Slash Commands](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Slash-Commands) for the complete list with usage examples.
+Type `/dle-help` in the SillyTavern chat input for the full in-app reference, or see the [complete command reference](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Slash-Commands) on the wiki.
 
 ---
 

@@ -187,8 +187,10 @@ export function initFocus(gs, dbg) {
         }
         const hopMinus = document.getElementById('dle-graph-hop-minus');
         const hopPlus = document.getElementById('dle-graph-hop-plus');
+        const depthDisplay = document.getElementById('dle-graph-depth-display');
         if (hopMinus) hopMinus.style.display = 'inline-block';
         if (hopPlus) hopPlus.style.display = 'inline-block';
+        if (depthDisplay) { depthDisplay.style.display = 'inline-block'; depthDisplay.textContent = depth; }
 
         fitToView();
         gs.cachedRect = canvas.getBoundingClientRect();
@@ -257,8 +259,10 @@ export function initFocus(gs, dbg) {
         if (backBtn) backBtn.style.display = 'none';
         const hopMinus = document.getElementById('dle-graph-hop-minus');
         const hopPlus = document.getElementById('dle-graph-hop-plus');
+        const depthDisplay = document.getElementById('dle-graph-depth-display');
         if (hopMinus) hopMinus.style.display = 'none';
         if (hopPlus) hopPlus.style.display = 'none';
+        if (depthDisplay) depthDisplay.style.display = 'none';
 
         fitToView();
         gs.cachedRect = gs.canvas.getBoundingClientRect();
@@ -271,6 +275,18 @@ export function initFocus(gs, dbg) {
      */
     function lerpEgoPositions() {
         if (!gs._egoLerpActive) return false;
+
+        // Accessibility: skip lerp animation, snap to targets immediately
+        if (gs.reducedMotion) {
+            for (const n of gs.nodes) {
+                if (n._targetX == null || n.hidden) continue;
+                n.x = n._targetX;
+                n.y = n._targetY;
+            }
+            gs._egoLerpActive = false;
+            return false;
+        }
+
         let anyMoving = false;
         const speed = 0.12; // lerp factor per frame (~150ms to settle)
         for (const n of gs.nodes) {

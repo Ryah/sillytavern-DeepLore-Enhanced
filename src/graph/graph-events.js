@@ -134,22 +134,29 @@ export function initEvents(gs, dbg) {
                 const reqs = entry.requires.length;
                 const excl = entry.excludes.length;
                 const details = [
-                    `<strong>${node.title}</strong>`,
-                    `Type: ${node.type} · Priority: ${entry.priority}`,
+                    `Type: ${escapeHtml(node.type)} · Priority: ${entry.priority}`,
                     `Tokens: ~${node.tokens} · Connections: ${connections}`,
                     `Injections (this chat): ${inj}`,
                     `Links: ${links} · Requires: ${reqs} · Excludes: ${excl}`,
-                    `Tags: ${tags}`,
+                    `Tags: ${escapeHtml(tags)}`,
                 ];
                 if (entry.customFields) {
                     for (const [key, val] of Object.entries(entry.customFields)) {
                         if (val != null && val !== '' && (!Array.isArray(val) || val.length > 0)) {
-                            details.push(`${key}: ${Array.isArray(val) ? val.join(', ') : val}`);
+                            details.push(`${escapeHtml(key)}: ${escapeHtml(Array.isArray(val) ? val.join(', ') : String(val))}`);
                         }
                     }
                 }
-                if (entry.summary) details.push(`<em>${entry.summary.substring(0, 120)}${entry.summary.length > 120 ? '...' : ''}</em>`);
-                toastr.info(details.join('<br>'), 'Entry Details', { timeOut: 15000, closeButton: true, escapeHtml: false });
+                if (entry.summary) details.push(`<em>${escapeHtml(entry.summary.substring(0, 120))}${entry.summary.length > 120 ? '...' : ''}</em>`);
+                const panel = canvas.parentNode?.querySelector('.dle-graph-detail-panel');
+                if (panel) {
+                    panel.innerHTML = `<div class="dle-graph-detail-header">
+                        <strong>${escapeHtml(entry.title)}</strong>
+                        <button class="dle-graph-detail-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                    </div><div class="dle-graph-detail-body">${details.join('<br>')}</div>`;
+                    panel.style.display = '';
+                    panel.querySelector('.dle-graph-detail-close')?.addEventListener('click', () => { panel.style.display = 'none'; }, { once: true });
+                }
                 break;
             }
         }
@@ -437,10 +444,21 @@ export function initEvents(gs, dbg) {
     const exportPngBtn = document.getElementById('dle-graph-export-png');
     const exportJsonBtn = document.getElementById('dle-graph-export-json');
 
+    const searchClearBtn = document.getElementById('dle-graph-search-clear');
     if (searchEl) {
         searchEl.addEventListener('input', () => {
             gs.searchQuery = searchEl.value;
             gs.applyFilters();
+            if (searchClearBtn) searchClearBtn.style.display = searchEl.value ? '' : 'none';
+        }, lOpt);
+    }
+    if (searchClearBtn) {
+        searchClearBtn.addEventListener('click', () => {
+            if (searchEl) {
+                searchEl.value = '';
+                searchEl.dispatchEvent(new Event('input'));
+                searchEl.focus();
+            }
         }, lOpt);
     }
     if (typeFilterEl) {
@@ -471,12 +489,17 @@ export function initEvents(gs, dbg) {
     // Hop depth +/- buttons for focus tree mode
     const hopMinusBtn = document.getElementById('dle-graph-hop-minus');
     const hopPlusBtn = document.getElementById('dle-graph-hop-plus');
+    const depthDisplayEl = document.getElementById('dle-graph-depth-display');
+    function updateDepthDisplay() {
+        if (depthDisplayEl) depthDisplayEl.textContent = gs.settings.graphFocusTreeDepth || 2;
+    }
     function adjustHopDepth(delta) {
         if (!gs.focusTreeRoot) return;
         const current = gs.settings.graphFocusTreeDepth || 2;
         const newDepth = Math.max(1, Math.min(15, current + delta));
         if (newDepth === current) return;
         gs.settings.graphFocusTreeDepth = newDepth;
+        updateDepthDisplay();
         const root = gs.focusTreeRoot;
         // Clean up current focus tree state
         for (const n of nodes) {

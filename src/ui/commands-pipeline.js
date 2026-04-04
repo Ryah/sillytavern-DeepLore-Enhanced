@@ -7,7 +7,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
-import { NO_ENTRIES_MSG } from '../../core/utils.js';
+import { NO_ENTRIES_MSG, classifyError } from '../../core/utils.js';
 import { formatAndGroup } from '../../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
@@ -30,7 +30,7 @@ export function registerPipelineCommands() {
                 return '';
             }
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-simulate:', err);
                 return '';
             }
@@ -62,7 +62,7 @@ export function registerPipelineCommands() {
             // Await any in-progress index build to prevent concurrent pipeline execution
             if (buildPromise) await buildPromise;
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-why:', err);
                 return '';
             }

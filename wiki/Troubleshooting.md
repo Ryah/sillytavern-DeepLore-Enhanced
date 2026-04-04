@@ -22,6 +22,22 @@ Common issues and how to fix them. Run `/dle-health` first — it catches most p
 - **Check:** The REST API plugin is enabled (not just installed)
 - **Try:** Increase the cache TTL in Index & Cache settings to reduce connection frequency
 
+### HTTPS Certificate Not Trusted
+
+If you're using HTTPS (port 27124) and getting "Failed to fetch" or "Certificate not trusted" errors, the browser is blocking the connection because the Local REST API plugin uses a self-signed certificate.
+
+**Option 1: Switch to HTTP (easiest)**
+1. In Obsidian, open Settings → Local REST API
+2. Ensure "Enable Non-Encrypted (HTTP) Server" is **ON**
+3. In DeepLore settings, **uncheck HTTPS** and set port to `27123`
+
+**Option 2: Trust the certificate**
+1. Open `https://127.0.0.1:27124` directly in your browser
+2. Accept the security warning / add exception
+3. See the [Local REST API certificate guide](https://github.com/coddingtonbear/obsidian-web/wiki/Troubleshooting%3A-Certificate-Trust-Issues) for detailed steps per platform
+
+> DeepLore automatically detects certificate issues and shows a guidance popup with both options when a connection test fails.
+
 ## Entries Not Matching
 
 ### Keywords not triggering

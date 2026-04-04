@@ -259,7 +259,10 @@ export async function showGraphPopup() {
         <h3 class="dle-graph-title">Entry Relationship Graph (${nodes.length} nodes, ${edges.length} edges)</h3>
         ${circularWarning}
         <div class="dle-graph-toolbar">
-            <input type="text" id="dle-graph-search" class="text_pole dle-graph-toolbar-input" placeholder="Search entries..." />
+            <div class="dle-graph-search-wrap">
+                <input type="text" id="dle-graph-search" class="text_pole dle-graph-toolbar-input" placeholder="Search entries..." />
+                <button id="dle-graph-search-clear" class="dle-graph-search-clear" title="Clear search" style="display:none;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
             <select id="dle-graph-type-filter" class="text_pole dle-graph-toolbar-select">
                 <option value="">All Types</option>
                 <option value="regular">Regular</option>
@@ -290,6 +293,7 @@ export async function showGraphPopup() {
         <div class="dle-graph-toolbar dle-gap-1 dle-graph-toolbar--secondary">
             <button id="dle-graph-back" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-back-btn" title="Exit Focus Tree (Esc)">← Back</button>
             <button id="dle-graph-hop-minus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Decrease hop depth">−</button>
+            <span id="dle-graph-depth-display" class="dle-graph-depth-display dle-hidden"></span>
             <button id="dle-graph-hop-plus" class="menu_button dle-graph-toolbar-btn-wide dle-hidden dle-graph-hop-btn" title="Increase hop depth">+</button>
             <button id="dle-graph-fit" class="menu_button dle-graph-toolbar-btn" title="Fit to view (0)">Fit</button>
             <button id="dle-graph-unpin-all" class="menu_button dle-graph-toolbar-btn-wide" title="Unpin all nodes">Unpin All</button>
@@ -298,7 +302,7 @@ export async function showGraphPopup() {
             <button id="dle-graph-export-png" class="menu_button dle-graph-toolbar-btn" title="Export as PNG">PNG</button>
             <button id="dle-graph-export-json" class="menu_button dle-graph-toolbar-btn" title="Export as JSON">JSON</button>
             <span class="dle-graph-toolbar-sep"></span>
-            <button id="dle-graph-analyze" class="menu_button dle-graph-toolbar-btn" title="Toggle gap analysis overlay — highlights orphans, weak bridges, and missing connections"><i class="fa-solid fa-magnifying-glass-chart"></i> Analyze</button>
+            <button id="dle-graph-analyze" class="menu_button dle-graph-toolbar-btn" title="Find gaps in your vault — highlights orphans, weak bridges, and missing connections"><i class="fa-solid fa-magnifying-glass-chart"></i> Find Gaps</button>
         </div>
         <div class="dle-graph-legend" id="dle-graph-legend">
             <span class="dle-graph-legend-item" data-edge-type="link"><span style="color: #aac8ff;">—</span> Link</span>
@@ -310,6 +314,7 @@ export async function showGraphPopup() {
             <canvas id="dle-graph-canvas" class="dle-graph-canvas" tabindex="-1" width="900" height="550" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
             <div id="dle-graph-tooltip" class="dle-graph-tooltip"></div>
             <div id="dle-graph-context-menu" class="dle-graph-context-menu dle-hidden"></div>
+            <div class="dle-graph-detail-panel" style="display:none;"></div>
             <div id="dle-graph-settings-panel" class="dle-graph-settings-panel dle-hidden">
                 <div class="dle-graph-settings-titlebar" id="dle-graph-settings-titlebar">
                     <span><i class="fa-solid fa-gear"></i> Graph Settings</span>
@@ -712,6 +717,7 @@ export async function showGraphPopup() {
             // BUG-FIX: Cancel pending fit timers to prevent stale callbacks
             for (const id of gs._fitTimers || []) clearTimeout(id);
             gs._fitTimers = [];
+            if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
             listenerAC.abort();
             observer.disconnect();
         }
@@ -751,7 +757,7 @@ export async function showGraphPopup() {
         releaseStabilizeFrames: 0, // G6: extra damping frames after drag release
         layoutSaved: restoredLayout, // Whether positions have been saved this session
         restoredLayout, // Whether we skipped reveal due to saved positions
-        layoutNotice: restoredLayout ? '' : 'Calculating layout\u2026 standby (no more than 90 seconds)',
+        layoutNotice: restoredLayout ? '' : 'Laying out entries\u2026',
         simulationStartTime: restoredLayout ? 0 : Date.now(), // For 90s hard clamp
         onSettleComplete: null, // Set below after overlay is created
         // Simulation
@@ -782,6 +788,8 @@ export async function showGraphPopup() {
         computeHoverDistances: null,
         enterFocusTree: null, exitFocusTree: null,
         updateTooltip: null,
+        // Accessibility
+        reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
         // Gap analysis
         _vaultIndex: graphEntries,
         gapAnalysis: null,
@@ -848,18 +856,27 @@ export async function showGraphPopup() {
         gs.panX = gs.W / 2; gs.panY = gs.H / 2; gs.zoom = 1;
         gs.needsDraw = true;
         // Show calculating overlay
-        gs.layoutNotice = 'Calculating layout\u2026 standby (no more than 90 seconds)';
+        gs.layoutNotice = 'Laying out entries\u2026';
         if (gs.updateTooltip) gs.updateTooltip();
         // Re-add overlay if not present
+        if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
         if (!layoutOverlay && canvas.parentNode) {
             layoutOverlay = document.createElement('div');
             layoutOverlay.className = 'dle-graph-layout-overlay';
             layoutOverlay.innerHTML = `<div class="dle-graph-layout-overlay-text">
                 <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                Calculating layout\u2026 standby (no more than 90 seconds)
+                <span class="dle-graph-layout-overlay-msg">Laying out entries\u2026 0s</span>
             </div>`;
             canvas.parentNode.appendChild(layoutOverlay);
         }
+        const replayStart = Date.now();
+        layoutTimerInterval = setInterval(() => {
+            const msgEl = layoutOverlay?.querySelector('.dle-graph-layout-overlay-msg');
+            if (msgEl) {
+                const elapsed = Math.round((Date.now() - replayStart) / 1000);
+                msgEl.textContent = `Laying out entries\u2026 ${elapsed}s`;
+            }
+        }, 1000);
         // Auto-fit 1s + 2s + 6s after redraw starts (don't wait for settle)
         // BUG-FIX: Store timer IDs so they can be cancelled on popup close
         for (const id of gs._fitTimers || []) clearTimeout(id);
@@ -896,19 +913,30 @@ export async function showGraphPopup() {
 
         // --- Entrance animation: lerp reveal scales each frame ---
         let anyRevealing = false;
-        for (const n of gs.nodes) {
-            if (n.hidden || n._revealScale >= 1) continue;
-            n._revealScale += (1 - n._revealScale) * 0.15;
-            if (n._revealScale > 0.995) n._revealScale = 1;
-            else anyRevealing = true;
-        }
-        for (const e of gs.edges) {
-            const fromScale = gs.nodes[e.from]._revealScale;
-            const toScale = gs.nodes[e.to]._revealScale;
-            if (fromScale > 0.5 && toScale > 0.5) {
-                e._revealAlpha += (1 - e._revealAlpha) * 0.1;
-                if (e._revealAlpha > 0.99) e._revealAlpha = 1;
+        if (gs.reducedMotion) {
+            // Accessibility: snap reveal scales to 1 immediately
+            for (const n of gs.nodes) {
+                if (n.hidden || n._revealScale >= 1) continue;
+                n._revealScale = 1;
+            }
+            for (const e of gs.edges) {
+                if (e._revealAlpha < 1) e._revealAlpha = 1;
+            }
+        } else {
+            for (const n of gs.nodes) {
+                if (n.hidden || n._revealScale >= 1) continue;
+                n._revealScale += (1 - n._revealScale) * 0.15;
+                if (n._revealScale > 0.995) n._revealScale = 1;
                 else anyRevealing = true;
+            }
+            for (const e of gs.edges) {
+                const fromScale = gs.nodes[e.from]._revealScale;
+                const toScale = gs.nodes[e.to]._revealScale;
+                if (fromScale > 0.5 && toScale > 0.5) {
+                    e._revealAlpha += (1 - e._revealAlpha) * 0.1;
+                    if (e._revealAlpha > 0.99) e._revealAlpha = 1;
+                    else anyRevealing = true;
+                }
             }
         }
         if (anyRevealing) { gs.needsDraw = true; gs.hasSpringEnergy = true; }
@@ -928,20 +956,30 @@ export async function showGraphPopup() {
     // Layout overlay — blocks input and shows progress during settling
     // ========================================================================
     let layoutOverlay = null;
+    let layoutTimerInterval = null;
     if (!restoredLayout) {
         layoutOverlay = document.createElement('div');
         layoutOverlay.className = 'dle-graph-layout-overlay';
         layoutOverlay.innerHTML = `<div class="dle-graph-layout-overlay-text">
             <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-            Calculating layout\u2026 standby (no more than 90 seconds)
+            <span class="dle-graph-layout-overlay-msg">Laying out entries\u2026 0s</span>
         </div>`;
         canvas.parentNode.style.position = 'relative'; // ensure overlay positioning works
         canvas.parentNode.appendChild(layoutOverlay);
         gs.settlingUntil = Date.now() + 91_000; // slightly beyond the 90s hard clamp
+        const layoutStart = Date.now();
+        layoutTimerInterval = setInterval(() => {
+            const msgEl = layoutOverlay?.querySelector('.dle-graph-layout-overlay-msg');
+            if (msgEl) {
+                const elapsed = Math.round((Date.now() - layoutStart) / 1000);
+                msgEl.textContent = `Laying out entries\u2026 ${elapsed}s`;
+            }
+        }, 1000);
     }
 
     gs.onSettleComplete = () => {
         // Remove overlay, clear notice, show "Layout saved" briefly, auto-fit
+        if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
         if (layoutOverlay) {
             layoutOverlay.remove();
             layoutOverlay = null;

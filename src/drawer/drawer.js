@@ -244,6 +244,16 @@ export async function createDrawerPanel() {
         }
     });
 
+    // Dismiss drawer on outside click when in overlay mode (not pinned)
+    $(document).on('click.dle-drawer-dismiss', (e) => {
+        if (!$panel.hasClass('openDrawer')) return;
+        if ($panel.hasClass('pinnedOpen')) return;
+        if (!$panel.hasClass('dle-overlay-mode')) return;
+        if ($panel[0].contains(e.target)) return;
+        if ($(e.target).closest('.drawer-toggle, #deeploreDrawerIcon').length) return;
+        doNavbarIconClick.call($drawer.find('.drawer-toggle')[0]);
+    });
+
     // Help button — opens /dle-help command
     $drawer.find('.dle-drawer-help').on('click', function () {
         const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;

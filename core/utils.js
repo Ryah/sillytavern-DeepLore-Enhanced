@@ -358,6 +358,12 @@ export function classifyError(err) {
     if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch failed/i.test(raw)) {
         return 'Could not connect. Check that the service is running.';
     }
+    if (/404|Not Found/i.test(raw)) {
+        return 'Endpoint not found (404). Check that the URL is correct.';
+    }
+    if (/429|Too Many Requests|rate.?limit/i.test(raw)) {
+        return 'Rate limited (429). Wait a moment before retrying.';
+    }
     if (/\b5\d{2}\b|Internal Server Error|Bad Gateway|Service Unavailable/i.test(raw)) {
         return 'The server returned an error. Try again in a moment.';
     }

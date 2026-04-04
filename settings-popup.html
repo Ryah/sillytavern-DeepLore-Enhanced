@@ -122,16 +122,29 @@
                     </select>
                 </div>
             </div>
-            <div class="flex-container dle-sp-margin-top" style="align-items: flex-end;">
-                <div class="flex1" title="Path to the YAML file in Obsidian that defines custom gating fields (e.g., era, location, mood). Relative to vault root.">
-                    <label for="dle-sp-field-definitions-path"><small>Field Definitions Path</small></label>
-                    <input id="dle-sp-field-definitions-path" type="text" class="text_pole" placeholder="DeepLore/field-definitions.yaml" />
-                </div>
-                <div id="dle-sp-edit-fields-btn" class="menu_button" title="Open the field definition editor" style="height: fit-content; margin-left: 8px; white-space: nowrap;">
-                    <i class="fa-solid fa-gear"></i> Edit Fields
-                </div>
             </div>
+
+            </div><!-- end Sub-panel: Obsidian -->
+
+            <!-- Sub-panel: AI Connections -->
+            <div class="dle-connection-subpanel" id="dle-sp-conn-ai-connections" data-connection-subpanel="ai-connections"
+                 role="tabpanel" hidden>
+
+            <div class="dle-settings-section" id="dle-sp-ai-connections">
+                <h4>AI Connections</h4>
+                <p class="dle-section-desc">Configure AI connections for each tool. Tools set to "Inherit" use the AI Search connection.</p>
+                <!-- Accordion items generated dynamically by settings-ui.js -->
             </div>
+
+            </div><!-- end Sub-panel: AI Connections -->
+
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             TAB: Matching
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="dle-settings-panel" id="dle-sp-matching" data-settings-panel="matching"
+             role="tabpanel" aria-labelledby="dle-sp-tab-matching" hidden>
 
             <div class="dle-settings-section">
             <h4>Vault Tags</h4>
@@ -152,6 +165,15 @@
                     <div class="flex1" title="Tag (without #) that prevents a note from ever being included.">
                         <label for="dle-sp-never-insert-tag"><small>Never-Insert Tag</small></label>
                         <input id="dle-sp-never-insert-tag" type="text" class="text_pole" placeholder="lorebook-never" />
+                    </div>
+                </div>
+                <div class="flex-container" style="align-items: flex-end;">
+                    <div class="flex1" title="Path to the YAML file in Obsidian that defines custom gating fields (e.g., era, location, mood). Relative to vault root.">
+                        <label for="dle-sp-field-definitions-path"><small>Field Definitions Path</small></label>
+                        <input id="dle-sp-field-definitions-path" type="text" class="text_pole" placeholder="DeepLore/field-definitions.yaml" />
+                    </div>
+                    <div id="dle-sp-edit-fields-btn" class="menu_button" title="Open the field definition editor" style="height: fit-content; margin-left: 8px; white-space: nowrap;">
+                        <i class="fa-solid fa-gear"></i> Edit Fields
                     </div>
                 </div>
                 <div class="dle-advanced-toggle" data-section="sp_vault_tags" tabindex="0" role="button" aria-expanded="false">
@@ -177,28 +199,6 @@
                 </div>
             </div>
             </div>
-
-            </div><!-- end Sub-panel: Obsidian -->
-
-            <!-- Sub-panel: AI Connections -->
-            <div class="dle-connection-subpanel" id="dle-sp-conn-ai-connections" data-connection-subpanel="ai-connections"
-                 role="tabpanel" hidden>
-
-            <div class="dle-settings-section" id="dle-sp-ai-connections">
-                <h4>AI Connections</h4>
-                <p class="dle-section-desc">Configure AI connections for each tool. Tools set to "Inherit" use the AI Search connection.</p>
-                <!-- Accordion items generated dynamically by settings-ui.js -->
-            </div>
-
-            </div><!-- end Sub-panel: AI Connections -->
-
-        </div>
-
-        <!-- ═══════════════════════════════════════════════════════════════════
-             TAB: Matching
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="dle-settings-panel" id="dle-sp-matching" data-settings-panel="matching"
-             role="tabpanel" aria-labelledby="dle-sp-tab-matching" hidden>
 
             <div class="dle-settings-section">
             <h4>Search Mode</h4>
@@ -274,6 +274,22 @@
                     <input id="dle-sp-token-budget" type="number" class="text_pole" min="100" max="100000" />
                 </div>
             </div>
+            <h4>Entry Rotation</h4>
+            <label class="checkbox_label" for="dle-sp-decay-enabled" title="Entries that haven't appeared recently become more likely to be picked. Entries appearing too often become less likely. Adds variety to lore injection.">
+                <input id="dle-sp-decay-enabled" type="checkbox" class="checkbox">
+                <span>Enable Entry Rotation</span>
+            </label>
+            <div class="flex-container" id="dle-sp-decay-controls">
+                <div class="flex1" title="How many turns an entry can be skipped before it's boosted to reappear. Default: 5.">
+                    <label for="dle-sp-decay-boost-threshold"><small>Boost After N Skips</small></label>
+                    <input id="dle-sp-decay-boost-threshold" type="number" class="text_pole" min="2" max="20" />
+                </div>
+                <div class="flex1" title="How many times in a row an entry can be injected before it becomes less likely to appear. Default: 2.">
+                    <label for="dle-sp-decay-penalty-threshold"><small>Penalize After N in a Row</small></label>
+                    <input id="dle-sp-decay-penalty-threshold" type="number" class="text_pole" min="2" max="10" />
+                </div>
+            </div>
+
             <div class="dle-advanced-toggle" data-section="sp_matching" tabindex="0" role="button" aria-expanded="false">
                 <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show Advanced
             </div>
@@ -488,6 +504,17 @@
             </div>
 
             <div class="dle-settings-section">
+            <h4>Source Tracking</h4>
+            <div class="flex-container flexFlowColumn">
+                <label class="checkbox_label" for="dle-sp-show-sources" title="Add a book icon to AI messages showing which vault entries were injected and why.">
+                    <input id="dle-sp-show-sources" type="checkbox" class="checkbox">
+                    <span>Show Sources Button</span>
+                </label>
+                <span class="dle-text-xs dle-muted">Deep links require vault connection names to match your Obsidian vault names.</span>
+            </div>
+            </div>
+
+            <div class="dle-settings-section">
             <div class="dle-advanced-toggle" data-section="sp_injection" tabindex="0" role="button" aria-expanded="false">
                 <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show Advanced
             </div>
@@ -520,6 +547,17 @@
                     to configure these settings.</p>
                 </div>
             </div>
+
+            <div class="dle-sp-field-row">
+                <label for="dle-sp-ai-search-mode-mirror">Search Mode</label>
+                <select id="dle-sp-ai-search-mode-mirror" class="text_pole">
+                    <option value="keyword-only">Keyword Only</option>
+                    <option value="two-stage">Two-Stage (Keywords &rarr; AI)</option>
+                    <option value="ai-only">AI Only</option>
+                </select>
+                <small class="dle-muted">Also configurable in the Matching tab.</small>
+            </div>
+
             <div class="dle-ai-content-wrap">
             <h4>AI Search Settings</h4>
             <p class="dle-section-desc">Configure the AI model that selects which entries to inject.</p>
@@ -537,13 +575,46 @@
                     </div>
                     <span id="dle-sp-ai-status" class="dle-status"></span>
                 </div>
-                <div class="dle-advanced-toggle" data-section="sp_ai_search" tabindex="0" role="button" aria-expanded="false">
-                    <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show Advanced
+                <!-- Always visible: Confidence + Fallback -->
+                <div class="flex-container">
+                    <div class="flex1" title="Filter AI results by confidence tier. Low includes all, Medium drops low-confidence, High keeps only high-confidence entries.">
+                        <label for="dle-sp-ai-confidence-threshold"><small>AI Confidence Threshold</small></label>
+                        <select id="dle-sp-ai-confidence-threshold" class="text_pole">
+                            <option value="low">Low (include all tiers)</option>
+                            <option value="medium">Medium (medium + high only)</option>
+                            <option value="high">High (high confidence only)</option>
+                        </select>
+                    </div>
                 </div>
-                <div class="dle-advanced-section" data-section="sp_ai_search" style="display: none;">
+                <div class="flex-container">
+                    <div class="flex1" title="What to inject when AI search encounters an error (network failure, timeout, etc).">
+                        <label for="dle-sp-ai-error-fallback"><small>AI Error Fallback</small></label>
+                        <select id="dle-sp-ai-error-fallback" class="text_pole">
+                            <option value="keyword">Keyword matching</option>
+                            <option value="constants_only">Constants only</option>
+                            <option value="bootstrap_only">Bootstrap entries only</option>
+                            <option value="none">Nothing (skip injection)</option>
+                        </select>
+                    </div>
+                    <div class="flex1" title="What to inject when AI search returns no results (AI decided nothing is relevant).">
+                        <label for="dle-sp-ai-empty-fallback"><small>AI Empty Result Fallback</small></label>
+                        <select id="dle-sp-ai-empty-fallback" class="text_pole">
+                            <option value="constants">Constants only</option>
+                            <option value="constants_bootstrap">Constants + Bootstrap</option>
+                            <option value="keyword">Keyword matching</option>
+                            <option value="none">Nothing (skip injection)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Toggle: Show Prompt & Context -->
+                <div class="dle-advanced-toggle" data-section="sp_ai_prompt" tabindex="0" role="button" aria-expanded="false">
+                    <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show Prompt &amp; Context
+                </div>
+                <div class="dle-advanced-section" data-section="sp_ai_prompt" style="display: none;">
                     <div class="flex-container">
-                        <div class="flex1" title="Number of recent chat messages included as context for the AI search. Default: 4.">
-                            <label for="dle-sp-ai-scan-depth"><small>AI Chat Context (messages)</small></label>
+                        <div class="flex1" title="Number of recent chat messages sent to the AI for context when selecting entries. Default: 4.">
+                            <label for="dle-sp-ai-scan-depth"><small>Messages Sent to AI</small></label>
                             <input id="dle-sp-ai-scan-depth" type="number" class="text_pole" min="1" max="100" />
                         </div>
                         <div class="flex1" title="Max characters for each entry's summary shown to the AI when deciding which entries to include. Default: 600.">
@@ -566,20 +637,16 @@
                         <input id="dle-sp-scribe-informed-retrieval" type="checkbox" class="checkbox">
                         <span>Use Session Notes as AI Context</span>
                     </label>
-                    <hr class="dle-my-10">
+                </div>
+
+                <!-- Toggle: Show Filtering -->
+                <div class="dle-advanced-toggle" data-section="sp_ai_filtering" tabindex="0" role="button" aria-expanded="false">
+                    <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show Filtering
+                </div>
+                <div class="dle-advanced-section" data-section="sp_ai_filtering" style="display: none;">
                     <div class="flex-container">
-                        <div class="flex1" title="Filter AI results by confidence tier. Low includes all, Medium drops low-confidence, High keeps only high-confidence entries.">
-                            <label for="dle-sp-ai-confidence-threshold"><small>AI Confidence Threshold</small></label>
-                            <select id="dle-sp-ai-confidence-threshold" class="text_pole">
-                                <option value="low">Low (include all tiers)</option>
-                                <option value="medium">Medium (medium + high only)</option>
-                                <option value="high">High (high confidence only)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="flex-container">
-                        <div class="flex1" title="Controls how aggressively the hierarchical pre-filter can trim categories for large vaults (40+ entries). Higher = more categories can be cut. 0 = keep all categories.">
-                            <label for="dle-sp-hierarchical-aggressiveness"><small>Hierarchical Pre-filter Aggressiveness</small></label>
+                        <div class="flex1" title="Controls how aggressively categories are pruned for large vaults (40+ entries). Higher = more categories can be cut before AI selection. 0 = keep all categories.">
+                            <label for="dle-sp-hierarchical-aggressiveness"><small>Category Filtering Strength</small></label>
                             <input id="dle-sp-hierarchical-aggressiveness" type="range" min="0" max="0.8" step="0.1" class="dle-w-full" />
                             <div class="flex-container" style="justify-content: space-between;">
                                 <span class="dle-text-xs dle-muted">Conservative (keep all)</span>
@@ -589,8 +656,8 @@
                         </div>
                     </div>
                     <div class="flex-container">
-                        <div class="flex1" title="Controls how entry summaries are built in the AI manifest. Prefer Summary uses the summary field if it exists, otherwise truncates content. Summary Only skips entries without summaries. Content Only always truncates the full content.">
-                            <label for="dle-sp-manifest-summary-mode"><small>Manifest Summary Mode</small></label>
+                        <div class="flex1" title="Controls how entry descriptions are built for AI selection. Prefer Summary uses the summary field if it exists, otherwise truncates content. Summary Only skips entries without summaries. Content Only always truncates the full content.">
+                            <label for="dle-sp-manifest-summary-mode"><small>AI Entry Description Mode</small></label>
                             <select id="dle-sp-manifest-summary-mode" class="text_pole">
                                 <option value="prefer_summary">Prefer Summary (use summary, fall back to content)</option>
                                 <option value="summary_only">Summary Only (skip entries without summaries)</option>
@@ -598,28 +665,13 @@
                             </select>
                         </div>
                     </div>
-                    <hr class="dle-my-10">
-                    <div class="flex-container">
-                        <div class="flex1" title="What to inject when AI search encounters an error (network failure, timeout, etc).">
-                            <label for="dle-sp-ai-error-fallback"><small>AI Error Fallback</small></label>
-                            <select id="dle-sp-ai-error-fallback" class="text_pole">
-                                <option value="keyword">Keyword matching</option>
-                                <option value="constants_only">Constants only</option>
-                                <option value="bootstrap_only">Bootstrap entries only</option>
-                                <option value="none">Nothing (skip injection)</option>
-                            </select>
-                        </div>
-                        <div class="flex1" title="What to inject when AI search returns no results (AI decided nothing is relevant).">
-                            <label for="dle-sp-ai-empty-fallback"><small>AI Empty Result Fallback</small></label>
-                            <select id="dle-sp-ai-empty-fallback" class="text_pole">
-                                <option value="constants">Constants only</option>
-                                <option value="constants_bootstrap">Constants + Bootstrap</option>
-                                <option value="keyword">Keyword matching</option>
-                                <option value="none">Nothing (skip injection)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <hr class="dle-my-10">
+                </div>
+
+                <!-- Toggle: Show AI Utilities -->
+                <div class="dle-advanced-toggle" data-section="sp_ai_search" tabindex="0" role="button" aria-expanded="false">
+                    <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show AI Utilities
+                </div>
+                <div class="dle-advanced-section" data-section="sp_ai_search" style="display: none;">
                     <label class="dle-advanced-subheader"><small>AI Utilities</small></label>
                     <div class="flex-container">
                         <div class="flex1" title="When running /dle-optimize-keys, use keyword-only analysis or two-stage (keyword + AI) analysis.">
@@ -640,34 +692,6 @@
                 </div>
             </div>
 
-            <div class="dle-settings-section">
-            <h4>Source Tracking</h4>
-            <div class="flex-container flexFlowColumn">
-                <label class="checkbox_label" for="dle-sp-show-sources" title="Add a book icon to AI messages showing which vault entries were injected and why.">
-                    <input id="dle-sp-show-sources" type="checkbox" class="checkbox">
-                    <span>Show Sources Button</span>
-                </label>
-                <span class="dle-text-xs dle-muted">Deep links require vault connection names to match your Obsidian vault names.</span>
-            </div>
-            </div>
-
-            <div class="dle-settings-section">
-            <h4>Entry Rotation</h4>
-            <label class="checkbox_label" for="dle-sp-decay-enabled" title="Entries that haven't appeared recently become more likely to be picked. Entries appearing too often become less likely. Adds variety to lore injection.">
-                <input id="dle-sp-decay-enabled" type="checkbox" class="checkbox">
-                <span>Enable Entry Rotation</span>
-            </label>
-            <div class="flex-container" id="dle-sp-decay-controls">
-                <div class="flex1" title="How many turns an entry can be skipped before it's boosted to reappear. Default: 5.">
-                    <label for="dle-sp-decay-boost-threshold"><small>Boost After N Skips</small></label>
-                    <input id="dle-sp-decay-boost-threshold" type="number" class="text_pole" min="2" max="20" />
-                </div>
-                <div class="flex1" title="How many times in a row an entry can be injected before it becomes less likely to appear. Default: 2.">
-                    <label for="dle-sp-decay-penalty-threshold"><small>Penalize After N in a Row</small></label>
-                    <input id="dle-sp-decay-penalty-threshold" type="number" class="text_pole" min="2" max="10" />
-                </div>
-            </div>
-            </div>
             </div><!-- /.dle-ai-content-wrap -->
         </div>
 
@@ -872,10 +896,6 @@
                             <label for="dle-sp-graph-repulsion"><small>Repulsion</small></label>
                             <input id="dle-sp-graph-repulsion" type="number" class="text_pole" min="0.1" max="50" step="0.1" />
                         </div>
-                        <div class="flex1" title="Target edge length in pixels. Default: 80. (Legacy — not used by current physics engine.)">
-                            <label for="dle-sp-graph-spring-length"><small>Spring Length</small></label>
-                            <input id="dle-sp-graph-spring-length" type="number" class="text_pole" min="30" max="600" step="10" />
-                        </div>
                     </div>
                     <div class="flex-container">
                         <div class="flex1" title="Center pull strength. Higher = tighter cluster. Default: 11.0.">
@@ -892,8 +912,8 @@
                         </div>
                     </div>
                     <div class="flex-container">
-                        <div class="flex1" title="Disparity filter alpha — lower = sparser backbone, showing only the most significant edges. Default: 0.05.">
-                            <label for="dle-sp-graph-edge-filter-alpha"><small>Edge Filter Alpha</small></label>
+                        <div class="flex1" title="Edge filtering threshold — lower = sparser graph, showing only the most significant connections. Default: 0.05.">
+                            <label for="dle-sp-graph-edge-filter-alpha"><small>Edge Filtering Threshold</small></label>
                             <input id="dle-sp-graph-edge-filter-alpha" type="number" class="text_pole" min="0.01" max="0.5" step="0.01" />
                         </div>
                     </div>

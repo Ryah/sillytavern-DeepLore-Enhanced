@@ -41,7 +41,7 @@ function buildEntryHtml(call) {
         const resultText = call.resultCount > 0
             ? `${call.resultCount} ${call.resultCount === 1 ? 'entry' : 'entries'} found (${call.resultTitles.join(', ')})`
             : 'no results';
-        return `<div class="dle-librarian-entry">
+        return `<div class="dle-librarian-dropdown-entry">
             <span class="dle-librarian-icon fa-solid fa-magnifying-glass"></span>
             <span class="dle-librarian-query">${escapeHtml(call.query)}</span>
             <span class="dle-librarian-result">${escapeHtml(resultText)}</span>
@@ -49,7 +49,7 @@ function buildEntryHtml(call) {
     }
     // flag
     const urgencyLabel = call.urgency ? ` (${call.urgency})` : '';
-    return `<div class="dle-librarian-entry">
+    return `<div class="dle-librarian-dropdown-entry">
         <span class="dle-librarian-icon fa-solid fa-flag"></span>
         <span class="dle-librarian-query">${escapeHtml(call.query)}</span>
         <span class="dle-librarian-result">${escapeHtml(urgencyLabel)}</span>

@@ -8,7 +8,7 @@ import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { getSettings, getPrimaryVault, invalidateSettingsCache } from '../../settings.js';
 import { setIndexTimestamp } from '../state.js';
-import { testConnection, writeNote, writeFieldDefinitions } from '../vault/obsidian-api.js';
+import { testConnection, writeNote, writeFieldDefinitions, buildConnectionGuidanceHtml } from '../vault/obsidian-api.js';
 import { buildIndex } from '../vault/vault.js';
 import { serializeFieldDefinitions, DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { parseWorldInfoJson, importEntries } from '../vault/import.js';
@@ -188,7 +188,7 @@ function goToPage(page) {
     // Page-specific actions on entry
     if (page === 5) loadAiProfiles();
     if (page === 6) wireLibrarianToggle();
-    if (page === 7) runVaultStructureCreation();
+    if (page === 7) wireVaultStructurePage();
     if (page === 8) loadImportLorebooks();
     if (page === 9) buildSummary();
 }
@@ -287,8 +287,16 @@ function wireConnectionTest() {
                 $btn.html('<i class="fa-solid fa-circle-check"></i> Connected').addClass('dle-wizard-btn-verified');
             } else {
                 connectionVerified = false;
+                // Show diagnosis-specific guidance popup when probe data is available
+                if (result.diagnosis) {
+                    const guidanceHtml = `<div class="dle-popup">${buildConnectionGuidanceHtml(result)}</div>`;
+                    callGenericPopup(guidanceHtml, POPUP_TYPE.TEXT, 'Connection Help', {
+                        wide: true, allowVerticalScrolling: true, okButton: 'Got it',
+                    });
+                }
+                $wizard.find('#dle-wiz-trust-cert').hide();
                 $result
-                    .html(`<i class="fa-solid fa-circle-xmark"></i> Connection failed: ${escapeHtml(result.error)}`)
+                    .html(`<i class="fa-solid fa-circle-xmark"></i> ${escapeHtml(result.error)}`)
                     .removeClass('dle-wizard-result-success')
                     .addClass('dle-wizard-result-error')
                     .show();
@@ -510,6 +518,17 @@ function wireLibrarianToggle() {
 
 function wireVaultStructure() {
     // Handled on page entry via runVaultStructureCreation
+}
+
+function wireVaultStructurePage() {
+    const $btn = $wizard.find('#dle-wiz-create-files');
+    if ($btn.data('wired')) return;
+    $btn.data('wired', true);
+    $btn.on('click', async () => {
+        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Creating...');
+        await runVaultStructureCreation();
+        $btn.html('<i class="fa-solid fa-circle-check"></i> Done').addClass('dle-wizard-btn-verified');
+    });
 }
 
 async function runVaultStructureCreation() {

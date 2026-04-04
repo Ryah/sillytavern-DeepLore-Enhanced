@@ -12,7 +12,7 @@ import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
 import { buildAiChatContext } from '../../core/utils.js';
 import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, PROMPT_TAG_PREFIX, settingsConstraints, invalidateSettingsCache, defaultSettings, resolveConnectionConfig } from '../../settings.js';
 import { promptManager } from '../../../../../openai.js';
-import { testConnection } from '../vault/obsidian-api.js';
+import { testConnection, buildConnectionGuidanceHtml } from '../vault/obsidian-api.js';
 import { testProxyConnection } from '../ai/proxy-api.js';
 import {
     vaultIndex,
@@ -184,10 +184,20 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
             if (data.ok) {
                 statusEl.text(`Connected${data.authenticated ? '' : ' (no auth)'}`).addClass('success').removeClass('failure');
                 announceToSR(`Vault ${vault.name} connected successfully.`);
-            } else if (data.certError) {
-                // Show cert trust link prominently
-                statusEl.html(`Certificate not trusted — <a href="${escapeHtml(data.certUrl)}" target="_blank" rel="noopener noreferrer" style="text-decoration: underline;">click here to trust it</a>, then test again.`).addClass('failure').removeClass('success');
-                announceToSR(`Vault ${vault.name} needs certificate trust.`);
+            } else if (data.diagnosis) {
+                // Show inline summary + clickable link to full guidance popup
+                const shortMsg = data.diagnosis === 'cert' ? 'Certificate not trusted'
+                    : data.diagnosis === 'auth' ? 'Authentication failed'
+                    : 'Cannot reach Obsidian';
+                statusEl.html(`${escapeHtml(shortMsg)} — <a href="#" class="dle-vault-show-guidance" style="text-decoration: underline;">see how to fix</a>`).addClass('failure').removeClass('success');
+                row.find('.dle-vault-show-guidance').off('click').on('click', (e) => {
+                    e.preventDefault();
+                    const html = `<div class="dle-popup">${buildConnectionGuidanceHtml(data)}</div>`;
+                    callGenericPopup(html, POPUP_TYPE.TEXT, 'Connection Help', {
+                        wide: true, allowVerticalScrolling: true, okButton: 'Got it',
+                    });
+                });
+                announceToSR(`Vault ${vault.name}: ${shortMsg}.`);
             } else {
                 statusEl.text(`Failed: ${data.error}`).addClass('failure').removeClass('success');
                 announceToSR(`Vault ${vault.name} connection failed: ${data.error}`);
@@ -348,11 +358,12 @@ function updatePopupModeVisibility($container, settings) {
     $container.find('#dle-sp-ai-disabled-notice').toggle(!aiEnabled);
     $aiPanel.find('.dle-ai-content-wrap').toggleClass('dle-blurred', !aiEnabled);
     $aiPanel.find('.dle-ai-content-wrap input, .dle-ai-content-wrap select, .dle-ai-content-wrap textarea, .dle-ai-content-wrap .menu_button').prop('disabled', !aiEnabled);
-    // Source Tracking + Decay are always available (not AI-dependent)
-    if (!aiEnabled) {
-        $container.find('#dle-sp-show-sources, #dle-sp-decay-enabled').prop('disabled', false);
-        $container.find('#dle-sp-decay-controls input').prop('disabled', !settings.decayEnabled);
-    }
+    // Keep the mirror dropdown always functional (it's above the blurred wrap, but re-enable just in case)
+    $container.find('#dle-sp-ai-search-mode-mirror').prop('disabled', false);
+    // Sync mirror dropdown value
+    const modeVal = !aiEnabled ? 'keyword-only' : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
+    $container.find('#dle-sp-ai-search-mode-mirror').val(modeVal);
+    $container.find('#dle-sp-search-mode').val(modeVal);
 }
 
 // ============================================================================
@@ -1072,6 +1083,7 @@ function loadPopupSettings($container) {
     const searchMode = !settings.aiSearchEnabled ? 'keyword-only'
         : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
     $c('#dle-sp-search-mode').val(searchMode);
+    $c('#dle-sp-ai-search-mode-mirror').val(searchMode);
     $c('#dle-sp-scan-depth').val(settings.scanDepth);
     $c('#dle-sp-char-context-scan').prop('checked', settings.characterContextScan);
     $c('#dle-sp-fuzzy-search').prop('checked', settings.fuzzySearchEnabled);
@@ -1145,7 +1157,6 @@ function loadPopupSettings($container) {
     $c('#dle-sp-graph-focus-tree-depth').val(settings.graphFocusTreeDepth);
     $c('#dle-sp-graph-show-labels').prop('checked', settings.graphShowLabels);
     $c('#dle-sp-graph-repulsion').val(settings.graphRepulsion);
-    $c('#dle-sp-graph-spring-length').val(settings.graphSpringLength);
     $c('#dle-sp-graph-gravity').val(settings.graphGravity);
     $c('#dle-sp-graph-damping').val(settings.graphDamping);
     $c('#dle-sp-graph-hover-dim-opacity').val(settings.graphHoverDimOpacity);
@@ -1420,7 +1431,29 @@ function bindPopupEvents($container) {
     $c('#dle-sp-new-chat-threshold').on('input', function () { settings.newChatThreshold = numVal($(this).val(), 3); saveSettingsDebounced(); });
 
     // ── Matching ──
-    $c('#dle-sp-search-mode').on('change', function () { const mode = $(this).val(); settings.aiSearchEnabled = mode !== 'keyword-only'; settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage'; saveSettingsDebounced(); updatePopupModeVisibility($container, settings); });
+    let _syncingSearchMode = false;
+    $c('#dle-sp-search-mode').on('change', function () {
+        if (_syncingSearchMode) return;
+        _syncingSearchMode = true;
+        const mode = $(this).val();
+        settings.aiSearchEnabled = mode !== 'keyword-only';
+        settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage';
+        $c('#dle-sp-ai-search-mode-mirror').val(mode);
+        saveSettingsDebounced();
+        updatePopupModeVisibility($container, settings);
+        _syncingSearchMode = false;
+    });
+    $c('#dle-sp-ai-search-mode-mirror').on('change', function () {
+        if (_syncingSearchMode) return;
+        _syncingSearchMode = true;
+        const mode = $(this).val();
+        settings.aiSearchEnabled = mode !== 'keyword-only';
+        settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage';
+        $c('#dle-sp-search-mode').val(mode);
+        saveSettingsDebounced();
+        updatePopupModeVisibility($container, settings);
+        _syncingSearchMode = false;
+    });
     $c('#dle-sp-scan-depth').on('input', function () { settings.scanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
     $c('#dle-sp-char-context-scan').on('change', function () { settings.characterContextScan = $(this).is(':checked'); saveSettingsDebounced(); });
     $c('#dle-sp-fuzzy-search').on('change', function () { settings.fuzzySearchEnabled = $(this).is(':checked'); $c('#dle-sp-fuzzy-min-score-row').toggle(settings.fuzzySearchEnabled); saveSettingsDebounced(); buildIndexWithReuse(); });
@@ -1511,7 +1544,6 @@ function bindPopupEvents($container) {
     $c('#dle-sp-graph-focus-tree-depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 2); saveSettingsDebounced(); }); // BUG-L4: fallback matches default (2)
     $c('#dle-sp-graph-show-labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-graph-repulsion').on('input', function () { const v = parseFloat($(this).val()); settings.graphRepulsion = isNaN(v) ? 0.3 : v; saveSettingsDebounced(); });
-    $c('#dle-sp-graph-spring-length').on('input', function () { settings.graphSpringLength = numVal($(this).val(), 80); saveSettingsDebounced(); });
     $c('#dle-sp-graph-gravity').on('input', function () { const v = parseFloat($(this).val()); settings.graphGravity = isNaN(v) ? 11.0 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-damping').on('input', function () { const v = parseFloat($(this).val()); settings.graphDamping = isNaN(v) ? 0.50 : v; saveSettingsDebounced(); });
     // BUG-AUDIT-14: Use isNaN check instead of || fallback so 0 is a valid value
@@ -1720,7 +1752,7 @@ function bindPopupEvents($container) {
         'dle-sp-reinjection-cooldown': 'reinjectionCooldown', 'dle-sp-strip-lookback': 'stripLookbackDepth',
         'dle-sp-autosuggest-interval': 'autoSuggestInterval', 'dle-sp-autosuggest-max-tokens': 'autoSuggestMaxTokens', 'dle-sp-autosuggest-timeout': 'autoSuggestTimeout',
         'dle-sp-decay-boost-threshold': 'decayBoostThreshold', 'dle-sp-decay-penalty-threshold': 'decayPenaltyThreshold',
-        'dle-sp-graph-repulsion': 'graphRepulsion', 'dle-sp-graph-spring-length': 'graphSpringLength',
+        'dle-sp-graph-repulsion': 'graphRepulsion',
         'dle-sp-graph-gravity': 'graphGravity', 'dle-sp-graph-damping': 'graphDamping',
         'dle-sp-graph-hover-dim-distance': 'graphHoverDimDistance', 'dle-sp-graph-hover-dim-opacity': 'graphHoverDimOpacity',
         'dle-sp-graph-focus-tree-depth': 'graphFocusTreeDepth', 'dle-sp-graph-edge-filter-alpha': 'graphEdgeFilterAlpha',

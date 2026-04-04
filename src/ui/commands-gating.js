@@ -13,6 +13,7 @@ import { SlashCommandArgument } from '../../../../../slash-commands/SlashCommand
 import { SlashCommandEnumValue } from '../../../../../slash-commands/SlashCommandEnumValue.js';
 import { vaultIndex, fieldDefinitions, notifyGatingChanged, notifyPinBlockChanged } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
+import { classifyError } from '../../core/utils.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 import { normalizePinBlock, matchesPinBlock } from '../helpers.js';
 
@@ -25,7 +26,7 @@ export function registerGatingCommands() {
             const name = (entryName || '').trim();
             if (!name) { toastr.info('Usage: /dle-pin <entry name>', 'DeepLore Enhanced'); return ''; }
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-pin:', err);
                 return '';
             }
@@ -76,7 +77,7 @@ export function registerGatingCommands() {
             const name = (entryName || '').trim();
             if (!name) { toastr.info('Usage: /dle-block <entry name>', 'DeepLore Enhanced'); return ''; }
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-block:', err);
                 return '';
             }

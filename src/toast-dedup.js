@@ -42,6 +42,21 @@ export function dedupWarning(message, category, options = {}) {
 }
 
 /**
+ * Show a toastr.info if the category hasn't been toasted recently.
+ * @param {string} message - Toast message
+ * @param {string} category - Dedup category key
+ * @param {object} [options] - Extra toastr options (merged with defaults)
+ */
+export function dedupInfo(message, category, options = {}) {
+    if (_isDuplicate(category)) return;
+    toastr.info(message, 'DeepLore Enhanced', {
+        preventDuplicates: true,
+        timeOut: 6000,
+        ...options,
+    });
+}
+
+/**
  * Check if a category was toasted recently and update the timestamp.
  * @param {string} category
  * @returns {boolean} True if duplicate (should suppress)

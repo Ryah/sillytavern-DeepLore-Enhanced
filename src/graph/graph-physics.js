@@ -33,21 +33,39 @@ export function initPhysics(gs) {
 
         // === PROGRESSIVE REVEAL: cascade nodes in by weighted BFS order ===
         if (gs.revealedBatch < gs.revealBatches.length) {
-            gs.revealFrameCounter++;
-            if (gs.revealFrameCounter >= gs.REVEAL_INTERVAL) {
-                gs.revealFrameCounter = 0;
-                const batch = gs.revealBatches[gs.revealedBatch];
-                for (const id of batch) {
-                    gs.nodes[id].hidden = false;
-                    gs.nodes[id].vx = 0;
-                    gs.nodes[id].vy = 0;
+            if (gs.reducedMotion) {
+                // Accessibility: skip progressive reveal — show all nodes immediately
+                while (gs.revealedBatch < gs.revealBatches.length) {
+                    const batch = gs.revealBatches[gs.revealedBatch];
+                    for (const id of batch) {
+                        gs.nodes[id].hidden = false;
+                        gs.nodes[id]._revealScale = 1;
+                        gs.nodes[id].vx = 0;
+                        gs.nodes[id].vy = 0;
+                    }
+                    gs.revealedBatch++;
                 }
-                gs.revealedBatch++;
-                gs.alpha = Math.max(gs.alpha, 0.5); // reheat so new nodes integrate
+                for (const e of gs.edges) e._revealAlpha = 1;
+                gs.alpha = Math.max(gs.alpha, 0.5);
                 gs.hasSpringEnergy = true;
                 gs.needsDraw = true;
+            } else {
+                gs.revealFrameCounter++;
+                if (gs.revealFrameCounter >= gs.REVEAL_INTERVAL) {
+                    gs.revealFrameCounter = 0;
+                    const batch = gs.revealBatches[gs.revealedBatch];
+                    for (const id of batch) {
+                        gs.nodes[id].hidden = false;
+                        gs.nodes[id].vx = 0;
+                        gs.nodes[id].vy = 0;
+                    }
+                    gs.revealedBatch++;
+                    gs.alpha = Math.max(gs.alpha, 0.5); // reheat so new nodes integrate
+                    gs.hasSpringEnergy = true;
+                    gs.needsDraw = true;
+                }
+                gs.hasSpringEnergy = true; // keep ticking during reveal
             }
-            gs.hasSpringEnergy = true; // keep ticking during reveal
         }
 
         if (gs.alpha < 0.001 && !frozenNode && !gs.hasSpringEnergy && gs.maxDelta < 0.01) return;

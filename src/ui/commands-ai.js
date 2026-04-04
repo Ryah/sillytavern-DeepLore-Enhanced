@@ -24,7 +24,7 @@ export function registerAiCommands() {
         name: 'dle-optimize-keys',
         callback: async (_args, entryName) => {
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-optimize-keys:', err);
                 return '';
             }
@@ -161,7 +161,7 @@ export function registerAiCommands() {
         name: 'dle-summarize',
         callback: async () => {
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-summarize:', err);
                 return '';
             }

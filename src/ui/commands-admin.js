@@ -19,6 +19,49 @@ import { loadIndexFromCache, clearIndexCache } from '../vault/cache.js';
 import { runHealthCheck } from './diagnostics.js';
 import { showNotebookPopup, showAiNotepadPopup, buildCopyButton, attachCopyHandler } from './popups.js';
 
+/**
+ * Shared command list used by both /dle-help and /dle command palette.
+ * Each entry: { cmd, desc } for commands, { sep, label } for section headers.
+ */
+export const DLE_COMMANDS = [
+    { cmd: '/dle-browse', desc: 'Search and preview vault entries (alias: /dle-b)' },
+    { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (alias: /dle-context)' },
+    { cmd: '/dle-inspect', desc: 'Inspect what happened in the last message (alias: /dle-i)' },
+    { cmd: '/dle-health', desc: 'Run vault health check (alias: /dle-h)' },
+    { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian (alias: /dle-r)' },
+    { cmd: '/dle-status', desc: 'Show extension status and stats' },
+    { cmd: '/dle-simulate', desc: 'Replay chat showing entry activation timeline' },
+    { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph (alias: /dle-g)' },
+    { cmd: '/dle-analytics', desc: 'View entry match/injection analytics' },
+    { cmd: '/dle-cache-info', desc: 'View vault cache status, size, and clear cache' },
+    { cmd: '/dle-notebook', desc: 'Edit the Notebook for this chat' },
+    { cmd: '/dle-ai-notepad', desc: 'View or clear AI-written session notes' },
+    { cmd: '/dle-scribe', desc: 'Run Session Scribe now' },
+    { cmd: '/dle-scribe-history', desc: 'View past Scribe notes' },
+    { cmd: '/dle-newlore', desc: 'AI suggests new lorebook entries from chat' },
+    { cmd: '/dle-optimize-keys', desc: 'AI keyword suggestions for an entry' },
+    { cmd: '/dle-summarize', desc: 'AI-generate summary fields for all entries missing one' },
+    { cmd: '/dle-review', desc: 'Send entire vault to AI for review and feedback' },
+    { cmd: '/dle-librarian', desc: 'Open Librarian AI session (new entry, gap review, or vault review)' },
+    { cmd: '/dle-import', desc: 'Import SillyTavern World Info into Obsidian vault' },
+    { cmd: '/dle-setup', desc: 'Run guided setup wizard' },
+    { sep: true, label: 'Per-Chat Overrides' },
+    { cmd: '/dle-pin', desc: 'Pin an entry (always inject in this chat)' },
+    { cmd: '/dle-unpin', desc: 'Remove a pin' },
+    { cmd: '/dle-block', desc: 'Block an entry (never inject in this chat)' },
+    { cmd: '/dle-unblock', desc: 'Remove a block' },
+    { cmd: '/dle-pins', desc: 'Show all pins and blocks for this chat' },
+    { sep: true, label: 'Contextual Gating' },
+    { cmd: '/dle-set-field', desc: 'Set a custom gating field' },
+    { cmd: '/dle-clear-field', desc: 'Clear a custom gating field' },
+    { cmd: '/dle-clear-all-context', desc: 'Clear all gating filters at once (alias: /dle-reset-context)' },
+    { cmd: '/dle-set-era', desc: 'Set era filter (alias: /dle-era)' },
+    { cmd: '/dle-set-location', desc: 'Set location filter (alias: /dle-loc)' },
+    { cmd: '/dle-set-scene', desc: 'Set scene type filter' },
+    { cmd: '/dle-set-characters', desc: 'Set present characters' },
+    { cmd: '/dle-context-state', desc: 'Show current gating state (alias: /dle-ctx)' },
+];
+
 export function registerAdminCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-notebook',
@@ -238,7 +281,7 @@ export function registerAdminCommands() {
         aliases: ['dle-h'],
         callback: async () => {
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-health:', err);
                 return '';
             }
@@ -375,51 +418,13 @@ export function registerAdminCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-help',
         callback: async () => {
-            const commands = [
-                { cmd: '/dle-browse', desc: 'Search and preview vault entries (alias: /dle-b)' },
-                { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (alias: /dle-context)' },
-                { cmd: '/dle-inspect', desc: 'Inspect what happened in the last message (alias: /dle-i)' },
-                { cmd: '/dle-health', desc: 'Run vault health check (alias: /dle-h)' },
-                { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian (alias: /dle-r)' },
-                { cmd: '/dle-status', desc: 'Show extension status and stats' },
-                { cmd: '/dle-simulate', desc: 'Replay chat showing entry activation timeline' },
-                { cmd: '/dle-graph', desc: 'Visualize entry relationships as a graph (alias: /dle-g)' },
-                { cmd: '/dle-analytics', desc: 'View entry match/injection analytics' },
-                { cmd: '/dle-cache-info', desc: 'View vault cache status, size, and clear cache' },
-                { cmd: '/dle-notebook', desc: 'Edit the Notebook for this chat' },
-                { cmd: '/dle-ai-notepad [clear]', desc: 'View or clear AI-written session notes' },
-                { cmd: '/dle-scribe', desc: 'Run Session Scribe now' },
-                { cmd: '/dle-scribe-history', desc: 'View past Scribe notes' },
-                { cmd: '/dle-newlore', desc: 'AI suggests new lorebook entries from chat' },
-                { cmd: '/dle-optimize-keys &lt;name&gt;', desc: 'AI keyword suggestions for an entry' },
-                { cmd: '/dle-summarize', desc: 'AI-generate summary fields for all entries missing one' },
-                { cmd: '/dle-review', desc: 'Send entire vault to AI for review and feedback' },
-                { cmd: '/dle-librarian', desc: 'Open Librarian AI session (new entry, gap review, or vault review)' },
-                { cmd: '/dle-import', desc: 'Import SillyTavern World Info into Obsidian vault' },
-                { cmd: '/dle-setup', desc: 'Run guided setup wizard' },
-                { sep: true, label: 'Per-Chat Overrides' },
-                { cmd: '/dle-pin &lt;name&gt;', desc: 'Pin an entry (always inject in this chat)' },
-                { cmd: '/dle-unpin &lt;name&gt;', desc: 'Remove a pin' },
-                { cmd: '/dle-block &lt;name&gt;', desc: 'Block an entry (never inject in this chat)' },
-                { cmd: '/dle-unblock &lt;name&gt;', desc: 'Remove a block' },
-                { cmd: '/dle-pins', desc: 'Show all pins and blocks for this chat' },
-                { sep: true, label: 'Contextual Gating' },
-                { cmd: '/dle-set-field &lt;name&gt; [value]', desc: 'Set a custom gating field' },
-                { cmd: '/dle-clear-field &lt;name&gt;', desc: 'Clear a custom gating field' },
-                { cmd: '/dle-clear-all-context', desc: 'Clear all gating filters at once (alias: /dle-reset-context)' },
-                { cmd: '/dle-set-era [era]', desc: 'Set era filter (alias: /dle-era)' },
-                { cmd: '/dle-set-location [loc]', desc: 'Set location filter (alias: /dle-loc)' },
-                { cmd: '/dle-set-scene [type]', desc: 'Set scene type filter (alias for /dle-set-field scene_type)' },
-                { cmd: '/dle-set-characters &lt;names&gt;', desc: 'Set present characters (alias for /dle-set-field character_present)' },
-                { cmd: '/dle-context-state', desc: 'Show current gating state (alias: /dle-ctx)' },
-            ];
             let html = '<div class="dle-popup"><h3>DeepLore Enhanced Commands</h3>';
-            for (const c of commands) {
+            for (const c of DLE_COMMANDS) {
                 if (c.sep) {
                     html += `<h4 class="dle-muted dle-health-section-heading">${escapeHtml(c.label)}</h4>`;
                     continue;
                 }
-                html += `<div class="dle-mb-1"><code class="dle-muted">${c.cmd}</code> — ${escapeHtml(c.desc)}</div>`;
+                html += `<div class="dle-mb-1"><code class="dle-muted">${escapeHtml(c.cmd)}</code> — ${escapeHtml(c.desc)}</div>`;
             }
             html += '</div>';
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
@@ -427,5 +432,82 @@ export function registerAdminCommands() {
         },
         helpString: 'Show all DeepLore Enhanced slash commands with descriptions.',
         returns: 'Help popup',
+    }));
+
+    // ── Command Palette (/dle) ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle',
+        callback: async () => {
+            const executableCommands = DLE_COMMANDS.filter(c => !c.sep);
+
+            const container = document.createElement('div');
+            container.classList.add('dle-popup', 'dle-command-palette');
+
+            // Search input
+            const searchWrap = document.createElement('div');
+            searchWrap.classList.add('dle-palette-search-wrap');
+            searchWrap.innerHTML = `<input type="text" class="dle-palette-search text_pole" placeholder="Search commands..." autofocus />`;
+            container.appendChild(searchWrap);
+
+            // Command list container
+            const listEl = document.createElement('div');
+            listEl.classList.add('dle-palette-list');
+            container.appendChild(listEl);
+
+            /** Render the filtered command list */
+            function renderList(filter) {
+                const lowerFilter = (filter || '').toLowerCase();
+                let html = '';
+                for (const c of executableCommands) {
+                    if (lowerFilter && !c.cmd.toLowerCase().includes(lowerFilter) && !c.desc.toLowerCase().includes(lowerFilter)) continue;
+                    html += `<div class="dle-palette-item menu_button" data-cmd="${escapeHtml(c.cmd)}">`;
+                    html += `<code class="dle-palette-cmd">${escapeHtml(c.cmd)}</code>`;
+                    html += `<span class="dle-palette-desc">${escapeHtml(c.desc)}</span>`;
+                    html += `</div>`;
+                }
+                if (!html) html = '<div class="dle-palette-empty dle-muted">No matching commands</div>';
+                listEl.innerHTML = html;
+            }
+
+            renderList('');
+
+            // Search filtering
+            const searchInput = container.querySelector('.dle-palette-search');
+            searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+            // Track whether a command was clicked (to close popup)
+            let clickedCmd = null;
+
+            // Click handler for command items
+            container.addEventListener('click', (e) => {
+                const item = e.target.closest('.dle-palette-item');
+                if (!item) return;
+                clickedCmd = item.dataset.cmd;
+                // Close the popup by clicking OK
+                document.querySelector('.popup .popup-button-ok')?.click();
+            });
+
+            await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
+                wide: true,
+                allowVerticalScrolling: true,
+                onOpen: () => {
+                    // Focus search input after popup opens
+                    requestAnimationFrame(() => container.querySelector('.dle-palette-search')?.focus());
+                },
+            });
+
+            // Execute the clicked command after popup closes
+            if (clickedCmd) {
+                const ctx = SillyTavern?.getContext?.();
+                if (ctx?.executeSlashCommands) {
+                    await ctx.executeSlashCommands(clickedCmd);
+                }
+            }
+
+            return '';
+        },
+        helpString: 'Open command palette — search and run any DLE command.',
+        returns: 'Command palette popup',
     }));
 }

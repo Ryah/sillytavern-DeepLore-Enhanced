@@ -34,6 +34,15 @@ export function renderStatusZone() {
     $dot.attr('title', `System status: ${status} — ${statusDesc}`);
     $dot.attr('aria-label', `System status: ${status} — ${statusDesc}`);
 
+    // Accessibility: shape/icon indicator inside the dot (not color-only)
+    const statusIcons = {
+        ok: '<i class="fa-solid fa-check" aria-hidden="true"></i>',
+        degraded: '<i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>',
+        limited: '<i class="fa-solid fa-arrow-down" aria-hidden="true"></i>',
+        offline: '<i class="fa-solid fa-xmark" aria-hidden="true"></i>',
+    };
+    $dot.html(statusIcons[status] || statusIcons.offline);
+
     // Activity label (4-state: Indexing → Choosing Lore → Generating → Idle)
     const pipelineText = indexing ? 'Indexing...' : generationLock ? 'Choosing Lore...' : ds.stGenerating ? 'Generating...' : 'Idle';
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
@@ -54,6 +63,13 @@ export function renderStatusZone() {
         }
     } else {
         $setupBanner.remove();
+    }
+
+    // Cold start: show loading shimmer instead of "0" stats before first index
+    if (!indexEverLoaded && vaultIndex.length === 0 && !indexing) {
+        $drawer.find('[data-stat="entries"]').html('<span class="dle-shimmer">…</span>');
+        $drawer.find('[data-stat="tokens"]').html('<span class="dle-shimmer">…</span>');
+        $drawer.find('.dle-pipeline-label').text('Connecting to Obsidian…');
     }
 
     // Stats (with flash animation on value change)
@@ -196,9 +212,13 @@ export function updateTabBadges() {
     const injCount = lastInjectionSources?.length ?? lastPipelineTrace?.injected?.length ?? 0;
     $drawer.find('[data-badge="injection"]').text(injCount || '');
 
-    // Browse tab: always show total vault entry count
+    // Browse tab: show filtered/total count when filters active, otherwise just total
     const browseTotal = vaultIndex?.length || 0;
-    $drawer.find('[data-badge="browse"]').text(browseTotal || '');
+    const hasActiveFilters = ds.browseQuery || ds.browseStatusFilter !== 'all' || ds.browseTagFilter || Object.keys(ds.browseCustomFieldFilters).length > 0;
+    const browseLabel = hasActiveFilters && ds.browseFilteredEntries.length !== browseTotal
+        ? `${ds.browseFilteredEntries.length}/${browseTotal}`
+        : (browseTotal || '');
+    $drawer.find('[data-badge="browse"]').text(browseLabel);
 
     // Gating tab: count of active gating fields (dynamic)
     const gatingCtx = chat_metadata?.deeplore_context;

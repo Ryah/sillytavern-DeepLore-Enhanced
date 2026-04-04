@@ -287,16 +287,102 @@ export async function testConnection(host, port, apiKey, useHttps = false) {
     } catch (err) {
         // Detect self-signed certificate errors (browser blocks HTTPS to untrusted certs)
         if (useHttps && (err instanceof TypeError || err.message?.includes('Failed to fetch'))) {
+            // Run diagnostic probe to distinguish cert vs unreachable vs auth
+            const probe = await diagnoseFetchFailure(host, port, apiKey);
             const certUrl = `https://${host || '127.0.0.1'}:${port}`;
             return {
                 ok: false,
-                certError: true,
+                diagnosis: probe.diagnosis,
+                httpWorked: probe.httpWorked,
+                httpPort: probe.httpPort,
+                certError: probe.diagnosis === 'cert', // backward compat
                 certUrl,
-                error: `HTTPS connection failed — the certificate may not be trusted yet. Open ${certUrl} in your browser, accept the certificate, then try again.`,
+                error: probe.diagnosis === 'cert'
+                    ? `HTTPS certificate not trusted. HTTP works on port ${probe.httpPort}.`
+                    : probe.diagnosis === 'auth'
+                        ? `Connected via HTTP but authentication failed. Check your API key.`
+                        : `Cannot reach Obsidian on either HTTPS or HTTP. Check that Obsidian is running with the Local REST API plugin enabled.`,
             };
         }
         return { ok: false, error: err.message };
     }
+}
+
+/**
+ * Diagnose why an HTTPS fetch failed by probing HTTP on the alternate port.
+ * Returns a diagnosis string and whether HTTP worked.
+ * @param {string} host
+ * @param {number} port - The HTTPS port that failed (e.g. 27124)
+ * @param {string} apiKey
+ * @returns {Promise<{diagnosis: 'cert'|'unreachable'|'auth', httpWorked: boolean, httpPort: number}>}
+ */
+export async function diagnoseFetchFailure(host, port, apiKey) {
+    const httpPort = port === 27124 ? 27123 : port;
+    try {
+        const res = await fetch(`http://${host || '127.0.0.1'}:${httpPort}/vault/`, {
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(3000),
+        });
+        if (res.status === 401 || res.status === 403) {
+            return { diagnosis: 'auth', httpWorked: true, httpPort };
+        }
+        // Any HTTP response means the server is reachable — HTTPS is the problem
+        return { diagnosis: 'cert', httpWorked: true, httpPort };
+    } catch {
+        return { diagnosis: 'unreachable', httpWorked: false, httpPort };
+    }
+}
+
+/**
+ * Build diagnosis-specific HTML guidance for connection failures.
+ * Used by wizard, settings, and runtime error surfaces.
+ * @param {{diagnosis: string, certUrl?: string, httpPort?: number, error?: string}} result
+ * @returns {string} HTML string
+ */
+export function buildConnectionGuidanceHtml(result) {
+    if (result.diagnosis === 'cert') {
+        return `
+            <div class="dle-connection-guidance">
+                <p><strong>HTTPS certificate is not trusted by your browser.</strong></p>
+                <p>You have two options:</p>
+                <div class="dle-guidance-option">
+                    <h4><i class="fa-solid fa-toggle-off"></i> Option 1: Switch to HTTP (easiest)</h4>
+                    <ol>
+                        <li>In Obsidian, open Settings &rarr; Local REST API</li>
+                        <li>Ensure "Enable Non-Encrypted (HTTP) Server" is <strong>ON</strong></li>
+                        <li>Here in DeepLore, <strong>uncheck HTTPS</strong> and set port to <code>${result.httpPort || 27123}</code></li>
+                    </ol>
+                </div>
+                <div class="dle-guidance-option">
+                    <h4><i class="fa-solid fa-shield-halved"></i> Option 2: Trust the certificate</h4>
+                    <ol>
+                        <li>Open <a href="${result.certUrl || '#'}" target="_blank" rel="noopener">${result.certUrl || 'the HTTPS URL'}</a> in your browser</li>
+                        <li>Accept the security warning / add exception</li>
+                        <li>See the <a href="https://github.com/coddingtonbear/obsidian-web/wiki/Troubleshooting%3A-Certificate-Trust-Issues" target="_blank" rel="noopener">certificate trust guide</a> for detailed steps per platform</li>
+                    </ol>
+                </div>
+            </div>`;
+    }
+    if (result.diagnosis === 'unreachable') {
+        return `
+            <div class="dle-connection-guidance">
+                <p><strong>Cannot reach Obsidian on any port.</strong></p>
+                <p>Check all three:</p>
+                <ol>
+                    <li><strong>Obsidian is running</strong> &mdash; the app must be open</li>
+                    <li><strong>Local REST API plugin is installed and enabled</strong> &mdash; check Obsidian Settings &rarr; Community Plugins</li>
+                    <li><strong>Port matches</strong> &mdash; check the port shown in the plugin's settings matches what you have here</li>
+                </ol>
+            </div>`;
+    }
+    if (result.diagnosis === 'auth') {
+        return `
+            <div class="dle-connection-guidance">
+                <p><strong>Connected but authentication failed.</strong></p>
+                <p>Your API key doesn't match. In Obsidian, go to Settings &rarr; Local REST API and copy the API key exactly.</p>
+            </div>`;
+    }
+    return `<div class="dle-connection-guidance"><p>${result.error || 'Connection failed. Run /dle-health for diagnostics.'}</p></div>`;
 }
 
 /**

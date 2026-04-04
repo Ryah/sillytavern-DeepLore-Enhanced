@@ -9,7 +9,7 @@ import {
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
-import { ds, formatTokensCompact } from './drawer-state.js';
+import { ds, formatTokensCompact, activityLog } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Footer Zone — Health Icons + AI Stats + Context Bar
@@ -56,6 +56,22 @@ export function renderFooter() {
         $footer.find('.dle-context-bar-label').text('Context data unavailable \u2014 waiting for first generation');
         $barContainer.attr('aria-valuenow', 0).attr('aria-valuemax', 0);
         $barContainer.attr('title', 'Context data unavailable \u2014 waiting for first generation');
+    }
+
+    // ── Activity feed ──
+    const $activityFeed = $footer.find('.dle-activity-feed');
+    if ($activityFeed.length && activityLog.length > 0) {
+        let feedHtml = '';
+        for (const a of activityLog) {
+            const time = new Date(a.ts);
+            const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            feedHtml += `<div class="dle-activity-row">`;
+            feedHtml += `<span class="dle-activity-time">${timeStr}</span>`;
+            feedHtml += `<span class="dle-activity-mode">${a.mode}</span>`;
+            feedHtml += `<span class="dle-activity-detail">${a.injected} entries, ${formatTokensCompact(a.tokens)} tok</span>`;
+            feedHtml += `</div>`;
+        }
+        $activityFeed.html(feedHtml);
     }
 
     // ── Health icons ──

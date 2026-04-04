@@ -1,7 +1,7 @@
 {
     "name": "sillytavern-deeplore-enhanced",
     "version": "1.0.0-beta",
-    "description": "AI-powered Obsidian vault lorebook for SillyTavern with keyword and semantic search",
+    "description": "Use your Obsidian vault as an AI-powered lorebook — keywords + AI selection, so your lore fires when it matters",
     "author": "pixelnull",
     "license": "MIT",
     "repository": {

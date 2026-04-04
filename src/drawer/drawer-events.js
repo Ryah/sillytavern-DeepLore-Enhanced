@@ -28,6 +28,18 @@ import { renderLibrarianTab } from './drawer-render-librarian.js';
 // Helpers
 // ════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Highlight filter dropdowns that have a non-default value selected.
+ * @param {jQuery} $drawer - The drawer root element
+ */
+export function updateFilterActiveIndicators($drawer) {
+    $drawer.find('.dle-browse-filter-select').each(function () {
+        const $sel = $(this);
+        const isDefault = $sel.val() === '' || $sel.val() === 'all';
+        $sel.toggleClass('dle-filter-active', !isDefault);
+    });
+}
+
 /** Execute a slash command via ST's context API */
 function executeCommand(cmd) {
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
@@ -211,11 +223,13 @@ export function wireBrowseTab($drawer) {
     // Filter selects
     $drawer.find('[data-filter="status"]').on('change', function () {
         ds.browseStatusFilter = $(this).val();
+        updateFilterActiveIndicators($drawer);
         scheduleRender(renderBrowseTab);
     });
 
     $drawer.find('[data-filter="tag"]').on('change', function () {
         ds.browseTagFilter = $(this).val();
+        updateFilterActiveIndicators($drawer);
         scheduleRender(renderBrowseTab);
     });
 
@@ -233,6 +247,7 @@ export function wireBrowseTab($drawer) {
         } else {
             delete ds.browseCustomFieldFilters[field];
         }
+        updateFilterActiveIndicators($drawer);
         scheduleRender(renderBrowseTab);
     });
 

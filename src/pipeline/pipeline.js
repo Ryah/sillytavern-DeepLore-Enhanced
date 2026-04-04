@@ -380,6 +380,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
+                dedupWarning(`AI found no relevant entries for this context — using ${emptyFallback} fallback as configured.`, 'ai_empty_fallback');
                 if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
                     finalEntries = alwaysInject;
                 } else if (emptyFallback === 'keyword') {
@@ -472,6 +473,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
+                dedupWarning(`AI found no relevant entries for this context — using ${emptyFallback} fallback as configured.`, 'ai_empty_fallback');
                 if (emptyFallback === 'constants') {
                     // AI found nothing relevant — fall back to force-injected entries only (constants + active bootstrap)
                     finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));

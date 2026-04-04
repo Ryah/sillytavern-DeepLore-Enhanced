@@ -6,7 +6,7 @@ import { oai_settings } from '../../../../../openai.js';
 import { main_api, amount_gen } from '../../../../../../script.js';
 import { getSettings } from '../../settings.js';
 import { simpleHash } from '../../core/utils.js';
-import { fetchAllMdFiles, fetchFieldDefinitions } from './obsidian-api.js';
+import { fetchAllMdFiles, fetchFieldDefinitions, diagnoseFetchFailure } from './obsidian-api.js';
 import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
     aiSearchCache, previousIndexSnapshot, trackerKey,
@@ -382,18 +382,47 @@ export async function buildIndex() {
         if (settings.debugMode) console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
 
         await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
+
+        // Zero-entry warning when connection succeeded but no lorebook-tagged entries found
+        if (entries.length === 0 && !vaultFetchFailed) {
+            const tag = settings.lorebookTag || 'lorebook';
+            dedupWarning(
+                `Connected to Obsidian but found 0 entries with the '${tag}' tag. Add \`tags: [${tag}]\` to your note frontmatter to make entries visible to DeepLore.`,
+                'zero_entries',
+                { timeOut: 15000 },
+            );
+        }
     } catch (err) {
         console.error('[DLE] Failed to build index:', err);
         const raw = String(err.message || err);
         let userMsg = raw;
-        if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
-            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin is enabled, (3) port is correct. (${raw})`;
-        } else if (/No enabled vaults/i.test(raw)) {
-            userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
-        } else if (/401|403|auth/i.test(raw)) {
-            userMsg = `Authentication failed. Check your vault API key in settings. (${raw})`;
-        } else if (/timeout|timed out/i.test(raw)) {
-            userMsg = `Obsidian connection timed out. Check that the REST API plugin is running. (${raw})`;
+
+        // Check for HTTPS cert failure on any enabled HTTPS vault
+        const httpsVaults = enabledVaults.filter(v => v.https);
+        if (httpsVaults.length > 0 && /Failed to fetch|TypeError|NetworkError/i.test(raw)) {
+            try {
+                const v = httpsVaults[0];
+                const probe = await diagnoseFetchFailure(v.host, v.port, v.apiKey);
+                if (probe.diagnosis === 'cert') {
+                    userMsg = `HTTPS certificate not trusted. Switch to HTTP in vault settings (uncheck HTTPS, port ${probe.httpPort}), or trust the certificate. Run /dle-health for help.`;
+                } else if (probe.diagnosis === 'auth') {
+                    userMsg = `Connected via HTTP but authentication failed. Check your vault API key. Run /dle-health for help.`;
+                } else {
+                    userMsg = `Cannot reach Obsidian on either HTTPS or HTTP. Check that Obsidian is running with the Local REST API plugin enabled. Run /dle-health for diagnostics.`;
+                }
+            } catch { /* probe failed, fall through to generic classification */ }
+        }
+
+        if (userMsg === raw) {
+            if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
+                userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin is enabled, (3) port is correct. Run /dle-health for diagnostics. (${raw})`;
+            } else if (/No enabled vaults/i.test(raw)) {
+                userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
+            } else if (/401|403|auth/i.test(raw)) {
+                userMsg = `Authentication failed. Check your vault API key in settings. Run /dle-health for diagnostics. (${raw})`;
+            } else if (/timeout|timed out/i.test(raw)) {
+                userMsg = `Obsidian connection timed out. Check that the REST API plugin is running. Run /dle-health for diagnostics. (${raw})`;
+            }
         }
         dedupError(userMsg, 'obsidian_connect');
     } finally {

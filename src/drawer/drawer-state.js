@@ -37,6 +37,7 @@ export const TOOL_ACTIONS = {
     'setup': '/dle-setup',
     'pins-blocks': '/dle-pins',
     'help': '/dle-help',
+    'refresh': '/dle-refresh',
 };
 
 /** Expand buttons: data-expand → slash command mapping */
@@ -135,6 +136,21 @@ export const ds = {
     /** Librarian sort: 'newest' | 'frequency' | 'urgency' */
     librarianSort: 'newest',
 };
+
+// ─── Activity Feed ───
+
+/** Activity feed: last N pipeline trace summaries */
+export const activityLog = [];
+const MAX_ACTIVITY = 5;
+
+/**
+ * Push a pipeline activity entry to the feed (most recent first, capped).
+ * @param {{ ts: number, injected: number, mode: string, tokens: number }} entry
+ */
+export function pushActivity(entry) {
+    activityLog.unshift(entry);
+    if (activityLog.length > MAX_ACTIVITY) activityLog.pop();
+}
 
 // ─── Entry Temperature Computation ───
 

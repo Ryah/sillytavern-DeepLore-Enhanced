@@ -137,24 +137,28 @@ export function renderInjectionTab() {
     if (!showFiltered) {
         $whyNotSection.removeClass('dle-visible');
     } else if (trace) {
-        // Use shared categorization (all 8 rejection stages), flatten to list
+        // Use shared categorization (all 9 rejection stages), render with group headers
         const injectedTitles = new Set(sources.map(s => s.title));
         const rejectedGroups = categorizeRejections(trace, injectedTitles);
-        const rejections = [];
-        for (const group of rejectedGroups) {
-            for (const e of group.entries) {
-                rejections.push({ title: e.title, reason: e.reason });
-            }
-        }
+        const nonEmpty = rejectedGroups.filter(g => g.entries.length > 0);
 
-        if (rejections.length > 0) {
+        if (nonEmpty.length > 0) {
             let whyNotHtml = '';
-            for (const r of rejections) {
-                whyNotHtml += `<div class="dle-why-entry dle-why-not-entry" role="listitem" aria-label="${escapeHtml(r.title)}, filtered: ${escapeHtml(r.reason)}">`;
-                whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(r.title)}</span>`;
-                whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(r.reason)}">${escapeHtml(r.reason)}</span>`;
-                whyNotHtml += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(r.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(r.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
+            for (const group of nonEmpty) {
+                // Group sub-header
+                whyNotHtml += `<div class="dle-why-not-group-header" role="heading" aria-level="4">`;
+                whyNotHtml += `<span class="dle-why-not-group-icon">${group.icon}</span> `;
+                whyNotHtml += `<span class="dle-why-not-group-label">${escapeHtml(group.label)}</span>`;
+                whyNotHtml += `<span class="dle-why-not-group-count">${group.entries.length}</span>`;
                 whyNotHtml += `</div>`;
+                // Entries under this group
+                for (const e of group.entries) {
+                    whyNotHtml += `<div class="dle-why-entry dle-why-not-entry dle-why-not-grouped" role="listitem" aria-label="${escapeHtml(e.title)}, filtered: ${escapeHtml(e.reason)}">`;
+                    whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(e.title)}</span>`;
+                    whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(e.reason)}">${escapeHtml(e.reason)}</span>`;
+                    whyNotHtml += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(e.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(e.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
+                    whyNotHtml += `</div>`;
+                }
             }
             $whyNotList.html(whyNotHtml);
             $whyNotSection.addClass('dle-visible');
@@ -247,7 +251,11 @@ export function renderBrowseTab() {
             }
             cfHtml += '</select>';
         }
-        $cfContainer.html(cfHtml);
+        // Don't replace filter HTML while user has a dropdown open (prevents disruption)
+        const activeEl = document.activeElement;
+        if (!(activeEl && $cfContainer[0]?.contains(activeEl) && (activeEl.tagName === 'SELECT' || activeEl.closest('.dle-browse-cf-filter')))) {
+            $cfContainer.html(cfHtml);
+        }
     }
 
     const settings = getSettings();
@@ -501,7 +509,33 @@ export function renderBrowseWindow() {
                         .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : String(v))}`);
                     if (pairs.length) fieldsHtml = `<div class="dle-browse-fields">${pairs.join(' &middot; ')}</div>`;
                 }
-                $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
+                // Related entries: direct links + shared keywords
+                let relatedHtml = '';
+                const related = [];
+                for (const link of entry.resolvedLinks || []) {
+                    if (!related.includes(link)) related.push(link);
+                }
+                if (related.length < 5) {
+                    const entryKeys = new Set((entry.keys || []).map(k => k.toLowerCase()));
+                    if (entryKeys.size > 0) {
+                        for (const other of vaultIndex) {
+                            if (other.title === entry.title) continue;
+                            if (related.includes(other.title)) continue;
+                            const overlap = (other.keys || []).filter(k => entryKeys.has(k.toLowerCase())).length;
+                            if (overlap > 0) related.push(other.title);
+                            if (related.length >= 5) break;
+                        }
+                    }
+                }
+                if (related.length > 0) {
+                    relatedHtml = `<div class="dle-browse-related"><span class="dle-muted">Related:</span> `;
+                    for (const r of related.slice(0, 5)) {
+                        relatedHtml += `<span class="dle-browse-related-chip dle-browse-nav-btn" data-browse-title="${escapeHtml(r)}" title="Show in Browse">${escapeHtml(r)}</span>`;
+                    }
+                    relatedHtml += `</div>`;
+                }
+
+                $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}${relatedHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
                 $entry.css({ height: 'auto' });
                 // Measure expanded height and store for virtual scroll offset
                 const expandedHeight = $entry[0].scrollHeight;

@@ -15,7 +15,7 @@ import { renderExtensionTemplateAsync } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { promptManager } from '../../../openai.js';
 import { formatAndGroup } from './core/matching.js';
-import { simpleHash } from './core/utils.js';
+import { simpleHash, classifyError } from './core/utils.js';
 import {
     buildExemptionPolicy, applyPinBlock, applyContextualGating,
     applyReinjectionCooldown, applyRequiresExcludesGating,
@@ -52,6 +52,7 @@ import { loadSettingsUI, bindSettingsEvents } from './src/ui/settings-ui.js';
 import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
+import { pushActivity } from './src/drawer/drawer-state.js';
 import { extractAiNotes } from './src/helpers.js';
 import { clearSessionActivityLog, consumePendingToolCalls, clearPendingToolCalls } from './src/librarian/librarian-tools.js';
 import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
@@ -129,10 +130,11 @@ async function onGenerate(chat, contextSize, abort, type) {
         const lockAge = Date.now() - generationLockTimestamp;
         if (lockAge > 90_000) {
             console.warn(`[DLE] Previous lore selection took too long (${Math.round(lockAge / 1000)}s) — releasing lock`);
+            dedupWarning('Previous lore selection took too long — check your AI search timeout settings.', 'pipeline_lock_stale');
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
-            toastr.warning('Still selecting lore from the previous message. This response will reuse the last set of entries.', 'DeepLore Enhanced', { timeOut: 5000, preventDuplicates: true });
+            dedupWarning('Lore selection from the previous message is still running — reusing last results. This usually resolves in a few seconds.', 'pipeline_lock');
             return;
         }
     }
@@ -305,6 +307,18 @@ async function onGenerate(chat, contextSize, abort, type) {
             trace.totalTokens = totalTokens;
             trace.budgetLimit = settings.maxTokensBudget;
             setLastPipelineTrace(trace);
+
+            // Activity feed: record pipeline run summary for drawer footer
+            const aiUsed = trace.aiSelected?.length > 0;
+            const modeLabel = trace.mode === 'keywords-only' ? 'Keywords'
+                : aiUsed ? (trace.aiFallback ? 'Fallback' : 'AI')
+                : 'Keywords';
+            pushActivity({
+                ts: Date.now(),
+                injected: trace.injected?.length || 0,
+                mode: modeLabel,
+                tokens: trace.totalTokens || 0,
+            });
         }
 
         // BUG-AUDIT-5: Epoch guard on commit phase — prevent stale force-released pipelines
@@ -541,7 +555,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
-        dedupError('Something went wrong loading your lore. Try /dle-health to check for issues, or /dle-refresh to reload.', 'pipeline');
+        dedupError(`Lore loading failed: ${classifyError(err)}. Try /dle-health for diagnostics or /dle-refresh to reload.`, 'pipeline');
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
@@ -598,6 +612,7 @@ jQuery(async function () {
             initLibrarian();
         } catch (err) {
             console.warn('[DLE] Failed to initialize Librarian:', err.message);
+            if (getSettings().librarianEnabled) dedupWarning('Librarian tools failed to initialize.', 'librarian_init');
         }
 
         // First-run detection: if no vaults configured and wizard not completed, show wizard

@@ -22,7 +22,7 @@ import {
     applyStripDedup, trackGeneration, decrementTrackers, recordAnalytics,
 } from './src/stages.js';
 import { clearPrompts } from './core/pipeline.js';
-import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache } from './settings.js';
+import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache, resolveConnectionConfig } from './settings.js';
 import {
     vaultIndex, indexEverLoaded, indexing,
     lastInjectionSources, lastInjectionEpoch, lastScribeChatLength, scribeInProgress,
@@ -725,15 +725,7 @@ jQuery(async function () {
                             userMsg = `[Previous session notes]\n${existingNotes}\n\n${userMsg}`;
                         }
 
-                        const connectionConfig = {
-                            mode: settings.aiNotepadConnectionMode || 'profile',
-                            profileId: settings.aiNotepadProfileId,
-                            proxyUrl: settings.aiNotepadProxyUrl,
-                            model: settings.aiNotepadModel,
-                            maxTokens: settings.aiNotepadMaxTokens || 1024,
-                            timeout: settings.aiNotepadTimeout || 30000,
-                            skipThrottle: true,
-                        };
+                        const connectionConfig = { ...resolveConnectionConfig('aiNotepad'), skipThrottle: true };
 
                         const result = await callAI(extractPrompt, userMsg, connectionConfig);
                         const responseText = (result?.text || result || '').trim();
@@ -852,10 +844,10 @@ jQuery(async function () {
             // Re-register PM entries for the new active character (prompt_list mode)
             if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {
                 const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad'];
+                const pmNames = { [`${PROMPT_TAG_PREFIX}constants`]: 'DLE Constants', [`${PROMPT_TAG_PREFIX}lore`]: 'DLE Lore Entries', 'deeplore_notebook': 'DLE Author\'s Notebook', 'deeplore_ai_notepad': 'DLE AI Notebook' };
                 for (const id of ids) {
                     const existing = promptManager.getPromptById(id);
                     if (!existing) {
-                        const pmNames = { [`${PROMPT_TAG_PREFIX}constants`]: 'DLE Constants', [`${PROMPT_TAG_PREFIX}lore`]: 'DLE Lore Entries', 'deeplore_notebook': 'DLE Author\'s Notebook', 'deeplore_ai_notepad': 'DLE AI Notebook' };
                         promptManager.addPrompt({
                             name: pmNames[id] || id, content: '', system_prompt: true,
                             role: 'system', position: 'end', marker: false, enabled: true, extension: true,

@@ -8,7 +8,7 @@ import {
     chat_metadata,
     name2,
 } from '../../../../../../script.js';
-import { getSettings, getPrimaryVault } from '../../settings.js';
+import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../settings.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext } from '../../core/utils.js';
 import { callAI } from './ai.js';
@@ -39,17 +39,11 @@ Format with markdown headings and bullet points. Be specific — use character n
  * @returns {Promise<string>} Generated summary text
  */
 export async function callScribe(systemPrompt, userMessage, settings) {
-    const mode = settings.scribeConnectionMode || 'st';
+    const resolved = resolveConnectionConfig('scribe');
+    const mode = resolved.mode;
 
     if (mode === 'profile' || mode === 'proxy') {
-        const result = await callAI(systemPrompt, userMessage, {
-            mode,
-            profileId: settings.scribeProfileId,
-            proxyUrl: settings.scribeProxyUrl,
-            model: settings.scribeModel,
-            maxTokens: settings.scribeMaxTokens,
-            timeout: settings.scribeTimeout,
-        });
+        const result = await callAI(systemPrompt, userMessage, resolved);
         return result.text || '';
     }
 
@@ -57,8 +51,8 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     // Note: generateQuietPrompt cannot be aborted — the timed-out generation will complete in background
     const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
     // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
-    const timeout = settings.scribeTimeout || 60000;
-    const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: settings.scribeMaxTokens });
+    const timeout = resolved.timeout || 60000;
+    const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: resolved.maxTokens });
     let scribeTimer;
     return await Promise.race([
         quietPromise.finally(() => clearTimeout(scribeTimer)),

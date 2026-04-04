@@ -1952,6 +1952,56 @@ button.dle-browse-block.dle-block-active {
     display: block;
 }
 
+/* ── Connection sidebar children (indented under Connection parent) ── */
+.dle-connection-children {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.dle-connection-children[hidden] { display: none; }
+
+.dle-connection-subtab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 14px 7px 30px;
+    border: none;
+    background: none;
+    color: var(--SmartThemeBodyColor, #ccc);
+    cursor: pointer;
+    text-align: left;
+    font-size: 11px;
+    font-family: inherit;
+    transition: background 150ms ease, border-color 150ms ease;
+    border-left: 3px solid transparent;
+    white-space: nowrap;
+}
+
+.dle-connection-subtab:hover { background: var(--dle-bg-hover); }
+
+.dle-connection-subtab.active {
+    background: var(--dle-bg-hover);
+    border-left-color: var(--SmartThemeQuoteColor, #4caf50);
+    font-weight: 600;
+}
+
+.dle-connection-subtab i {
+    width: 14px;
+    text-align: center;
+    font-size: 11px;
+    flex-shrink: 0;
+}
+
+/* Connection sub-panels */
+.dle-connection-subpanel {
+    display: none;
+}
+
+.dle-connection-subpanel.active {
+    display: block;
+}
+
 /* ── Features sidebar children (indented under Features parent) ── */
 .dle-features-children {
     display: flex;
@@ -2054,6 +2104,34 @@ button.dle-browse-block.dle-block-active {
     justify-content: space-between;
     margin-bottom: 4px;
 }
+
+/* ── AI Connections accordion ── */
+.dle-conn-accordion {
+    border: 1px solid var(--dle-border);
+    border-radius: var(--dle-radius-md);
+    overflow: hidden;
+}
+.dle-conn-accordion + .dle-conn-accordion { margin-top: -1px; }
+.dle-conn-accordion-header {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    padding: var(--dle-space-2) var(--dle-space-3);
+    cursor: pointer;
+    user-select: none;
+}
+.dle-conn-accordion-header:hover { background: var(--dle-bg-hover); }
+.dle-conn-tool-icon { width: 16px; text-align: center; flex-shrink: 0; opacity: var(--dle-opacity-muted); }
+.dle-conn-tool-name { font-weight: 600; font-size: var(--dle-text-sm); }
+.dle-conn-badge { margin-left: auto; font-size: var(--dle-text-xs); opacity: 0.7; white-space: nowrap; }
+.dle-conn-chevron { flex-shrink: 0; font-size: 0.75em; transition: transform 200ms ease; }
+.dle-conn-accordion-header[aria-expanded="true"] .dle-conn-chevron { transform: rotate(90deg); }
+.dle-conn-accordion-body {
+    padding: var(--dle-space-2) var(--dle-space-3) var(--dle-space-3);
+    border-top: 1px solid var(--dle-border);
+}
+.dle-conn-accordion-body .radio_group { margin-bottom: 6px; }
+.dle-conn-inherit-note { font-size: var(--dle-text-xs); color: var(--dle-text-muted); padding: var(--dle-space-1) 0; }
 
 /* ── Injection tab table ── */
 .dle-injection-table {
@@ -3663,9 +3741,25 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     transition: grid-template-columns 200ms ease;
 }
 .dle-librarian-popup.dle-librarian-chat-collapsed {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr auto;
 }
 .dle-librarian-chat-collapsed .dle-librarian-chat {
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    min-width: 0;
+}
+.dle-librarian-chat-collapsed .dle-librarian-chat-header {
+    flex-direction: column;
+    padding: 4px;
+    gap: 4px;
+}
+.dle-librarian-chat-collapsed .dle-librarian-chat-title,
+.dle-librarian-chat-collapsed .dle-lib-activity-toggle,
+.dle-librarian-chat-collapsed .dle-librarian-messages,
+.dle-librarian-chat-collapsed .dle-librarian-input-row,
+.dle-librarian-chat-collapsed .dle-lib-activity-log,
+.dle-librarian-chat-collapsed .dle-librarian-queue {
     display: none;
 }
 
@@ -3848,6 +3942,16 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 }
 .dle-librarian-chat-title {
     flex: 1;
+}
+.dle-librarian-chat-header .menu_button_icon {
+    background: transparent;
+    border: none;
+    color: var(--dle-text-muted, #aaa);
+    cursor: pointer;
+    padding: 4px 6px;
+}
+.dle-librarian-chat-header .menu_button_icon:hover {
+    color: var(--dle-text, #ddd);
 }
 #dle-lib-chat-collapse {
     font-size: 12px;

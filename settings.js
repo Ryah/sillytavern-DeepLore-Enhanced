@@ -94,7 +94,7 @@ export const defaultSettings = {
     aiNotepadRole: 0,         // system
     aiNotepadPrompt: '',      // custom instruction prompt for tag mode (empty = default)
     aiNotepadExtractPrompt: '', // custom extraction prompt for extract mode (empty = default)
-    aiNotepadConnectionMode: 'profile', // extract mode connection: 'profile' or 'proxy'
+    aiNotepadConnectionMode: 'inherit', // extract mode connection: 'inherit' | 'profile' | 'proxy'
     aiNotepadProfileId: '',
     aiNotepadProxyUrl: 'http://localhost:42069',
     aiNotepadModel: '',
@@ -121,7 +121,7 @@ export const defaultSettings = {
     scribeInterval: 5,
     scribeFolder: 'Sessions',
     scribePrompt: '',
-    scribeConnectionMode: 'st',
+    scribeConnectionMode: 'inherit',
     scribeProfileId: '',
     scribeProxyUrl: 'http://localhost:42069',
     scribeModel: '',
@@ -136,7 +136,7 @@ export const defaultSettings = {
     // Auto Lorebook Creation
     autoSuggestEnabled: false,
     autoSuggestInterval: 10,
-    autoSuggestConnectionMode: 'st',
+    autoSuggestConnectionMode: 'inherit',
     autoSuggestProfileId: '',
     autoSuggestProxyUrl: 'http://localhost:42069',
     autoSuggestModel: '',
@@ -202,7 +202,10 @@ export const defaultSettings = {
     librarianResultTokenBudget: 1500,   // token budget for search results
     librarianAutoSendOnGap: true,       // auto-send draft prompt when opening a gap
     librarianWriteFolder: '',           // destination folder for written entries
-    librarianSessionModel: '',          // override model for session (blank = use AI search model)
+    librarianConnectionMode: 'inherit',  // 'inherit' | 'profile' | 'proxy'
+    librarianProfileId: '',
+    librarianProxyUrl: 'http://localhost:42069',
+    librarianModel: '',                  // override model (blank = inherit from AI Search)
     librarianSessionMaxTokens: 4096,    // max tokens for session responses
     librarianSessionTimeout: 60000,     // session AI call timeout (ms)
     librarianManifestMaxChars: 8000,    // max chars for vault manifest in session prompt
@@ -216,8 +219,62 @@ export const defaultSettings = {
     // First-run setup wizard completed flag
     _wizardCompleted: false,
     // Settings version — increment to trigger migrations
-    settingsVersion: 1,
+    settingsVersion: 2,
 };
+
+/**
+ * Prefix-to-settings-key mapping for resolveConnectionConfig().
+ * Each tool maps to its settings key prefixes for connection fields.
+ */
+const TOOL_SETTINGS_KEYS = {
+    aiSearch:    { mode: 'aiSearchConnectionMode', profileId: 'aiSearchProfileId', proxyUrl: 'aiSearchProxyUrl', model: 'aiSearchModel', maxTokens: 'aiSearchMaxTokens', timeout: 'aiSearchTimeout' },
+    scribe:     { mode: 'scribeConnectionMode', profileId: 'scribeProfileId', proxyUrl: 'scribeProxyUrl', model: 'scribeModel', maxTokens: 'scribeMaxTokens', timeout: 'scribeTimeout' },
+    autoSuggest: { mode: 'autoSuggestConnectionMode', profileId: 'autoSuggestProfileId', proxyUrl: 'autoSuggestProxyUrl', model: 'autoSuggestModel', maxTokens: 'autoSuggestMaxTokens', timeout: 'autoSuggestTimeout' },
+    aiNotepad:  { mode: 'aiNotepadConnectionMode', profileId: 'aiNotepadProfileId', proxyUrl: 'aiNotepadProxyUrl', model: 'aiNotepadModel', maxTokens: 'aiNotepadMaxTokens', timeout: 'aiNotepadTimeout' },
+    librarian:  { mode: 'librarianConnectionMode', profileId: 'librarianProfileId', proxyUrl: 'librarianProxyUrl', model: 'librarianModel', maxTokens: 'librarianSessionMaxTokens', timeout: 'librarianSessionTimeout' },
+};
+
+/**
+ * Resolve the effective connection config for a tool.
+ * If the tool's mode is 'inherit', resolves mode/profileId from AI Search,
+ * and cascades model/proxyUrl (tool's value if set, else AI Search's).
+ * Always keeps the tool's own maxTokens and timeout.
+ *
+ * @param {string} toolKey - One of: 'aiSearch', 'scribe', 'autoSuggest', 'aiNotepad', 'librarian'
+ * @returns {{ mode: string, profileId: string, proxyUrl: string, model: string, maxTokens: number, timeout: number }}
+ */
+export function resolveConnectionConfig(toolKey) {
+    const s = getSettings();
+    const keys = TOOL_SETTINGS_KEYS[toolKey];
+    if (!keys) throw new Error(`[DLE] Unknown tool key for connection config: ${toolKey}`);
+
+    const mode = s[keys.mode];
+    const toolModel = s[keys.model] || '';
+    const toolProxyUrl = s[keys.proxyUrl] || '';
+    const maxTokens = s[keys.maxTokens];
+    const timeout = s[keys.timeout];
+
+    if (mode === 'inherit' && toolKey !== 'aiSearch') {
+        const ai = TOOL_SETTINGS_KEYS.aiSearch;
+        return {
+            mode: s[ai.mode],
+            profileId: s[ai.profileId],
+            proxyUrl: toolProxyUrl || s[ai.proxyUrl],
+            model: toolModel || s[ai.model],
+            maxTokens,
+            timeout,
+        };
+    }
+
+    return {
+        mode,
+        profileId: s[keys.profileId],
+        proxyUrl: toolProxyUrl || defaultSettings[keys.proxyUrl],
+        model: toolModel,
+        maxTokens,
+        timeout,
+    };
+}
 
 /**
  * Run settings migrations between versions.
@@ -228,8 +285,15 @@ function runMigrations(settings, fromVersion, toVersion) {
     if (fromVersion < 1) {
         if (settings.debugMode) console.log('[DLE] Migrating settings to version 1');
     }
-    // Future migrations go here:
-    // if (fromVersion < 2) { ... }
+    // Migration 1 → 2: Librarian connection consolidation
+    if (fromVersion < 2) {
+        if (settings.debugMode) console.log('[DLE] Migrating settings to version 2 (AI Connections consolidation)');
+        // Copy librarianSessionModel → librarianModel if it was set
+        if (settings.librarianSessionModel) {
+            settings.librarianModel = settings.librarianSessionModel;
+        }
+        // Do NOT auto-migrate other tools' connectionMode to 'inherit' — existing users keep explicit settings
+    }
 }
 
 /** Validation constraints for numeric settings */

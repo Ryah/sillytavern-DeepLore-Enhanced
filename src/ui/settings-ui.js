@@ -10,7 +10,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
 import { buildAiChatContext } from '../../core/utils.js';
-import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, PROMPT_TAG_PREFIX, settingsConstraints, invalidateSettingsCache, defaultSettings } from '../../settings.js';
+import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, PROMPT_TAG_PREFIX, settingsConstraints, invalidateSettingsCache, defaultSettings, resolveConnectionConfig } from '../../settings.js';
 import { promptManager } from '../../../../../openai.js';
 import { testConnection } from '../vault/obsidian-api.js';
 import { testProxyConnection } from '../ai/proxy-api.js';
@@ -314,6 +314,313 @@ function updatePopupModeVisibility($container, settings) {
     }
 }
 
+// ============================================================================
+// AI Connections Accordion
+// ============================================================================
+
+const TOOL_CONNECTION_CONFIGS = {
+    aiSearch: {
+        label: 'AI Search', icon: 'magnifying-glass',
+        supportedModes: ['profile', 'proxy'], isRoot: true,
+        modeKey: 'aiSearchConnectionMode', profileIdKey: 'aiSearchProfileId',
+        proxyUrlKey: 'aiSearchProxyUrl', modelKey: 'aiSearchModel',
+        maxTokensKey: 'aiSearchMaxTokens', timeoutKey: 'aiSearchTimeout',
+    },
+    scribe: {
+        label: 'Session Scribe', icon: 'feather-pointed',
+        supportedModes: ['inherit', 'st', 'profile', 'proxy'],
+        modeKey: 'scribeConnectionMode', profileIdKey: 'scribeProfileId',
+        proxyUrlKey: 'scribeProxyUrl', modelKey: 'scribeModel',
+        maxTokensKey: 'scribeMaxTokens', timeoutKey: 'scribeTimeout',
+    },
+    autoSuggest: {
+        label: 'Auto Lorebook', icon: 'lightbulb',
+        supportedModes: ['inherit', 'st', 'profile', 'proxy'],
+        modeKey: 'autoSuggestConnectionMode', profileIdKey: 'autoSuggestProfileId',
+        proxyUrlKey: 'autoSuggestProxyUrl', modelKey: 'autoSuggestModel',
+        maxTokensKey: 'autoSuggestMaxTokens', timeoutKey: 'autoSuggestTimeout',
+    },
+    aiNotepad: {
+        label: 'AI Notepad', icon: 'note-sticky',
+        supportedModes: ['inherit', 'profile', 'proxy'],
+        modeKey: 'aiNotepadConnectionMode', profileIdKey: 'aiNotepadProfileId',
+        proxyUrlKey: 'aiNotepadProxyUrl', modelKey: 'aiNotepadModel',
+        maxTokensKey: 'aiNotepadMaxTokens', timeoutKey: 'aiNotepadTimeout',
+    },
+    librarian: {
+        label: 'Librarian', icon: 'book-open-reader',
+        supportedModes: ['inherit', 'profile', 'proxy'],
+        modeKey: 'librarianConnectionMode', profileIdKey: 'librarianProfileId',
+        proxyUrlKey: 'librarianProxyUrl', modelKey: 'librarianModel',
+        maxTokensKey: 'librarianSessionMaxTokens', timeoutKey: 'librarianSessionTimeout',
+    },
+};
+
+const MODE_LABELS = {
+    inherit: 'Inherit from AI Search',
+    st: 'SillyTavern Connection',
+    profile: 'Connection Profile',
+    proxy: 'Custom Proxy',
+};
+
+/**
+ * Build the accordion HTML for all 5 tools and inject into the placeholder.
+ */
+function buildAccordionHtml($container) {
+    const $section = $container.find('#dle-sp-ai-connections');
+    if (!$section.length) return;
+
+    let html = '';
+    for (const [toolKey, config] of Object.entries(TOOL_CONNECTION_CONFIGS)) {
+        const id = `dle-conn-${toolKey}`;
+        html += `<div class="dle-conn-accordion" data-tool="${toolKey}">`;
+        html += `<div class="dle-conn-accordion-header" role="button" tabindex="0" aria-expanded="false">`;
+        html += `<i class="fa-solid fa-${config.icon} dle-conn-tool-icon"></i>`;
+        html += `<span class="dle-conn-tool-name">${config.label}</span>`;
+        html += `<span class="dle-conn-badge dle-text-xs"></span>`;
+        html += `<i class="fa-solid fa-chevron-right dle-conn-chevron"></i>`;
+        html += `</div>`;
+        html += `<div class="dle-conn-accordion-body" style="display: none;">`;
+
+        // Mode radios
+        html += `<div class="radio_group">`;
+        for (const mode of config.supportedModes) {
+            html += `<label title="${MODE_LABELS[mode]}"><input type="radio" name="${id}-mode" value="${mode}" /> ${MODE_LABELS[mode]}</label>`;
+        }
+        html += `</div>`;
+
+        // Inherit note
+        if (!config.isRoot) {
+            html += `<div class="${id}-inherit-note dle-conn-inherit-note">Uses AI Search connection settings. You can still override model, max tokens, and timeout below.</div>`;
+        }
+
+        // Profile dropdown
+        html += `<div class="${id}-profile-row flex-container" style="display: none;">`;
+        html += `<div class="flex1"><label for="${id}-profile-select"><small>Connection Profile</small></label>`;
+        html += `<select id="${id}-profile-select" class="text_pole"><option value="">— Select a profile —</option></select>`;
+        html += `</div></div>`;
+
+        // Proxy URL
+        html += `<div class="${id}-proxy-row flex-container" style="display: none;">`;
+        html += `<div class="flex1"><label for="${id}-proxy-url"><small>Proxy URL</small></label>`;
+        html += `<input id="${id}-proxy-url" type="text" class="text_pole" placeholder="http://localhost:42069" />`;
+        html += `</div></div>`;
+
+        // Model override
+        html += `<div class="flex-container ${id}-model-row">`;
+        html += `<div class="flex1"><label for="${id}-model"><small>Model Override</small></label>`;
+        html += `<input id="${id}-model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />`;
+        html += `</div></div>`;
+
+        // Max Tokens + Timeout
+        html += `<div class="flex-container">`;
+        html += `<div class="flex1"><label for="${id}-max-tokens"><small>Max Tokens</small></label>`;
+        html += `<input id="${id}-max-tokens" type="number" class="text_pole" />`;
+        html += `</div>`;
+        html += `<div class="flex1"><label for="${id}-timeout"><small>Timeout (ms)</small></label>`;
+        html += `<input id="${id}-timeout" type="number" class="text_pole" />`;
+        html += `</div></div>`;
+
+        html += `</div></div>`;
+    }
+    $section.append(html);
+}
+
+/**
+ * Populate accordion values from settings.
+ */
+function populateAccordions($container) {
+    const settings = getSettings();
+    for (const [toolKey, config] of Object.entries(TOOL_CONNECTION_CONFIGS)) {
+        const id = `dle-conn-${toolKey}`;
+        const $c = (sel) => $container.find(sel);
+        const mode = settings[config.modeKey];
+
+        $c(`input[name="${id}-mode"][value="${mode}"]`).prop('checked', true);
+        populateProfileDropdownIn($container, `${id}-profile-select`, config.profileIdKey);
+        $c(`#${id}-proxy-url`).val(settings[config.proxyUrlKey] || '');
+        $c(`#${id}-model`).val(settings[config.modelKey] || '');
+        $c(`#${id}-max-tokens`).val(settings[config.maxTokensKey]);
+        $c(`#${id}-timeout`).val(settings[config.timeoutKey]);
+
+        updateAccordionVisibility($container, toolKey);
+        updateAccordionBadge($container, toolKey);
+    }
+}
+
+/**
+ * Update field visibility within an accordion based on current mode.
+ */
+function updateAccordionVisibility($container, toolKey) {
+    const config = TOOL_CONNECTION_CONFIGS[toolKey];
+    const settings = getSettings();
+    const mode = settings[config.modeKey];
+    const id = `dle-conn-${toolKey}`;
+
+    const isProfile = mode === 'profile';
+    const isProxy = mode === 'proxy';
+    const isInherit = mode === 'inherit';
+    const isSt = mode === 'st';
+
+    $container.find(`.${id}-profile-row`).toggle(isProfile);
+    $container.find(`.${id}-proxy-row`).toggle(isProxy);
+    $container.find(`.${id}-inherit-note`).toggle(isInherit);
+    // Model row: show for profile/proxy/inherit (override available), hide for st
+    $container.find(`.${id}-model-row`).toggle(!isSt);
+
+    // Update model placeholder based on resolved mode
+    const $modelInput = $container.find(`#${id}-model`);
+    if (isProfile || (isInherit && settings.aiSearchConnectionMode === 'profile')) {
+        let hint = '';
+        const profileIdKey = isInherit ? 'aiSearchProfileId' : config.profileIdKey;
+        try {
+            const profileId = settings[profileIdKey];
+            if (profileId) hint = ConnectionManagerRequestService.getProfile(profileId).model || '';
+        } catch { /* noop */ }
+        $modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
+    } else if (isProxy || (isInherit && settings.aiSearchConnectionMode === 'proxy')) {
+        $modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
+    } else if (isInherit) {
+        $modelInput.attr('placeholder', 'Leave empty to inherit from AI Search');
+    }
+}
+
+/**
+ * Update the badge text for an accordion header.
+ */
+function updateAccordionBadge($container, toolKey) {
+    const config = TOOL_CONNECTION_CONFIGS[toolKey];
+    const settings = getSettings();
+    const mode = settings[config.modeKey];
+    const $badge = $container.find(`.dle-conn-accordion[data-tool="${toolKey}"] .dle-conn-badge`);
+
+    if (mode === 'inherit') {
+        $badge.text('Inheriting from AI Search').css('opacity', '0.5');
+    } else if (mode === 'st') {
+        $badge.text('SillyTavern Connection').css('opacity', '0.7');
+    } else if (mode === 'profile') {
+        const profileId = settings[config.profileIdKey];
+        if (profileId) {
+            try {
+                const profile = ConnectionManagerRequestService.getProfile(profileId);
+                $badge.text(`Profile: ${profile.name}`).css('opacity', '0.7');
+            } catch {
+                $badge.text('No profile selected').css('opacity', '0.5');
+            }
+        } else {
+            $badge.text('No profile selected').css('opacity', '0.5');
+        }
+    } else if (mode === 'proxy') {
+        const url = settings[config.proxyUrlKey] || 'http://localhost:42069';
+        try {
+            const u = new URL(url);
+            $badge.text(`Proxy: ${u.hostname}:${u.port || '80'}`).css('opacity', '0.7');
+        } catch {
+            $badge.text(`Proxy: ${url}`).css('opacity', '0.7');
+        }
+    }
+}
+
+/**
+ * Bind accordion events (delegated on #dle-sp-ai-connections).
+ */
+function bindAccordionEvents($container) {
+    const settings = getSettings();
+    const $section = $container.find('#dle-sp-ai-connections');
+
+    // Accordion expand/collapse
+    $section.on('click keydown', '.dle-conn-accordion-header', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        const $header = $(this);
+        const expanded = $header.attr('aria-expanded') === 'true';
+        $header.attr('aria-expanded', String(!expanded));
+        $header.next('.dle-conn-accordion-body').slideToggle(200);
+    });
+
+    // Mode radio change
+    $section.on('change', 'input[type="radio"]', function () {
+        const $accordion = $(this).closest('.dle-conn-accordion');
+        const toolKey = $accordion.data('tool');
+        const config = TOOL_CONNECTION_CONFIGS[toolKey];
+        settings[config.modeKey] = $(this).val();
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+        updateAccordionVisibility($container, toolKey);
+        updateAccordionBadge($container, toolKey);
+        // If AI Search mode changed, update badges for all inheriting tools
+        if (toolKey === 'aiSearch') {
+            for (const [key, cfg] of Object.entries(TOOL_CONNECTION_CONFIGS)) {
+                if (!cfg.isRoot && settings[cfg.modeKey] === 'inherit') {
+                    updateAccordionVisibility($container, key);
+                    updateAccordionBadge($container, key);
+                }
+            }
+            updatePopupModeVisibility($container, settings);
+        }
+    });
+
+    // Profile dropdown change
+    $section.on('change', 'select[id$="-profile-select"]', function () {
+        const $accordion = $(this).closest('.dle-conn-accordion');
+        const toolKey = $accordion.data('tool');
+        const config = TOOL_CONNECTION_CONFIGS[toolKey];
+        settings[config.profileIdKey] = String($(this).val());
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+        updateAccordionBadge($container, toolKey);
+        updateAccordionVisibility($container, toolKey);
+    });
+
+    // Proxy URL input
+    $section.on('input', 'input[id$="-proxy-url"]', function () {
+        const $accordion = $(this).closest('.dle-conn-accordion');
+        const toolKey = $accordion.data('tool');
+        const config = TOOL_CONNECTION_CONFIGS[toolKey];
+        settings[config.proxyUrlKey] = String($(this).val()).trim() || 'http://localhost:42069';
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+        updateAccordionBadge($container, toolKey);
+    });
+
+    // Model input
+    $section.on('input', 'input[id$="-model"]', function () {
+        const $accordion = $(this).closest('.dle-conn-accordion');
+        const toolKey = $accordion.data('tool');
+        const config = TOOL_CONNECTION_CONFIGS[toolKey];
+        settings[config.modelKey] = String($(this).val()).trim();
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+    });
+
+    // Max tokens input
+    $section.on('input', 'input[id$="-max-tokens"]', function () {
+        const $accordion = $(this).closest('.dle-conn-accordion');
+        const toolKey = $accordion.data('tool');
+        const config = TOOL_CONNECTION_CONFIGS[toolKey];
+        settings[config.maxTokensKey] = numVal($(this).val(), defaultSettings[config.maxTokensKey]);
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+    });
+
+    // Timeout input
+    $section.on('input', 'input[id$="-timeout"]', function () {
+        const $accordion = $(this).closest('.dle-conn-accordion');
+        const toolKey = $accordion.data('tool');
+        const config = TOOL_CONNECTION_CONFIGS[toolKey];
+        settings[config.timeoutKey] = numVal($(this).val(), defaultSettings[config.timeoutKey]);
+        invalidateSettingsCache();
+        saveSettingsDebounced();
+    });
+
+    // "AI Connections" cross-tab link — switches to Connection > AI Connections sub-tab
+    $container.on('click', '.dle-goto-ai-connections', function (e) {
+        e.preventDefault();
+        const $subtab = $container.find('.dle-connection-subtab[data-connection-subtab="ai-connections"]');
+        if ($subtab.length) switchConnectionSubtab($subtab);
+    });
+}
+
 function updatePopupInjectionModeVisibility($container, settings) {
     const isPromptList = settings.injectionMode === 'prompt_list';
     // Toggle extension-mode controls vs PM name labels for all injection rows
@@ -355,9 +662,12 @@ export async function openSettingsPopup() {
         $tab.addClass('active').attr('aria-selected', 'true').attr('tabindex', '0');
         $container.find('.dle-settings-panel').removeClass('active').attr('hidden', '');
         $container.find(`[data-settings-panel="${tab}"]`).addClass('active').removeAttr('hidden');
-        // Clear features subtab highlighting when leaving Features
+        // Clear subtab highlighting when leaving their parent tab
         if (tab !== 'features') {
             $container.find('.dle-features-subtab').removeClass('active');
+        }
+        if (tab !== 'connection') {
+            $container.find('.dle-connection-subtab').removeClass('active');
         }
         localStorage.setItem('dle-last-settings-tab', tab);
     }
@@ -390,9 +700,36 @@ export async function openSettingsPopup() {
         }
     }
 
-    // Main tab click handler — Features header is not clickable (sub-tabs handle it)
+    // ── Connection sidebar sub-tab switching ──────
+    const $connectionTab = $container.find('#dle-sp-tab-connection');
+    const $connectionChildren = $container.find('.dle-connection-children');
+
+    // Connection children are always visible — no collapse toggle
+    $connectionChildren.removeAttr('hidden');
+    $connectionTab.attr('aria-expanded', 'true');
+
+    function switchConnectionSubtab($subtab) {
+        const subtab = $subtab.data('connection-subtab');
+        $container.find('.dle-connection-subtab').removeClass('active');
+        $subtab.addClass('active');
+        $container.find('.dle-connection-subpanel').removeClass('active').attr('hidden', '');
+        $container.find(`[data-connection-subpanel="${subtab}"]`).addClass('active').removeAttr('hidden');
+        localStorage.setItem('dle-last-connection-subtab', subtab);
+        // Ensure connection main panel is active
+        if (!$connectionTab.hasClass('active')) {
+            switchSettingsTab($connectionTab);
+        }
+    }
+
+    // Main tab click handler — headers (Features, Connection) are not clickable (sub-tabs handle it)
     $container.on('click', '.dle-settings-tab:not(.dle-settings-tab--header)', function () {
         switchSettingsTab($(this));
+    });
+
+    // Connection sub-tab click (direct bind — delegation didn't fire for unknown reason)
+    $container.find('.dle-connection-subtab').on('click', function (e) {
+        e.stopPropagation();
+        switchConnectionSubtab($(this));
     });
 
     // Feature sub-tab click
@@ -436,16 +773,42 @@ export async function openSettingsPopup() {
         $newSubtab.trigger('focus');
     });
 
+    // Keyboard navigation for connection sub-tabs (Up/Down in sidebar)
+    $container.on('keydown', '.dle-connection-subtab', function (e) {
+        const $subtabs = $container.find('.dle-connection-subtab');
+        const idx = $subtabs.index(this);
+        let newIdx = idx;
+        switch (e.key) {
+            case 'ArrowDown': newIdx = (idx + 1) % $subtabs.length; break;
+            case 'ArrowUp': newIdx = (idx - 1 + $subtabs.length) % $subtabs.length; break;
+            case 'Home': newIdx = 0; break;
+            case 'End': newIdx = $subtabs.length - 1; break;
+            default: return;
+        }
+        e.preventDefault();
+        const $newSubtab = $subtabs.eq(newIdx);
+        switchConnectionSubtab($newSubtab);
+        $newSubtab.trigger('focus');
+    });
+
     $container.find('.dle-settings-tab').attr('tabindex', '-1');
     $container.find('.dle-settings-tab.active').attr('tabindex', '0');
     $container.find('.dle-settings-panel').not('.active').attr('hidden', '');
     $container.find('.dle-features-subpanel').not('.active').attr('hidden', '');
+    $container.find('.dle-connection-subpanel').not('.active').attr('hidden', '');
 
     // Restore last viewed features sub-tab on init
     const lastSubtab = localStorage.getItem('dle-last-features-subtab');
     if (lastSubtab && lastTab === 'features') {
         const $lastSubtab = $container.find(`.dle-features-subtab[data-features-subtab="${lastSubtab}"]`);
         if ($lastSubtab.length) switchFeaturesSubtab($lastSubtab);
+    }
+
+    // Restore last viewed connection sub-tab on init
+    const lastConnSubtab = localStorage.getItem('dle-last-connection-subtab');
+    if (lastConnSubtab && lastTab === 'connection') {
+        const $lastConnSubtab = $container.find(`.dle-connection-subtab[data-connection-subtab="${lastConnSubtab}"]`);
+        if ($lastConnSubtab.length) switchConnectionSubtab($lastConnSubtab);
     }
 
     // "Go to Matching tab" link in AI disabled notice
@@ -574,20 +937,11 @@ function loadPopupSettings($container) {
     $c('#dle-sp-template').val(settings.injectionTemplate);
     $c('#dle-sp-allow-wi-scan').prop('checked', settings.allowWIScan);
 
+    // ── AI Connections accordion ──
+    buildAccordionHtml($container);
+    populateAccordions($container);
+
     // ── AI Search ──
-    $c(`input[name="dle-sp-ai-connection-mode"][value="${settings.aiSearchConnectionMode}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle-sp-ai-profile-select', 'aiSearchProfileId');
-    updateConnectionVisibilityIn($container, {
-        modeSettingsKey: 'aiSearchConnectionMode',
-        profileRowSelector: '#dle-sp-ai-profile-row',
-        proxyRowSelector: '#dle-sp-ai-proxy-row',
-        modelInputSelector: '#dle-sp-ai-model',
-        profileIdSettingsKey: 'aiSearchProfileId',
-    });
-    $c('#dle-sp-ai-proxy-url').val(settings.aiSearchProxyUrl);
-    $c('#dle-sp-ai-model').val(settings.aiSearchModel);
-    $c('#dle-sp-ai-max-tokens').val(settings.aiSearchMaxTokens);
-    $c('#dle-sp-ai-timeout').val(settings.aiSearchTimeout);
     $c('#dle-sp-ai-scan-depth').val(settings.aiSearchScanDepth);
     $c('#dle-sp-ai-system-prompt').val(settings.aiSearchSystemPrompt);
     $c('#dle-sp-ai-summary-length').val(settings.aiSearchManifestSummaryLength);
@@ -625,9 +979,6 @@ function loadPopupSettings($container) {
     $c('#dle-sp-librarian-max-searches').val(settings.librarianMaxSearches);
     $c('#dle-sp-librarian-max-results').val(settings.librarianMaxResults);
     $c('#dle-sp-librarian-token-budget').val(settings.librarianResultTokenBudget);
-    $c('#dle-sp-librarian-session-model').val(settings.librarianSessionModel || '');
-    $c('#dle-sp-librarian-session-max-tokens').val(settings.librarianSessionMaxTokens);
-    $c('#dle-sp-librarian-session-timeout').val(Math.round((settings.librarianSessionTimeout || 60000) / 1000));
     $c('#dle-sp-librarian-write-folder').val(settings.librarianWriteFolder || '');
     $c('#dle-sp-librarian-auto-send').prop('checked', settings.librarianAutoSendOnGap !== false);
     $c('#dle-sp-librarian-sub').toggle(settings.librarianEnabled);
@@ -672,14 +1023,6 @@ function loadPopupSettings($container) {
     $c(`input[name="dle-sp-ai-notepad-mode"][value="${aiNbMode}"]`).prop('checked', true);
     $c('#dle-sp-ai-notepad-prompt').val(settings.aiNotepadPrompt || '');
     $c('#dle-sp-ai-notepad-extract-prompt').val(settings.aiNotepadExtractPrompt || '');
-    // Extract mode connection settings
-    $c(`input[name="dle-sp-ai-notepad-connection-mode"][value="${settings.aiNotepadConnectionMode || 'profile'}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle-sp-ai-notepad-profile-select', 'aiNotepadProfileId');
-    $c('#dle-sp-ai-notepad-proxy-url').val(settings.aiNotepadProxyUrl || '');
-    $c('#dle-sp-ai-notepad-model').val(settings.aiNotepadModel || '');
-    $c('#dle-sp-ai-notepad-max-tokens').val(settings.aiNotepadMaxTokens || 1024);
-    $c('#dle-sp-ai-notepad-timeout').val(settings.aiNotepadTimeout || 30000);
-    updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle-sp-ai-notepad-profile-row', proxyRowSelector: '#dle-sp-ai-notepad-proxy-row', modelInputSelector: '#dle-sp-ai-notepad-model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle-sp-ai-notepad-model-row'] });
     // Show/hide mode-specific options
     $c('#dle-sp-ai-notepad-mode-tag-desc').toggle(aiNbMode === 'tag');
     $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(aiNbMode === 'extract');
@@ -692,21 +1035,6 @@ function loadPopupSettings($container) {
     $c('#dle-sp-scribe-controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
     $c('#dle-sp-scribe-interval').val(settings.scribeInterval);
     $c('#dle-sp-scribe-folder').val(settings.scribeFolder);
-    $c(`input[name="dle-sp-scribe-connection-mode"][value="${settings.scribeConnectionMode}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle-sp-scribe-profile-select', 'scribeProfileId');
-    updateConnectionVisibilityIn($container, {
-        modeSettingsKey: 'scribeConnectionMode',
-        profileRowSelector: '#dle-sp-scribe-profile-row',
-        proxyRowSelector: '#dle-sp-scribe-proxy-row',
-        modelInputSelector: '#dle-sp-scribe-model',
-        profileIdSettingsKey: 'scribeProfileId',
-        externalOnlySelectors: ['#dle-sp-scribe-model-row'],
-        hasStMode: true,
-    });
-    $c('#dle-sp-scribe-proxy-url').val(settings.scribeProxyUrl);
-    $c('#dle-sp-scribe-model').val(settings.scribeModel);
-    $c('#dle-sp-scribe-max-tokens').val(settings.scribeMaxTokens);
-    $c('#dle-sp-scribe-timeout').val(settings.scribeTimeout);
     $c('#dle-sp-scribe-scan-depth').val(settings.scribeScanDepth);
     $c('#dle-sp-scribe-prompt').val(settings.scribePrompt);
 
@@ -715,17 +1043,6 @@ function loadPopupSettings($container) {
     $c('#dle-sp-autosuggest-controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
     $c('#dle-sp-autosuggest-interval').val(settings.autoSuggestInterval);
     $c('#dle-sp-autosuggest-folder').val(settings.autoSuggestFolder);
-    $c(`input[name="dle-sp-autosuggest-connection-mode"][value="${settings.autoSuggestConnectionMode}"]`).prop('checked', true);
-    populateProfileDropdownIn($container, 'dle-sp-autosuggest-profile', 'autoSuggestProfileId');
-    updateConnectionVisibilityIn($container, {
-        modeSettingsKey: 'autoSuggestConnectionMode',
-        profileRowSelector: '#dle-sp-autosuggest-profile-container',
-        proxyRowSelector: '#dle-sp-autosuggest-proxy-container',
-    });
-    $c('#dle-sp-autosuggest-proxy-url').val(settings.autoSuggestProxyUrl);
-    $c('#dle-sp-autosuggest-model').val(settings.autoSuggestModel);
-    $c('#dle-sp-autosuggest-max-tokens').val(settings.autoSuggestMaxTokens);
-    $c('#dle-sp-autosuggest-timeout').val(settings.autoSuggestTimeout);
 
     // ── System ── (index stats updated in onOpen, after DOM is live)
     $c('#dle-sp-cache-ttl').val(settings.cacheTTL);
@@ -986,18 +1303,10 @@ function bindPopupEvents($container) {
         if ($targetTab.length) switchSettingsTab($targetTab);
     });
 
+    // ── AI Connections accordion ──
+    bindAccordionEvents($container);
+
     // ── AI Search ──
-    $c('input[name="dle-sp-ai-connection-mode"]').on('change', function () {
-        settings.aiSearchConnectionMode = $c('input[name="dle-sp-ai-connection-mode"]:checked').val();
-        saveSettingsDebounced();
-        updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiSearchConnectionMode', profileRowSelector: '#dle-sp-ai-profile-row', proxyRowSelector: '#dle-sp-ai-proxy-row', modelInputSelector: '#dle-sp-ai-model', profileIdSettingsKey: 'aiSearchProfileId' });
-        updatePopupModeVisibility($container, settings);
-    });
-    $c('#dle-sp-ai-profile-select').on('change', function () { settings.aiSearchProfileId = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle-sp-ai-proxy-url').on('input', function () { settings.aiSearchProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
-    $c('#dle-sp-ai-model').on('input', function () { settings.aiSearchModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle-sp-ai-max-tokens').on('input', function () { settings.aiSearchMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
-    $c('#dle-sp-ai-timeout').on('input', function () { settings.aiSearchTimeout = numVal($(this).val(), 10000); saveSettingsDebounced(); });
     $c('#dle-sp-ai-scan-depth').on('input', function () { settings.aiSearchScanDepth = numVal($(this).val(), 4); saveSettingsDebounced(); });
     $c('#dle-sp-ai-system-prompt').on('input', function () { settings.aiSearchSystemPrompt = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle-sp-ai-summary-length').on('input', function () { settings.aiSearchManifestSummaryLength = numVal($(this).val(), 600); saveSettingsDebounced(); });
@@ -1046,9 +1355,6 @@ function bindPopupEvents($container) {
     $c('#dle-sp-librarian-max-searches').on('input', function () { settings.librarianMaxSearches = numVal($(this).val(), 2); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-max-results').on('input', function () { settings.librarianMaxResults = numVal($(this).val(), 5); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-token-budget').on('input', function () { settings.librarianResultTokenBudget = numVal($(this).val(), 1500); saveSettingsDebounced(); });
-    $c('#dle-sp-librarian-session-model').on('input', function () { settings.librarianSessionModel = $(this).val().trim(); saveSettingsDebounced(); });
-    $c('#dle-sp-librarian-session-max-tokens').on('input', function () { settings.librarianSessionMaxTokens = numVal($(this).val(), 4096); saveSettingsDebounced(); });
-    $c('#dle-sp-librarian-session-timeout').on('input', function () { settings.librarianSessionTimeout = numVal($(this).val(), 60) * 1000; saveSettingsDebounced(); });
     $c('#dle-sp-librarian-write-folder').on('input', function () { settings.librarianWriteFolder = $(this).val().trim(); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-auto-send').on('change', function () { settings.librarianAutoSendOnGap = $(this).prop('checked'); saveSettingsDebounced(); });
     // Advanced budget fields
@@ -1121,16 +1427,6 @@ function bindPopupEvents($container) {
         $c('#dle-sp-ai-notepad-tag-options').toggle(isTag);
         $c('#dle-sp-ai-notepad-extract-options').toggle(!isTag);
     });
-    // AI Notebook extract mode connection handlers
-    $c('input[name="dle-sp-ai-notepad-connection-mode"]').on('change', function () {
-        settings.aiNotepadConnectionMode = $(this).val(); saveSettingsDebounced();
-        updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle-sp-ai-notepad-profile-row', proxyRowSelector: '#dle-sp-ai-notepad-proxy-row', modelInputSelector: '#dle-sp-ai-notepad-model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle-sp-ai-notepad-model-row'] });
-    });
-    $c('#dle-sp-ai-notepad-profile-select').on('change', function () { settings.aiNotepadProfileId = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle-sp-ai-notepad-proxy-url').on('input', function () { settings.aiNotepadProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
-    $c('#dle-sp-ai-notepad-model').on('input', function () { settings.aiNotepadModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle-sp-ai-notepad-max-tokens').on('input', function () { settings.aiNotepadMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
-    $c('#dle-sp-ai-notepad-timeout').on('input', function () { settings.aiNotepadTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
     $c('#dle-sp-open-ai-notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
 
     // ── Features — Scribe ──
@@ -1138,57 +1434,19 @@ function bindPopupEvents($container) {
         settings.scribeEnabled = $(this).prop('checked'); saveSettingsDebounced();
         $c('#dle-sp-scribe-controls').find('input, textarea, select').prop('disabled', !settings.scribeEnabled);
         $c('#dle-sp-scribe-controls').find('.menu_button').toggleClass('disabled', !settings.scribeEnabled);
-        if (settings.scribeEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle-sp-scribe-profile-row', proxyRowSelector: '#dle-sp-scribe-proxy-row', modelInputSelector: '#dle-sp-scribe-model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle-sp-scribe-model-row'], hasStMode: true });
     });
     $c('#dle-sp-scribe-interval').on('input', function () { settings.scribeInterval = numVal($(this).val(), 5); saveSettingsDebounced(); });
     $c('#dle-sp-scribe-folder').on('input', function () { settings.scribeFolder = String($(this).val()).trim() || 'Sessions'; saveSettingsDebounced(); });
     $c('#dle-sp-scribe-prompt').on('input', function () { settings.scribePrompt = String($(this).val()); saveSettingsDebounced(); });
-    $c('input[name="dle-sp-scribe-connection-mode"]').on('change', function () { settings.scribeConnectionMode = $c('input[name="dle-sp-scribe-connection-mode"]:checked').val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle-sp-scribe-profile-row', proxyRowSelector: '#dle-sp-scribe-proxy-row', modelInputSelector: '#dle-sp-scribe-model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle-sp-scribe-model-row'], hasStMode: true }); });
-    $c('#dle-sp-scribe-profile-select').on('change', function () { settings.scribeProfileId = String($(this).val()); saveSettingsDebounced(); });
-    $c('#dle-sp-scribe-proxy-url').on('input', function () { settings.scribeProxyUrl = String($(this).val()).trim() || 'http://localhost:42069'; saveSettingsDebounced(); });
-    $c('#dle-sp-scribe-model').on('input', function () { settings.scribeModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle-sp-scribe-max-tokens').on('input', function () { settings.scribeMaxTokens = numVal($(this).val(), 1024); saveSettingsDebounced(); });
-    $c('#dle-sp-scribe-timeout').on('input', function () { settings.scribeTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
     $c('#dle-sp-scribe-scan-depth').on('input', function () { settings.scribeScanDepth = numVal($(this).val(), 20); saveSettingsDebounced(); });
 
     // ── Features — Auto Lorebook ──
     $c('#dle-sp-autosuggest-enabled').on('change', function () {
         settings.autoSuggestEnabled = $(this).prop('checked'); saveSettingsDebounced();
         $c('#dle-sp-autosuggest-controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
-        if (settings.autoSuggestEnabled) updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle-sp-autosuggest-profile-container', proxyRowSelector: '#dle-sp-autosuggest-proxy-container' });
     });
     $c('#dle-sp-autosuggest-interval').on('input', function () { settings.autoSuggestInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
     $c('#dle-sp-autosuggest-folder').on('input', function () { settings.autoSuggestFolder = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('input[name="dle-sp-autosuggest-connection-mode"]').on('change', function () { settings.autoSuggestConnectionMode = $(this).val(); saveSettingsDebounced(); updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle-sp-autosuggest-profile-container', proxyRowSelector: '#dle-sp-autosuggest-proxy-container' }); });
-    $c('#dle-sp-autosuggest-profile').on('change', function () { settings.autoSuggestProfileId = $(this).val(); saveSettingsDebounced(); });
-    $c('#dle-sp-autosuggest-proxy-url').on('input', function () { settings.autoSuggestProxyUrl = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle-sp-autosuggest-model').on('input', function () { settings.autoSuggestModel = String($(this).val()).trim(); saveSettingsDebounced(); });
-    $c('#dle-sp-autosuggest-max-tokens').on('input', function () { settings.autoSuggestMaxTokens = numVal($(this).val(), 2048); saveSettingsDebounced(); });
-    $c('#dle-sp-autosuggest-timeout').on('input', function () { settings.autoSuggestTimeout = numVal($(this).val(), 30000); saveSettingsDebounced(); });
-
-    // Copy from AI Search buttons
-    $container.on('click', '.dle-copy-ai-btn', function () {
-        const target = $(this).data('copy-target');
-        const mode = settings.aiSearchConnectionMode;
-        if (target === 'scribe') {
-            settings.scribeConnectionMode = mode; settings.scribeProfileId = settings.aiSearchProfileId; settings.scribeProxyUrl = settings.aiSearchProxyUrl; settings.scribeModel = settings.aiSearchModel;
-            $c(`input[name="dle-sp-scribe-connection-mode"][value="${mode}"]`).prop('checked', true); $c('#dle-sp-scribe-proxy-url').val(settings.scribeProxyUrl); $c('#dle-sp-scribe-model').val(settings.scribeModel);
-            populateProfileDropdownIn($container, 'dle-sp-scribe-profile-select', 'scribeProfileId');
-            updateConnectionVisibilityIn($container, { modeSettingsKey: 'scribeConnectionMode', profileRowSelector: '#dle-sp-scribe-profile-row', proxyRowSelector: '#dle-sp-scribe-proxy-row', modelInputSelector: '#dle-sp-scribe-model', profileIdSettingsKey: 'scribeProfileId', externalOnlySelectors: ['#dle-sp-scribe-model-row'], hasStMode: true });
-        } else if (target === 'ai_notepad') {
-            settings.aiNotepadConnectionMode = mode; settings.aiNotepadProfileId = settings.aiSearchProfileId; settings.aiNotepadProxyUrl = settings.aiSearchProxyUrl; settings.aiNotepadModel = settings.aiSearchModel;
-            $c(`input[name="dle-sp-ai-notepad-connection-mode"][value="${mode}"]`).prop('checked', true); $c('#dle-sp-ai-notepad-proxy-url').val(settings.aiNotepadProxyUrl); $c('#dle-sp-ai-notepad-model').val(settings.aiNotepadModel);
-            populateProfileDropdownIn($container, 'dle-sp-ai-notepad-profile-select', 'aiNotepadProfileId');
-            updateConnectionVisibilityIn($container, { modeSettingsKey: 'aiNotepadConnectionMode', profileRowSelector: '#dle-sp-ai-notepad-profile-row', proxyRowSelector: '#dle-sp-ai-notepad-proxy-row', modelInputSelector: '#dle-sp-ai-notepad-model', profileIdSettingsKey: 'aiNotepadProfileId', externalOnlySelectors: ['#dle-sp-ai-notepad-model-row'] });
-        } else if (target === 'autosuggest') {
-            settings.autoSuggestConnectionMode = mode; settings.autoSuggestProfileId = settings.aiSearchProfileId; settings.autoSuggestProxyUrl = settings.aiSearchProxyUrl; settings.autoSuggestModel = settings.aiSearchModel;
-            $c(`input[name="dle-sp-autosuggest-connection-mode"][value="${mode}"]`).prop('checked', true); $c('#dle-sp-autosuggest-proxy-url').val(settings.autoSuggestProxyUrl); $c('#dle-sp-autosuggest-model').val(settings.autoSuggestModel);
-            populateProfileDropdownIn($container, 'dle-sp-autosuggest-profile', 'autoSuggestProfileId');
-            updateConnectionVisibilityIn($container, { modeSettingsKey: 'autoSuggestConnectionMode', profileRowSelector: '#dle-sp-autosuggest-profile-container', proxyRowSelector: '#dle-sp-autosuggest-proxy-container' });
-        }
-        invalidateSettingsCache(); saveSettingsDebounced();
-        toastr.success('Connection settings copied from AI Search.', 'DeepLore Enhanced');
-    });
 
     // ── System ──
     $c('#dle-sp-refresh').on('click', async function () {

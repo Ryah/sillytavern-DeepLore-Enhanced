@@ -9,7 +9,7 @@ import {
 } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
-import { getSettings, getPrimaryVault } from '../../settings.js';
+import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../settings.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI, extractAiResponseClient } from './ai.js';
@@ -34,10 +34,10 @@ Example: [{"title": "The Silver Crown", "type": "lore", "keys": ["silver crown",
  * BUG 1 FIX: st mode now uses object form of generateQuietPrompt.
  */
 export async function callAutoSuggest(systemPrompt, userMessage) {
-    const settings = getSettings();
-    const mode = settings.autoSuggestConnectionMode;
-    const timeout = settings.autoSuggestTimeout;
-    const maxTokens = settings.autoSuggestMaxTokens;
+    const resolved = resolveConnectionConfig('autoSuggest');
+    const mode = resolved.mode;
+    const timeout = resolved.timeout;
+    const maxTokens = resolved.maxTokens;
 
     if (mode === 'st') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
@@ -57,14 +57,7 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
         return { text: response, usage: null };
     } else if (mode === 'profile' || mode === 'proxy') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
-        return await callAI(systemPrompt, userMessage, {
-            mode,
-            profileId: settings.autoSuggestProfileId,
-            proxyUrl: settings.autoSuggestProxyUrl,
-            model: settings.autoSuggestModel,
-            maxTokens,
-            timeout,
-        });
+        return await callAI(systemPrompt, userMessage, resolved);
     }
     throw new Error(`Unknown auto-suggest connection mode: ${mode}`);
 }

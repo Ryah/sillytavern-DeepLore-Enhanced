@@ -8,7 +8,7 @@ import { getContext } from '../../../../../extensions.js';
 import { buildAiChatContext } from '../../core/utils.js';
 import { callAI, buildCandidateManifest } from '../ai/ai.js';
 import { queryBM25 } from '../vault/bm25.js';
-import { getSettings } from '../../settings.js';
+import { getSettings, resolveConnectionConfig } from '../../settings.js';
 import { vaultIndex, fuzzySearchIndex, loreGaps, setLoreGaps } from '../state.js';
 import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
 
@@ -426,16 +426,7 @@ Each option has a \`label\` (user-facing description) and \`fields\` (draft fiel
  * @returns {object} connectionConfig for callAI()
  */
 function getConnectionConfig() {
-    const settings = getSettings();
-    return {
-        mode: settings.aiSearchConnectionMode,
-        profileId: settings.aiSearchProfileId,
-        proxyUrl: settings.aiSearchProxyUrl,
-        model: settings.librarianSessionModel || settings.aiSearchModel,
-        maxTokens: settings.librarianSessionMaxTokens || 4096,
-        timeout: settings.librarianSessionTimeout || 60000,
-        skipThrottle: true, // Session calls should not be throttled
-    };
+    return { ...resolveConnectionConfig('librarian'), skipThrottle: true };
 }
 
 /**

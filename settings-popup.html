@@ -3,11 +3,19 @@
 
     <!-- Sidebar tabs -->
     <nav class="dle-settings-sidebar" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
-        <button class="dle-settings-tab active" id="dle-sp-tab-connection" data-settings-tab="connection" role="tab"
-                aria-selected="true" aria-controls="dle-sp-connection">
+        <div class="dle-settings-tab dle-settings-tab--header active" id="dle-sp-tab-connection" data-settings-tab="connection"
+             aria-expanded="true">
             <i class="fa-solid fa-plug" aria-hidden="true"></i>
             <span>Connection</span>
-        </button>
+        </div>
+        <div class="dle-connection-children">
+            <button class="dle-connection-subtab active" data-connection-subtab="obsidian">
+                <i class="fa-solid fa-vault" aria-hidden="true"></i><span>Obsidian</span>
+            </button>
+            <button class="dle-connection-subtab" data-connection-subtab="ai-connections">
+                <i class="fa-solid fa-brain" aria-hidden="true"></i><span>AI Connections</span>
+            </button>
+        </div>
         <button class="dle-settings-tab" id="dle-sp-tab-matching" data-settings-tab="matching" role="tab"
                 aria-selected="false" aria-controls="dle-sp-matching">
             <i class="fa-solid fa-crosshairs" aria-hidden="true"></i>
@@ -67,6 +75,10 @@
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="dle-settings-panel active" id="dle-sp-connection" data-settings-panel="connection"
              role="tabpanel" aria-labelledby="dle-sp-tab-connection">
+
+            <!-- Sub-panel: Obsidian -->
+            <div class="dle-connection-subpanel active" id="dle-sp-conn-obsidian" data-connection-subpanel="obsidian"
+                 role="tabpanel">
 
             <div class="dle-settings-section">
             <label class="checkbox_label" for="dle-sp-enabled" title="Enable or disable DeepLore Enhanced. When disabled, no entries are injected into prompts.">
@@ -165,6 +177,21 @@
                 </div>
             </div>
             </div>
+
+            </div><!-- end Sub-panel: Obsidian -->
+
+            <!-- Sub-panel: AI Connections -->
+            <div class="dle-connection-subpanel" id="dle-sp-conn-ai-connections" data-connection-subpanel="ai-connections"
+                 role="tabpanel" hidden>
+
+            <div class="dle-settings-section" id="dle-sp-ai-connections">
+                <h4>AI Connections</h4>
+                <p class="dle-section-desc">Configure AI connections for each tool. Tools set to "Inherit" use the AI Search connection.</p>
+                <!-- Accordion items generated dynamically by settings-ui.js -->
+            </div>
+
+            </div><!-- end Sub-panel: AI Connections -->
+
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -498,41 +525,7 @@
             <p class="dle-section-desc">Configure the AI model that selects which entries to inject.</p>
 
             <div class="flex-container flexFlowColumn">
-                <div class="dle-connection-card" id="dle-sp-ai-connection-card">
-                    <div style="margin: 0 0 4px;">
-                        <span class="dle-text-xs">Connection</span>
-                        <div class="radio_group">
-                            <label class="checkbox_label" title="Use a saved SillyTavern Connection Manager profile.">
-                                <input type="radio" name="dle-sp-ai-connection-mode" value="profile" />
-                                <span>Connection Profile</span>
-                            </label>
-                            <label class="checkbox_label" title="Use a separate proxy server.">
-                                <input type="radio" name="dle-sp-ai-connection-mode" value="proxy" />
-                                <span>Custom Proxy</span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="flex-container" id="dle-sp-ai-profile-row">
-                        <div class="flex1" title="Select a saved Connection Manager profile for AI search.">
-                            <label for="dle-sp-ai-profile-select"><small>Connection Profile</small></label>
-                            <select id="dle-sp-ai-profile-select" class="text_pole">
-                                <option value="">— Select a profile —</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="flex-container" id="dle-sp-ai-proxy-row">
-                        <div class="flex1" title="URL of the proxy server.">
-                            <label for="dle-sp-ai-proxy-url"><small>Proxy URL</small></label>
-                            <input id="dle-sp-ai-proxy-url" type="text" class="text_pole" placeholder="http://localhost:42069" />
-                        </div>
-                    </div>
-                    <div class="flex-container">
-                        <div class="flex1" title="Model override for AI search. Leave empty to use the profile's model.">
-                            <label for="dle-sp-ai-model"><small>Model Override</small></label>
-                            <input id="dle-sp-ai-model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
-                        </div>
-                    </div>
-                </div>
+                <span class="dle-text-xs dle-muted">Connection settings: <a href="#" class="dle-goto-ai-connections">AI Connections</a> in Connection tab.</span>
                 <div class="flex-container" style="gap: 6px;">
                     <div id="dle-sp-test-ai" class="menu_button menu_button_icon" role="button" tabindex="0" title="Test AI search connection.">
                         <i class="fa-solid fa-brain"></i>
@@ -548,16 +541,6 @@
                     <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show Advanced
                 </div>
                 <div class="dle-advanced-section" data-section="sp_ai_search" style="display: none;">
-                    <div class="flex-container">
-                        <div class="flex1" title="Maximum tokens for the AI search response. Default: 1024.">
-                            <label for="dle-sp-ai-max-tokens"><small>Max Response Tokens</small></label>
-                            <input id="dle-sp-ai-max-tokens" type="number" class="text_pole" min="64" max="4096" />
-                        </div>
-                        <div class="flex1" title="Timeout in ms for the AI search request. Default: 10000. Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.">
-                            <label for="dle-sp-ai-timeout"><small>Timeout (ms)</small></label>
-                            <input id="dle-sp-ai-timeout" type="number" class="text_pole" min="1000" max="120000" />
-                        </div>
-                    </div>
                     <div class="flex-container">
                         <div class="flex1" title="Number of recent chat messages included as context for the AI search. Default: 4.">
                             <label for="dle-sp-ai-scan-depth"><small>AI Chat Context (messages)</small></label>
@@ -752,55 +735,7 @@
                     <textarea id="dle-sp-ai-notepad-prompt" class="text_pole" rows="3" placeholder="Leave empty for default. Instructs the AI to append &lt;dle-notes&gt; after its response."></textarea>
                 </div>
                 <div id="dle-sp-ai-notepad-extract-options" style="display: none;">
-                    <div class="dle-connection-card" id="dle-sp-ai-notepad-connection-card">
-                        <div class="dle-connection-card-header">
-                            <span class="dle-text-xs">Connection</span>
-                            <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="ai_notepad" role="button" tabindex="0" title="Copy connection settings from AI Search.">
-                                <i class="fa-solid fa-copy" aria-hidden="true"></i>
-                                <span>Copy from AI Search</span>
-                            </div>
-                        </div>
-                        <div class="radio_group">
-                            <label title="Use a saved Connection Manager profile.">
-                                <input type="radio" name="dle-sp-ai-notepad-connection-mode" value="profile" />
-                                <span>Connection Profile</span>
-                            </label>
-                            <label title="Use a separate proxy server.">
-                                <input type="radio" name="dle-sp-ai-notepad-connection-mode" value="proxy" />
-                                <span>Custom Proxy</span>
-                            </label>
-                        </div>
-                        <div class="flex-container" id="dle-sp-ai-notepad-profile-row">
-                            <div class="flex1">
-                                <label for="dle-sp-ai-notepad-profile-select"><small>Connection Profile</small></label>
-                                <select id="dle-sp-ai-notepad-profile-select" class="text_pole">
-                                    <option value="">— Select a profile —</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="flex-container" id="dle-sp-ai-notepad-proxy-row">
-                            <div class="flex1">
-                                <label for="dle-sp-ai-notepad-proxy-url"><small>Proxy URL</small></label>
-                                <input id="dle-sp-ai-notepad-proxy-url" type="text" class="text_pole" placeholder="http://localhost:42069" />
-                            </div>
-                        </div>
-                        <div class="flex-container" id="dle-sp-ai-notepad-model-row">
-                            <div class="flex1">
-                                <label for="dle-sp-ai-notepad-model"><small>Model Override</small></label>
-                                <input id="dle-sp-ai-notepad-model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
-                            </div>
-                        </div>
-                        <div class="flex-container">
-                            <div class="flex1" title="Maximum response tokens for extraction.">
-                                <label for="dle-sp-ai-notepad-max-tokens"><small>Max Tokens</small></label>
-                                <input id="dle-sp-ai-notepad-max-tokens" type="number" class="text_pole" min="256" max="4096" />
-                            </div>
-                            <div class="flex1" title="Request timeout in milliseconds.">
-                                <label for="dle-sp-ai-notepad-timeout"><small>Timeout (ms)</small></label>
-                                <input id="dle-sp-ai-notepad-timeout" type="number" class="text_pole" min="5000" max="120000" />
-                            </div>
-                        </div>
-                    </div>
+                    <span class="dle-text-xs dle-muted">Connection settings: <a href="#" class="dle-goto-ai-connections">AI Connections</a> in Connection tab.</span>
                     <label for="dle-sp-ai-notepad-extract-prompt"><small>Custom Extraction Prompt (leave empty for default)</small></label>
                     <textarea id="dle-sp-ai-notepad-extract-prompt" class="text_pole" rows="3" placeholder="Leave empty for default. The extraction model receives the AI response and returns bullet-point notes."></textarea>
                 </div>
@@ -830,59 +765,7 @@
                         <input id="dle-sp-scribe-folder" type="text" class="text_pole" placeholder="Sessions" />
                     </div>
                 </div>
-                <div class="dle-connection-card" id="dle-sp-scribe-connection-card">
-                    <div class="dle-connection-card-header">
-                        <span class="dle-text-xs">Connection</span>
-                        <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="scribe" role="button" tabindex="0" title="Copy connection settings from AI Search.">
-                            <i class="fa-solid fa-copy" aria-hidden="true"></i>
-                            <span>Copy from AI Search</span>
-                        </div>
-                    </div>
-                    <div class="radio_group">
-                        <label title="Use SillyTavern's active AI connection.">
-                            <input type="radio" name="dle-sp-scribe-connection-mode" value="st" />
-                            <span>SillyTavern</span>
-                        </label>
-                        <label title="Use a saved Connection Manager profile.">
-                            <input type="radio" name="dle-sp-scribe-connection-mode" value="profile" />
-                            <span>Connection Profile</span>
-                        </label>
-                        <label title="Use a separate proxy server.">
-                            <input type="radio" name="dle-sp-scribe-connection-mode" value="proxy" />
-                            <span>Custom Proxy</span>
-                        </label>
-                    </div>
-                    <div class="flex-container" id="dle-sp-scribe-profile-row">
-                        <div class="flex1">
-                            <label for="dle-sp-scribe-profile-select"><small>Connection Profile</small></label>
-                            <select id="dle-sp-scribe-profile-select" class="text_pole">
-                                <option value="">— Select a profile —</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="flex-container" id="dle-sp-scribe-proxy-row">
-                        <div class="flex1">
-                            <label for="dle-sp-scribe-proxy-url"><small>Proxy URL</small></label>
-                            <input id="dle-sp-scribe-proxy-url" type="text" class="text_pole" placeholder="http://localhost:42069" />
-                        </div>
-                    </div>
-                    <div class="flex-container" id="dle-sp-scribe-model-row">
-                        <div class="flex1">
-                            <label for="dle-sp-scribe-model"><small>Model Override</small></label>
-                            <input id="dle-sp-scribe-model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />
-                        </div>
-                    </div>
-                </div>
-                <div class="flex-container">
-                    <div class="flex1" title="Max tokens for summary response. Default: 1024.">
-                        <label for="dle-sp-scribe-max-tokens"><small>Max Response Tokens</small></label>
-                        <input id="dle-sp-scribe-max-tokens" type="number" class="text_pole" min="256" max="4096" />
-                    </div>
-                    <div class="flex1" title="Timeout in ms. Default: 60000. Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.">
-                        <label for="dle-sp-scribe-timeout"><small>Timeout (ms)</small></label>
-                        <input id="dle-sp-scribe-timeout" type="number" class="text_pole" min="5000" max="120000" />
-                    </div>
-                </div>
+                <span class="dle-text-xs dle-muted">Connection settings: <a href="#" class="dle-goto-ai-connections">AI Connections</a> in Connection tab.</span>
                 <div class="flex-container">
                     <div class="flex1" title="Messages to include as context. Default: 20.">
                         <label for="dle-sp-scribe-scan-depth"><small>Messages to Include</small></label>
@@ -918,42 +801,7 @@
                         <input id="dle-sp-autosuggest-folder" type="text" class="text_pole" placeholder="Lorebook" />
                     </div>
                 </div>
-                <div class="dle-connection-card" id="dle-sp-autosuggest-connection-card">
-                    <div class="dle-connection-card-header">
-                        <span class="dle-text-xs">Connection</span>
-                        <div class="dle-copy-ai-btn menu_button menu_button_icon" data-copy-target="autosuggest" role="button" tabindex="0" title="Copy connection settings from AI Search.">
-                            <i class="fa-solid fa-copy" aria-hidden="true"></i>
-                            <span>Copy from AI Search</span>
-                        </div>
-                    </div>
-                    <div class="radio_group">
-                        <label title="Use SillyTavern's active AI connection."><input type="radio" name="dle-sp-autosuggest-connection-mode" value="st" /> SillyTavern</label>
-                        <label title="Use a saved Connection Manager profile."><input type="radio" name="dle-sp-autosuggest-connection-mode" value="profile" /> Connection Profile</label>
-                        <label title="Use a separate proxy server."><input type="radio" name="dle-sp-autosuggest-connection-mode" value="proxy" /> Custom Proxy</label>
-                    </div>
-                    <div id="dle-sp-autosuggest-profile-container">
-                        <label for="dle-sp-autosuggest-profile"><small>Connection Profile</small></label>
-                        <select id="dle-sp-autosuggest-profile" class="text_pole"></select>
-                    </div>
-                    <div id="dle-sp-autosuggest-proxy-container">
-                        <label for="dle-sp-autosuggest-proxy-url"><small>Proxy URL</small></label>
-                        <input id="dle-sp-autosuggest-proxy-url" type="text" class="text_pole" placeholder="http://localhost:42069" />
-                    </div>
-                    <div class="flex-container">
-                        <div class="flex1" title="Model override for auto-suggest.">
-                            <label for="dle-sp-autosuggest-model"><small>Model</small></label>
-                            <input id="dle-sp-autosuggest-model" type="text" class="text_pole" placeholder="claude-haiku-4-5-20251001" />
-                        </div>
-                        <div class="flex1" title="Max tokens for auto-suggest response. Default: 2048.">
-                            <label for="dle-sp-autosuggest-max-tokens"><small>Max Tokens</small></label>
-                            <input id="dle-sp-autosuggest-max-tokens" type="number" class="text_pole" min="256" max="4096" />
-                        </div>
-                        <div class="flex1" title="Timeout in ms for auto-suggest requests. Default: 30000. Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.">
-                            <label for="dle-sp-autosuggest-timeout"><small>Timeout (ms)</small></label>
-                            <input id="dle-sp-autosuggest-timeout" type="number" class="text_pole" min="5000" max="120000" />
-                        </div>
-                    </div>
-                </div>
+                <span class="dle-text-xs dle-muted">Connection settings: <a href="#" class="dle-goto-ai-connections">AI Connections</a> in Connection tab.</span>
             </div>
             </div>
             </div>
@@ -1081,22 +929,7 @@
             <p class="dle-section-desc">Settings for the Librarian AI editor popup.</p>
 
             <div class="flex-container flexFlowColumn">
-                <div class="flex-container">
-                    <div class="flex1" title="Override model for Librarian session. Leave blank to use AI Search model.">
-                        <label for="dle-sp-librarian-session-model"><small>Model Override</small></label>
-                        <input id="dle-sp-librarian-session-model" type="text" class="text_pole" placeholder="Use AI Search model" />
-                    </div>
-                </div>
-                <div class="flex-container">
-                    <div class="flex1" title="Max tokens for session AI responses. Default: 4096.">
-                        <label for="dle-sp-librarian-session-max-tokens"><small>Session Max Tokens</small></label>
-                        <input id="dle-sp-librarian-session-max-tokens" type="number" class="text_pole" min="1024" max="16384" />
-                    </div>
-                    <div class="flex1" title="Timeout for session AI calls in seconds. Default: 60.">
-                        <label for="dle-sp-librarian-session-timeout"><small>Session Timeout (s)</small></label>
-                        <input id="dle-sp-librarian-session-timeout" type="number" class="text_pole" min="10" max="120" />
-                    </div>
-                </div>
+                <span class="dle-text-xs dle-muted">Connection settings: <a href="#" class="dle-goto-ai-connections">AI Connections</a> in Connection tab.</span>
                 <div class="flex-container">
                     <div class="flex1" title="Folder path for written entries (relative to vault root). Leave blank for root.">
                         <label for="dle-sp-librarian-write-folder"><small>Write Folder</small></label>

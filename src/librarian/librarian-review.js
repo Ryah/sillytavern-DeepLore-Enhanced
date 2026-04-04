@@ -9,6 +9,7 @@ import { yamlEscape, classifyError } from '../../core/utils.js';
 import { stripObsidianSyntax, sanitizeFilename } from '../helpers.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
+import { getContext } from '../../../../../extensions.js';
 import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession } from './librarian-session.js';
@@ -1089,7 +1090,7 @@ ${safeContent}`;
             if (stCtx?.saveSettingsDebounced) stCtx.saveSettingsDebounced();
 
             // Trigger index rebuild
-            buildIndex(true);
+            buildIndex(true).catch(err => console.warn('[DLE] Post-write index rebuild failed:', err.message));
         } else {
             toastr.error(`Could not create entry: ${data.error || 'Unknown error'}`, 'DeepLore Enhanced');
         }

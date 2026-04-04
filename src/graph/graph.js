@@ -641,7 +641,9 @@ export async function showGraphPopup() {
         if (n.orphan) continue;
         neighborSets.set(n.id, new Set((adjacency.get(n.id) || [])));
     }
+    const MAX_SHARED_PAIRS = 2000;
     const sharedNeighborPairs = [];
+    outerLoop:
     for (let i = 0; i < nodes.length; i++) {
         if (nodes[i].orphan) continue;
         const setI = neighborSets.get(i);
@@ -655,6 +657,7 @@ export async function showGraphPopup() {
             for (const nb of setI) { if (setJ.has(nb)) shared++; }
             if (shared > 0) {
                 sharedNeighborPairs.push({ a: i, b: j, shared });
+                if (sharedNeighborPairs.length >= MAX_SHARED_PAIRS) break outerLoop;
             }
         }
     }

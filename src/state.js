@@ -100,6 +100,10 @@ export function setLastInjectionSources(v) { lastInjectionSources = v; }
 export function setLastInjectionEpoch(v) { lastInjectionEpoch = v; }
 export function setLastScribeChatLength(v) { lastScribeChatLength = v; }
 export function setScribeInProgress(v) { scribeInProgress = v; }
+
+/** AI Notepad extract lock — prevents concurrent extraction calls */
+export let notepadExtractInProgress = false;
+export function setNotepadExtractInProgress(v) { notepadExtractInProgress = v; }
 export function setLastScribeSummary(v) { lastScribeSummary = v; }
 export function setPreviousIndexSnapshot(v) { previousIndexSnapshot = v; }
 export function setCooldownTracker(v) { cooldownTracker = v; }
@@ -231,6 +235,13 @@ export function recordAiSuccess() {
     aiCircuitOpenedAt = 0;
     // Notify observers if state changed (open → closed)
     if (wasOpen) notifyCircuitStateChanged();
+}
+/** Release the half-open probe without recording success or failure.
+ *  Used by hierarchicalPreFilter: its outcome shouldn't affect the circuit breaker
+ *  since the main aiSearch() call handles its own probing independently. */
+export function releaseHalfOpenProbe() {
+    aiCircuitHalfOpenProbe = false;
+    aiCircuitProbeTimestamp = 0;
 }
 /**
  * Circuit breaker state machine (3 states):

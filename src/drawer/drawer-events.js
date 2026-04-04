@@ -139,7 +139,7 @@ export function wireStatusActions($drawer) {
     $drawer.on('click', '.dle-action-btn[data-action]', function () {
         const action = $(this).data('action');
         switch (action) {
-            case 'refresh': buildIndex(); break;
+            case 'refresh': buildIndex().catch(err => console.warn('[DLE] Manual refresh failed:', err.message)); break;
             case 'scribe': executeCommand('/dle-scribe'); break;
             case 'newlore': executeCommand('/dle-newlore'); break;
         }

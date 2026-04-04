@@ -31,11 +31,12 @@ import {
     lastWarningRatio, decayTracker, chatEpoch,
     lastGenerationChatHash, lastGenerationInjectedKeys,
     setLastGenerationChatHash, setLastGenerationInjectedKeys,
-    generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock,
+    generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock, setGenerationLockEpoch,
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch, setLastIndexGenerationCount,
     setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources,
+    notepadExtractInProgress, setNotepadExtractInProgress,
     notifyPipelineComplete, notifyGatingChanged,
     fieldDefinitions,
     setLoreGaps, setLoreGapSearchCount, setLibrarianChatStats,
@@ -306,33 +307,27 @@ async function onGenerate(chat, contextSize, abort, type) {
             setLastPipelineTrace(trace);
         }
 
-        // BUG-AUDIT-5: Epoch guard on clearPrompts — prevent stale force-released pipelines
+        // BUG-AUDIT-5: Epoch guard on commit phase — prevent stale force-released pipelines
         // from wiping prompts that the new pipeline just set.
         if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
             console.warn('[DLE] Stale pipeline reached commit phase — discarding');
             return;
         }
-        // Commit phase: clear previous prompts only now that we have results to replace them.
-        // This prevents silent lore loss when the pipeline fails or returns early — old prompts
-        // remain in context rather than being wiped to nothing.
-        clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
-        if (settings.injectionMode === 'prompt_list' && promptManager) {
-            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
-                const pmEntry = promptManager.getPromptById(id);
-                if (pmEntry) pmEntry.content = '';
-            }
-        }
 
         if (groups.length > 0) {
-            // Bail if chat changed during pipeline — lore belongs to the old chat
-            if (epoch !== chatEpoch) {
-                console.warn('[DLE] Chat changed during pipeline — discarding results');
+            // Final epoch check before committing — bail if chat changed or pipeline superseded.
+            // clearPrompts is inside this block so we never wipe prompts without replacing them.
+            if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
+                console.warn('[DLE] Chat changed or pipeline superseded during commit — discarding results');
                 return;
             }
-            // Bail if this pipeline was superseded by a force-released stale lock
-            if (lockEpoch !== generationLockEpoch) {
-                console.warn('[DLE] Pipeline superseded by a newer request — discarding stale results');
-                return;
+            // Clear previous prompts only now that we have verified results to replace them.
+            clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
+            if (settings.injectionMode === 'prompt_list' && promptManager) {
+                for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
+                    const pmEntry = promptManager.getPromptById(id);
+                    if (pmEntry) pmEntry.content = '';
+                }
             }
             const usePromptList = settings.injectionMode === 'prompt_list';
             for (const group of groups) {
@@ -367,6 +362,15 @@ async function onGenerate(chat, contextSize, abort, type) {
                 vaultSource: e.vaultSource || '',
             })));
             setLastInjectionEpoch(epoch);
+        } else {
+            // No lore groups — still clear stale prompts from previous generation
+            clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
+            if (settings.injectionMode === 'prompt_list' && promptManager) {
+                for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
+                    const pmEntry = promptManager.getPromptById(id);
+                    if (pmEntry) pmEntry.content = '';
+                }
+            }
         }
 
         // Author's Notebook injection (independent of entry pipeline)
@@ -602,8 +606,12 @@ jQuery(async function () {
         if (!hasEnabledVaults && !firstRunSettings._wizardCompleted) {
             // Delay so ST finishes rendering first
             setTimeout(async () => {
-                const { showSetupWizard } = await import('./src/ui/setup-wizard.js');
-                showSetupWizard();
+                try {
+                    const { showSetupWizard } = await import('./src/ui/setup-wizard.js');
+                    showSetupWizard();
+                } catch (err) {
+                    console.warn('[DLE] Setup wizard auto-open failed:', err.message);
+                }
             }, 500);
         }
 
@@ -728,6 +736,8 @@ jQuery(async function () {
 
                 // BUG-AUDIT-7: Fire-and-forget async extraction with epoch guard
                 // to prevent writing notes to the wrong chat after a chat switch.
+                if (notepadExtractInProgress) return;
+                setNotepadExtractInProgress(true);
                 const extractEpoch = chatEpoch;
                 (async () => {
                     try {
@@ -754,6 +764,8 @@ jQuery(async function () {
                         }
                     } catch (err) {
                         console.warn('[DLE] AI Notebook extract error:', err.message);
+                    } finally {
+                        setNotepadExtractInProgress(false);
                     }
                 })();
             }
@@ -855,6 +867,16 @@ jQuery(async function () {
             removeLibrarianDropdown(messageId);
             clearPendingToolCalls();
 
+            // Clear stale AI Notepad notes from accumulator so swipe doesn't double-append
+            if (message.extra?.deeplore_ai_notes) {
+                const notes = message.extra.deeplore_ai_notes;
+                const acc = chat_metadata.deeplore_ai_notepad || '';
+                if (acc.includes(notes)) {
+                    chat_metadata.deeplore_ai_notepad = acc.replace(notes, '').replace(/\n{3,}/g, '\n\n').trim();
+                }
+                delete message.extra.deeplore_ai_notes;
+            }
+
             // Clear stale Cartographer sources (new generation will set fresh ones)
             if (message.extra?.deeplore_sources) {
                 delete message.extra.deeplore_sources;
@@ -866,6 +888,13 @@ jQuery(async function () {
         eventSource.on(event_types.CHAT_CHANGED, () => {
             // Increment epoch first so any in-flight onGenerate sees the mismatch
             setChatEpoch(chatEpoch + 1);
+
+            // Release generation lock so the new chat isn't blocked by a stale in-flight pipeline.
+            // Bump the lock epoch to invalidate the old pipeline's commit phase.
+            if (generationLock) {
+                setGenerationLockEpoch(generationLockEpoch + 1);
+                setGenerationLock(false);
+            }
 
             setLastScribeChatLength(chat ? chat.length : 0);
             setLastScribeSummary(chat_metadata?.deeplore_lastScribeSummary || '');

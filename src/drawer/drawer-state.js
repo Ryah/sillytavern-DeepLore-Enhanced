@@ -263,10 +263,10 @@ export let dragElement, isMobile, power_user;
 
 export async function loadSTInternals() {
     try {
-        const ross = await import('../../../../../scripts/RossAscends-mods.js');
+        const ross = await import('../../../../../../scripts/RossAscends-mods.js');
         dragElement = ross.dragElement;
         isMobile = ross.isMobile;
-        const pu = await import('../../../../../scripts/power-user.js');
+        const pu = await import('../../../../../../scripts/power-user.js');
         power_user = pu.power_user;
     } catch (err) {
         console.warn('[DLE] Could not load ST internals for drawer (Moving UI/mobile detection unavailable):', err.message);

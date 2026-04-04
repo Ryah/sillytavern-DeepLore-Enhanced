@@ -11,7 +11,7 @@ import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
     trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
     notifyAiStatsUpdated,
-    isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure,
+    isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe,
     fieldDefinitions,
 } from '../state.js';
 import { dedupWarning } from '../toast-dedup.js';
@@ -89,8 +89,9 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
 
     try {
         // BUG-028: Use Promise.race to enforce timeout even if CMRS ignores AbortSignal
+        let backupTimer;
         const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' })), timeout + 500);
+            backupTimer = setTimeout(() => reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' })), timeout + 500);
         });
         const result = await Promise.race([
             ConnectionManagerRequestService.sendRequest(
@@ -127,6 +128,7 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         throw new Error(`${err.message}${profileLabel}${modelLabel}`);
     } finally {
         clearTimeout(timer);
+        clearTimeout(backupTimer);
     }
 }
 
@@ -215,6 +217,7 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
 
     if (selectable.length === 0) return { manifest: '', header: '' };
 
+    const fieldLabelMap = new Map(fieldDefinitions.map(f => [f.name, f.label]));
     const manifest = selectable
         .map(entry => {
             // E8: Select summary text based on manifestSummaryMode
@@ -243,10 +246,9 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false) {
             // Custom field annotations (e.g. [Era: medieval | Location: tavern])
             let fieldsHint = '';
             if (entry.customFields) {
-                const labelMap = new Map(fieldDefinitions.map(f => [f.name, f.label]));
                 const pairs = Object.entries(entry.customFields)
                     .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
-                    .map(([k, v]) => `${labelMap.get(k) || k}: ${Array.isArray(v) ? v.join(', ') : v}`);
+                    .map(([k, v]) => `${fieldLabelMap.get(k) || k}: ${Array.isArray(v) ? v.join(', ') : v}`);
                 if (pairs.length > 0) fieldsHint = `\n[${pairs.join(' | ')}]`;
             }
             const attrSafeTitle = escapeXml(entry.title);
@@ -394,16 +396,15 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
             console.warn(`[DLE] Hierarchical pre-filter dropped ${selectable.length - filtered.length}/${selectable.length} candidates — consider lowering aggressiveness`);
         }
 
-        // BUG-AUDIT-1: Pre-filter succeeded — record success so circuit closes and
-        // the subsequent aiSearch() call can pass through normally.
-        recordAiSuccess();
+        // Release the half-open probe without affecting circuit state —
+        // the main aiSearch() call handles its own probing independently.
+        releaseHalfOpenProbe();
 
         return filteredResult;
     } catch (err) {
-        // BUG-FIX: Pre-filter failures should NOT trip the circuit breaker — pre-filter is
-        // optional and its failure shouldn't cascade to block the main aiSearch() call.
-        // Record success to release the probe cleanly (the main search will handle its own probing).
-        if (!err.throttled) recordAiSuccess();
+        // Release the probe without recording success or failure — pre-filter is optional
+        // and its outcome shouldn't cascade to the circuit breaker state machine.
+        if (!err.throttled) releaseHalfOpenProbe();
         if (settings.debugMode) console.warn('[DLE] Hierarchical pre-filter failed:', err.message);
         return null; // Fall back to single-call
     }

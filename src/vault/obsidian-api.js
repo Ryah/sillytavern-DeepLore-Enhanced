@@ -241,16 +241,20 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
         }
     }
 
-    // Fetch sibling directories in parallel — use allSettled so one failure doesn't kill the whole index
+    // Fetch directories in batches to avoid overwhelming the Obsidian REST API
     if (dirs.length > 0) {
-        const dirResults = await Promise.allSettled(
-            dirs.map(fullDirPath => listAllFiles(host, port, apiKey, fullDirPath, depth + 1, useHttps)),
-        );
-        for (const result of dirResults) {
-            if (result.status === 'fulfilled') {
-                allFiles.push(...result.value);
-            } else {
-                console.warn(`[DLE] Failed to list directory: ${result.reason?.message || result.reason}`);
+        const DIR_BATCH = 10;
+        for (let i = 0; i < dirs.length; i += DIR_BATCH) {
+            const batch = dirs.slice(i, i + DIR_BATCH);
+            const dirResults = await Promise.allSettled(
+                batch.map(fullDirPath => listAllFiles(host, port, apiKey, fullDirPath, depth + 1, useHttps)),
+            );
+            for (const result of dirResults) {
+                if (result.status === 'fulfilled') {
+                    allFiles.push(...result.value);
+                } else {
+                    console.warn(`[DLE] Failed to list directory: ${result.reason?.message || result.reason}`);
+                }
             }
         }
     }

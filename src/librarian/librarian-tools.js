@@ -112,6 +112,7 @@ function persistGaps(updatedGaps) {
 /** Update analytics counters */
 function updateAnalytics(field) {
     const s = getSettings();
+    if (!s.analyticsData) s.analyticsData = {};
     if (!s.analyticsData._librarian) {
         s.analyticsData._librarian = {
             totalGapSearches: 0,
@@ -177,6 +178,9 @@ export async function searchLoreAction(args) {
     setLoreGapSearchCount(loreGapSearchCount + 1);
 
     // Search via BM25
+    if (!fuzzySearchIndex) {
+        return 'Lore vault index not ready yet — try again after the vault finishes loading.';
+    }
     const hits = queryBM25(
         fuzzySearchIndex,
         query,

@@ -156,9 +156,9 @@ export function applyContextualGating(entries, context, policy, debugMode, setti
 
             // Apply the field's operator
             if (!evaluateOperator(fd.gating.operator, entryValue, activeValue)) {
-                // BUG-H8: Lenient tolerance only filters on explicit conflict operators (not_any, eq, gt, lt).
-                // For match_any/match_all, lenient treats a non-match as "not relevant" rather than "excluded".
-                if (tolerance === 'lenient' && (fd.gating.operator === 'match_any' || fd.gating.operator === 'match_all' || fd.gating.operator === 'eq')) {
+                // BUG-H8: Lenient tolerance only passes match_any/match_all non-matches as "not relevant".
+                // Precision operators (eq, gt, lt, not_any) always filter — they express explicit constraints.
+                if (tolerance === 'lenient' && (fd.gating.operator === 'match_any' || fd.gating.operator === 'match_all')) {
                     continue;
                 }
                 return false;

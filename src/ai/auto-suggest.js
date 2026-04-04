@@ -13,7 +13,7 @@ import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../set
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI, extractAiResponseClient } from './ai.js';
-import { vaultIndex, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe } from '../state.js';
+import { vaultIndex, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
 import { stripObsidianSyntax } from '../helpers.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 
@@ -41,20 +41,26 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
 
     if (mode === 'st') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
-        // Note: generateQuietPrompt cannot be aborted — timed-out generation completes in background
-        const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-        // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
-        const effectiveTimeout = timeout || 60000;
-        const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
-        let suggestTimer;
-        const response = await Promise.race([
-            quietPromise.finally(() => clearTimeout(suggestTimer)),
-            new Promise((_, reject) => { suggestTimer = setTimeout(() => {
-                console.warn('[DLE] Auto-suggest quiet prompt timed out — orphaned generation may still complete in background');
-                reject(new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`));
-            }, effectiveTimeout); }),
-        ]);
-        return { text: response, usage: null };
+        try {
+            // Note: generateQuietPrompt cannot be aborted — timed-out generation completes in background
+            const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
+            // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
+            const effectiveTimeout = timeout || 60000;
+            const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
+            let suggestTimer;
+            const response = await Promise.race([
+                quietPromise.finally(() => clearTimeout(suggestTimer)),
+                new Promise((_, reject) => { suggestTimer = setTimeout(() => {
+                    console.warn('[DLE] Auto-suggest quiet prompt timed out — orphaned generation may still complete in background');
+                    reject(new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`));
+                }, effectiveTimeout); }),
+            ]);
+            recordAiSuccess();
+            return { text: response, usage: null };
+        } catch (err) {
+            recordAiFailure();
+            throw err;
+        }
     } else if (mode === 'profile' || mode === 'proxy') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
         return await callAI(systemPrompt, userMessage, resolved);

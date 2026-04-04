@@ -361,7 +361,11 @@ export function classifyError(err) {
     if (/\b5\d{2}\b|Internal Server Error|Bad Gateway|Service Unavailable/i.test(raw)) {
         return 'The server returned an error. Try again in a moment.';
     }
-    return raw.length > 120 ? raw.slice(0, 120) + '...' : raw;
+    let safe = raw.length > 120 ? raw.slice(0, 120) + '...' : raw;
+    // Scrub potential API keys/tokens from error messages before display
+    safe = safe.replace(/Bearer\s+[A-Za-z0-9_\-./]{10,}/g, 'Bearer ***');
+    safe = safe.replace(/[?&](key|apiKey|api_key|token|secret)=[^&\s]{8,}/gi, '$1=***');
+    return safe;
 }
 
 export function validateSettings(settings, constraints) {

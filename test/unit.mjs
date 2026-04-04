@@ -1742,7 +1742,7 @@ test('applyContextualGating: characterPresent gating works', () => {
         makeEntry('A', { customFields: { character_present: ['Eris'] } }),
         makeEntry('B', { customFields: { character_present: ['Raven'] } }),
     ];
-    const result = applyContextualGating(entries, { characters_present: ['Eris'] }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
+    const result = applyContextualGating(entries, { character_present: ['Eris'] }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'only Eris entry kept');
     assertEqual(result[0].title, 'A', 'A kept for Eris');
 });

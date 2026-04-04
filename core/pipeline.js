@@ -98,18 +98,18 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
     const excludeRecursion = frontmatter.excludeRecursion === true;
 
     // Conditional gating
-    const requires = Array.isArray(frontmatter.requires)
-        ? frontmatter.requires.map(r => String(r).trim()).filter(Boolean) : [];
-    const excludes = Array.isArray(frontmatter.excludes)
-        ? frontmatter.excludes.map(r => String(r).trim()).filter(Boolean) : [];
+    // Helper: normalize a frontmatter field that should be an array but may be a scalar string in YAML
+    const toArray = v => Array.isArray(v) ? v.map(r => String(r).trim()).filter(Boolean)
+        : (v ? [String(v).trim()].filter(Boolean) : []);
+
+    const requires = toArray(frontmatter.requires);
+    const excludes = toArray(frontmatter.excludes);
 
     // Refine keys: require at least one to also match (AND_ANY mode)
-    const refineKeys = Array.isArray(frontmatter.refine_keys)
-        ? frontmatter.refine_keys.map(k => String(k).trim()).filter(Boolean) : [];
+    const refineKeys = toArray(frontmatter.refine_keys);
 
     // Cascade links: explicitly pull in linked entries when this entry matches
-    const cascadeLinks = Array.isArray(frontmatter.cascade_links)
-        ? frontmatter.cascade_links.map(l => String(l).trim()).filter(Boolean) : [];
+    const cascadeLinks = toArray(frontmatter.cascade_links);
 
     // Per-entry injection position overrides
     const positionMap = { before: 2, after: 0, in_chat: 1 };

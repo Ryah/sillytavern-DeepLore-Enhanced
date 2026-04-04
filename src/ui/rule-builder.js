@@ -391,7 +391,7 @@ export async function openRuleBuilder() {
             // Rebuild index to pick up new field extractions
             const fieldNames = newDefs.map(f => f.name).join(', ');
             toastr.success(`Saved ${newDefs.length} field${newDefs.length !== 1 ? 's' : ''} (${fieldNames}). Rebuilding index...`, 'Fields Updated');
-            buildIndex();
+            buildIndex().catch(err => console.warn('[DLE] Index rebuild after field save failed:', err.message));
 
             // Close the popup by clicking the dialog's close button
             $container.closest('.dialogue_popup').find('.dialogue_popup_ok').trigger('click');

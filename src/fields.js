@@ -67,7 +67,7 @@ export const DEFAULT_FIELD_DEFINITIONS = [
         multi: true,
         gating: { enabled: true, operator: 'match_any', tolerance: 'moderate' },
         values: [],
-        contextKey: 'characters_present',
+        contextKey: 'character_present',
     },
 ];
 
@@ -411,7 +411,8 @@ export function extractCustomFields(frontmatter, fieldDefinitions) {
         if (field.type === 'string') {
             customFields[field.name] = field.multi ? toStringArray(raw) : (typeof raw === 'string' ? raw.trim() : String(raw));
         } else if (field.type === 'number') {
-            customFields[field.name] = typeof raw === 'number' ? raw : Number(raw);
+            const num = typeof raw === 'number' ? raw : Number(raw);
+            customFields[field.name] = Number.isNaN(num) ? null : num;
         } else if (field.type === 'boolean') {
             customFields[field.name] = raw === true || raw === 'true';
         }

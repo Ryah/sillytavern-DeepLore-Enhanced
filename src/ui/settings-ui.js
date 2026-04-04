@@ -1525,13 +1525,11 @@ function bindPopupEvents($container) {
         $c('#dle-sp-librarian-sub').toggle(enabled);
         saveSettingsDebounced();
         // Register/unregister tools dynamically
-        try {
-            if (enabled) {
-                import('../librarian/librarian.js').then(m => m.registerLibrarianTools());
-            } else {
-                import('../librarian/librarian.js').then(m => m.unregisterLibrarianTools());
-            }
-        } catch (err) { console.warn('[DLE] Librarian tool registration error:', err); }
+        if (enabled) {
+            import('../librarian/librarian.js').then(m => m.registerLibrarianTools()).catch(err => console.warn('[DLE] Librarian tool registration error:', err));
+        } else {
+            import('../librarian/librarian.js').then(m => m.unregisterLibrarianTools()).catch(err => console.warn('[DLE] Librarian tool unregistration error:', err));
+        }
     });
     $c('#dle-sp-librarian-search').on('change', function () { settings.librarianSearchEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });

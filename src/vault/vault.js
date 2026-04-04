@@ -97,8 +97,9 @@ function deduplicateMultiVault(entries, mode) {
                 // content: concatenate with separator
                 if (entry.content && entry.content.trim()) {
                     existing.content = (existing.content || '') + '\n\n---\n\n' + entry.content;
-                    // Recalculate token estimate from merged content
+                    // Recalculate token estimate and content hash from merged content
                     existing.tokenEstimate = Math.ceil(existing.content.length / 4.0); // BUG-H9: standardize on 4.0 chars/token
+                    existing._contentHash = simpleHash(existing.content);
                 }
                 // summary: prefer first non-empty
                 if (!existing.summary && entry.summary) existing.summary = entry.summary;
@@ -141,61 +142,45 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
 
     // Build cross-entry mention weight table
     // Counts how many times each entry's content mentions another entry's title/keys.
-    // Piggybacks on the existing pass — content is already in memory.
+    // Optimized: group names by target title and build one combined regex per target,
+    // so we scan each content string once per target (not once per name).
     {
         const weights = new Map();
-        // Build lookup: lowercase name → entry title (for all titles + keys)
-        const nameToTitle = new Map();
+        // Group names by target title: targetTitle → [lowercased names]
+        const targetNames = new Map(); // targetTitle → string[]
         for (const entry of entries) {
-            const titleLc = entry.title.toLowerCase();
-            nameToTitle.set(titleLc, entry.title);
+            const names = [entry.title.toLowerCase()];
             for (const key of entry.keys) {
                 const keyLc = key.toLowerCase();
-                if (keyLc.length >= 2) nameToTitle.set(keyLc, entry.title); // skip single-char keys
+                if (keyLc.length >= 2) names.push(keyLc);
             }
+            targetNames.set(entry.title, names);
         }
-        const allNames = [...nameToTitle.keys()].sort((a, b) => b.length - a.length); // longest first to avoid substring matches
 
-        // BUG-043: Pre-compile word-boundary regexes for short names (≤3 chars)
-        // to avoid false positives like "an" matching inside "want"
-        const shortNameRegexes = new Map();
-        for (const name of allNames) {
-            if (name.length <= 3) {
+        // Pre-compile one combined regex per target entry: matches any of its names.
+        // Short names (≤3 chars) use \b word boundaries; longer names use plain alternation.
+        const targetRegexes = new Map();
+        for (const [title, names] of targetNames) {
+            const parts = names.map(name => {
                 const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                shortNameRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'gi'));
-            }
+                return name.length <= 3 ? `\\b${escaped}\\b` : escaped;
+            });
+            // Sort longest first within the alternation so greedy match prefers longer names
+            parts.sort((a, b) => b.length - a.length);
+            targetRegexes.set(title, new RegExp(parts.join('|'), 'gi'));
         }
 
         for (const source of entries) {
             const content = source.content.toLowerCase();
             const sourceName = source.title;
-            // Count mentions of each OTHER entry's names in this entry's content
-            const counted = new Map(); // targetTitle → count
-            for (const name of allNames) {
-                const targetTitle = nameToTitle.get(name);
+            for (const [targetTitle, regex] of targetRegexes) {
                 if (targetTitle === sourceName) continue; // skip self-mentions
+                regex.lastIndex = 0;
                 let count = 0;
-                // BUG-043: Use word-boundary regex for short names to avoid substring false positives
-                const shortRegex = shortNameRegexes.get(name);
-                if (shortRegex) {
-                    shortRegex.lastIndex = 0;
-                    let m;
-                    while ((m = shortRegex.exec(content)) !== null) count++;
-                } else {
-                    let pos = 0;
-                    while ((pos = content.indexOf(name, pos)) !== -1) {
-                        count++;
-                        pos += name.length;
-                    }
-                }
+                while (regex.exec(content) !== null) count++;
                 if (count > 0) {
-                    // Accumulate — multiple keys for same target entry sum up
-                    const existing = counted.get(targetTitle) || 0;
-                    counted.set(targetTitle, existing + count);
+                    weights.set(`${sourceName}\0${targetTitle}`, count);
                 }
-            }
-            for (const [targetTitle, count] of counted) {
-                weights.set(`${sourceName}\0${targetTitle}`, count);
             }
         }
         setMentionWeights(weights);
@@ -445,6 +430,11 @@ export async function hydrateFromCache() {
         resolveLinks(vaultIndex);
         // Compute entity name set for AI cache sliding window validation on cold start
         computeEntityDerivedState(cached.entries);
+        // Build BM25 index during hydration so fuzzy search and Librarian tools
+        // are available immediately, before the background rebuild completes
+        if (getSettings().fuzzySearchEnabled) {
+            setFuzzySearchIndex(buildBM25Index(cached.entries));
+        }
         // Note: indexEverLoaded is NOT set here — it's set in buildIndex() after
         // a successful Obsidian fetch confirms the vault is reachable.
         notifyIndexUpdated();
@@ -509,6 +499,7 @@ export async function buildIndexWithReuse() {
     const promise = (async () => {
     try {
         // BUG-F3: Reload field definitions during incremental sync (was only loaded in full buildIndex)
+        const oldFieldDefsHash = simpleHash(JSON.stringify(fieldDefinitions.map(f => f.name + f.type + (f.multi || ''))));
         const primaryVault = enabledVaults[0];
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
         try {
@@ -533,7 +524,10 @@ export async function buildIndexWithReuse() {
             existingMap.set(`${entry.vaultSource}\0${entry.filename}`, entry);
         }
 
-        let hasChanges = false;
+        // If field definitions changed, force all entries to re-parse so customFields update
+        const newFieldDefsHash = simpleHash(JSON.stringify(fieldDefinitions.map(f => f.name + f.type + (f.multi || ''))));
+        const fieldDefsChanged = oldFieldDefsHash !== newFieldDefsHash;
+        let hasChanges = fieldDefsChanged;
         let anyVaultFailed = false;
         let vaultFailCount = 0;
         let newCount = 0, modifiedCount = 0, removedCount = 0;
@@ -573,7 +567,7 @@ export async function buildIndexWithReuse() {
                     const existing = existingMap.get(key);
                     const fileHash = simpleHash(file.content);
 
-                    if (existing && existing._contentHash === fileHash) {
+                    if (existing && existing._contentHash === fileHash && !fieldDefsChanged) {
                         // Unchanged — reuse existing parsed entry
                         allEntries.push(existing);
                     } else {

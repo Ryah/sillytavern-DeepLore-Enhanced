@@ -61,6 +61,7 @@ export async function showSetupWizard(startPage = 1) {
         onOpen: () => {
             $wizard = $('.dle-wizard');
             if (!$wizard.length) return;
+            librarianToggleWired = false;
 
             prefillFromSettings();
             wireNavigation();
@@ -752,7 +753,7 @@ function wireDoneActions() {
                 case 'graph': executeCommand('/dle-graph'); break;
                 case 'browse': executeCommand('/dle-browse'); break;
                 case 'settings':
-                    import('./settings-ui.js').then(m => m.openSettingsPopup?.());
+                    import('./settings-ui.js').then(m => m.openSettingsPopup?.()).catch(() => {});
                     break;
             }
         }, 300);

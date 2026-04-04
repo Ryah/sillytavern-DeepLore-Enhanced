@@ -5,6 +5,8 @@
 
 /** @type {import('../core/pipeline.js').VaultEntry[]} */
 export let vaultIndex = [];
+/** Computed folder list from vault index: [{path, entryCount}] sorted by count desc */
+export let folderList = [];
 export let indexTimestamp = 0;
 export let indexing = false;
 /** @type {Promise<void>|null} In-progress build promise for deduplication */
@@ -91,6 +93,7 @@ export function trackerKey(entry) {
 // modules to update the state.
 
 export function setVaultIndex(v) { vaultIndex = v; }
+export function setFolderList(v) { folderList = v; }
 export function setIndexTimestamp(v) { indexTimestamp = v; }
 export function setIndexing(v) { indexing = v; notifyIndexingChanged(); }
 export function setBuildPromise(v) { buildPromise = v; }

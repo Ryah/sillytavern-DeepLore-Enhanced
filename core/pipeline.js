@@ -24,12 +24,14 @@ import { extractCustomFields } from '../src/fields.js';
  * @property {string[]} tags - All Obsidian tags (excluding the lorebook marker tag)
  * @property {string[]} requires - Entry titles that must all be matched for this entry to activate
  * @property {string[]} excludes - Entry titles that, if any matched, prevent this entry from activating
+ * @property {string|null} outlet - Outlet name for macro-based injection (null = normal positional injection)
  * @property {number|null} injectionPosition - Per-entry injection position override (null = use global)
  * @property {number|null} injectionDepth - Per-entry injection depth override (null = use global)
  * @property {number|null} injectionRole - Per-entry injection role override (null = use global)
  * @property {number|null} cooldown - Generations to skip after triggering (null = no cooldown)
  * @property {number|null} warmup - Keyword hit count required before triggering (null = no warmup)
  * @property {number|null} probability - Chance of triggering when matched (0.0-1.0, null = always trigger)
+ * @property {string|null} folderPath - Parent folder path within vault (null = vault root)
  * @property {string} vaultSource - Name of the vault this entry came from (multi-vault)
  * @property {Object<string, *>} customFields - User-defined custom fields extracted by field definitions
  * @property {boolean} graph - Whether this entry should appear in the relationship graph (default true)
@@ -111,6 +113,13 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
     // Cascade links: explicitly pull in linked entries when this entry matches
     const cascadeLinks = toArray(frontmatter.cascade_links);
 
+    // Folder path for folder-based filtering (extracted from filename, not frontmatter)
+    const folderPath = file.filename.includes('/') ? file.filename.split('/').slice(0, -1).join('/') : null;
+
+    // Per-entry outlet (macro-based injection via {{outlet::name}})
+    const outlet = typeof frontmatter.outlet === 'string' && frontmatter.outlet.trim()
+        ? frontmatter.outlet.trim() : null;
+
     // Per-entry injection position overrides
     const positionMap = { before: 2, after: 0, in_chat: 1 };
     const roleMap = { system: 0, user: 1, assistant: 2 };
@@ -162,12 +171,14 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
         excludes,
         refineKeys,
         cascadeLinks,
+        outlet,
         injectionPosition,
         injectionDepth,
         injectionRole,
         cooldown,
         warmup,
         probability,
+        folderPath,
         vaultSource: '',
         customFields,
         graph: frontmatter.graph !== false,
@@ -182,7 +193,7 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
  */
 export function clearPrompts(extensionPrompts, promptTagPrefix, promptTag) {
     for (const key of Object.keys(extensionPrompts)) {
-        if (key.startsWith(promptTagPrefix) || key === promptTag) {
+        if (key.startsWith(promptTagPrefix) || key === promptTag || key.startsWith('customWIOutlet_')) {
             delete extensionPrompts[key];
         }
     }

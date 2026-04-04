@@ -192,6 +192,10 @@ export function registerPipelineCommands() {
                 }
                 plainLines.push('');
             }
+            if (t.folderFilter) {
+                plainLines.push(`Folder Filter: ${t.folderFilter.folders.join(', ')} — ${t.folderFilter.removed} entries removed (${t.folderFilter.before} → ${t.folderFilter.after})`);
+                plainLines.push('');
+            }
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
                 plainLines.push(`Re-injection Cooldown Removed (${t.cooldownRemoved.length}):`);
                 for (const title of t.cooldownRemoved) plainLines.push(`  ${title}`);

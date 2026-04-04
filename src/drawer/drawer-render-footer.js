@@ -68,7 +68,9 @@ export function renderFooter() {
             feedHtml += `<div class="dle-activity-row">`;
             feedHtml += `<span class="dle-activity-time">${timeStr}</span>`;
             feedHtml += `<span class="dle-activity-mode">${a.mode}</span>`;
-            feedHtml += `<span class="dle-activity-detail">${a.injected} entries, ${formatTokensCompact(a.tokens)} tok</span>`;
+            let detail = `${a.injected} entries, ${formatTokensCompact(a.tokens)} tok`;
+            if (a.folderFilter?.length) detail += ` [${a.folderFilter.length} folder${a.folderFilter.length !== 1 ? 's' : ''}]`;
+            feedHtml += `<span class="dle-activity-detail">${detail}</span>`;
             feedHtml += `</div>`;
         }
         $activityFeed.html(feedHtml);

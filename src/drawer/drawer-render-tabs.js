@@ -9,7 +9,7 @@ import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
     generationLock, indexing,
     cooldownTracker, decayTracker, chatInjectionCounts, trackerKey,
-    fieldDefinitions,
+    fieldDefinitions, folderList,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault, normalizePinBlock } from '../helpers.js';
@@ -99,6 +99,11 @@ export function renderInjectionTab() {
                 h += `<a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
             } else {
                 h += escapeHtml(src.title);
+            }
+            // Show folder path if entry has one
+            const whyEntry = vaultIndex.find(e => e.title === src.title);
+            if (whyEntry?.folderPath) {
+                h += ` <span class="dle-entry-folder" title="${escapeHtml(whyEntry.folderPath)}">${escapeHtml(whyEntry.folderPath)}</span>`;
             }
             h += `</span>`;
             h += `<span class="dle-why-meta">`;
@@ -229,6 +234,18 @@ export function renderBrowseTab() {
         ds.browseTagFilter = '';
     }
 
+    // Populate folder filter dropdown (cached — rebuilt when index size changes)
+    const $folderSelect = $drawer.find('[data-filter="folder"]');
+    if ($folderSelect.length) {
+        if (ds.cachedFolderOptions) {
+            $folderSelect.html(ds.cachedFolderOptions);
+            if (ds.browseFolderFilter) $folderSelect.val(ds.browseFolderFilter);
+        }
+        if (ds.browseFolderFilter && ds.cachedFolderSet && !ds.cachedFolderSet.has(ds.browseFolderFilter)) {
+            ds.browseFolderFilter = '';
+        }
+    }
+
     // Populate custom field filter dropdowns (cached — only rebuilt when index size changes)
     const browseFieldDefs = (fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS)
         .filter(fd => fd.gating?.enabled);
@@ -318,6 +335,12 @@ export function renderBrowseTab() {
         // Tag filter
         if (tagFilter && (!e.tags || !e.tags.includes(tagFilter))) return false;
 
+        // Folder filter
+        if (ds.browseFolderFilter) {
+            if (!e.folderPath) return false;
+            if (e.folderPath !== ds.browseFolderFilter && !e.folderPath.startsWith(ds.browseFolderFilter + '/')) return false;
+        }
+
         // Custom field filters
         for (const [cfName, cfVal] of Object.entries(ds.browseCustomFieldFilters)) {
             if (!cfVal) continue;
@@ -348,7 +371,7 @@ export function renderBrowseTab() {
 
     // Update filter summary line
     const $summary = $drawer.find('.dle-browse-summary');
-    const isFiltered = query || statusFilter !== 'all' || tagFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
+    const isFiltered = query || statusFilter !== 'all' || tagFilter || ds.browseFolderFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
     if (isFiltered && entries.length !== vaultIndex.length) {
         $summary.text(`Showing ${entries.length} of ${vaultIndex.length} entries`).show();
     } else {
@@ -586,6 +609,37 @@ export function renderGatingTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
     const ctx = chat_metadata?.deeplore_context;
+
+    // ── Folder filter section ──
+    const activeFolders = chat_metadata?.deeplore_folder_filter || [];
+    const $folderSection = $drawer.find('.dle-gating-folder-section');
+    if ($folderSection.length) {
+        const hasFolders = activeFolders.length > 0;
+        $folderSection.find('.dle-folder-dot')
+            .toggleClass('dle-gating-dot-active', hasFolders)
+            .toggleClass('dle-gating-dot-empty', !hasFolders);
+        const $chips = $folderSection.find('.dle-folder-chips');
+        const $empty = $folderSection.find('.dle-folder-empty');
+        if (hasFolders) {
+            let chipsHtml = '';
+            for (const f of activeFolders) {
+                chipsHtml += `<span class="dle-chip">${escapeHtml(f)} <button class="dle-chip-x dle-folder-chip-x" data-folder="${escapeHtml(f)}" aria-label="Remove ${escapeHtml(f)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`;
+            }
+            // Exclusion count
+            const excluded = vaultIndex.filter(e => {
+                if (!e.folderPath) return false;
+                return !activeFolders.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));
+            }).length;
+            if (excluded > 0) {
+                chipsHtml += `<span class="dle-gating-count" title="${excluded} entries outside selected folders will be filtered out">excluding ${excluded}</span>`;
+            }
+            $chips.html(chipsHtml).show();
+            $empty.hide();
+        } else {
+            $chips.empty().hide();
+            $empty.show();
+        }
+    }
 
     // Dynamic field definitions from state
     const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;

@@ -6,6 +6,10 @@ import { getSettings } from '../../settings.js';
 import { syncIntervalId, indexing, setSyncIntervalId, setIndexing, setBuildPromise, buildEpoch, setBuildEpoch } from '../state.js';
 import { getCircuitState } from './obsidian-api.js';
 
+// ─── Constants ───
+const SYNC_TOAST_TIMEOUT = 8000;
+const SYNC_EXTENDED_TIMEOUT = 12000;
+
 // Track when we first observe indexing=true, to detect stuck builds
 let _indexingSeenSince = 0;
 
@@ -38,8 +42,8 @@ export function showChangesToast(changes) {
     }
 
     toastr.info(parts.join('<br>'), 'DeepLore Enhanced', {
-        timeOut: 8000,
-        extendedTimeOut: 12000,
+        timeOut: SYNC_TOAST_TIMEOUT,
+        extendedTimeOut: SYNC_EXTENDED_TIMEOUT,
         progressBar: true,
         closeButton: true,
         enableHtml: true,

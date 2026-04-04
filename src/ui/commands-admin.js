@@ -115,6 +115,7 @@ export function registerAdminCommands() {
                 `AI Search: ${settings.aiSearchEnabled ? 'on' : 'off'}`,
                 `AI Stats: ${aiSearchStats.calls} calls, ${aiSearchStats.cachedHits} cache hits, ~${aiSearchStats.totalInputTokens} in / ~${aiSearchStats.totalOutputTokens} out tokens`,
                 `Custom Fields: ${(() => { const defs = fieldDefinitions.length > 0 ? fieldDefinitions : []; return defs.length > 0 ? `${defs.length} (${defs.map(f => f.name).join(', ')})` : 'defaults'; })()}`,
+                `Folder Filter: ${chat_metadata?.deeplore_folder_filter?.length ? chat_metadata.deeplore_folder_filter.join(', ') : 'none (all folders)'}`,
                 `Auto-Sync: ${settings.syncPollingInterval > 0 ? settings.syncPollingInterval + 's interval' : 'off'}`,
             ];
             const msg = lines.join('\n');

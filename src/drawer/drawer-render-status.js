@@ -181,18 +181,24 @@ export function renderStatusZone() {
     const ctx = chat_metadata?.deeplore_context;
     const $filters = $drawer.find('.dle-active-filters');
     const chips = [];
+    // Folder filter badge
+    const activeFolders = chat_metadata?.deeplore_folder_filter || [];
+    if (activeFolders.length > 0) {
+        const folderLabel = activeFolders.length === 1 ? activeFolders[0] : `${activeFolders.length} folders`;
+        chips.push(`<span class="dle-chip dle-chip-sm dle-folder-badge-chip" title="Folder filter active: ${escapeHtml(activeFolders.join(', '))}" data-action="goto-gating"><i class="fa-solid fa-folder" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>${escapeHtml(folderLabel)}</span>`);
+    }
     if (ctx) {
         for (const [key, val] of Object.entries(ctx)) {
             if (val == null || val === '') continue;
             if (Array.isArray(val)) {
-                for (const v of val) chips.push(escapeHtml(v));
+                for (const v of val) chips.push(`<span class="dle-chip dle-chip-sm">${escapeHtml(v)}</span>`);
             } else {
-                chips.push(escapeHtml(val));
+                chips.push(`<span class="dle-chip dle-chip-sm">${escapeHtml(val)}</span>`);
             }
         }
     }
     if (chips.length > 0) {
-        $filters.html(chips.map(c => `<span class="dle-chip dle-chip-sm">${c}</span>`).join(''));
+        $filters.html(chips.join(''));
         $filters.show();
     } else {
         $filters.empty().hide();
@@ -214,13 +220,13 @@ export function updateTabBadges() {
 
     // Browse tab: show filtered/total count when filters active, otherwise just total
     const browseTotal = vaultIndex?.length || 0;
-    const hasActiveFilters = ds.browseQuery || ds.browseStatusFilter !== 'all' || ds.browseTagFilter || Object.keys(ds.browseCustomFieldFilters).length > 0;
+    const hasActiveFilters = ds.browseQuery || ds.browseStatusFilter !== 'all' || ds.browseTagFilter || ds.browseFolderFilter || Object.keys(ds.browseCustomFieldFilters).length > 0;
     const browseLabel = hasActiveFilters && ds.browseFilteredEntries.length !== browseTotal
         ? `${ds.browseFilteredEntries.length}/${browseTotal}`
         : (browseTotal || '');
     $drawer.find('[data-badge="browse"]').text(browseLabel);
 
-    // Gating tab: count of active gating fields (dynamic)
+    // Gating tab: count of active gating fields + folder filter (dynamic)
     const gatingCtx = chat_metadata?.deeplore_context;
     let gatingCount = 0;
     if (gatingCtx) {
@@ -230,5 +236,7 @@ export function updateTabBadges() {
             else gatingCount++;
         }
     }
+    const gatingFolders = chat_metadata?.deeplore_folder_filter;
+    if (gatingFolders?.length) gatingCount += gatingFolders.length;
     $drawer.find('[data-badge="gating"]').text(gatingCount || '');
 }

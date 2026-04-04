@@ -11,7 +11,7 @@ import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandPa
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
 import { SlashCommandArgument } from '../../../../../slash-commands/SlashCommandArgument.js';
 import { SlashCommandEnumValue } from '../../../../../slash-commands/SlashCommandEnumValue.js';
-import { vaultIndex, fieldDefinitions, notifyGatingChanged, notifyPinBlockChanged } from '../state.js';
+import { vaultIndex, fieldDefinitions, folderList, notifyGatingChanged, notifyPinBlockChanged } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { classifyError } from '../../core/utils.js';
 import { ensureIndexFresh } from '../vault/vault.js';
@@ -529,6 +529,123 @@ export function registerGatingCommands() {
             return `Cleared ${cleared} fields`;
         },
         helpString: 'Clear all active gating context fields (era, location, scene, characters, custom fields) at once.',
+        returns: 'Status message',
+    }));
+
+    // ── Folder Filter Commands ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-set-folder',
+        aliases: ['dle-folder'],
+        callback: async (_args, input) => {
+            const value = (input || '').trim();
+
+            // No argument — show selection popup
+            if (!value) {
+                if (folderList.length === 0) {
+                    toastr.info('No folders found in the vault. All entries are at the root level.', 'DeepLore Enhanced');
+                    return '';
+                }
+                const current = chat_metadata?.deeplore_folder_filter || [];
+                const currentSet = new Set(current);
+                let html = '<div class="dle-popup"><h4>Select Folders</h4>';
+                if (current.length) html += `<p class="dle-mb-2">Active: <strong>${escapeHtml(current.join(', '))}</strong></p>`;
+                html += '<div class="dle-flex-col dle-gap-1">';
+                html += '<button class="menu_button dle-field-select dle-folder-cmd-select dle-flex-between dle-w-full" data-value="">Clear all folders</button>';
+                for (const { path, entryCount } of folderList) {
+                    const isActive = currentSet.has(path);
+                    const activeClass = isActive ? ' dle-field-select--active' : '';
+                    html += `<button class="menu_button dle-field-select dle-folder-cmd-select dle-flex-between dle-w-full${activeClass}" data-value="${escapeHtml(path)}">${escapeHtml(path)}<span class="dle-text-xs" style="opacity:0.5;margin-left:auto;padding-left:8px;">${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}</span></button>`;
+                }
+                html += '</div></div>';
+
+                await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                    wide: false,
+                    onOpen: () => {
+                        const buttons = document.querySelectorAll('.dle-folder-cmd-select');
+                        for (const btn of buttons) {
+                            btn.addEventListener('click', () => {
+                                const selected = btn.getAttribute('data-value');
+                                if (!selected) {
+                                    chat_metadata.deeplore_folder_filter = null;
+                                    saveChatDebounced();
+                                    notifyGatingChanged();
+                                    toastr.success('Folder filter cleared — all folders active.', 'DeepLore Enhanced');
+                                    document.querySelector('.popup-button-ok')?.click();
+                                    return;
+                                }
+                                if (!chat_metadata.deeplore_folder_filter) chat_metadata.deeplore_folder_filter = [];
+                                const idx = chat_metadata.deeplore_folder_filter.indexOf(selected);
+                                if (idx !== -1) {
+                                    chat_metadata.deeplore_folder_filter.splice(idx, 1);
+                                    if (chat_metadata.deeplore_folder_filter.length === 0) chat_metadata.deeplore_folder_filter = null;
+                                    btn.classList.remove('dle-field-select--active');
+                                } else {
+                                    chat_metadata.deeplore_folder_filter.push(selected);
+                                    btn.classList.add('dle-field-select--active');
+                                }
+                                saveChatDebounced();
+                                notifyGatingChanged();
+                            });
+                        }
+                    },
+                });
+                return '';
+            }
+
+            // With argument — set directly (space-separated or quoted folder names)
+            const folders = value.match(/"[^"]+"|[^\s]+/g)?.map(f => f.replace(/"/g, '').trim()).filter(Boolean) || [];
+            if (folders.length === 0) {
+                toastr.info('Usage: /dle-set-folder <folder> [folder2] or /dle-set-folder "Folder With Spaces"', 'DeepLore Enhanced');
+                return '';
+            }
+
+            // Validate folders exist
+            const knownPaths = new Set(folderList.map(f => f.path));
+            const valid = folders.filter(f => knownPaths.has(f));
+            const unknown = folders.filter(f => !knownPaths.has(f));
+            if (unknown.length) {
+                toastr.warning(`Unknown folder${unknown.length > 1 ? 's' : ''}: ${unknown.join(', ')}`, 'DeepLore Enhanced');
+            }
+            if (valid.length === 0) {
+                toastr.warning('No matching folders found. Use /dle-set-folder with no args to see available folders.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            chat_metadata.deeplore_folder_filter = valid;
+            saveChatDebounced();
+            notifyGatingChanged();
+
+            // Count matching entries
+            const matchCount = vaultIndex.filter(e => {
+                if (!e.folderPath) return true;
+                return valid.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));
+            }).length;
+            toastr.success(`Folder filter: ${valid.join(', ')} — ${matchCount} entries match.`, 'DeepLore Enhanced');
+            return '';
+        },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'folder path(s) to filter by (space-separated, quote paths with spaces)',
+            enumProvider: () => folderList.map(f => new SlashCommandEnumValue(f.path, `${f.entryCount} entries`)),
+        })],
+        helpString: 'Set which vault folders are active for this chat. Only entries in selected folders will be injected. No args opens a selection popup.',
+        returns: 'Status message',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-clear-folder',
+        callback: async () => {
+            if (!chat_metadata?.deeplore_folder_filter?.length) {
+                toastr.info('No folder filter is active.', 'DeepLore Enhanced');
+                return '';
+            }
+            chat_metadata.deeplore_folder_filter = null;
+            saveChatDebounced();
+            notifyGatingChanged();
+            toastr.success('Folder filter cleared — all folders active.', 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Clear the folder filter, allowing entries from all folders to be injected.',
         returns: 'Status message',
     }));
 }

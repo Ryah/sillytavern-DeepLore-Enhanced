@@ -9,7 +9,7 @@ import {
     vaultIndex, indexTimestamp, indexEverLoaded,
     aiSearchStats, lastInjectionSources,
     notifyGatingChanged, notifyPinBlockChanged,
-    fieldDefinitions,
+    fieldDefinitions, folderList,
     loreGaps, setLoreGaps,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
@@ -21,7 +21,7 @@ import {
     ds, TAB_LABELS, TOOL_ACTIONS, EXPAND_ACTIONS, BROWSE_ROW_HEIGHT,
     scheduleRender,
 } from './drawer-state.js';
-import { renderInjectionTab, renderBrowseTab, renderBrowseWindow } from './drawer-render.js';
+import { renderInjectionTab, renderBrowseTab, renderBrowseWindow, renderGatingTab, renderStatusZone } from './drawer-render.js';
 import { renderLibrarianTab } from './drawer-render-librarian.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -236,6 +236,12 @@ export function wireBrowseTab($drawer) {
 
     $drawer.find('[data-filter="tag"]').on('change', function () {
         ds.browseTagFilter = $(this).val();
+        updateFilterActiveIndicators($drawer);
+        scheduleRender(renderBrowseTab);
+    });
+
+    $drawer.find('[data-filter="folder"]').on('change', function () {
+        ds.browseFolderFilter = $(this).val();
         updateFilterActiveIndicators($drawer);
         scheduleRender(renderBrowseTab);
     });
@@ -477,6 +483,99 @@ export function wireGatingTab($drawer) {
 
     // Manage Fields button — opens the rule builder popup
     $drawer.find('.dle-manage-fields-btn').on('click', () => openRuleBuilder());
+
+    // ── Folder filter events ──
+
+    // Folder chip X buttons — remove a folder from the filter
+    $drawer.find('#dle-panel-gating').on('click', '.dle-folder-chip-x', function () {
+        const folder = $(this).data('folder');
+        if (!folder || !chat_metadata) return;
+        if (!chat_metadata.deeplore_folder_filter) return;
+
+        const $chip = $(this).closest('.dle-chip');
+        $chip.addClass('dle-chip-removing');
+
+        let fired = false;
+        const apply = () => {
+            if (fired) return;
+            fired = true;
+            chat_metadata.deeplore_folder_filter = chat_metadata.deeplore_folder_filter.filter(f => f !== folder);
+            if (chat_metadata.deeplore_folder_filter.length === 0) chat_metadata.deeplore_folder_filter = null;
+            saveChatDebounced();
+            notifyGatingChanged();
+        };
+        $chip.one('transitionend', apply);
+        setTimeout(apply, 200);
+    });
+
+    // Folder "Set" button — open folder selection popup
+    $drawer.find('.dle-folder-set-btn').on('click', async function () {
+        const { callGenericPopup, POPUP_TYPE } = await import('../../../../../popup.js');
+        const current = chat_metadata?.deeplore_folder_filter || [];
+        const currentSet = new Set(current);
+
+        if (folderList.length === 0) {
+            await callGenericPopup(
+                '<div class="dle-popup"><p>No folders found in the vault. All entries are at the root level.</p></div>',
+                POPUP_TYPE.TEXT, '', { wide: false },
+            );
+            return;
+        }
+
+        let html = '<div class="dle-popup"><h4>Select Folders</h4>';
+        if (current.length) html += `<p class="dle-mb-2">Active: <strong>${escapeHtml(current.join(', '))}</strong></p>`;
+        html += '<div class="dle-flex-col dle-gap-1">';
+        html += '<button class="menu_button dle-field-select dle-folder-select dle-flex-between dle-w-full" data-value="">Clear all folders</button>';
+        for (const { path, entryCount } of folderList) {
+            const isActive = currentSet.has(path);
+            const activeClass = isActive ? ' dle-field-select--active' : '';
+            html += `<button class="menu_button dle-field-select dle-folder-select dle-flex-between dle-w-full${activeClass}" data-value="${escapeHtml(path)}">${escapeHtml(path)}<span class="dle-text-xs" style="opacity:0.5;margin-left:auto;padding-left:8px;">${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}</span></button>`;
+        }
+        html += '</div></div>';
+
+        await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+            wide: false,
+            onOpen: () => {
+                const buttons = document.querySelectorAll('.dle-folder-select');
+                for (const btn of buttons) {
+                    btn.addEventListener('click', () => {
+                        const selected = btn.getAttribute('data-value');
+                        if (!selected) {
+                            // Clear all
+                            chat_metadata.deeplore_folder_filter = null;
+                            saveChatDebounced();
+                            notifyGatingChanged();
+                            toastr.success('Folder filter cleared — all folders active.', 'DeepLore Enhanced');
+                            document.querySelector('.popup-button-ok')?.click();
+                            return;
+                        }
+                        // Toggle
+                        if (!chat_metadata.deeplore_folder_filter) chat_metadata.deeplore_folder_filter = [];
+                        const idx = chat_metadata.deeplore_folder_filter.indexOf(selected);
+                        if (idx !== -1) {
+                            chat_metadata.deeplore_folder_filter.splice(idx, 1);
+                            if (chat_metadata.deeplore_folder_filter.length === 0) chat_metadata.deeplore_folder_filter = null;
+                            btn.classList.remove('dle-field-select--active');
+                        } else {
+                            chat_metadata.deeplore_folder_filter.push(selected);
+                            btn.classList.add('dle-field-select--active');
+                        }
+                        // Update the "Active:" label in real-time
+                        const pEl = document.querySelector('.dle-popup p.dle-mb-2');
+                        const cf = chat_metadata.deeplore_folder_filter || [];
+                        if (pEl) pEl.innerHTML = cf.length ? `Active: <strong>${escapeHtml(cf.join(', '))}</strong>` : '';
+                        saveChatDebounced();
+                        notifyGatingChanged();
+                    });
+                }
+            },
+        });
+    });
+
+    // Folder badge in status zone → switch to gating tab
+    $drawer.on('click', '.dle-folder-badge-chip', function () {
+        switchTab($drawer, 'gating');
+    });
 }
 
 /**

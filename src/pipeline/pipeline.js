@@ -5,14 +5,16 @@
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
 import { buildScanText } from '../../core/utils.js';
 import { testEntryMatch, testPrimaryMatchOnly, countKeywordOccurrences, formatAndGroup, clearScanTextCache } from '../../core/matching.js';
-import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating, applyFolderFilter } from '../stages.js';
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
     trackerKey, setLastPipelineTrace, fuzzySearchIndex, fieldDefinitions,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
-import { buildCandidateManifest, aiSearch, hierarchicalPreFilter, isForceInjected } from '../ai/ai.js';
-import { ensureIndexFresh, queryBM25 } from '../vault/vault.js';
+import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from '../ai/ai.js';
+import { isForceInjected } from '../helpers.js';
+import { ensureIndexFresh } from '../vault/vault.js';
+import { queryBM25 } from '../vault/bm25.js';
 import { name2 } from '../../../../../../script.js';
 import { dedupWarning } from '../toast-dedup.js';
 
@@ -284,7 +286,7 @@ export function matchEntries(chat, snapshot = null) {
  * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
-export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [] } = {}) {
+export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null } = {}) {
     // Snapshot settings and vault index so async stages (AI search) see a consistent view
     const rawSettings = getSettings();
     const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
@@ -335,6 +337,12 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
             aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs);
             trace.aiPreFilter = { before: beforeGating, after: aiOnlyCandidates.length, removed: beforeGating - aiOnlyCandidates.length };
+        }
+
+        // Pre-filter by folder so AI doesn't see entries from excluded folders
+        if (folderFilter && folderFilter.length > 0) {
+            const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
+            aiOnlyCandidates = applyFolderFilter(aiOnlyCandidates, folderFilter, prePolicy, settings.debugMode);
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
@@ -452,6 +460,12 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             trace.aiPreFilter = { before: beforeGating, after: twoStageCandidates.length, removed: beforeGating - twoStageCandidates.length };
         }
 
+        // Pre-filter by folder so AI doesn't see entries from excluded folders
+        if (folderFilter && folderFilter.length > 0) {
+            const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
+            twoStageCandidates = applyFolderFilter(twoStageCandidates, folderFilter, prePolicy, settings.debugMode);
+        }
+
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(twoStageCandidates, bootstrapActive);
 
         if (!candidateManifest) {
@@ -514,6 +528,14 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
             finalEntries = applyContextualGating(finalEntries, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs);
         }
+    }
+
+    // Folder-based filtering: restrict to entries from selected folders
+    if (folderFilter && folderFilter.length > 0) {
+        const beforeFolder = finalEntries.length;
+        const folderPolicy = buildExemptionPolicy(finalEntries, pins, blocks);
+        finalEntries = applyFolderFilter(finalEntries, folderFilter, folderPolicy, settings.debugMode);
+        trace.folderFilter = { folders: folderFilter, before: beforeFolder, after: finalEntries.length, removed: beforeFolder - finalEntries.length };
     }
 
     // Re-sort by user priority (with tiebreaker) after all modes.

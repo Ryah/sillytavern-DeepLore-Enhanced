@@ -179,6 +179,39 @@ export function applyContextualGating(entries, context, policy, debugMode, setti
 }
 
 // ============================================================================
+// Stage 2b: Folder Filter
+// ============================================================================
+
+/**
+ * Filter entries by active folder selection. When the user assigns specific
+ * vault folders to a chat, only entries from those folders (and their subfolders)
+ * are included. Root-level entries (no folder) always pass.
+ * ForceInject entries are exempt from folder filtering.
+ *
+ * @param {Array} entries
+ * @param {string[]|null} selectedFolders - Active folder paths, or null/empty for no filter
+ * @param {{ forceInject: Set }} policy
+ * @param {boolean} debugMode
+ * @returns {Array} Filtered entries
+ */
+export function applyFolderFilter(entries, selectedFolders, policy, debugMode) {
+    if (!selectedFolders || selectedFolders.length === 0) return entries;
+
+    const before = entries.length;
+    const result = entries.filter(e => {
+        if (policy.forceInject.has(e.title.toLowerCase())) return true;
+        if (!e.folderPath) return true; // root entries always pass
+        return selectedFolders.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));
+    });
+
+    if (debugMode && result.length < before) {
+        console.log(`[DLE] Folder filter removed ${before - result.length} entries (folders: ${selectedFolders.join(', ')})`);
+    }
+
+    return result;
+}
+
+// ============================================================================
 // Stage 3: Re-injection Cooldown
 // ============================================================================
 

@@ -4,8 +4,7 @@
  */
 import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
-// Re-export from helpers.js (moved there for testability in Node.js)
-export { convertWiEntry } from '../helpers.js';
+// convertWiEntry lives in helpers.js — import directly from there
 import { convertWiEntry } from '../helpers.js';
 
 /**

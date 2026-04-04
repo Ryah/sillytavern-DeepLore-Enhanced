@@ -1582,6 +1582,51 @@ button.dle-browse-block.dle-block-active {
     padding: 4px;
 }
 
+/* --- Folder Filter Section (Gating Tab) --- */
+.dle-gating-folder-section {
+    padding: var(--dle-space-2) var(--dle-space-3);
+    border-bottom: 1px solid var(--dle-border);
+    margin-bottom: var(--dle-space-2);
+}
+.dle-gating-folder-header {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-2);
+    margin-bottom: var(--dle-space-1);
+}
+.dle-folder-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dle-space-1);
+    align-items: center;
+}
+.dle-folder-empty {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    font-style: italic;
+}
+/* Folder path badge in Why? tab entries */
+.dle-entry-folder {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    opacity: 0.7;
+    margin-left: 4px;
+}
+.dle-entry-folder::before {
+    content: '\f07b'; /* fa-folder */
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    margin-right: 2px;
+    font-size: 0.85em;
+}
+/* Folder badge chip in status zone */
+.dle-folder-badge-chip {
+    cursor: pointer;
+}
+.dle-folder-badge-chip:hover {
+    opacity: 0.8;
+}
+
 /* --- Entry Timers (cooldown / decay / warmup) --- */
 .dle-gating-divider {
     border-top: 1px solid var(--dle-border);

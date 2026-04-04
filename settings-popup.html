@@ -633,6 +633,10 @@
                         <input id="dle-sp-ai-claude-prefix" type="checkbox" class="checkbox">
                         <span>Claude system prefix (proxy only)</span>
                     </label>
+                    <label class="checkbox_label" for="dle-sp-ai-force-user-role" title="Merge system prompt into user message. Use this if your AI provider rejects the system role (e.g. some Z.AI GLM versions). Try setting Prompt Post-Processing to Semi/Strict first.">
+                        <input id="dle-sp-ai-force-user-role" type="checkbox" class="checkbox">
+                        <span>Force merge system prompt into user message</span>
+                    </label>
                     <label class="checkbox_label" for="dle-sp-scribe-informed-retrieval" title="Feed the Session Scribe's latest summary into AI search context.">
                         <input id="dle-sp-scribe-informed-retrieval" type="checkbox" class="checkbox">
                         <span>Use Session Notes as AI Context</span>

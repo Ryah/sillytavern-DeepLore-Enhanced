@@ -151,6 +151,9 @@
             <select class="text_pole dle-browse-filter-select" data-filter="tag" aria-label="Filter by tag">
                 <option value="">Tags</option>
             </select>
+            <select class="text_pole dle-browse-filter-select" data-filter="folder" aria-label="Filter by folder">
+                <option value="">Folder</option>
+            </select>
             <span class="dle-browse-custom-filters"></span>
             <select class="text_pole dle-browse-sort-select" data-sort aria-label="Sort entries">
                 <option value="priority_asc">Sort</option>
@@ -195,6 +198,17 @@
             <button class="dle-tab-expand" data-expand="gating" title="Open full Context State popup" aria-label="Open full Context State popup">
                 Full View <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
             </button>
+        </div>
+        <div class="dle-gating-folder-section" aria-label="Folder filter">
+            <div class="dle-gating-folder-header">
+                <span class="dle-gating-dot dle-gating-dot-empty dle-folder-dot" aria-hidden="true"></span>
+                <span class="dle-gating-label">Folder Filter</span>
+                <button class="menu_button menu_button_icon dle-folder-set-btn" title="Select folders to filter by" aria-label="Select folders">
+                    <i class="fa-solid fa-plus-circle" aria-hidden="true"></i>
+                </button>
+            </div>
+            <div class="dle-folder-chips" aria-label="Active folder filters"></div>
+            <div class="dle-folder-empty dle-gating-empty">All folders active</div>
         </div>
         <div class="dle-gating-fields-container" aria-label="Contextual gating fields">
             <!-- Dynamically populated by renderGatingTab() based on fieldDefinitions -->

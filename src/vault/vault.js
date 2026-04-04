@@ -13,7 +13,7 @@ import {
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
     setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
     setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
-    setFuzzySearchIndex, setMentionWeights,
+    setFuzzySearchIndex, setMentionWeights, setFolderList,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
@@ -29,7 +29,11 @@ import { saveIndexToCache, loadIndexFromCache, pruneOrphanedCacheKeys } from './
 import { dedupError, dedupWarning } from '../toast-dedup.js';
 // BM25 pure functions extracted to bm25.js for testability
 import { buildBM25Index } from './bm25.js';
-export { buildBM25Index, queryBM25 } from './bm25.js';
+// bm25 functions imported for internal use; consumers should import directly from ./bm25.js
+
+// ─── Constants ───
+const OBSIDIAN_FETCH_TIMEOUT = 15000;
+const CACHE_FALLBACK_TOAST_TIMEOUT = 10000;
 
 /**
  * Compute entity name Set and pre-compiled short-name regexes from vault entries.
@@ -225,6 +229,25 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
 
     setIndexEverLoaded(true);
 
+    // Compute folder list from vault entries for folder-based filtering UI
+    {
+        const folderCounts = new Map();
+        for (const entry of entries) {
+            if (entry.folderPath) {
+                // Count both the direct folder and all ancestor folders
+                const parts = entry.folderPath.split('/');
+                for (let i = 1; i <= parts.length; i++) {
+                    const ancestor = parts.slice(0, i).join('/');
+                    folderCounts.set(ancestor, (folderCounts.get(ancestor) || 0) + 1);
+                }
+            }
+        }
+        const list = [...folderCounts.entries()]
+            .map(([path, entryCount]) => ({ path, entryCount }))
+            .sort((a, b) => b.entryCount - a.entryCount);
+        setFolderList(list);
+    }
+
     // BUG-026: Prune analytics data for entries no longer in the vault.
     // This intentionally mutates the live settings.analyticsData object — the pruned data
     // is persisted by saveSettingsDebounced() later in the pipeline. Removing stale entries
@@ -395,7 +418,7 @@ export async function buildIndex() {
             dedupWarning(
                 `Connected to Obsidian but found 0 entries with the '${tag}' tag. Add \`tags: [${tag}]\` to your note frontmatter to make entries visible to DeepLore.`,
                 'zero_entries',
-                { timeOut: 15000 },
+                { timeOut: OBSIDIAN_FETCH_TIMEOUT },
             );
         }
     } catch (err) {
@@ -487,7 +510,7 @@ export async function hydrateFromCache() {
                 // (not Date.now() which would prevent retries until TTL expires)
                 const s = getSettings();
                 setIndexTimestamp(Date.now() - (s.cacheTTL * 1000) + 30_000); // retry in ~30s
-                dedupWarning('Obsidian is not responding — using previously cached entries. Check that Obsidian is running, then use /dle-refresh to reconnect.', 'obsidian_connect', { timeOut: 10000 });
+                dedupWarning('Obsidian is not responding — using previously cached entries. Check that Obsidian is running, then use /dle-refresh to reconnect.', 'obsidian_connect', { timeOut: CACHE_FALLBACK_TOAST_TIMEOUT });
             }
         });
 

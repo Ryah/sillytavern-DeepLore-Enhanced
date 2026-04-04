@@ -5,6 +5,9 @@
  */
 import { yamlEscape } from '../core/utils.js';
 
+// ─── Constants ───
+export const MAX_PRIORITY_VALUE = 999;
+
 // ── Filename Sanitization ──
 
 /**
@@ -237,7 +240,7 @@ export function convertWiEntry(wiEntry, lorebookTag) {
     fm.push(`type: lore`);
     fm.push(`status: active`);
     if (wiEntry.position !== undefined) fm.push(`# original_st_position: ${wiEntry.position}`);
-    fm.push(`priority: ${Math.max(0, Math.min(999, Math.round(Number(wiEntry.order) || 50)))}`);
+    fm.push(`priority: ${Math.max(0, Math.min(MAX_PRIORITY_VALUE, Math.round(Number(wiEntry.order) || 50)))}`);
     fm.push(`tags:`);
     fm.push(`  - ${lorebookTag}`);
     if (wiEntry.constant) fm.push(`  - lorebook-always`);

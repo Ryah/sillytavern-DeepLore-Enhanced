@@ -16,7 +16,6 @@ import {
 } from '../state.js';
 import { dedupWarning } from '../toast-dedup.js';
 // Re-export pure functions from helpers.js for consumers that import from ai.js
-export { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
 
 // ── AI call throttle ──
@@ -24,6 +23,7 @@ import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normali
 // Cache hits and circuit breaker skips are not throttled (they don't make API calls).
 let _lastAiCallTimestamp = 0;
 const AI_CALL_MIN_INTERVAL_MS = 500;
+const AI_PREFILTER_MAX_TOKENS = 512;
 
 /** Reset AI call throttle — call on chat change to avoid cross-chat penalty. */
 export function resetAiThrottle() { _lastAiCallTimestamp = 0; }
@@ -72,12 +72,14 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
 
     // Some providers (e.g. Anthropic) require system prompt separately, not as a message.
     // ConnectionManagerRequestService handles this via the options parameter.
-    // Pass system as first user message with clear framing as fallback for providers that
-    // don't extract system messages, while also providing it in options for those that do.
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-    ];
+    // When aiForceUserRole is enabled, merge system prompt into user message for providers
+    // that can't handle the system role at all (e.g. some Z.AI GLM versions).
+    const messages = settings.aiForceUserRole
+        ? [{ role: 'user', content: `[Instructions]\n${systemPrompt}\n\n---\n\n${userMessage}` }]
+        : [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+        ];
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -124,6 +126,19 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         const modelLabel = resolvedModel ? ` [model: ${resolvedModel}]` : '';
         if (err.name === 'AbortError') {
             throw new Error(`Request timed out (${Math.round(timeout / 1000)}s)${profileLabel}${modelLabel}`);
+        }
+        // Detect role-related failures and surface targeted guidance
+        const msg = (err.message || '').toLowerCase();
+        if (/incorrect.?role|invalid.?role|system.*not.?supported|unsupported.*role|role.*not.?allow/i.test(msg)) {
+            console.warn('[DLE] Role-related API error detected:', err.message);
+            if (typeof toastr !== 'undefined') {
+                toastr.warning(
+                    'AI search failed — your provider may not support the system role. ' +
+                    'Try setting "Prompt Post-Processing" to "Semi" or "Strict" in your Connection Manager profile, ' +
+                    'or enable "Force merge system prompt" in DLE AI Search settings.',
+                    'DeepLore Enhanced', { timeOut: 10000 },
+                );
+            }
         }
         throw new Error(`${err.message}${profileLabel}${modelLabel}`);
     } finally {
@@ -327,7 +342,7 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
             profileId: settings.aiSearchProfileId,
             proxyUrl: settings.aiSearchProxyUrl,
             model: settings.aiSearchModel,
-            maxTokens: 512,
+            maxTokens: AI_PREFILTER_MAX_TOKENS,
             timeout: settings.aiSearchTimeout,
             skipThrottle: true, // BUG-006: Don't throttle hierarchical pre-filter (it chains with aiSearch)
         });

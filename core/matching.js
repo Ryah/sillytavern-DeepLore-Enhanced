@@ -286,11 +286,15 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
     let totalTokens = 0;
     let count = 0;
 
+    // Separate outlet entries — they bypass normal positional injection
+    const outletEntries = entries.filter(e => e.outlet);
+    const positionalEntries = entries.filter(e => !e.outlet);
+
     const accepted = [];
 
     const MIN_TRUNCATION_TOKENS = 50;
 
-    for (const entry of entries) {
+    for (const entry of positionalEntries) {
         if (!settings.unlimitedEntries && count >= settings.maxEntries) break;
         if (!settings.unlimitedBudget && totalTokens + entry.tokenEstimate > settings.maxTokensBudget) {
             const remainingTokens = settings.maxTokensBudget - totalTokens;
@@ -349,6 +353,31 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         return text;
     };
 
+    // ── Outlet entries: group by outlet name, inject via {{outlet::name}} macro ──
+    // Outlet entries bypass positional injection entirely (extension_prompt_types.NONE = -1).
+    // They're written to extension_prompts under 'customWIOutlet_<name>' keys and read by
+    // ST's {{outlet::name}} macro. Budget/maxEntries limits don't apply to outlet entries
+    // since they're user-placed via macros, not auto-positioned.
+    const outletGroupMap = new Map();
+    let outletTokens = 0;
+    for (const entry of outletEntries) {
+        const key = `customWIOutlet_${entry.outlet}`;
+        if (!outletGroupMap.has(key)) {
+            outletGroupMap.set(key, { tag: key, texts: [], tokens: 0 });
+        }
+        const g = outletGroupMap.get(key);
+        g.texts.push(formatEntry(entry));
+        g.tokens += entry.tokenEstimate;
+        outletTokens += entry.tokenEstimate;
+    }
+    const outletGroups = [...outletGroupMap.values()].map(g => ({
+        tag: g.tag,
+        text: g.texts.join('\n\n'),
+        position: -1, // extension_prompt_types.NONE
+        depth: 0,
+        role: 0,
+    }));
+
     const mode = settings.injectionMode || 'extension';
 
     if (mode === 'prompt_list') {
@@ -393,7 +422,8 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
             role: g.role,
         }));
 
-        return { groups, count, totalTokens, acceptedEntries: accepted.map(a => a.entry) };
+        groups.push(...outletGroups);
+        return { groups, count: count + outletEntries.length, totalTokens: totalTokens + outletTokens, acceptedEntries: [...accepted.map(a => a.entry), ...outletEntries] };
     }
 
     // ── Extension mode (default): group by (position, depth, role) ──
@@ -420,5 +450,6 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         role: g.role,
     }));
 
-    return { groups, count, totalTokens, acceptedEntries: accepted.map(a => a.entry) };
+    groups.push(...outletGroups);
+    return { groups, count: count + outletEntries.length, totalTokens: totalTokens + outletTokens, acceptedEntries: [...accepted.map(a => a.entry), ...outletEntries] };
 }

@@ -8,6 +8,11 @@ import {
 import { validateSettings } from './core/utils.js';
 
 export const MODULE_NAME = 'deeplore_enhanced';
+
+/** String enum constants to avoid magic strings */
+export const GATING_TOLERANCE = { STRICT: 'strict', MODERATE: 'moderate', LENIENT: 'lenient' };
+export const PIPELINE_MODE = { TWO_STAGE: 'two-stage', AI_ONLY: 'ai-only', KEYWORDS_ONLY: 'keywords-only' };
+export const CONFLICT_RESOLUTION = { FIRST: 'first', LAST: 'last', MERGE: 'merge', ALL: 'all' };
 export const PROMPT_TAG = 'deeplore_enhanced';
 export const PROMPT_TAG_PREFIX = 'deeplore_';
 
@@ -57,7 +62,6 @@ export const defaultSettings = {
     enabled: false,
     obsidianPort: 27124,
     obsidianApiKey: '',
-    obsidianHttps: true,
     lorebookTag: 'lorebook',
     constantTag: 'lorebook-always',
     neverInsertTag: 'lorebook-never',
@@ -114,6 +118,7 @@ export const defaultSettings = {
     aiSearchSystemPrompt: '',
     aiSearchManifestSummaryLength: 600,
     aiSearchClaudeCodePrefix: true,
+    aiForceUserRole: false, // Merge system prompt into user message for incompatible providers
     scribeInformedRetrieval: false, // Feed Scribe session summary into AI search context
     // Context Cartographer settings
     showLoreSources: true,
@@ -165,6 +170,7 @@ export const defaultSettings = {
     // Multi-Vault
     vaults: [],
     // UI State
+    drawerPinned: false,
     advancedVisible: {},
     // AI Search advanced
     aiConfidenceThreshold: 'low',          // E1: low (all), medium (medium+high), high (high only)
@@ -365,6 +371,8 @@ export const settingsConstraints = {
     autoSuggestInterval: { min: 3, max: 50 },
     autoSuggestMaxTokens: { min: 256, max: 4096 },
     autoSuggestTimeout: { min: 5000, max: 120000 },
+    optimizeKeysMaxTokens: { min: 256, max: 8192 },
+    optimizeKeysTimeout: { min: 5000, max: 120000 },
     graphRepulsion: { min: 0.1, max: 50 },
     graphSpringLength: { min: 30, max: 600 },
     graphGravity: { min: 0.1, max: 20 },

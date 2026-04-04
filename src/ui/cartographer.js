@@ -11,8 +11,7 @@ import { vaultIndex, vaultAvgTokens, previousSources, setPreviousSources, lastPi
 import { diagnoseEntry } from './diagnostics.js';
 import { STAGE_COLORS, computeSourcesDiff, categorizeRejections, resolveEntryVault, parseMatchReason, tokenBarColor, formatRelativeTime } from '../helpers.js';
 import { navigateToBrowseEntry } from '../drawer/drawer.js';
-// Re-export from helpers.js (moved there for testability in Node.js)
-export { buildObsidianURI } from '../helpers.js';
+// buildObsidianURI moved to helpers.js — import directly from there
 
 /**
  * Reset cartographer state on chat change.
@@ -78,12 +77,13 @@ export function showSourcesPopup(sources, opts = {}) {
     setPreviousSources(sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy })));
 
     // Build plain-text for clipboard
-    const plainLines = [`Injected Sources (${sources.length} entries, ~${totalTokens} tokens)`, '', 'Entry\tTokens\tMatched By\tChat×\tAll-time Inj\tAll-time Match\tLast Used'];
+    const plainLines = [`Injected Sources (${sources.length} entries, ~${totalTokens} tokens)`, '', 'Entry\tTokens\tMatched By\tFolder\tChat×\tAll-time Inj\tAll-time Match\tLast Used'];
     for (const src of sources) {
         const ek = src.entry ? trackerKey(src.entry) : `${src.vaultSource || ''}:${src.title}`;
         const cc = chatInjectionCounts.get(ek) || 0;
         const at = settings.analyticsData?.[ek];
-        plainLines.push(`${src.title}\t${src.tokens}\t${src.matchedBy}\t${cc}\t${at?.injected || 0}\t${at?.matched || 0}\t${at?.lastTriggered ? new Date(at.lastTriggered).toLocaleString() : 'Never'}`);
+        const folder = entryByTitle.get(src.title)?.folderPath || '';
+        plainLines.push(`${src.title}\t${src.tokens}\t${src.matchedBy}\t${folder}\t${cc}\t${at?.injected || 0}\t${at?.matched || 0}\t${at?.lastTriggered ? new Date(at.lastTriggered).toLocaleString() : 'Never'}`);
     }
 
     let html = `<div class="dle-popup">`;
@@ -132,7 +132,8 @@ export function showSourcesPopup(sources, opts = {}) {
             html += `<div class="dle-token-bar-fill" style="background: ${barColor}; width: ${pct}%;"></div>`;
             html += `</div>`;
             const vaultLabel = src.vaultSource && (settings.vaults || []).length > 1 ? ` · <em>${escapeHtml(src.vaultSource)}</em>` : '';
-            html += `<span class="dle-text-xs dle-muted">${escapeHtml(src.matchedBy)}${vaultLabel}</span>`;
+            const folderLabel = src.entry?.folderPath ? ` · <span class="dle-entry-folder">${escapeHtml(src.entry.folderPath)}</span>` : '';
+            html += `<span class="dle-text-xs dle-muted">${escapeHtml(src.matchedBy)}${vaultLabel}${folderLabel}</span>`;
 
             // Per-entry injection stats (chat + all-time)
             const entryKey = src.entry ? trackerKey(src.entry) : `${src.vaultSource || ''}:${src.title}`;

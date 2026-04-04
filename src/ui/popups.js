@@ -22,11 +22,9 @@ import {
 } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { callAutoSuggest } from '../ai/auto-suggest.js';
-import { extractAiResponseClient } from '../ai/ai.js';
-import { buildObsidianURI } from './cartographer.js';
+import { extractAiResponseClient, buildObsidianURI, STAGE_COLORS } from '../helpers.js';
 import { diagnoseEntry } from './diagnostics.js';
 import { computeEntryTemperatures } from '../drawer/drawer-state.js';
-import { STAGE_COLORS } from '../helpers.js';
 
 /**
  * Serialize a value for YAML frontmatter output.

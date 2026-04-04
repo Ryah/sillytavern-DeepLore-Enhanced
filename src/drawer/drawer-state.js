@@ -102,6 +102,7 @@ export const ds = {
     browseQuery: '',
     browseStatusFilter: 'all',
     browseTagFilter: '',
+    browseFolderFilter: '',
     browseSort: 'priority_asc',
     /** @type {Object<string, string>} Active custom field filters: { fieldName: selectedValue } */
     browseCustomFieldFilters: {},
@@ -109,6 +110,8 @@ export const ds = {
     // Pre-computed tag cache (rebuilt on index update)
     cachedTagSet: null,
     cachedTagOptions: '',
+    cachedFolderSet: null,
+    cachedFolderOptions: '',
 
     // Virtual scroll state
     browseFilteredEntries: [],

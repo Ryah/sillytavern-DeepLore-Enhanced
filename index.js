@@ -207,8 +207,9 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         const pins = chat_metadata.deeplore_pins || [];
         const blocks = chat_metadata.deeplore_blocks || [];
+        const folderFilter = chat_metadata.deeplore_folder_filter || null;
 
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx, { pins, blocks });
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx, { pins, blocks, folderFilter });
         const policy = buildExemptionPolicy(vaultSnapshot, pins, blocks);
 
         // Stage 1: Pin/Block overrides
@@ -318,6 +319,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 injected: trace.injected?.length || 0,
                 mode: modeLabel,
                 tokens: trace.totalTokens || 0,
+                folderFilter: trace.folderFilter?.folders || null,
             });
         }
 
@@ -345,6 +347,11 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
             const usePromptList = settings.injectionMode === 'prompt_list';
             for (const group of groups) {
+                // Outlet groups bypass PM entirely — inject via extension_prompts for {{outlet::name}} macro
+                if (group.position === -1) {
+                    setExtensionPrompt(group.tag, group.text, -1, 0);
+                    continue;
+                }
                 if (usePromptList && promptManager) {
                     // Prompt List mode: write content directly to the PM entry.
                     // The PM collection order (user's drag position) controls placement.
@@ -654,24 +661,29 @@ jQuery(async function () {
                             content: '',
                             system_prompt: true,
                             role: 'system',
-                            position: 'end',
                             marker: false,
                             enabled: true,
                             extension: true,
                         }, id);
                     } else {
-                        // Patch legacy entries missing role, position, or old display name
+                        // Patch legacy entries missing role or old display name
                         if (!existing.role) existing.role = 'system';
-                        if (!existing.position) existing.position = 'end';
                         if (!existing.extension) existing.extension = true;
                         const friendlyName = PM_DISPLAY_NAMES[id];
                         if (friendlyName && existing.name !== friendlyName) existing.name = friendlyName;
                     }
-                    // Add to active character's prompt order if not already there
+                    // Add to active character's prompt order if not already there.
+                    // Insert after 'main' or 'chatHistory' for a sensible default position
+                    // instead of appending to the end (which puts entries after jailbreak).
                     if (promptManager.activeCharacter) {
                         const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter);
                         if (!order.find(e => e.identifier === id)) {
-                            order.push({ identifier: id, enabled: true });
+                            const anchorIdx = order.findIndex(e => e.identifier === 'main' || e.identifier === 'chatHistory');
+                            if (anchorIdx >= 0) {
+                                order.splice(anchorIdx + 1, 0, { identifier: id, enabled: true });
+                            } else {
+                                order.push({ identifier: id, enabled: true });
+                            }
                         }
                     }
                 }
@@ -959,18 +971,22 @@ jQuery(async function () {
                     if (!existing) {
                         promptManager.addPrompt({
                             name: pmNames[id] || id, content: '', system_prompt: true,
-                            role: 'system', position: 'end', marker: false, enabled: true, extension: true,
+                            role: 'system', marker: false, enabled: true, extension: true,
                         }, id);
                     } else {
                         if (!existing.role) existing.role = 'system';
-                        if (!existing.position) existing.position = 'end';
                         if (!existing.extension) existing.extension = true;
                         const friendlyName = pmNames[id];
                         if (friendlyName && existing.name !== friendlyName) existing.name = friendlyName;
                     }
                     const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter);
                     if (order && !order.find(e => e.identifier === id)) {
-                        order.push({ identifier: id, enabled: true });
+                        const anchorIdx = order.findIndex(e => e.identifier === 'main' || e.identifier === 'chatHistory');
+                        if (anchorIdx >= 0) {
+                            order.splice(anchorIdx + 1, 0, { identifier: id, enabled: true });
+                        } else {
+                            order.push({ identifier: id, enabled: true });
+                        }
                     }
                 }
             }

@@ -45,7 +45,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | Feature | Size | Description |
 |---------|------|-------------|
 | **Inclusion Groups** | M | A `group` frontmatter field where only one entry per group injects per chat. User-creatable toggles with a panel UI to select which group member is active. |
-| **Outlet / outletName Support** | M | Map entries to SillyTavern lorebook outlet names, or support named injection positions like "before char" and "after author's note". |
+| ~~**Outlet / outletName Support**~~ | ~~M~~ | ✅ Shipping. `outlet` frontmatter field maps entries to ST outlet names; injected via `setExtensionPrompt()` with position NONE, read via `{{outlet::key}}` macro. |
 | **Fuzzy Name Matching for Commands** | S | Allow `/dle-pin`, `/dle-block`, and other entry commands to fuzzy-match titles instead of requiring exact names. |
 
 ---
@@ -57,7 +57,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Auto-Sync from ST World Info** | M | Watch a SillyTavern lorebook JSON for changes and auto-import new entries. Bridges the gap with extensions like MemoryBooks and WREC. |
 | ~~**AI-Generated Summaries on Import**~~ | ~~S~~ | ✅ Shipped. `/dle-import` now offers to generate AI summaries after import, reusing the `/dle-summarize` pipeline. |
 | **Update Existing Entries** | M | Dedicated function to update vault entries — modifying specific frontmatter fields while preserving the rest — rather than full file rewrites. |
-| **Per-Chat Vault Auto-Switching** | M | Automatically assign vaults to chats instead of manual toggling, or treat folders within a vault as chat-specific lorebooks. |
+| ~~**Per-Chat Vault Auto-Switching**~~ | ~~M~~ | ✅ Shipping (folder subset). Folder-based chat-specific lorebooks: `/dle-set-folder` assigns vault folders to chats, drawer gating tab shows folder chips, browse tab has folder dropdown, pipeline filters by folder prefix. Full vault auto-switching deferred. |
 | **Full Bidirectional Vault Sync** | L | Full version of the lite import bridge — two-way sync between ST World Info and Obsidian vault. |
 | **Wiki-Import Pipeline** | L | Crawl Fandom/MediaWiki sites, summarize pages, and create vault entries automatically. |
 | **Entry Template System** | M | Type-specific templates (character, location, lore, etc.) for Auto-Suggest created entries. |
@@ -150,4 +150,4 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 *Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23), 5-perspective review + fixes (2026-03-23), 6-agent graph popup audit (2026-03-24).*
 
-*Last updated: 2026-04-02*
+*Last updated: 2026-04-04*

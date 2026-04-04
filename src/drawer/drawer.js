@@ -9,8 +9,9 @@
  *   drawer.js        — This file: creation, lifecycle, observer subscriptions
  */
 import { doNavbarIconClick, saveSettingsDebounced } from '../../../../../../script.js';
-import { renderExtensionTemplateAsync, extension_settings } from '../../../../../extensions.js';
+import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
 import { escapeHtml } from '../../../../../utils.js';
+import { getSettings } from '../../settings.js';
 import {
     vaultIndex,
     lastInjectionSources,
@@ -52,6 +53,7 @@ export function resetDrawerState() {
     ds.browseExpandedEntry = null;
     ds.browseNavigateTarget = null;
     ds.browseCustomFieldFilters = {}; // BUG-AUDIT-11: Reset custom field filters on chat change
+    ds.browseFolderFilter = '';
     ds.contextTokens = 0;
     // Note: ds.stGenerating is NOT reset here — it tracks ST's generation state
     // which persists across chat switches. GENERATION_ENDED clears it.
@@ -65,6 +67,8 @@ export function resetDrawerState() {
     if ($status.length) $status.val('all');
     const $tag = $(`#${DRAWER_ID} [data-filter="tag"]`);
     if ($tag.length) $tag.val('');
+    const $folder = $(`#${DRAWER_ID} [data-filter="folder"]`);
+    if ($folder.length) $folder.val('');
     const $sort = $(`#${DRAWER_ID} [data-sort]`);
     if ($sort.length) $sort.val('priority_asc');
     // Re-render librarian tab to clear stale gaps from previous chat
@@ -83,6 +87,20 @@ function rebuildTagCache() {
     }
     ds.cachedTagOptions = '<option value="">Tags</option>' +
         [...ds.cachedTagSet].sort().map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+
+    // Rebuild folder cache
+    ds.cachedFolderSet = new Set();
+    for (const e of vaultIndex) {
+        if (e.folderPath) {
+            // Add all ancestor folders for hierarchical browsing
+            const parts = e.folderPath.split('/');
+            for (let i = 1; i <= parts.length; i++) {
+                ds.cachedFolderSet.add(parts.slice(0, i).join('/'));
+            }
+        }
+    }
+    ds.cachedFolderOptions = '<option value="">Folder</option>' +
+        [...ds.cachedFolderSet].sort().map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -208,8 +226,8 @@ export async function createDrawerPanel() {
     }
 
     // Restore persisted pin state
-    const settings = extension_settings[MODULE_NAME] || {};
-    if (settings.drawerPinned && !(isMobile && isMobile())) {
+    const drawerSettings = getSettings();
+    if (drawerSettings.drawerPinned && !(isMobile && isMobile())) {
         $drawer.find('#dle-drawer-pin').prop('checked', true);
         $drawer.find('#deeplore-panel').addClass('pinnedOpen');
         $drawer.find('#deeploreDrawerIcon').addClass('drawerPinnedOpen');
@@ -231,8 +249,8 @@ export async function createDrawerPanel() {
         }
 
         // Persist pin state
-        if (!extension_settings[MODULE_NAME]) extension_settings[MODULE_NAME] = {};
-        extension_settings[MODULE_NAME].drawerPinned = pinned;
+        const s = getSettings();
+        s.drawerPinned = pinned;
         saveSettingsDebounced();
     });
 

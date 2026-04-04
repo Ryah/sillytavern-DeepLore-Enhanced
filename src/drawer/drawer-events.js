@@ -85,10 +85,17 @@ export function switchTab($drawer, tabName) {
 
     // Re-render browse window when switching to browse tab (may have been rendered
     // while hidden with degenerate viewport dimensions)
+    // Cancel any pending browse scroll RAF when leaving browse tab
+    if (ds.browseScrollRAF) {
+        cancelAnimationFrame(ds.browseScrollRAF);
+        ds.browseScrollRAF = null;
+    }
+
     if (tabName === 'browse') {
         ds.browseLastRangeStart = -1;
         ds.browseLastRangeEnd = -1;
-        requestAnimationFrame(() => renderBrowseWindow());
+        ds._browseLastScrollTop = undefined;
+        renderBrowseWindow();
     }
 
     // E10: Persist last viewed tab
@@ -217,7 +224,7 @@ export function wireBrowseTab($drawer) {
         ds.browseSearchTimeout = setTimeout(() => {
             ds.browseQuery = val;
             scheduleRender(renderBrowseTab);
-        }, 300);
+        }, 150);
     });
 
     // Filter selects
@@ -323,14 +330,20 @@ export function wireBrowseTab($drawer) {
             const totalHeight = ds.browseFilteredEntries.length * BROWSE_ROW_HEIGHT;
             $list.css({ 'min-height': totalHeight + 'px' });
             ds.browseLastRangeStart = -1; // invalidate cache
+            ds._browseLastScrollTop = undefined;
             renderBrowseWindow();
             return;
         }
 
-        // Collapse any other expanded entry
-        $drawer.find('.dle-browse-preview').remove();
-        $drawer.find('.dle-browse-entry').css('height', BROWSE_ROW_HEIGHT + 'px');
-        $drawer.find('.dle-browse-info').attr('aria-expanded', 'false');
+        // Collapse the previously expanded entry (if different from this one)
+        if (ds.browseExpandedEntry) {
+            const $prev = $list.find(`.dle-browse-entry[data-title="${CSS.escape(ds.browseExpandedEntry)}"]`);
+            if ($prev.length) {
+                $prev.find('.dle-browse-preview').remove();
+                $prev.css('height', BROWSE_ROW_HEIGHT + 'px');
+                $prev.find('.dle-browse-info').attr('aria-expanded', 'false');
+            }
+        }
 
         // Find the entry data
         const entry = ds.browseFilteredEntries.find(e => e.title === title);
@@ -363,19 +376,21 @@ export function wireBrowseTab($drawer) {
 
         const previewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
 
-        // Expand: append preview, measure, store offset for virtual scroll
+        // Expand: append preview, measure, then batch all writes
         $entry.append(previewHtml);
         $entry.css('height', 'auto');
+        // Read: measure natural height (single forced reflow)
         const naturalHeight = $entry[0].scrollHeight;
         const extraHeight = Math.max(0, naturalHeight - BROWSE_ROW_HEIGHT);
 
+        // Batch all state + DOM writes after the read
         ds.browseExpandedIdx = entryIdx;
         ds.browseExpandedExtraHeight = extraHeight;
 
-        // Update container min-height and force re-render to shift entries below
         const totalHeight = ds.browseFilteredEntries.length * BROWSE_ROW_HEIGHT + extraHeight;
         $list.css({ 'min-height': totalHeight + 'px' });
         ds.browseLastRangeStart = -1; // invalidate cache
+        ds._browseLastScrollTop = undefined;
         renderBrowseWindow();
     });
 }

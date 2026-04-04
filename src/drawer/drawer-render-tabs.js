@@ -18,6 +18,14 @@ import {
     getMatchLabel, computeEntryTemperatures,
 } from './drawer-state.js';
 
+// ─── Module-level caches ───
+let _cachedRejectionMap = new Map();
+let _cachedRejectionTrace = null;
+let _cachedExpandedPreviewHtml = null;
+let _cachedExpandedPreviewTitle = null;
+let _cachedFieldValues = null;
+let _cachedFieldValuesIndexLen = -1;
+
 // ════════════════════════════════════════════════════════════════════════════
 // Why? Tab
 // ════════════════════════════════════════════════════════════════════════════
@@ -221,23 +229,27 @@ export function renderBrowseTab() {
         ds.browseTagFilter = '';
     }
 
-    // Populate custom field filter dropdowns
+    // Populate custom field filter dropdowns (cached — only rebuilt when index size changes)
     const browseFieldDefs = (fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS)
         .filter(fd => fd.gating?.enabled);
     const $cfContainer = $drawer.find('.dle-browse-custom-filters');
     if ($cfContainer.length && browseFieldDefs.length > 0) {
-        // Collect unique values per field from vault
-        const fieldValues = {};
-        for (const fd of browseFieldDefs) {
-            const vals = new Set();
-            for (const e of vaultIndex) {
-                const v = e.customFields?.[fd.name];
-                if (v == null) continue;
-                if (Array.isArray(v)) v.forEach(x => { if (x) vals.add(String(x)); });
-                else if (v !== '') vals.add(String(v));
+        // Cache field values — only recompute when vault index changes
+        if (_cachedFieldValuesIndexLen !== vaultIndex.length) {
+            _cachedFieldValues = {};
+            for (const fd of browseFieldDefs) {
+                const vals = new Set();
+                for (const e of vaultIndex) {
+                    const v = e.customFields?.[fd.name];
+                    if (v == null) continue;
+                    if (Array.isArray(v)) v.forEach(x => { if (x) vals.add(String(x)); });
+                    else if (v !== '') vals.add(String(v));
+                }
+                if (vals.size > 0) _cachedFieldValues[fd.name] = [...vals].sort();
             }
-            if (vals.size > 0) fieldValues[fd.name] = [...vals].sort();
+            _cachedFieldValuesIndexLen = vaultIndex.length;
         }
+        const fieldValues = _cachedFieldValues;
         // Only render selects for fields that have values in the vault
         let cfHtml = '';
         for (const fd of browseFieldDefs) {
@@ -355,6 +367,8 @@ export function renderBrowseTab() {
         ds.browseExpandedEntry = null; // collapse any expanded entry on filter change
         ds.browseExpandedIdx = null;
         ds.browseExpandedExtraHeight = 0;
+        _cachedExpandedPreviewTitle = null;
+        _cachedExpandedPreviewHtml = null;
     }
 
     // Set up virtual scroll container — use min-height so flex doesn't collapse it
@@ -366,6 +380,7 @@ export function renderBrowseTab() {
     // Reset scroll to top when filters change (prevents seeing empty results after filtering while scrolled)
     const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
     if (scrollContainer) scrollContainer.scrollTop = 0;
+    ds._browseLastScrollTop = undefined; // reset delta check
 
     // Render visible window
     renderBrowseWindow();
@@ -391,10 +406,18 @@ export function renderBrowseWindow() {
     if (!scrollContainer) return;
     // Guard: skip calculation when drawer is hidden (getBoundingClientRect returns zeros)
     if (!scrollContainer.offsetParent && !scrollContainer.offsetHeight) return;
+
+    // Delta check: skip if scroll position hasn't changed enough to matter
+    const scrollTop = scrollContainer.scrollTop;
+    if (ds._browseLastScrollTop !== undefined && Math.abs(scrollTop - ds._browseLastScrollTop) < 1) return;
+    ds._browseLastScrollTop = scrollTop;
+
     const viewHeight = scrollContainer.clientHeight;
     // How far the list's top is above (negative) or below (positive) the scroll container's viewport top
     // Using getBoundingClientRect for robustness against intermediate positioned parents
-    const relativeScroll = scrollContainer.getBoundingClientRect().top - listEl.getBoundingClientRect().top;
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const listRect = listEl.getBoundingClientRect();
+    const relativeScroll = containerRect.top - listRect.top;
 
     const startIdx = Math.max(0, Math.floor(relativeScroll / BROWSE_ROW_HEIGHT) - BROWSE_OVERSCAN);
     const endIdx = Math.min(entries.length, Math.ceil((relativeScroll + viewHeight) / BROWSE_ROW_HEIGHT) + BROWSE_OVERSCAN);
@@ -421,18 +444,22 @@ export function renderBrowseWindow() {
     // Compute entry temperatures for visual heat indicator
     const tempMap = computeEntryTemperatures();
 
-    // Build rejection reason lookup from pipeline trace (for "why not?" indicators)
-    const rejectionMap = new Map();
-    if (lastPipelineTrace) {
-        const rejGroups = categorizeRejections(lastPipelineTrace, injectedSet);
-        for (const group of rejGroups) {
-            for (const entry of group.entries) {
-                if (!rejectionMap.has(entry.title.toLowerCase())) {
-                    rejectionMap.set(entry.title.toLowerCase(), { label: group.label, icon: group.icon, reason: entry.reason });
+    // Build rejection reason lookup from pipeline trace (cached, only rebuilt when trace changes)
+    if (lastPipelineTrace !== _cachedRejectionTrace) {
+        _cachedRejectionMap = new Map();
+        _cachedRejectionTrace = lastPipelineTrace;
+        if (lastPipelineTrace) {
+            const rejGroups = categorizeRejections(lastPipelineTrace, injectedSet);
+            for (const group of rejGroups) {
+                for (const entry of group.entries) {
+                    if (!_cachedRejectionMap.has(entry.title.toLowerCase())) {
+                        _cachedRejectionMap.set(entry.title.toLowerCase(), { label: group.label, icon: group.icon, reason: entry.reason });
+                    }
                 }
             }
         }
     }
+    const rejectionMap = _cachedRejectionMap;
 
     let html = '';
     for (let i = startIdx; i < endIdx; i++) {
@@ -488,56 +515,58 @@ export function renderBrowseWindow() {
 
     $list.html(html);
 
-    // Re-expand entry if one was expanded before this re-render
+    // Re-expand entry if one was expanded before this re-render (cached preview HTML)
     if (ds.browseExpandedEntry) {
         const $entry = $list.find(`.dle-browse-entry[data-title="${CSS.escape(ds.browseExpandedEntry)}"]`);
         if ($entry.length) {
             const entry = ds.browseFilteredEntries.find(e => e.title === ds.browseExpandedEntry);
             if (entry) {
-                const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
-                const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
-                const settings = getSettings();
-                const srcVault = entry.vaultSource && settings.vaults ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
-                const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
-                const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
-                const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
-                // Custom fields line
-                let fieldsHtml = '';
-                if (entry.customFields && Object.keys(entry.customFields).length > 0) {
-                    const pairs = Object.entries(entry.customFields)
-                        .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
-                        .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : String(v))}`);
-                    if (pairs.length) fieldsHtml = `<div class="dle-browse-fields">${pairs.join(' &middot; ')}</div>`;
-                }
-                // Related entries: direct links + shared keywords
-                let relatedHtml = '';
-                const related = [];
-                for (const link of entry.resolvedLinks || []) {
-                    if (!related.includes(link)) related.push(link);
-                }
-                if (related.length < 5) {
-                    const entryKeys = new Set((entry.keys || []).map(k => k.toLowerCase()));
-                    if (entryKeys.size > 0) {
-                        for (const other of vaultIndex) {
-                            if (other.title === entry.title) continue;
-                            if (related.includes(other.title)) continue;
-                            const overlap = (other.keys || []).filter(k => entryKeys.has(k.toLowerCase())).length;
-                            if (overlap > 0) related.push(other.title);
-                            if (related.length >= 5) break;
+                // Only rebuild preview HTML when the expanded entry changes
+                if (_cachedExpandedPreviewTitle !== ds.browseExpandedEntry) {
+                    const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
+                    const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
+                    const settings = getSettings();
+                    const srcVault = entry.vaultSource && settings.vaults ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
+                    const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
+                    const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
+                    const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
+                    let fieldsHtml = '';
+                    if (entry.customFields && Object.keys(entry.customFields).length > 0) {
+                        const pairs = Object.entries(entry.customFields)
+                            .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
+                            .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : String(v))}`);
+                        if (pairs.length) fieldsHtml = `<div class="dle-browse-fields">${pairs.join(' &middot; ')}</div>`;
+                    }
+                    let relatedHtml = '';
+                    const related = [];
+                    for (const link of entry.resolvedLinks || []) {
+                        if (!related.includes(link)) related.push(link);
+                    }
+                    if (related.length < 5) {
+                        const entryKeys = new Set((entry.keys || []).map(k => k.toLowerCase()));
+                        if (entryKeys.size > 0) {
+                            for (const other of vaultIndex) {
+                                if (other.title === entry.title) continue;
+                                if (related.includes(other.title)) continue;
+                                const overlap = (other.keys || []).filter(k => entryKeys.has(k.toLowerCase())).length;
+                                if (overlap > 0) related.push(other.title);
+                                if (related.length >= 5) break;
+                            }
                         }
                     }
-                }
-                if (related.length > 0) {
-                    relatedHtml = `<div class="dle-browse-related"><span class="dle-muted">Related:</span> `;
-                    for (const r of related.slice(0, 5)) {
-                        relatedHtml += `<span class="dle-browse-related-chip dle-browse-nav-btn" data-browse-title="${escapeHtml(r)}" title="Show in Browse">${escapeHtml(r)}</span>`;
+                    if (related.length > 0) {
+                        relatedHtml = `<div class="dle-browse-related"><span class="dle-muted">Related:</span> `;
+                        for (const r of related.slice(0, 5)) {
+                            relatedHtml += `<span class="dle-browse-related-chip dle-browse-nav-btn" data-browse-title="${escapeHtml(r)}" title="Show in Browse">${escapeHtml(r)}</span>`;
+                        }
+                        relatedHtml += `</div>`;
                     }
-                    relatedHtml += `</div>`;
+                    _cachedExpandedPreviewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}${relatedHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
+                    _cachedExpandedPreviewTitle = ds.browseExpandedEntry;
                 }
 
-                $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}${relatedHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
+                $entry.append(_cachedExpandedPreviewHtml);
                 $entry.css({ height: 'auto' });
-                // Measure expanded height and store for virtual scroll offset
                 const expandedHeight = $entry[0].scrollHeight;
                 ds.browseExpandedIdx = parseInt($entry.data('idx'), 10);
                 ds.browseExpandedExtraHeight = Math.max(0, expandedHeight - BROWSE_ROW_HEIGHT);

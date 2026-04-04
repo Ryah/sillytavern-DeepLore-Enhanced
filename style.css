@@ -1184,6 +1184,7 @@ button.dle-chip-x:hover {
     transition: background 120ms;
     animation: dle-entry-in 200ms ease-out both;
     animation-delay: calc(var(--i, 0) * 30ms);
+    will-change: opacity, transform;
 }
 
 .dle-why-entry:hover {
@@ -1601,6 +1602,7 @@ button.dle-browse-block.dle-block-active {
     font-size: var(--dle-text-xs);
     animation: dle-entry-in 200ms ease-out both;
     animation-delay: calc(var(--i, 0) * 30ms);
+    will-change: opacity, transform;
 }
 
 .dle-timer-name {

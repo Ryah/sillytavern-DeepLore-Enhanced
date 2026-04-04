@@ -11,6 +11,12 @@ const _regexCache = new WeakMap();
 let _lastScanText = '';
 let _lastScanTextLower = '';
 
+/** Release the cached scan text strings after the matching phase completes. */
+export function clearScanTextCache() {
+    _lastScanText = '';
+    _lastScanTextLower = '';
+}
+
 /**
  * Get or build cached compiled regexes for an entry's keys and refine keys.
  * Cache is keyed by entry object reference and invalidated when relevant settings change.

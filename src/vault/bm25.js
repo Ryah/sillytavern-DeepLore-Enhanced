@@ -7,13 +7,14 @@ import { trackerKey } from '../state.js';
 
 const BM25_K1 = 1.5;   // Term frequency saturation
 const BM25_B = 0.75;    // Length normalization
+const TOKENIZE_SPLIT_RE = /[^\p{L}\p{N}]+/u;
 
 /** Simple tokenizer: lowercase, split on non-word characters, remove short tokens.
  *  Uses Unicode-aware regex to support non-Latin scripts (Cyrillic, Arabic, etc.).
  *  Note: CJK text without spaces will produce long unsplit tokens — a proper CJK
  *  tokenizer would need n-gram splitting, which is out of scope. */
 export function tokenize(text) {
-    return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 2);
+    return text.toLowerCase().split(TOKENIZE_SPLIT_RE).filter(t => t.length >= 2);
 }
 
 /**

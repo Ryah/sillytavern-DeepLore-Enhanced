@@ -19,6 +19,48 @@ export function initPhysics(gs) {
 
     const MAX_SIMULATION_MS = 90_000; // Hard clamp: force-settle after 90 seconds
 
+    // Spatial grid for O(~n) repulsion and collision instead of O(n²)
+    let _gridCells = null;
+    let _gridCellSize = 0;
+    let _gridMinX = 0;
+    let _gridMinY = 0;
+    let _gridCols = 0;
+    let _gridRows = 0;
+
+    function buildSpatialGrid(nodes, cellSize) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (let i = 0; i < nodes.length; i++) {
+            if (nodes[i].hidden || nodes[i].orphan) continue;
+            const n = nodes[i];
+            if (n.x < minX) minX = n.x;
+            if (n.y < minY) minY = n.y;
+            if (n.x > maxX) maxX = n.x;
+            if (n.y > maxY) maxY = n.y;
+        }
+        if (minX > maxX) return; // no visible nodes
+        // Add padding so edge nodes are inside the grid
+        minX -= cellSize; minY -= cellSize;
+        maxX += cellSize; maxY += cellSize;
+        _gridCellSize = cellSize;
+        _gridMinX = minX;
+        _gridMinY = minY;
+        _gridCols = Math.ceil((maxX - minX) / cellSize) + 1;
+        _gridRows = Math.ceil((maxY - minY) / cellSize) + 1;
+        const totalCells = _gridCols * _gridRows;
+        if (!_gridCells || _gridCells.length < totalCells) {
+            _gridCells = new Array(totalCells);
+        }
+        for (let c = 0; c < totalCells; c++) _gridCells[c] = null;
+        for (let i = 0; i < nodes.length; i++) {
+            if (nodes[i].hidden || nodes[i].orphan) continue;
+            const col = ((nodes[i].x - minX) / cellSize) | 0;
+            const row = ((nodes[i].y - minY) / cellSize) | 0;
+            const idx = row * _gridCols + col;
+            if (!_gridCells[idx]) _gridCells[idx] = [i];
+            else _gridCells[idx].push(i);
+        }
+    }
+
     function simulate() {
         if (gs.focusTreePhysics) return;
 
@@ -106,36 +148,80 @@ export function initPhysics(gs) {
         const hubRepulsionMul = hubRatio > 5 ? 1.5 : 1.0;
         const hubClusterMul = hubRatio > 5 ? 0.5 : 1.0;
 
-        // -- Repulsion: degree-proportional (FA2 Dissuade Hubs) --
-        for (let i = 0; i < nodes.length; i++) {
-            if (nodes[i].hidden || nodes[i].orphan) continue;
-            const di = (nodeDegree[i] || 0) + 1;
-            for (let j = i + 1; j < nodes.length; j++) {
-                if (nodes[j].hidden || nodes[j].orphan) continue;
-                let ddx = nodes[j].x - nodes[i].x;
-                let ddy = nodes[j].y - nodes[i].y;
-                const dist2 = ddx * ddx + ddy * ddy;
-                if (dist2 > CHARGE_MAX_DIST * CHARGE_MAX_DIST) continue;
-                // BUG-AUDIT-12: When nodes overlap (dist≈0), apply random jitter so they
-                // get a nonzero direction vector and can separate. Without this, overlapping
-                // nodes get a (0,0) force vector and remain stuck permanently.
-                let dist;
-                if (dist2 < 0.01) {
-                    const angle = Math.random() * Math.PI * 2;
-                    ddx = Math.cos(angle);
-                    ddy = Math.sin(angle);
-                    dist = 0.1;
-                } else {
-                    dist = Math.sqrt(dist2);
+        // -- Build spatial grid for repulsion + collision (cell size = CHARGE_MAX_DIST) --
+        buildSpatialGrid(nodes, CHARGE_MAX_DIST);
+
+        // -- Repulsion: degree-proportional (FA2 Dissuade Hubs) via spatial grid --
+        const chargeDist2 = CHARGE_MAX_DIST * CHARGE_MAX_DIST;
+        if (_gridCells) {
+            for (let row = 0; row < _gridRows; row++) {
+                for (let col = 0; col < _gridCols; col++) {
+                    const cellIdx = row * _gridCols + col;
+                    const cellA = _gridCells[cellIdx];
+                    if (!cellA) continue;
+                    // Check this cell and neighboring cells (right, below, below-left, below-right)
+                    // Within-cell pairs
+                    for (let ai = 0; ai < cellA.length; ai++) {
+                        const i = cellA[ai];
+                        const di = (nodeDegree[i] || 0) + 1;
+                        for (let aj = ai + 1; aj < cellA.length; aj++) {
+                            const j = cellA[aj];
+                            let ddx = nodes[j].x - nodes[i].x;
+                            let ddy = nodes[j].y - nodes[i].y;
+                            const dist2 = ddx * ddx + ddy * ddy;
+                            if (dist2 > chargeDist2) continue;
+                            let dist;
+                            if (dist2 < 0.01) {
+                                const angle = Math.random() * Math.PI * 2;
+                                ddx = Math.cos(angle);
+                                ddy = Math.sin(angle);
+                                dist = 0.1;
+                            } else {
+                                dist = Math.sqrt(dist2);
+                            }
+                            const dj = (nodeDegree[j] || 0) + 1;
+                            const force = CHARGE * Math.sqrt(di * dj) * hubRepulsionMul * gs.alpha / dist;
+                            const ux = ddx / dist, uy = ddy / dist;
+                            nodes[i].vx -= ux * force;
+                            nodes[i].vy -= uy * force;
+                            nodes[j].vx += ux * force;
+                            nodes[j].vy += uy * force;
+                        }
+                        // Cross-cell pairs: 4 neighbors to avoid double-counting
+                        const neighborOffsets = [
+                            [0, 1], [1, -1], [1, 0], [1, 1],
+                        ];
+                        for (const [dr, dc] of neighborOffsets) {
+                            const nr = row + dr, nc = col + dc;
+                            if (nr < 0 || nr >= _gridRows || nc < 0 || nc >= _gridCols) continue;
+                            const cellB = _gridCells[nr * _gridCols + nc];
+                            if (!cellB) continue;
+                            for (let bj = 0; bj < cellB.length; bj++) {
+                                const j = cellB[bj];
+                                let ddx = nodes[j].x - nodes[i].x;
+                                let ddy = nodes[j].y - nodes[i].y;
+                                const dist2 = ddx * ddx + ddy * ddy;
+                                if (dist2 > chargeDist2) continue;
+                                let dist;
+                                if (dist2 < 0.01) {
+                                    const angle = Math.random() * Math.PI * 2;
+                                    ddx = Math.cos(angle);
+                                    ddy = Math.sin(angle);
+                                    dist = 0.1;
+                                } else {
+                                    dist = Math.sqrt(dist2);
+                                }
+                                const dj = (nodeDegree[j] || 0) + 1;
+                                const force = CHARGE * Math.sqrt(di * dj) * hubRepulsionMul * gs.alpha / dist;
+                                const ux = ddx / dist, uy = ddy / dist;
+                                nodes[i].vx -= ux * force;
+                                nodes[i].vy -= uy * force;
+                                nodes[j].vx += ux * force;
+                                nodes[j].vy += uy * force;
+                            }
+                        }
+                    }
                 }
-                const dj = (nodeDegree[j] || 0) + 1;
-                // sqrt(di*dj) gives linear degree scaling — avoids quadratic blowup for hubs
-                const force = CHARGE * Math.sqrt(di * dj) * hubRepulsionMul * gs.alpha / dist;
-                const ux = ddx / dist, uy = ddy / dist;
-                nodes[i].vx -= ux * force;
-                nodes[i].vy -= uy * force;
-                nodes[j].vx += ux * force;
-                nodes[j].vy += uy * force;
             }
         }
 
@@ -233,25 +319,73 @@ export function initPhysics(gs) {
             gs.maxDelta = Math.max(gs.maxDelta, Math.abs(n.vx), Math.abs(n.vy));
         }
 
-        // -- Collision --
-        for (let i = 0; i < nodes.length; i++) {
-            if (nodes[i].hidden || nodes[i].orphan || nodes[i].pinned || nodes[i] === frozenNode) continue;
-            const ri = gs.getNodeRadius(nodes[i]) * (nodes[i]._revealScale || 1) + COLLIDE_PAD;
-            for (let j = i + 1; j < nodes.length; j++) {
-                if (nodes[j].hidden || nodes[j].orphan) continue;
-                const rj = gs.getNodeRadius(nodes[j]) * (nodes[j]._revealScale || 1) + COLLIDE_PAD;
-                const minD = ri + rj;
-                const ddx = nodes[j].x - nodes[i].x;
-                const ddy = nodes[j].y - nodes[i].y;
-                const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.1;
-                if (dist < minD) {
-                    const push = (minD - dist) * 0.35;
-                    const nx = ddx / dist, ny = ddy / dist;
-                    nodes[i].x -= nx * push; nodes[i].y -= ny * push;
-                    if (!nodes[j].pinned && nodes[j] !== frozenNode) {
-                        nodes[j].x += nx * push; nodes[j].y += ny * push;
+        // -- Collision via spatial grid (max collision radius as cell size) --
+        {
+            let maxR = 0;
+            for (let i = 0; i < nodes.length; i++) {
+                if (nodes[i].hidden || nodes[i].orphan) continue;
+                const r = gs.getNodeRadius(nodes[i]) * (nodes[i]._revealScale || 1) + COLLIDE_PAD;
+                if (r > maxR) maxR = r;
+            }
+            const collideCell = maxR * 2 + 1;
+            buildSpatialGrid(nodes, collideCell);
+            if (_gridCells) {
+                for (let row = 0; row < _gridRows; row++) {
+                    for (let col = 0; col < _gridCols; col++) {
+                        const cellIdx = row * _gridCols + col;
+                        const cellA = _gridCells[cellIdx];
+                        if (!cellA) continue;
+                        // Within-cell
+                        for (let ai = 0; ai < cellA.length; ai++) {
+                            const i = cellA[ai];
+                            if (nodes[i].pinned || nodes[i] === frozenNode) continue;
+                            const ri = gs.getNodeRadius(nodes[i]) * (nodes[i]._revealScale || 1) + COLLIDE_PAD;
+                            for (let aj = ai + 1; aj < cellA.length; aj++) {
+                                const j = cellA[aj];
+                                const rj = gs.getNodeRadius(nodes[j]) * (nodes[j]._revealScale || 1) + COLLIDE_PAD;
+                                const minD = ri + rj;
+                                const ddx = nodes[j].x - nodes[i].x;
+                                const ddy = nodes[j].y - nodes[i].y;
+                                const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.1;
+                                if (dist < minD) {
+                                    const push = (minD - dist) * 0.35;
+                                    const nx = ddx / dist, ny = ddy / dist;
+                                    nodes[i].x -= nx * push; nodes[i].y -= ny * push;
+                                    if (!nodes[j].pinned && nodes[j] !== frozenNode) {
+                                        nodes[j].x += nx * push; nodes[j].y += ny * push;
+                                    }
+                                    gs.hasSpringEnergy = true;
+                                }
+                            }
+                            // Cross-cell neighbors
+                            const neighborOffsets = [
+                                [0, 1], [1, -1], [1, 0], [1, 1],
+                            ];
+                            for (const [dr, dc] of neighborOffsets) {
+                                const nr = row + dr, nc = col + dc;
+                                if (nr < 0 || nr >= _gridRows || nc < 0 || nc >= _gridCols) continue;
+                                const cellB = _gridCells[nr * _gridCols + nc];
+                                if (!cellB) continue;
+                                for (let bj = 0; bj < cellB.length; bj++) {
+                                    const j = cellB[bj];
+                                    const rj = gs.getNodeRadius(nodes[j]) * (nodes[j]._revealScale || 1) + COLLIDE_PAD;
+                                    const minD = ri + rj;
+                                    const ddx = nodes[j].x - nodes[i].x;
+                                    const ddy = nodes[j].y - nodes[i].y;
+                                    const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 0.1;
+                                    if (dist < minD) {
+                                        const push = (minD - dist) * 0.35;
+                                        const nx = ddx / dist, ny = ddy / dist;
+                                        nodes[i].x -= nx * push; nodes[i].y -= ny * push;
+                                        if (!nodes[j].pinned && nodes[j] !== frozenNode) {
+                                            nodes[j].x += nx * push; nodes[j].y += ny * push;
+                                        }
+                                        gs.hasSpringEnergy = true;
+                                    }
+                                }
+                            }
+                        }
                     }
-                    gs.hasSpringEnergy = true;
                 }
             }
         }

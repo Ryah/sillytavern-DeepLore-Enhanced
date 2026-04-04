@@ -1007,11 +1007,13 @@ export async function showGraphPopup() {
     tick();
 
     // Auto-fit: restored = quick, fresh reveal = 1s + 2s + 6s so nodes have spread out
+    // Store timer IDs in _fitTimers so MutationObserver cleanup can cancel them
+    if (!gs._fitTimers) gs._fitTimers = [];
     if (restoredLayout) {
-        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 150);
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 150));
     } else {
-        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 1000);
-        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 2000);
-        setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 6000);
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 1000));
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 2000));
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 6000));
     }
 }

@@ -4,7 +4,7 @@
  */
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
 import { buildScanText } from '../../core/utils.js';
-import { testEntryMatch, testPrimaryMatchOnly, countKeywordOccurrences, formatAndGroup } from '../../core/matching.js';
+import { testEntryMatch, testPrimaryMatchOnly, countKeywordOccurrences, formatAndGroup, clearScanTextCache } from '../../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
@@ -521,6 +521,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
     // so budget trimming respects the user's explicit priority field.
     finalEntries.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
+    // Release cached scan text strings now that matching is complete
+    clearScanTextCache();
+
     // Note: trace is set by onGenerate after enrichment — don't set here to avoid double-write
     return { finalEntries, matchedKeys, trace };
 }
@@ -543,6 +546,7 @@ export async function matchTextForExternal(scanInput) {
         : scanInput;
 
     const { matched } = matchEntries(fakeChat);
+    clearScanTextCache();
     const policy = buildExemptionPolicy(matched, [], []);
     const { result: gated } = applyRequiresExcludesGating(matched, policy, false);
     const { groups, count, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);

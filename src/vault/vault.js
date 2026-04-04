@@ -170,8 +170,14 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
             targetRegexes.set(title, new RegExp(parts.join('|'), 'gi'));
         }
 
+        // Pre-lowercase all content once to avoid redundant .toLowerCase() per source×target
+        const contentLower = new Map();
         for (const source of entries) {
-            const content = source.content.toLowerCase();
+            contentLower.set(source.title, source.content.toLowerCase());
+        }
+
+        for (const source of entries) {
+            const content = contentLower.get(source.title);
             const sourceName = source.title;
             for (const [targetTitle, regex] of targetRegexes) {
                 if (targetTitle === sourceName) continue; // skip self-mentions

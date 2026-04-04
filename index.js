@@ -126,9 +126,9 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
     if (generationLock) {
-        // Auto-recover stale locks after 90 seconds (allows time for large vaults + slow AI)
+        // Auto-recover stale locks after 30 seconds
         const lockAge = Date.now() - generationLockTimestamp;
-        if (lockAge > 90_000) {
+        if (lockAge > 30_000) {
             console.warn(`[DLE] Previous lore selection took too long (${Math.round(lockAge / 1000)}s) — releasing lock`);
             dedupWarning('Previous lore selection took too long — check your AI search timeout settings.', 'pipeline_lock_stale');
             setGenerationLock(false);
@@ -627,7 +627,7 @@ jQuery(async function () {
                 } catch (err) {
                     console.warn('[DLE] Setup wizard auto-open failed:', err.message);
                 }
-            }, 500);
+            }, 100);
         }
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.
@@ -682,7 +682,7 @@ jQuery(async function () {
                 // PM not ready yet — retry after a short delay
                 const interval = setInterval(() => {
                     if (registerPmEntries()) clearInterval(interval);
-                }, 500);
+                }, 1000);
                 // Stop trying after 10s
                 setTimeout(() => clearInterval(interval), 10000);
             }

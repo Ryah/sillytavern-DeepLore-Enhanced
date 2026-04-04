@@ -52,7 +52,8 @@ import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
 import { extractAiNotes } from './src/helpers.js';
-import { clearSessionActivityLog } from './src/librarian/librarian-tools.js';
+import { clearSessionActivityLog, consumePendingToolCalls, clearPendingToolCalls } from './src/librarian/librarian-tools.js';
+import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
 
 /** Default instruction prompt for the AI Notebook feature. */
 const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
@@ -107,6 +108,18 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     if (type === 'quiet' || !settings.enabled) {
         return;
+    }
+
+    // Skip full pipeline on tool-call continuations (ST re-calls Generate after each tool invocation).
+    // The last chat message will have extra.tool_invocations when this is a tool-call continuation.
+    // Lore from the original generation is still in context — re-running the pipeline would waste
+    // tokens (especially the AI search sidecar) and produce misleading analytics.
+    if (chat.length > 0) {
+        const lastMsg = chat[chat.length - 1];
+        if (lastMsg?.extra?.tool_invocations || lastMsg?.is_system) {
+            if (settings.debugMode) console.debug('[DLE] Skipping pipeline for tool-call continuation');
+            return;
+        }
     }
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
@@ -749,17 +762,33 @@ jQuery(async function () {
         // Context Cartographer + Session Scribe: post-render handler
         eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
             const settings = getSettings();
+            const message = chat[messageId];
+
+            // Skip intermediate empty messages created during tool-call sequences.
+            // ST renders an empty assistant message (with reasoning/thinking) before processing
+            // tool calls and recursing Generate(). If we consume data here, it ends up on the
+            // wrong message and the final reply gets nothing.
+            const isIntermediateToolMsg = message && !message.is_user && !message.mes?.trim();
+            if (isIntermediateToolMsg) {
+                // Still inject Cartographer buttons for messages that already have persisted sources
+                // (from previous non-tool-call generations on chat reload).
+                if (settings.showLoreSources) {
+                    injectSourcesButton(messageId);
+                }
+                return;
+            }
 
             // --- Context Cartographer: store sources and inject button ---
             // Only consume sources that belong to the current chat epoch (race condition guard:
             // prevents stale sources from a previous chat from being stored on the wrong message).
+            // Sources are NOT nulled after consumption — the drawer reads them for the Why? tab.
+            // Instead, track which message consumed them to prevent re-consumption on subsequent renders.
             if (settings.showLoreSources && lastInjectionSources && lastInjectionSources.length > 0) {
-                if (lastInjectionEpoch === chatEpoch) {
-                    const message = chat[messageId];
+                if (lastInjectionEpoch === chatEpoch && lastInjectionSources._consumedByMesId !== messageId) {
                     if (message && !message.is_user) {
                         message.extra = message.extra || {};
                         message.extra.deeplore_sources = lastInjectionSources;
-                        setLastInjectionSources(null);
+                        lastInjectionSources._consumedByMesId = messageId;
                         saveChatDebounced();
                     }
                 }
@@ -771,7 +800,6 @@ jQuery(async function () {
 
             // --- AI Notebook: fallback extraction (if GENERATION_ENDED missed it, e.g. swipe) ---
             if (settings.aiNotepadEnabled) {
-                const message = chat[messageId];
                 if (message && !message.is_user && message.mes) {
                     const { notes, cleanedMessage } = extractAiNotes(message.mes);
                     if (notes) {
@@ -789,12 +817,48 @@ jQuery(async function () {
                 }
             }
 
+            // --- Librarian: consolidate tool call messages into reply dropdown ---
+            // consumePendingToolCalls() returns ALL tool calls that accumulated since the last
+            // non-intermediate render. Because we skip intermediates above, this naturally
+            // collects searches+flags from all tool-call rounds into one batch.
+            if (settings.librarianEnabled) {
+                const pendingCalls = consumePendingToolCalls();
+                if (pendingCalls.length > 0) {
+                    if (message && !message.is_user) {
+                        message.extra = message.extra || {};
+                        message.extra.deeplore_tool_calls = pendingCalls;
+                        saveChatDebounced();
+                    }
+                    injectLibrarianDropdown(messageId, pendingCalls);
+                }
+            }
+
             // --- Session Scribe: track chat position and auto-trigger ---
             if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
                 const newMessages = chat.length - lastScribeChatLength;
                 if (newMessages >= settings.scribeInterval && !scribeInProgress) {
                     runScribe(); // fire-and-forget
                 }
+            }
+        });
+
+        // Swipe handler: clear stale tool call data and sources from the swiped message
+        eventSource.on(event_types.MESSAGE_SWIPED, (messageId) => {
+            const message = chat[messageId];
+            if (!message || message.is_user) return;
+
+            // Clear tool call dropdown data and DOM
+            if (message.extra?.deeplore_tool_calls) {
+                delete message.extra.deeplore_tool_calls;
+                saveChatDebounced();
+            }
+            removeLibrarianDropdown(messageId);
+            clearPendingToolCalls();
+
+            // Clear stale Cartographer sources (new generation will set fresh ones)
+            if (message.extra?.deeplore_sources) {
+                delete message.extra.deeplore_sources;
+                saveChatDebounced();
             }
         });
 
@@ -835,6 +899,7 @@ jQuery(async function () {
             setLoreGapSearchCount(0);
             setLibrarianChatStats({ searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 });
             clearSessionActivityLog();
+            clearPendingToolCalls();
 
             // Reset drawer ephemeral state (browse filters, context tokens) and refresh
             resetDrawerState();
@@ -866,27 +931,107 @@ jQuery(async function () {
                 }
             }
 
-            // Retry with backoff to handle slow DOM rendering on large chats
-            const injectAllSourceButtons = (attempt = 0) => {
-                const settings = getSettings();
-                if (!settings.showLoreSources) return;
+            // Chat load: migrate stale data, then inject all UI elements.
+            // Migration MUST run before Cartographer button injection because old chats may have
+            // deeplore_sources stuck on empty intermediate messages (from before the intermediate guard).
+            // Similarly, tool_invocations need migrating to deeplore_tool_calls on the correct reply.
+            // A single setTimeout + rAF block handles everything in the right order.
+            const injectAllChatLoadUI = (attempt = 0) => {
                 const chatEl = document.getElementById('chat');
                 if (!chatEl?.children.length && attempt < 5) {
-                    setTimeout(() => injectAllSourceButtons(attempt + 1), 200 * (attempt + 1));
+                    setTimeout(() => injectAllChatLoadUI(attempt + 1), 200 * (attempt + 1));
                     return;
                 }
-                // Batch DOM reads/writes in rAF to avoid layout thrashing
-                requestAnimationFrame(() => {
-                    // Only inject for the last N visible messages to avoid O(n) on large chats
+                requestAnimationFrame(() => { try {
+                    const settings = getSettings();
                     const start = Math.max(0, chat.length - 50);
-                    for (let i = start; i < chat.length; i++) {
-                        if (chat[i]?.extra?.deeplore_sources) {
-                            injectSourcesButton(i);
+                    let needsSave = false;
+
+                    // ── Migration pass 1: tool_invocations → deeplore_tool_calls ──
+                    if (settings.librarianEnabled) {
+                        const pendingMigration = [];
+                        for (let i = start; i < chat.length; i++) {
+                            const m = chat[i];
+                            if (m?.extra?.tool_invocations) {
+                                for (const inv of m.extra.tool_invocations) {
+                                    if (inv.name === 'dle_search_lore' || inv.name === 'dle_flag_lore') {
+                                        try {
+                                            const params = JSON.parse(inv.parameters || '{}');
+                                            const isSearch = inv.name === 'dle_search_lore';
+                                            let resultTitles = [];
+                                            let resultCount = 0;
+                                            if (isSearch && inv.result && !inv.result.startsWith('No entries')) {
+                                                const titleMatches = inv.result.match(/^## (.+)$/gm);
+                                                resultTitles = titleMatches ? titleMatches.map(t => t.replace('## ', '')) : [];
+                                                resultCount = resultTitles.length;
+                                            }
+                                            pendingMigration.push({
+                                                type: isSearch ? 'search' : 'flag',
+                                                query: isSearch ? params.query : params.title,
+                                                resultCount,
+                                                resultTitles,
+                                                urgency: params.urgency || 'medium',
+                                                tokens: 0,
+                                                timestamp: 0,
+                                            });
+                                        } catch { /* skip malformed */ }
+                                    }
+                                }
+                                continue;
+                            }
+                            if (pendingMigration.length > 0 && !m.is_user && !m.is_system && m.mes?.trim()) {
+                                if (!m.extra?.deeplore_tool_calls?.length) {
+                                    m.extra = m.extra || {};
+                                    m.extra.deeplore_tool_calls = [...pendingMigration];
+                                    needsSave = true;
+                                }
+                                pendingMigration.length = 0;
+                            }
                         }
                     }
+
+                    // ── Migration pass 2: deeplore_sources from empty intermediates → correct reply ──
+                    for (let i = start; i < chat.length; i++) {
+                        const m = chat[i];
+                        if (!m.is_user && !m.is_system && !m.mes?.trim() && m.extra?.deeplore_sources) {
+                            for (let j = i + 1; j < chat.length; j++) {
+                                const target = chat[j];
+                                if (target && !target.is_user && !target.is_system && target.mes?.trim()) {
+                                    if (!target.extra?.deeplore_sources) {
+                                        target.extra = target.extra || {};
+                                        target.extra.deeplore_sources = m.extra.deeplore_sources;
+                                    }
+                                    break;
+                                }
+                            }
+                            delete m.extra.deeplore_sources;
+                            needsSave = true;
+                        }
+                    }
+
+                    // ── Inject UI: Cartographer source buttons ──
+                    if (settings.showLoreSources) {
+                        for (let i = start; i < chat.length; i++) {
+                            if (chat[i]?.extra?.deeplore_sources) {
+                                injectSourcesButton(i);
+                            }
+                        }
+                    }
+
+                    // ── Inject UI: Librarian tool call dropdowns ──
+                    if (settings.librarianEnabled && settings.librarianShowToolCalls) {
+                        for (let i = start; i < chat.length; i++) {
+                            if (chat[i]?.extra?.deeplore_tool_calls?.length) {
+                                injectLibrarianDropdown(i, chat[i].extra.deeplore_tool_calls);
+                            }
+                        }
+                    }
+
+                    if (needsSave) saveChatDebounced();
+                } catch (err) { console.error('[DLE] Chat load UI injection error:', err); }
                 });
             };
-            setTimeout(injectAllSourceButtons, 100);
+            setTimeout(injectAllChatLoadUI, 100);
         });
 
         if (getSettings().debugMode) console.log('[DLE] DeepLore Enhanced client extension initialized');

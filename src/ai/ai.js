@@ -497,6 +497,17 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         return { results: resolveCachedResults(aiSearchCache.results), error: false };
     }
 
+    // Swipe/regen: manifest unchanged + chat lines stayed same or decreased (last AI message
+    // replaced or removed). The vault candidates haven't changed — reuse cached results.
+    if (aiSearchCache.manifestHash === manifestHash
+        && aiSearchCache.chatLineCount > 0
+        && getChatLines().length <= aiSearchCache.chatLineCount) {
+        aiSearchStats.cachedHits++;
+        notifyAiStatsUpdated();
+        if (settings.debugMode) console.debug(`[DLE] AI search cache hit (swipe/regen: ${getChatLines().length} lines vs cached ${aiSearchCache.chatLineCount})`);
+        return { results: resolveCachedResults(aiSearchCache.results), error: false };
+    }
+
     // Sliding window: manifest unchanged + only newest message(s) differ
     if (aiSearchCache.manifestHash === manifestHash
         && aiSearchCache.chatLineCount > 0

@@ -732,10 +732,11 @@ export function updateGapStatus(gapId, newStatus) {
     updated[idx] = { ...updated[idx], status: newStatus };
     setLoreGaps(updated);
 
-    // Persist to chat_metadata
+    // Persist to chat_metadata (getContext() uses camelCase chatMetadata)
     const ctx = getContext();
-    if (ctx?.chat_metadata) {
-        ctx.chat_metadata.deeplore_lore_gaps = updated;
+    const meta = ctx?.chatMetadata;
+    if (meta) {
+        meta.deeplore_lore_gaps = updated;
         saveChatDebounced();
     }
 }

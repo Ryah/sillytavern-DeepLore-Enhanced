@@ -55,8 +55,9 @@ If no entries are relevant, respond with: []`;
 
 export const defaultSettings = {
     enabled: false,
-    obsidianPort: 27123,
+    obsidianPort: 27124,
     obsidianApiKey: '',
+    obsidianHttps: true,
     lorebookTag: 'lorebook',
     constantTag: 'lorebook-always',
     neverInsertTag: 'lorebook-never',
@@ -143,11 +144,19 @@ export const defaultSettings = {
     autoSuggestMaxTokens: 2048,
     autoSuggestTimeout: 30000,
     autoSuggestFolder: '',
+    autoSuggestPrompt: '',
     // Injection Deduplication
     stripDuplicateInjections: true,
     stripLookbackDepth: 2,
     // Optimize Keys
     optimizeKeysMode: 'keyword-only',
+    optimizeKeysPrompt: '',
+    optimizeKeysConnectionMode: 'inherit',
+    optimizeKeysProfileId: '',
+    optimizeKeysProxyUrl: 'http://localhost:42069',
+    optimizeKeysModel: '',
+    optimizeKeysMaxTokens: 1024,
+    optimizeKeysTimeout: 30000,
     // Matching extras
     characterContextScan: false,
     // Fuzzy (BM25) search — supplements keyword matching with TF-IDF scoring
@@ -175,6 +184,8 @@ export const defaultSettings = {
     indexRebuildGenerationInterval: 10,    // E9: rebuild every N generations
     // Auto-Suggest
     autoSuggestSkipReview: false,          // E11: skip review popup checkbox
+    // Prompt Presets
+    promptPresets: {},                     // { [toolKey]: { [presetName]: promptText } }
     // Graph
     graphRepulsion: 0.3,               // ForceAtlas2 repulsion coefficient (0.1-50)
     graphSpringLength: 80,             // Legacy — not used in FA2 LinLog
@@ -214,12 +225,40 @@ export const defaultSettings = {
     librarianChatContextMaxChars: 4000, // max chars for chat context in session prompt
     librarianSystemPromptMode: 'default', // 'default' | 'append' | 'override'
     librarianCustomSystemPrompt: '',    // custom system prompt text (used in append/override modes)
+    librarianShowToolCalls: true,      // show "Consulted lore vault" dropdown on assistant messages
     // Analytics
     analyticsData: {},
     // First-run setup wizard completed flag
     _wizardCompleted: false,
     // Settings version — increment to trigger migrations
     settingsVersion: 2,
+};
+
+/**
+ * Canonical icon classes for every DLE tool/action.
+ * Import this from settings.js to keep icons consistent across drawer, settings popup, and commands.
+ * All values are FA class names WITHOUT the "fa-solid " prefix.
+ */
+export const ICON_REGISTRY = {
+    // Tools
+    scribe:         'fa-feather-pointed',
+    autoSuggest:    'fa-wand-magic-sparkles',
+    librarian:      'fa-book-bookmark',
+    aiSearch:       'fa-brain',
+    aiNotepad:      'fa-robot',
+    authorNotebook: 'fa-book',
+    graph:          'fa-diagram-project',
+    summarize:      'fa-wand-magic-sparkles',
+    optimizeKeys:   'fa-key',
+    import:         'fa-file-import',
+    cartographer:   'fa-circle-question',
+    // Actions
+    settings:       'fa-gear',
+    refresh:        'fa-sync',
+    newLore:        'fa-plus',
+    health:         'fa-heartbeat',
+    // Sections
+    features:       'fa-puzzle-piece',
 };
 
 /**
@@ -232,6 +271,7 @@ const TOOL_SETTINGS_KEYS = {
     autoSuggest: { mode: 'autoSuggestConnectionMode', profileId: 'autoSuggestProfileId', proxyUrl: 'autoSuggestProxyUrl', model: 'autoSuggestModel', maxTokens: 'autoSuggestMaxTokens', timeout: 'autoSuggestTimeout' },
     aiNotepad:  { mode: 'aiNotepadConnectionMode', profileId: 'aiNotepadProfileId', proxyUrl: 'aiNotepadProxyUrl', model: 'aiNotepadModel', maxTokens: 'aiNotepadMaxTokens', timeout: 'aiNotepadTimeout' },
     librarian:  { mode: 'librarianConnectionMode', profileId: 'librarianProfileId', proxyUrl: 'librarianProxyUrl', model: 'librarianModel', maxTokens: 'librarianSessionMaxTokens', timeout: 'librarianSessionTimeout' },
+    optimizeKeys: { mode: 'optimizeKeysConnectionMode', profileId: 'optimizeKeysProfileId', proxyUrl: 'optimizeKeysProxyUrl', model: 'optimizeKeysModel', maxTokens: 'optimizeKeysMaxTokens', timeout: 'optimizeKeysTimeout' },
 };
 
 /**
@@ -400,13 +440,15 @@ export function getSettings() {
     }
 
     // Multi-vault migration: if vaults[] was never migrated and legacy obsidianPort+apiKey exist, migrate once.
-    // Require apiKey to avoid creating phantom vaults for brand-new users (default port 27123 is always set).
+    // Require apiKey to avoid creating phantom vaults for brand-new users (default port is always set).
     if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort && s.obsidianApiKey) {
+        // Legacy vaults were HTTP — preserve that to avoid breaking existing setups
         s.vaults = [{
             name: 'Primary',
             host: '127.0.0.1',
             port: s.obsidianPort,
             apiKey: s.obsidianApiKey || '',
+            https: false,
             enabled: true,
         }];
         s._vaultsMigrated = true;
@@ -430,7 +472,7 @@ export function getSettings() {
  */
 export function getPrimaryVault(settings) {
     const s = settings || getSettings();
-    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', host: '127.0.0.1', port: 27123, apiKey: '', enabled: false };
+    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', host: '127.0.0.1', port: 27124, apiKey: '', https: true, enabled: false };
 }
 
 /**

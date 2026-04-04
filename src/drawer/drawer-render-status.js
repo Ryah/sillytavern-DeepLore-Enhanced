@@ -196,9 +196,9 @@ export function updateTabBadges() {
     const injCount = lastInjectionSources?.length ?? lastPipelineTrace?.injected?.length ?? 0;
     $drawer.find('[data-badge="injection"]').text(injCount || '');
 
-    // Browse tab: total vault entries
-    const browseCount = vaultIndex?.length || 0;
-    $drawer.find('[data-badge="browse"]').text(browseCount || '');
+    // Browse tab: always show total vault entry count
+    const browseTotal = vaultIndex?.length || 0;
+    $drawer.find('[data-badge="browse"]').text(browseTotal || '');
 
     // Gating tab: count of active gating fields (dynamic)
     const gatingCtx = chat_metadata?.deeplore_context;

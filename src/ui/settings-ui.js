@@ -49,6 +49,7 @@ function renderVaultList(settings, container = null) {
 
     for (let i = 0; i < vaults.length; i++) {
         const v = vaults[i];
+        const useHttps = v.https !== false; // default true for new vaults
         html += `<div class="dle-vault-row" data-index="${i}">
             <div class="flex-container" style="gap: 6px; align-items: center;">
                 <label class="checkbox_label" style="flex: 0 0 auto;" title="Enable/disable this vault">
@@ -58,6 +59,10 @@ function renderVaultList(settings, container = null) {
                 <input type="text" class="dle-vault-host text_pole" placeholder="Host" value="${escapeHtml(v.host || '127.0.0.1')}" style="flex: 0 0 100px;" aria-label="Vault host" />
                 <input type="number" class="dle-vault-port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" aria-label="Vault port" />
                 <input type="password" class="dle-vault-key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" aria-label="API key" />
+                <label class="checkbox_label" style="flex: 0 0 auto;" title="Use HTTPS (recommended — Obsidian REST API uses HTTPS by default on port 27124)">
+                    <input type="checkbox" class="dle-vault-https checkbox" ${useHttps ? 'checked' : ''} />
+                    <span class="dle-text-sm">HTTPS</span>
+                </label>
                 <div class="dle-vault-test menu_button menu_button_icon" title="Test this vault" style="flex: 0 0 auto;" tabindex="0" aria-label="Test vault connection">
                     <i class="fa-solid fa-plug" aria-hidden="true"></i>
                 </div>
@@ -65,7 +70,10 @@ function renderVaultList(settings, container = null) {
                     <i class="fa-solid fa-trash" aria-hidden="true"></i>
                 </div>
             </div>
-            <span class="dle-vault-status dle-status dle-text-sm"></span>
+            <div class="flex-container" style="gap: 8px; align-items: center;">
+                <span class="dle-vault-status dle-status dle-text-sm"></span>
+                <a class="dle-vault-trust-cert dle-text-sm" href="https://${escapeHtml(v.host || '127.0.0.1')}:${v.port}" target="_blank" rel="noopener noreferrer" style="display: ${useHttps ? 'inline' : 'none'}; white-space: nowrap;" title="Open Obsidian REST API URL to trust the self-signed certificate"><i class="fa-solid fa-shield-halved"></i> Trust Certificate</a>
+            </div>
         </div>`;
     }
 
@@ -131,6 +139,35 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         saveSettingsDebounced();
     });
 
+    // HTTPS toggle — auto-switch port between 27124 (HTTPS) and 27123 (HTTP)
+    container.on('change', '.dle-vault-https', function () {
+        const row = $(this).closest('.dle-vault-row');
+        const idx = parseInt(row.data('index'), 10);
+        if (isNaN(idx) || !settings.vaults[idx]) return;
+        const useHttps = $(this).prop('checked');
+        settings.vaults[idx].https = useHttps;
+        // Auto-switch port if it's on the default for the other protocol
+        const portInput = row.find('.dle-vault-port');
+        const currentPort = parseInt(portInput.val(), 10);
+        if (useHttps && currentPort === 27123) {
+            portInput.val(27124);
+            settings.vaults[idx].port = 27124;
+        } else if (!useHttps && currentPort === 27124) {
+            portInput.val(27123);
+            settings.vaults[idx].port = 27123;
+        }
+        // Show/hide trust cert link and update its URL
+        const trustLink = row.find('.dle-vault-trust-cert');
+        if (useHttps) {
+            const host = settings.vaults[idx].host || '127.0.0.1';
+            const port = settings.vaults[idx].port;
+            trustLink.attr('href', `https://${host}:${port}`).show();
+        } else {
+            trustLink.hide();
+        }
+        saveSettingsDebounced();
+    });
+
     // Test individual vault
     container.on('click', '.dle-vault-test', async function () {
         const $btn = $(this);
@@ -143,10 +180,14 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         const statusEl = row.find('.dle-vault-status');
         statusEl.text('Testing...').removeClass('success failure');
         try {
-            const data = await testConnection(vault.host, vault.port, vault.apiKey);
+            const data = await testConnection(vault.host, vault.port, vault.apiKey, !!vault.https);
             if (data.ok) {
                 statusEl.text(`Connected${data.authenticated ? '' : ' (no auth)'}`).addClass('success').removeClass('failure');
                 announceToSR(`Vault ${vault.name} connected successfully.`);
+            } else if (data.certError) {
+                // Show cert trust link prominently
+                statusEl.html(`Certificate not trusted — <a href="${escapeHtml(data.certUrl)}" target="_blank" rel="noopener noreferrer" style="text-decoration: underline;">click here to trust it</a>, then test again.`).addClass('failure').removeClass('success');
+                announceToSR(`Vault ${vault.name} needs certificate trust.`);
             } else {
                 statusEl.text(`Failed: ${data.error}`).addClass('failure').removeClass('success');
                 announceToSR(`Vault ${vault.name} connection failed: ${data.error}`);
@@ -183,7 +224,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     // Add vault button
     const $addButton = $addBtn || $('#dle-add-vault');
     $addButton.on('click', function () {
-        settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27123, apiKey: '', enabled: true });
+        settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27124, apiKey: '', enabled: true, https: true });
         saveSettingsDebounced();
         renderVaultList(settings, container[0]);
     });
@@ -315,12 +356,142 @@ function updatePopupModeVisibility($container, settings) {
 }
 
 // ============================================================================
+// Prompt Preset System
+// ============================================================================
+
+/**
+ * Map tool keys to their settings key and textarea ID.
+ * Each tool with a configurable prompt gets an entry here.
+ */
+const PROMPT_PRESET_TOOLS = {
+    aiSearch:     { settingsKey: 'aiSearchSystemPrompt', textareaId: 'dle-sp-ai-system-prompt' },
+    scribe:       { settingsKey: 'scribePrompt', textareaId: 'dle-sp-scribe-prompt' },
+    autoSuggest:  { settingsKey: 'autoSuggestPrompt', textareaId: 'dle-sp-autosuggest-prompt' },
+    optimizeKeys: { settingsKey: 'optimizeKeysPrompt', textareaId: 'dle-sp-optimize-keys-prompt' },
+    librarian:    { settingsKey: 'librarianCustomSystemPrompt', textareaId: 'dle-sp-librarian-custom-prompt' },
+    aiNotepad:    { settingsKey: 'aiNotepadPrompt', textareaId: 'dle-sp-notepad-prompt' },
+};
+
+/**
+ * Populate all prompt preset dropdowns from settings.
+ * @param {jQuery} $container - Settings popup container
+ * @param {object} settings - Current settings
+ */
+function initPromptPresets($container, settings) {
+    if (!settings.promptPresets) settings.promptPresets = {};
+
+    $container.find('.dle-prompt-preset-select').each(function () {
+        refreshPresetDropdown($(this), settings);
+    });
+
+    // Load preset
+    $container.on('change', '.dle-prompt-preset-select', function () {
+        const $select = $(this);
+        const toolKey = $select.data('tool');
+        const value = $select.val();
+        const tool = PROMPT_PRESET_TOOLS[toolKey];
+        if (!tool) return;
+
+        if (value === '__save__') {
+            // Save current textarea content as a new preset
+            saveCurrentAsPreset($container, $select, toolKey, settings);
+            return;
+        }
+        if (value === '__delete__') {
+            deletePreset($container, $select, toolKey, settings);
+            return;
+        }
+        if (value === '' || value === '__default__') return; // no-op
+
+        // Load preset into textarea
+        const presets = settings.promptPresets[toolKey] || {};
+        const text = presets[value];
+        if (text !== undefined) {
+            const $textarea = $container.find(`#${tool.textareaId}`);
+            $textarea.val(text).trigger('input');
+        }
+    });
+}
+
+function refreshPresetDropdown($select, settings) {
+    const toolKey = $select.data('tool');
+    const presets = settings.promptPresets[toolKey] || {};
+    const names = Object.keys(presets);
+
+    let html = '<option value="" selected>Presets</option>';
+    for (const name of names) {
+        html += `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+    }
+    html += '<option value="__save__">Save current as...</option>';
+    if (names.length > 0) {
+        html += '<option value="__delete__">Delete preset...</option>';
+    }
+    $select.html(html);
+}
+
+async function saveCurrentAsPreset($container, $select, toolKey, settings) {
+    const tool = PROMPT_PRESET_TOOLS[toolKey];
+    if (!tool) return;
+    const $textarea = $container.find(`#${tool.textareaId}`);
+    const text = $textarea.val()?.trim();
+    if (!text) {
+        toastr.warning('Textarea is empty — nothing to save.', 'DeepLore Enhanced');
+        $select.val('');
+        return;
+    }
+
+    const name = await callGenericPopup(
+        '<p>Enter a name for this preset:</p><input id="dle-preset-name-input" class="text_pole" type="text" placeholder="My preset" autofocus />',
+        POPUP_TYPE.CONFIRM, '', {
+            okButton: 'Save', cancelButton: 'Cancel',
+        },
+    );
+    if (!name) { $select.val(''); return; }
+
+    // Get value from input (popup resolves true/false for confirm, so we need to capture)
+    const nameInput = document.getElementById('dle-preset-name-input');
+    const presetName = nameInput?.value?.trim();
+    if (!presetName) { $select.val(''); return; }
+
+    if (!settings.promptPresets[toolKey]) settings.promptPresets[toolKey] = {};
+    settings.promptPresets[toolKey][presetName] = text;
+    saveSettingsDebounced();
+    refreshPresetDropdown($select, settings);
+    $select.val('');
+    toastr.success(`Preset "${presetName}" saved.`, 'DeepLore Enhanced');
+}
+
+async function deletePreset($container, $select, toolKey, settings) {
+    const presets = settings.promptPresets[toolKey] || {};
+    const names = Object.keys(presets);
+    if (names.length === 0) { $select.val(''); return; }
+
+    const options = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+    const html = `<p>Select a preset to delete:</p><select id="dle-preset-delete-select" class="text_pole">${options}</select>`;
+
+    const confirmed = await callGenericPopup(html, POPUP_TYPE.CONFIRM, '', {
+        okButton: 'Delete', cancelButton: 'Cancel',
+    });
+    if (!confirmed) { $select.val(''); return; }
+
+    const deleteSelect = document.getElementById('dle-preset-delete-select');
+    const toDelete = deleteSelect?.value;
+    if (toDelete && settings.promptPresets[toolKey]) {
+        delete settings.promptPresets[toolKey][toDelete];
+        saveSettingsDebounced();
+        refreshPresetDropdown($select, settings);
+        toastr.success(`Preset "${toDelete}" deleted.`, 'DeepLore Enhanced');
+    }
+    $select.val('');
+}
+
+// ============================================================================
 // AI Connections Accordion
 // ============================================================================
 
 const TOOL_CONNECTION_CONFIGS = {
     aiSearch: {
-        label: 'AI Search', icon: 'magnifying-glass',
+        label: 'AI Search', icon: 'brain',
         supportedModes: ['profile', 'proxy'], isRoot: true,
         modeKey: 'aiSearchConnectionMode', profileIdKey: 'aiSearchProfileId',
         proxyUrlKey: 'aiSearchProxyUrl', modelKey: 'aiSearchModel',
@@ -334,25 +505,32 @@ const TOOL_CONNECTION_CONFIGS = {
         maxTokensKey: 'scribeMaxTokens', timeoutKey: 'scribeTimeout',
     },
     autoSuggest: {
-        label: 'Auto Lorebook', icon: 'lightbulb',
+        label: 'Auto Lorebook', icon: 'wand-magic-sparkles',
         supportedModes: ['inherit', 'st', 'profile', 'proxy'],
         modeKey: 'autoSuggestConnectionMode', profileIdKey: 'autoSuggestProfileId',
         proxyUrlKey: 'autoSuggestProxyUrl', modelKey: 'autoSuggestModel',
         maxTokensKey: 'autoSuggestMaxTokens', timeoutKey: 'autoSuggestTimeout',
     },
     aiNotepad: {
-        label: 'AI Notepad', icon: 'note-sticky',
+        label: 'AI Notepad', icon: 'robot',
         supportedModes: ['inherit', 'profile', 'proxy'],
         modeKey: 'aiNotepadConnectionMode', profileIdKey: 'aiNotepadProfileId',
         proxyUrlKey: 'aiNotepadProxyUrl', modelKey: 'aiNotepadModel',
         maxTokensKey: 'aiNotepadMaxTokens', timeoutKey: 'aiNotepadTimeout',
     },
     librarian: {
-        label: 'Librarian', icon: 'book-open-reader',
+        label: 'Librarian', icon: 'book-bookmark',
         supportedModes: ['inherit', 'profile', 'proxy'],
         modeKey: 'librarianConnectionMode', profileIdKey: 'librarianProfileId',
         proxyUrlKey: 'librarianProxyUrl', modelKey: 'librarianModel',
         maxTokensKey: 'librarianSessionMaxTokens', timeoutKey: 'librarianSessionTimeout',
+    },
+    optimizeKeys: {
+        label: 'Optimize Keys', icon: 'key',
+        supportedModes: ['inherit', 'profile', 'proxy'],
+        modeKey: 'optimizeKeysConnectionMode', profileIdKey: 'optimizeKeysProfileId',
+        proxyUrlKey: 'optimizeKeysProxyUrl', modelKey: 'optimizeKeysModel',
+        maxTokensKey: 'optimizeKeysMaxTokens', timeoutKey: 'optimizeKeysTimeout',
     },
 };
 
@@ -847,6 +1025,7 @@ export async function openSettingsPopup() {
 
     loadPopupSettings($container);
     bindPopupEvents($container);
+    initPromptPresets($container, getSettings());
 
     await callGenericPopup($container, POPUP_TYPE.DISPLAY, '', {
         large: true,
@@ -976,6 +1155,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-librarian-enabled').prop('checked', settings.librarianEnabled);
     $c('#dle-sp-librarian-search').prop('checked', settings.librarianSearchEnabled);
     $c('#dle-sp-librarian-flag').prop('checked', settings.librarianFlagEnabled);
+    $c('#dle-sp-librarian-show-tool-calls').prop('checked', settings.librarianShowToolCalls !== false);
     $c('#dle-sp-librarian-max-searches').val(settings.librarianMaxSearches);
     $c('#dle-sp-librarian-max-results').val(settings.librarianMaxResults);
     $c('#dle-sp-librarian-token-budget').val(settings.librarianResultTokenBudget);
@@ -1040,9 +1220,12 @@ function loadPopupSettings($container) {
 
     // ── Features — Auto Lorebook ──
     $c('#dle-sp-autosuggest-enabled').prop('checked', settings.autoSuggestEnabled);
-    $c('#dle-sp-autosuggest-controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
+    $c('#dle-sp-autosuggest-controls').find('input, textarea, select').prop('disabled', !settings.autoSuggestEnabled);
     $c('#dle-sp-autosuggest-interval').val(settings.autoSuggestInterval);
     $c('#dle-sp-autosuggest-folder').val(settings.autoSuggestFolder);
+    $c('#dle-sp-autosuggest-skip-review').prop('checked', settings.autoSuggestSkipReview);
+    $c('#dle-sp-autosuggest-prompt').val(settings.autoSuggestPrompt);
+    $c('#dle-sp-optimize-keys-prompt').val(settings.optimizeKeysPrompt);
 
     // ── System ── (index stats updated in onOpen, after DOM is live)
     $c('#dle-sp-cache-ttl').val(settings.cacheTTL);
@@ -1218,8 +1401,8 @@ function bindPopupEvents($container) {
             const results = [];
             for (const vault of enabledVaults) {
                 try {
-                    const data = await testConnection(vault.host, vault.port, vault.apiKey);
-                    results.push({ name: vault.name, ok: data.ok, auth: data.authenticated, error: data.error });
+                    const data = await testConnection(vault.host, vault.port, vault.apiKey, !!vault.https);
+                    results.push({ name: vault.name, ok: data.ok, auth: data.authenticated, error: data.error, certError: data.certError });
                 } catch (err) { results.push({ name: vault.name, ok: false, error: err.message }); }
             }
             const allOk = results.every(r => r.ok);
@@ -1352,6 +1535,7 @@ function bindPopupEvents($container) {
     });
     $c('#dle-sp-librarian-search').on('change', function () { settings.librarianSearchEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-show-tool-calls').on('change', function () { settings.librarianShowToolCalls = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-max-searches').on('input', function () { settings.librarianMaxSearches = numVal($(this).val(), 2); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-max-results').on('input', function () { settings.librarianMaxResults = numVal($(this).val(), 5); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-token-budget').on('input', function () { settings.librarianResultTokenBudget = numVal($(this).val(), 1500); saveSettingsDebounced(); });
@@ -1443,10 +1627,13 @@ function bindPopupEvents($container) {
     // ── Features — Auto Lorebook ──
     $c('#dle-sp-autosuggest-enabled').on('change', function () {
         settings.autoSuggestEnabled = $(this).prop('checked'); saveSettingsDebounced();
-        $c('#dle-sp-autosuggest-controls').find('input, select').prop('disabled', !settings.autoSuggestEnabled);
+        $c('#dle-sp-autosuggest-controls').find('input, textarea, select').prop('disabled', !settings.autoSuggestEnabled);
     });
     $c('#dle-sp-autosuggest-interval').on('input', function () { settings.autoSuggestInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
     $c('#dle-sp-autosuggest-folder').on('input', function () { settings.autoSuggestFolder = String($(this).val()).trim(); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-skip-review').on('change', function () { settings.autoSuggestSkipReview = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-autosuggest-prompt').on('input', function () { settings.autoSuggestPrompt = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-optimize-keys-prompt').on('input', function () { settings.optimizeKeysPrompt = String($(this).val()); saveSettingsDebounced(); });
 
     // ── System ──
     $c('#dle-sp-refresh').on('click', async function () {

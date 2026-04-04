@@ -39,6 +39,28 @@ export function clearSessionActivityLog() {
     sessionActivityLog = [];
 }
 
+/**
+ * Pending tool calls buffer — accumulates during generation, consumed by
+ * CHARACTER_MESSAGE_RENDERED to inject a consolidated dropdown on the reply.
+ * @type {Array<{type: string, query: string, resultCount: number, resultTitles: string[], tokens: number, timestamp: number}>}
+ */
+let pendingToolCalls = [];
+
+/**
+ * Consume and clear pending tool calls. Called once per CHARACTER_MESSAGE_RENDERED.
+ * @returns {Array} The pending tool calls (empty array if none)
+ */
+export function consumePendingToolCalls() {
+    const calls = pendingToolCalls;
+    pendingToolCalls = [];
+    return calls;
+}
+
+/** Clear pending tool calls (call on CHAT_CHANGED alongside clearSessionActivityLog). */
+export function clearPendingToolCalls() {
+    pendingToolCalls = [];
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════════════════════
@@ -79,8 +101,10 @@ function findSimilarGap(gaps, newQuery, type) {
 function persistGaps(updatedGaps) {
     setLoreGaps(updatedGaps);
     const ctx = getContext();
-    if (ctx?.chat_metadata) {
-        ctx.chat_metadata.deeplore_lore_gaps = updatedGaps;
+    // getContext() exposes chatMetadata (camelCase), not chat_metadata
+    const meta = ctx?.chatMetadata;
+    if (meta) {
+        meta.deeplore_lore_gaps = updatedGaps;
         saveChatDebounced();
     }
 }
@@ -217,8 +241,8 @@ export async function searchLoreAction(args) {
     // Guard: don't persist if chat changed during generation
     if (epoch === chatEpoch) persistGaps(updatedGaps);
 
-    // Activity log entry
-    sessionActivityLog.push({
+    // Activity log + pending buffer for consolidated dropdown
+    const logEntry = {
         type: 'search',
         query,
         resultCount: results.length,
@@ -226,7 +250,9 @@ export async function searchLoreAction(args) {
         tokens: estimatedTokens,
         timestamp: Date.now(),
         generation: generationCount,
-    });
+    };
+    sessionActivityLog.push(logEntry);
+    pendingToolCalls.push(logEntry);
 
     // Analytics
     updateAnalytics('totalGapSearches');
@@ -290,8 +316,8 @@ export async function flagLoreAction(args) {
     // Guard: don't persist if chat changed during generation
     if (epoch === chatEpoch) persistGaps(updatedGaps);
 
-    // Activity log entry
-    sessionActivityLog.push({
+    // Activity log + pending buffer for consolidated dropdown
+    const logEntry = {
         type: 'flag',
         query: title,
         resultCount: 0,
@@ -299,7 +325,10 @@ export async function flagLoreAction(args) {
         tokens: 10,
         timestamp: Date.now(),
         generation: generationCount,
-    });
+        urgency,
+    };
+    sessionActivityLog.push(logEntry);
+    pendingToolCalls.push(logEntry);
 
     // Analytics + stats (flags have minimal token overhead)
     updateAnalytics('totalGapFlags');

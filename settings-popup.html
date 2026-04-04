@@ -33,7 +33,7 @@
         </button>
         <div class="dle-settings-tab dle-settings-tab--header" id="dle-sp-tab-features" data-settings-tab="features"
              aria-expanded="true">
-            <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+            <i class="fa-solid fa-puzzle-piece" aria-hidden="true"></i>
             <span>Features</span>
         </div>
         <div class="dle-features-children">
@@ -44,7 +44,7 @@
                 <i class="fa-solid fa-robot" aria-hidden="true"></i><span>AI Notebook</span>
             </button>
             <button class="dle-features-subtab" data-features-subtab="session-scribe">
-                <i class="fa-solid fa-scroll" aria-hidden="true"></i><span>Session Scribe</span>
+                <i class="fa-solid fa-feather-pointed" aria-hidden="true"></i><span>Session Scribe</span>
             </button>
             <button class="dle-features-subtab" data-features-subtab="auto-lorebook">
                 <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Auto Lorebook</span>
@@ -552,8 +552,11 @@
                         </div>
                     </div>
                     <div title="Override the default system prompt for AI entry selection.">
-                        <label for="dle-sp-ai-system-prompt"><small>System Prompt Override (empty = default)</small></label>
-                        <textarea id="dle-sp-ai-system-prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default prompt."></textarea>
+                        <div class="flex-container" style="align-items: center; gap: 6px;">
+                            <label for="dle-sp-ai-system-prompt"><small>System Prompt Override (empty = default)</small></label>
+                            <select class="dle-prompt-preset-select text_pole" data-tool="aiSearch" style="flex: 0 0 auto; width: auto; font-size: 0.85em;" title="Load a saved prompt preset"></select>
+                        </div>
+                        <textarea id="dle-sp-ai-system-prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default prompt." data-prompt-tool="aiSearch"></textarea>
                     </div>
                     <label class="checkbox_label" for="dle-sp-ai-claude-prefix" title="Adds a system identity prefix that improves Claude model performance when using the proxy connection. Proxy mode only.">
                         <input id="dle-sp-ai-claude-prefix" type="checkbox" class="checkbox">
@@ -626,6 +629,13 @@
                                 <option value="two-stage">Two-Stage (Keyword + AI)</option>
                             </select>
                         </div>
+                    </div>
+                    <div title="Custom prompt for keyword optimization. Leave empty for default.">
+                        <div class="flex-container" style="align-items: center; gap: 6px;">
+                            <label for="dle-sp-optimize-keys-prompt"><small>Optimize Keys Prompt (empty = default)</small></label>
+                            <select class="dle-prompt-preset-select text_pole" data-tool="optimizeKeys" style="flex: 0 0 auto; width: auto; font-size: 0.85em;" title="Load a saved prompt preset"></select>
+                        </div>
+                        <textarea id="dle-sp-optimize-keys-prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default." data-prompt-tool="optimizeKeys"></textarea>
                     </div>
                 </div>
             </div>
@@ -773,8 +783,11 @@
                     </div>
                 </div>
                 <div title="Custom prompt for session summaries.">
-                    <label for="dle-sp-scribe-prompt"><small>Custom Summary Prompt (empty = default)</small></label>
-                    <textarea id="dle-sp-scribe-prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default."></textarea>
+                    <div class="flex-container" style="align-items: center; gap: 6px;">
+                        <label for="dle-sp-scribe-prompt"><small>Custom Summary Prompt (empty = default)</small></label>
+                        <select class="dle-prompt-preset-select text_pole" data-tool="scribe" style="flex: 0 0 auto; width: auto; font-size: 0.85em;" title="Load a saved prompt preset"></select>
+                    </div>
+                    <textarea id="dle-sp-scribe-prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default." data-prompt-tool="scribe"></textarea>
                 </div>
             </div>
             </div>
@@ -801,7 +814,18 @@
                         <input id="dle-sp-autosuggest-folder" type="text" class="text_pole" placeholder="Lorebook" />
                     </div>
                 </div>
+                <label class="checkbox_label" for="dle-sp-autosuggest-skip-review" title="Write entries directly to Obsidian without showing review popup.">
+                    <input id="dle-sp-autosuggest-skip-review" type="checkbox" class="checkbox">
+                    <span>Write directly (skip review popup)</span>
+                </label>
                 <span class="dle-text-xs dle-muted">Connection settings: <a href="#" class="dle-goto-ai-connections">AI Connections</a> in Connection tab.</span>
+                <div title="Custom prompt for auto-suggest analysis. Leave empty for default.">
+                    <div class="flex-container" style="align-items: center; gap: 6px;">
+                        <label for="dle-sp-autosuggest-prompt"><small>Custom Prompt (empty = default)</small></label>
+                        <select class="dle-prompt-preset-select text_pole" data-tool="autoSuggest" style="flex: 0 0 auto; width: auto; font-size: 0.85em;" title="Load a saved prompt preset"></select>
+                    </div>
+                    <textarea id="dle-sp-autosuggest-prompt" class="text_pole textarea_compact" rows="3" placeholder="Leave empty for default." data-prompt-tool="autoSuggest"></textarea>
+                </div>
             </div>
             </div>
             </div>
@@ -902,6 +926,10 @@
                         <input id="dle-sp-librarian-flag" type="checkbox" class="checkbox">
                         <span>Flag tool (flag_lore)</span>
                     </label>
+                    <label class="checkbox_label" for="dle-sp-librarian-show-tool-calls" title="Show a 'Consulted lore vault' dropdown on assistant messages when tool calls were used. Disable to hide all tool call traces from chat.">
+                        <input id="dle-sp-librarian-show-tool-calls" type="checkbox" class="checkbox">
+                        <span>Show tool call details on messages</span>
+                    </label>
 
                     <div class="flex-container">
                         <div class="flex1" title="Maximum search_lore calls per generation. Default: 2.">
@@ -981,7 +1009,10 @@
                                 <input type="radio" name="dle-sp-librarian-prompt-mode" value="override" class="checkbox"> Override
                             </label>
                         </div>
-                        <textarea id="dle-sp-librarian-custom-prompt" class="text_pole" rows="6" placeholder="Custom system prompt text..." style="display: none;"></textarea>
+                        <div class="flex-container" style="align-items: center; gap: 6px; display: none;" id="dle-sp-librarian-preset-row">
+                            <select class="dle-prompt-preset-select text_pole" data-tool="librarian" style="flex: 0 0 auto; width: auto; font-size: 0.85em;" title="Load a saved prompt preset"></select>
+                        </div>
+                        <textarea id="dle-sp-librarian-custom-prompt" class="text_pole" rows="6" placeholder="Custom system prompt text..." style="display: none;" data-prompt-tool="librarian"></textarea>
                     </div>
                 </div>
             </div>

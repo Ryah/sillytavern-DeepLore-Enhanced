@@ -148,6 +148,9 @@ export async function createDrawerPanel() {
                     <!-- NOTE: Do NOT use right_menu_button class on <button> elements — ST applies
                          background-color: rgb(240,240,240) which creates a white square. The lock avoids
                          this because it's a checkbox+label, not a button. Style manually instead. -->
+                    <button class="dle-drawer-settings" title="Open DeepLore settings" aria-label="Open settings">
+                        <i class="fa-solid fa-gear" aria-hidden="true"></i>
+                    </button>
                     <button class="dle-drawer-help" title="Show available commands (/dle-help)" aria-label="Show help">
                         <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
                     </button>
@@ -270,6 +273,12 @@ export async function createDrawerPanel() {
         if ($panel[0].contains(e.target)) return;
         if ($(e.target).closest('.drawer-toggle, #deeploreDrawerIcon').length) return;
         doNavbarIconClick.call($drawer.find('.drawer-toggle')[0]);
+    });
+
+    // Settings button — opens settings popup
+    $drawer.find('.dle-drawer-settings').on('click', async function () {
+        const { openSettingsPopup } = await import('../ui/settings-ui.js');
+        openSettingsPopup?.();
     });
 
     // Help button — opens /dle-help command

@@ -12,6 +12,7 @@ import {
     loreGapSearchCount, setLoreGapSearchCount,
     lastInjectionSources,
     fuzzySearchIndex,
+    buildPromise,
     generationCount,
     chatEpoch,
     librarianSessionStats, setLibrarianSessionStats,
@@ -173,14 +174,42 @@ export async function searchLoreAction(args) {
 
     // Guard: max searches per generation
     if (loreGapSearchCount >= settings.librarianMaxSearches) {
-        return 'Search limit reached for this generation. Work with the lore already provided.';
+        return `Search limit reached (${settings.librarianMaxSearches} per generation). This is a rate limit, not a hard block — you can search again on the next generation. For now, work with the lore already provided and the entries injected above.`;
     }
+
+    // If index is currently building, wait for it rather than returning "not ready"
+    if (!fuzzySearchIndex && buildPromise) {
+        try { await buildPromise; } catch { /* index build failed, fall through to null check */ }
+    }
+
+    // Still no index after waiting — record the gap anyway so it shows in the drawer
+    if (!fuzzySearchIndex) {
+        // Record gap even on failure so user can see what the AI tried
+        const failGap = {
+            id: gapId(),
+            type: 'search',
+            query,
+            reason: `AI searched for "${query}" but vault index was not ready`,
+            timestamp: Date.now(),
+            generation: generationCount,
+            status: 'pending',
+            frequency: 1,
+            urgency: 'medium',
+            hadResults: false,
+            resultTitles: [],
+        };
+        const existingGap = findSimilarGap(loreGaps, query, 'search');
+        const updatedGaps = existingGap
+            ? loreGaps.map(g => g === existingGap ? { ...existingGap, frequency: existingGap.frequency + 1, timestamp: Date.now() } : g)
+            : [...loreGaps, failGap];
+        if (epoch === chatEpoch) persistGaps(updatedGaps);
+        // Do NOT increment search count — failed searches shouldn't eat into the limit
+        return 'Lore vault index is still loading. This does NOT count against your search limit — wait a moment and try the same search again. The index usually finishes within a few seconds of the first generation.';
+    }
+
+    // Index is ready — count this search
     setLoreGapSearchCount(loreGapSearchCount + 1);
 
-    // Search via BM25
-    if (!fuzzySearchIndex) {
-        return 'Lore vault index not ready yet — try again after the vault finishes loading.';
-    }
     const hits = queryBM25(
         fuzzySearchIndex,
         query,

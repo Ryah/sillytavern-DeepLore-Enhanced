@@ -237,21 +237,31 @@
     <div class="dle-tab-panel" id="dle-panel-librarian" data-tab="librarian"
          role="tabpanel" aria-labelledby="dle-tab-librarian">
         <div class="dle-panel-toolbar">
-            <div class="dle-librarian-sub-tabs" role="tablist" aria-label="Filter gap records">
-                <button class="dle-librarian-sub-tab active" data-filter="all" role="tab" aria-selected="true">All</button>
-                <button class="dle-librarian-sub-tab" data-filter="search" role="tab" aria-selected="false">Searches</button>
-                <button class="dle-librarian-sub-tab" data-filter="flag" role="tab" aria-selected="false">Flags</button>
+            <div class="dle-librarian-sub-tabs" role="radiogroup" aria-label="Librarian view">
+                <button class="dle-librarian-sub-tab active" data-filter="flag" role="radio" aria-checked="true">Flags <span class="dle-sub-tab-count"></span></button>
+                <button class="dle-librarian-sub-tab" data-filter="activity" role="radio" aria-checked="false">Activity <span class="dle-sub-tab-count"></span></button>
             </div>
-            <select class="text_pole dle-librarian-sort" data-sort aria-label="Sort gap records">
-                <option value="newest">Newest</option>
-                <option value="frequency">Frequency</option>
-                <option value="urgency">Urgency</option>
-            </select>
-            <button class="menu_button_icon dle-librarian-clear-written" title="Clear written/rejected gaps" aria-label="Clear written and rejected gaps" style="display:none">
-                <i class="fa-solid fa-broom" aria-hidden="true"></i>
-            </button>
+            <div class="dle-librarian-toolbar-right">
+                <select class="text_pole dle-librarian-activity-filter" aria-label="Filter activity" style="display:none">
+                    <option value="all">All activity</option>
+                    <option value="search-noresults">Searches (no results)</option>
+                    <option value="search-results">Searches (with results)</option>
+                    <option value="search">All searches</option>
+                </select>
+                <select class="text_pole dle-librarian-sort" data-sort aria-label="Sort by">
+                    <option value="newest">Newest</option>
+                    <option value="frequency">Frequency</option>
+                    <option value="urgency">Urgency</option>
+                </select>
+                <button class="menu_button_icon dle-librarian-clear-written" title="Clear resolved items" aria-label="Clear written and dismissed items" style="display:none">
+                    <i class="fa-solid fa-broom" aria-hidden="true"></i>
+                </button>
+            </div>
         </div>
-        <div class="dle-librarian-list" role="list" aria-label="Lore gap records"></div>
+        <div class="dle-librarian-keyhint" aria-hidden="true">
+            <kbd>A</kbd> Note &nbsp; <kbd>X</kbd> Dismiss &nbsp; <kbd>Enter</kbd> Open &nbsp; <kbd>Space</kbd> Expand
+        </div>
+        <div class="dle-librarian-list" role="list" aria-label="Librarian activity"></div>
         <div class="dle-empty-state dle-visible" id="dle-librarian-empty">
             <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
             <p class="dle-librarian-empty-text">No lore gaps recorded yet.</p>

@@ -939,7 +939,7 @@
             <!-- Section 1: Tools (generation-time behavior) -->
             <div class="dle-settings-section">
             <h4>Tools</h4>
-            <p class="dle-section-desc">Generation-time tools the writing AI can use to search the vault and flag lore gaps.</p>
+            <p class="dle-section-desc">During each AI reply, these tools let the AI look up lore and flag anything missing from your vault.</p>
 
             <div class="flex-container flexFlowColumn">
                 <label class="checkbox_label" for="dle-sp-librarian-enabled" title="Enable the Librarian feature.">
@@ -948,13 +948,13 @@
                 </label>
 
                 <div id="dle-sp-librarian-sub" class="flex-container flexFlowColumn" style="margin-left: 20px;">
-                    <label class="checkbox_label" for="dle-sp-librarian-search" title="Allow the AI to search the vault for entries the pipeline missed.">
+                    <label class="checkbox_label" for="dle-sp-librarian-search" title="Registers the search_lore tool. Lets the AI search the vault for entries the pipeline missed.">
                         <input id="dle-sp-librarian-search" type="checkbox" class="checkbox">
-                        <span>Search tool (search_lore)</span>
+                        <span>Allow vault searches during generation</span>
                     </label>
-                    <label class="checkbox_label" for="dle-sp-librarian-flag" title="Allow the AI to flag gaps in the lore vault.">
+                    <label class="checkbox_label" for="dle-sp-librarian-flag" title="Registers the flag_lore tool. Lets the AI flag gaps in the lore vault.">
                         <input id="dle-sp-librarian-flag" type="checkbox" class="checkbox">
-                        <span>Flag tool (flag_lore)</span>
+                        <span>Allow flagging missing lore</span>
                     </label>
                     <label class="checkbox_label" for="dle-sp-librarian-show-tool-calls" title="Show a 'Consulted lore vault' dropdown on assistant messages when tool calls were used. Disable to hide all tool call traces from chat.">
                         <input id="dle-sp-librarian-show-tool-calls" type="checkbox" class="checkbox">
@@ -962,16 +962,16 @@
                     </label>
 
                     <div class="flex-container">
-                        <div class="flex1" title="Maximum search_lore calls per generation. Default: 2.">
-                            <label for="dle-sp-librarian-max-searches"><small>Max Searches / Gen</small></label>
+                        <div class="flex1" title="Maximum vault searches per AI reply. Default: 2.">
+                            <label for="dle-sp-librarian-max-searches"><small>Searches per reply</small></label>
                             <input id="dle-sp-librarian-max-searches" type="number" class="text_pole" min="1" max="10" />
                         </div>
                         <div class="flex1" title="Maximum entries returned per search call. Default: 5.">
-                            <label for="dle-sp-librarian-max-results"><small>Max Results / Search</small></label>
+                            <label for="dle-sp-librarian-max-results"><small>Results per search</small></label>
                             <input id="dle-sp-librarian-max-results" type="number" class="text_pole" min="1" max="20" />
                         </div>
-                        <div class="flex1" title="Token budget for search results. Default: 1500.">
-                            <label for="dle-sp-librarian-token-budget"><small>Result Token Budget</small></label>
+                        <div class="flex1" title="Token budget for search results returned to the AI. Default: 1500.">
+                            <label for="dle-sp-librarian-token-budget"><small>Result size limit (tokens)</small></label>
                             <input id="dle-sp-librarian-token-budget" type="number" class="text_pole" min="500" max="5000" step="100" />
                         </div>
                     </div>
@@ -984,7 +984,7 @@
             <!-- Section 2: Writing Sessions -->
             <div class="dle-settings-section">
             <h4>Writing Sessions</h4>
-            <p class="dle-section-desc">Settings for the Librarian AI editor popup.</p>
+            <p class="dle-section-desc">Controls for the Librarian's entry editor and AI assistant.</p>
 
             <div class="flex-container flexFlowColumn">
                 <span class="dle-text-xs dle-muted">Connection settings: <a href="#" class="dle-goto-ai-connections">AI Connections</a> in Connection tab.</span>

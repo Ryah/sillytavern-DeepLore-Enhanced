@@ -63,7 +63,7 @@ function buildPopupHTML(session) {
                 </select>
             </div>
             <div class="dle-librarian-field">
-                <label for="dle-lib-priority">Priority <span class="dle-priority-hint">(20=core 50=std 80=bg)</span></label>
+                <label for="dle-lib-priority">Priority <span class="dle-priority-hint">Lower = more important (20 core, 50 standard, 80 background)</span></label>
                 <input type="number" id="dle-lib-priority" class="text_pole" min="1" max="100" value="${draft.priority || 50}" placeholder="50">
             </div>
             <div class="dle-librarian-field">
@@ -84,7 +84,7 @@ function buildPopupHTML(session) {
         </div>
         <div class="dle-librarian-field dle-librarian-field-grow">
             <label for="dle-lib-content">Content</label>
-            <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Entry content (markdown with meta-block, prose, [[wikilinks]])">${escapeHtml(draft.content || '')}</textarea>
+            <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Write your entry here (markdown, [[wikilinks]])">${escapeHtml(draft.content || '')}</textarea>
         </div>
         <div class="dle-librarian-frontmatter-preview" id="dle-lib-frontmatter-wrap">
             <div class="dle-librarian-frontmatter-label" id="dle-lib-frontmatter-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="dle-lib-frontmatter">
@@ -112,7 +112,7 @@ function buildPopupHTML(session) {
         </div>
         ${isReview && session.workQueue ? `<div class="dle-librarian-queue" id="dle-lib-queue"></div>` : ''}
         <div class="dle-librarian-input-row">
-            <input type="text" id="dle-lib-chat-input" class="text_pole" placeholder="Type a message..." aria-label="Chat message">
+            <input type="text" id="dle-lib-chat-input" class="text_pole" placeholder="Ask the Librarian anything..." aria-label="Chat message">
             <button id="dle-lib-send" class="menu_button" aria-label="Send message">
                 <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
             </button>
@@ -494,7 +494,7 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             });
 
             let loadingTimers = [];
-            function showLoading(show, stage = 'Building prompt...') {
+            function showLoading(show, stage = 'Preparing...') {
                 if (show) {
                     // Clear any previous loading state
                     const existing = messagesDiv.querySelector('#dle-lib-loading');
@@ -766,7 +766,7 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 setSendingUI(true);
                 chatInput.value = '';
                 appendMessage('user', text);
-                showLoading(true, 'Building prompt...');
+                showLoading(true, 'Preparing...');
                 const opts = buildSendOptions();
 
                 try {
@@ -875,7 +875,7 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 const genKeys = [...byGen.keys()].sort((a, b) => b - a);
                 for (const gen of genKeys) {
                     const entries = byGen.get(gen);
-                    html += `<div class="dle-lib-activity-gen-label">Gen #${gen}</div>`;
+                    html += `<div class="dle-lib-activity-gen-label">Reply #${gen}</div>`;
                     for (const entry of entries) {
                         const icon = entry.type === 'search'
                             ? '<i class="fa-solid fa-magnifying-glass"></i>'

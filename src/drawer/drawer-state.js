@@ -134,10 +134,16 @@ export const ds = {
     whyTabFilter: 'injected',
 
     // Librarian tab state
-    /** Librarian filter: 'all' | 'search' | 'flag' */
-    librarianFilter: 'all',
+    /** Librarian filter: 'flag' | 'activity' */
+    librarianFilter: 'flag',
+    /** Activity sub-filter: 'all' | 'search' | 'search-noresults' | 'search-results' */
+    librarianActivityFilter: 'all',
     /** Librarian sort: 'newest' | 'frequency' | 'urgency' */
     librarianSort: 'newest',
+    /** Selected gap IDs for bulk operations */
+    librarianSelected: new Set(),
+    /** Last clicked gap ID for shift+click range selection */
+    librarianLastClicked: null,
 };
 
 // ─── Activity Feed ───

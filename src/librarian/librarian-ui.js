@@ -23,12 +23,12 @@ function buildSummaryText(toolCalls) {
     }
 
     if (searches > 0 && flags > 0) {
-        return `Consulted lore vault (${parts.join(', ')})`;
+        return `Consulted lore vault (${parts[0]}, ${flags} ${flags === 1 ? 'gap noted' : 'gaps noted'})`;
     }
     if (searches > 0) {
         return `Consulted lore vault (${parts[0]})`;
     }
-    return `Flagged ${parts[0].replace(/^\d+ /, (m) => m)}`;
+    return `Noted ${flags} ${flags === 1 ? 'gap' : 'gaps'} in your lore`;
 }
 
 /**

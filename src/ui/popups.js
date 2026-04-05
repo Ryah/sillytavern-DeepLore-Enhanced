@@ -459,6 +459,7 @@ export function showSimulationPopup(timeline) {
 
     let html = '<div class="dle-popup">';
     html += `<h3>Activation Simulation (${timeline.length} messages)</h3>`;
+    html += '<p class="dle-text-xs dle-muted dle-mb-2">Note: This simulation uses keyword matching only. AI search, gating filters, cooldown/warmup timers, probability, and pin/block overrides are not included. Actual injection results during generation may differ.</p>';
     html += buildCopyButton(plainText);
     html += '<div class="dle-scroll-region">';
 

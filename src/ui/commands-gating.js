@@ -374,20 +374,89 @@ export function registerGatingCommands() {
         callback: async (_args, value) => {
             const ctx = ensureCtx();
             const v = (value || '').trim();
+
+            // No argument — show multi-select popup
             if (!v) {
-                ctx.characters_present = [];
-                saveChatDebounced();
-                notifyGatingChanged();
-                toastr.success('Present characters cleared.', 'DeepLore Enhanced');
+                const valueMap = collectFieldValues('character_present');
+                if (valueMap.size === 0) {
+                    await callGenericPopup(
+                        '<div class="dle-popup"><p>No entries have a <strong>character_present</strong> field set.</p></div>',
+                        POPUP_TYPE.TEXT, '', { wide: false },
+                    );
+                    return '';
+                }
+
+                const sorted = [...valueMap.entries()].sort((a, b) => b[1].count - a[1].count || a[1].display.localeCompare(b[1].display));
+                const currentArr = Array.isArray(ctx.characters_present) ? ctx.characters_present : [];
+                const currentLower = new Set(currentArr.map(c => c.toLowerCase()));
+
+                // Track selected set (mutable copy)
+                const selected = new Set(currentArr);
+
+                let html = '<div class="dle-popup"><h4>Characters Present</h4>';
+                if (currentArr.length > 0) {
+                    html += `<p class="dle-mb-2">Current: <strong>${escapeHtml(currentArr.join(', '))}</strong></p>`;
+                }
+                html += '<p class="dle-text-xs dle-muted dle-mb-2">Click to toggle. Changes apply when you close this popup.</p>';
+                html += '<div class="dle-flex-col dle-gap-1">';
+                html += '<button class="menu_button dle-char-select dle-flex-between dle-w-full" data-value="">Clear all</button>';
+                for (const [, { display, count }] of sorted) {
+                    const isActive = currentLower.has(display.toLowerCase());
+                    const activeClass = isActive ? ' dle-field-select--active' : '';
+                    html += `<button class="menu_button dle-char-select dle-flex-between dle-w-full${activeClass}" data-value="${escapeHtml(display)}">${escapeHtml(display)}<span class="dle-text-xs" style="opacity:0.5;margin-left:auto;padding-left:8px;">${count} ${count === 1 ? 'entry' : 'entries'}</span></button>`;
+                }
+                html += '</div></div>';
+
+                await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                    wide: false,
+                    onOpen: () => {
+                        const buttons = document.querySelectorAll('.dle-char-select');
+                        for (const btn of buttons) {
+                            btn.addEventListener('click', () => {
+                                const val = btn.getAttribute('data-value');
+                                if (!val) {
+                                    // Clear all
+                                    selected.clear();
+                                    for (const b of buttons) b.classList.remove('dle-field-select--active');
+                                } else {
+                                    // Toggle
+                                    const lower = val.toLowerCase();
+                                    const has = [...selected].some(s => s.toLowerCase() === lower);
+                                    if (has) {
+                                        for (const s of selected) {
+                                            if (s.toLowerCase() === lower) { selected.delete(s); break; }
+                                        }
+                                        btn.classList.remove('dle-field-select--active');
+                                    } else {
+                                        selected.add(val);
+                                        btn.classList.add('dle-field-select--active');
+                                    }
+                                }
+                            });
+                        }
+                    },
+                    onClose: () => {
+                        ctx.characters_present = [...selected];
+                        saveChatDebounced();
+                        notifyGatingChanged();
+                        if (selected.size > 0) {
+                            toastr.success(`Characters present: ${[...selected].join(', ')}`, 'DeepLore Enhanced');
+                        } else {
+                            toastr.success('Present characters cleared.', 'DeepLore Enhanced');
+                        }
+                    },
+                });
                 return '';
             }
+
+            // With argument — set directly
             ctx.characters_present = v.split(',').map(c => c.trim()).filter(Boolean);
             saveChatDebounced();
             notifyGatingChanged();
             toastr.success(`Characters present: ${ctx.characters_present.join(', ')}`, 'DeepLore Enhanced');
             return '';
         },
-        helpString: 'Set which characters are present for contextual gating. Usage: /dle-set-characters <name1, name2>. Run without args to clear.',
+        helpString: 'Set which characters are present for contextual gating. Usage: /dle-set-characters <name1, name2>. Run without args to browse and toggle.',
         returns: 'Status message',
     }));
 

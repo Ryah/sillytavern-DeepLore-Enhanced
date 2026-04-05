@@ -119,7 +119,9 @@ export function registerAiCommands() {
             const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
 
             const confirmed = await callGenericPopup(
-                `<p>This will send <b>${vaultIndex.length}</b> entries (~${totalTokens} tokens) as a message and generate an AI response.</p><p>This may be expensive. Continue?</p>`,
+                `<p>This will send <b>${vaultIndex.length}</b> entries (~${totalTokens} tokens) as a visible user message and generate an AI response.</p>
+                <p class="dle-text-xs dle-muted">Warning: The review message will remain in chat history and may influence subsequent AI responses. Consider starting a new chat or deleting the messages afterward if you don't want this.</p>
+                <p>This may be expensive. Continue?</p>`,
                 POPUP_TYPE.CONFIRM, '', {},
             );
             if (!confirmed) return '';
@@ -185,7 +187,9 @@ export function registerAiCommands() {
             if (!confirmed) return '';
 
             const result = await summarizeEntries(missingSummary);
-            const msg = `Done: ${result.generated} written, ${result.skipped} skipped, ${result.failed} failed.`;
+            let msg = `Done: ${result.generated} written, ${result.skipped} skipped, ${result.failed} failed`;
+            if (result.aborted > 0) msg += `, ${result.aborted} aborted`;
+            msg += '.';
             toastr.success(msg, 'DeepLore Enhanced');
 
             if (result.generated > 0) {
@@ -230,8 +234,9 @@ export function registerAiCommands() {
 /**
  * Generate AI summaries for a list of vault entries.
  * Each summary is presented for review before writing to Obsidian.
+ * Supports abort via a button in the review popup.
  * @param {Array} entries - VaultEntry objects to summarize
- * @returns {{ generated: number, skipped: number, failed: number }}
+ * @returns {{ generated: number, skipped: number, failed: number, aborted: number }}
  */
 export async function summarizeEntries(entries) {
     const { callAI } = await import('../ai/ai.js');
@@ -242,6 +247,7 @@ export async function summarizeEntries(entries) {
     let generated = 0;
     let skipped = 0;
     let failed = 0;
+    let aborted = false;
 
     for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
@@ -267,22 +273,40 @@ export async function summarizeEntries(entries) {
                 continue;
             }
 
-            // Present for review
+            // Present for review with progress and abort
+            const remaining = entries.length - i - 1;
             const reviewHtml = `
                 <div class="dle-popup">
-                    <h4>${escapeHtml(entry.title)} (${i + 1}/${entries.length})</h4>
+                    <h4>${escapeHtml(entry.title)}</h4>
+                    <p class="dle-text-xs dle-muted dle-mb-2">Progress: ${i + 1} of ${entries.length} | ${generated} written, ${skipped} skipped, ${failed} failed${remaining > 0 ? ` | ${remaining} remaining` : ''}</p>
                     <p class="dle-text-sm dle-muted">Entry content preview: ${escapeHtml(entry.content.substring(0, 200))}...</p>
                     <hr>
                     <p><b>Generated Summary:</b></p>
                     <textarea id="dle-summary-edit" class="text_pole dle-summary-textarea">${escapeHtml(summary)}</textarea>
-                    <p class="dle-text-xs dle-faint">Edit the summary above if needed. Click OK to write to Obsidian, Cancel to skip.</p>
+                    <p class="dle-text-xs dle-faint">OK = write to Obsidian, Cancel = skip this entry.</p>
+                    ${remaining > 0 ? '<button id="dle-summary-abort" class="menu_button" style="margin-top:8px;"><i class="fa-solid fa-stop"></i> Abort remaining</button>' : ''}
                 </div>`;
 
             let capturedTextarea = null;
+            let userAborted = false;
             const approved = await callGenericPopup(reviewHtml, POPUP_TYPE.CONFIRM, '', {
                 wide: true,
-                onOpen: () => { capturedTextarea = document.getElementById('dle-summary-edit'); },
+                onOpen: () => {
+                    capturedTextarea = document.getElementById('dle-summary-edit');
+                    const abortBtn = document.getElementById('dle-summary-abort');
+                    if (abortBtn) {
+                        abortBtn.addEventListener('click', () => {
+                            userAborted = true;
+                            document.querySelector('.popup-button-cancel')?.click();
+                        });
+                    }
+                },
             });
+
+            if (userAborted) {
+                aborted = true;
+                break;
+            }
 
             if (!approved) {
                 skipped++;
@@ -332,5 +356,6 @@ export async function summarizeEntries(entries) {
         }
     }
 
-    return { generated, skipped, failed };
+    const abortedCount = aborted ? entries.length - generated - skipped - failed : 0;
+    return { generated, skipped, failed, aborted: abortedCount };
 }

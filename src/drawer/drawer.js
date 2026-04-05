@@ -344,17 +344,20 @@ export async function createDrawerPanel() {
                 try {
                     const oai = await import('../../../../../openai.js');
                     ds.promptManagerRef = oai.promptManager;
-                } catch { /* non-OAI backend, context bar stays at 0 */ }
+                } catch { /* non-OAI backend, context bar stays hidden */ }
             }
-            // Hydrate immediately from last-known tokenUsage (survives chat load without waiting for generation)
-            if (ds.promptManagerRef?.tokenUsage) {
-                ds.contextTokens = ds.promptManagerRef.tokenUsage;
-                scheduleRender(renderFooter);
+            if (ds.promptManagerRef) {
+                ds.contextBarAvailable = true;
+                // Hydrate immediately from last-known tokenUsage (survives chat load without waiting for generation)
+                if (ds.promptManagerRef.tokenUsage) {
+                    ds.contextTokens = ds.promptManagerRef.tokenUsage;
+                    scheduleRender(renderFooter);
+                }
+                stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, () => {
+                    ds.contextTokens = ds.promptManagerRef?.tokenUsage || 0;
+                    scheduleRender(renderFooter);
+                });
             }
-            stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, () => {
-                ds.contextTokens = ds.promptManagerRef?.tokenUsage || 0;
-                scheduleRender(renderFooter);
-            });
         }
     } catch (err) {
         console.warn('[DLE] Could not wire context token tracking:', err.message);

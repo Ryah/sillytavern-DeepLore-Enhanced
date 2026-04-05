@@ -25,13 +25,21 @@ export function renderFooter() {
     if (!$footer.length) return;
 
     // ── Context window bar ──
+    const $barContainer = $footer.find('.dle-context-bar-container');
+
+    // Hide context bar entirely on non-OAI backends where prompt token tracking is unavailable
+    if (!ds.contextBarAvailable) {
+        $barContainer.hide();
+    } else {
+        $barContainer.show();
+    }
+
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
     // Prefer chatCompletionSettings (respects unlocked context) over maxContext (base slider)
     const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
     const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
     const contextUsed = ds.contextTokens || 0;
 
-    const $barContainer = $footer.find('.dle-context-bar-container');
     if (maxContext > 0) {
         const contextPct = Math.min(100, (contextUsed / maxContext) * 100);
         const responsePct = Math.min(100 - contextPct, (responseTokens / maxContext) * 100);

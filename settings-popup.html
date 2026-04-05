@@ -225,7 +225,7 @@
             <div class="flex-container flexFlowColumn">
                 <div class="flex-container">
                     <div class="flex1" title="Number of recent chat messages to scan for keyword matches. Default: 4.">
-                        <label for="dle-sp-scan-depth"><small>Keyword Scan Depth</small></label>
+                        <label for="dle-sp-scan-depth"><small>Messages to Search</small></label>
                         <input id="dle-sp-scan-depth" type="number" class="text_pole" min="0" max="100" />
                     </div>
                 </div>
@@ -236,11 +236,11 @@
             </label>
             <label class="checkbox_label" for="dle-sp-fuzzy-search" title="Enable flexible text matching alongside keywords — finds entries even when the exact keyword isn't used.">
                 <input id="dle-sp-fuzzy-search" type="checkbox" class="checkbox">
-                <span>Fuzzy Search</span>
+                <span>Flexible Matching</span>
             </label>
             <div id="dle-sp-fuzzy-min-score-row" class="dle-sp-indent">
                 <div title="How strict fuzzy matching should be. Lower finds more entries (including weaker matches), higher is stricter. Default: 0.5.">
-                    <label for="dle-sp-fuzzy-min-score"><small>Fuzzy Strictness</small></label>
+                    <label for="dle-sp-fuzzy-min-score"><small>Match Sensitivity</small></label>
                     <input id="dle-sp-fuzzy-min-score" type="range" min="0.1" max="2.0" step="0.1" class="dle-w-full" />
                     <div class="flex-container" style="justify-content: space-between;">
                         <span class="dle-text-xs dle-muted">Loose (more matches)</span>
@@ -256,6 +256,9 @@
                         <input id="dle-sp-unlimited-entries" type="checkbox" class="checkbox">
                         <span>Unlimited Entries</span>
                     </label>
+                    <span class="dle-unlimited-warning" id="dle-sp-unlimited-entries-warn" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May cause slow responses with large vaults (100+ entries)
+                    </span>
                 </div>
                 <div class="flex1" title="Maximum number of lorebook entries to inject per generation.">
                     <label for="dle-sp-max-entries"><small>Max Entries</small></label>
@@ -268,16 +271,19 @@
                         <input id="dle-sp-unlimited-budget" type="checkbox" class="checkbox">
                         <span>Unlimited Token Budget</span>
                     </label>
+                    <span class="dle-unlimited-warning" id="dle-sp-unlimited-budget-warn" style="display:none;">
+                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May cause slow responses with large vaults (100+ entries)
+                    </span>
                 </div>
                 <div class="flex1" title="Maximum total tokens to inject from lorebook entries per generation.">
                     <label for="dle-sp-token-budget"><small>Token Budget</small></label>
                     <input id="dle-sp-token-budget" type="number" class="text_pole" min="100" max="100000" />
                 </div>
             </div>
-            <h4>Entry Rotation</h4>
+            <h4>Repetition Control</h4>
             <label class="checkbox_label" for="dle-sp-decay-enabled" title="Entries that haven't appeared recently become more likely to be picked. Entries appearing too often become less likely. Adds variety to lore injection.">
                 <input id="dle-sp-decay-enabled" type="checkbox" class="checkbox">
-                <span>Enable Entry Rotation</span>
+                <span>Enable Repetition Control</span>
             </label>
             <div class="flex-container" id="dle-sp-decay-controls">
                 <div class="flex1" title="How many turns an entry can be skipped before it's boosted to reappear. Default: 5.">
@@ -309,10 +315,10 @@
                 </label>
                 <span class="dle-text-xs dle-muted dle-sp-indent"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May increase processing time on large vaults — counts occurrences for every matched entry.</span>
 
-                <label class="dle-advanced-subheader"><small>Recursive Scan</small></label>
+                <label class="dle-advanced-subheader"><small>Chain Matching</small></label>
                 <label class="checkbox_label" for="dle-sp-recursive-scan" title="Scan matched entries' content for keywords that might trigger additional entries.">
                     <input id="dle-sp-recursive-scan" type="checkbox" class="checkbox">
-                    <span>Recursive Scanning</span>
+                    <span>Chain Matching</span>
                 </label>
                 <div class="flex-container dle-sp-indent">
                     <div class="flex1" title="Maximum number of recursive scan passes. Default: 3.">
@@ -324,7 +330,7 @@
                 <label class="dle-advanced-subheader"><small>Re-injection Control</small></label>
                 <div class="flex-container">
                     <div class="flex1" title="After an entry is injected, skip it for the next N generations. 0 = always include when matched.">
-                        <label for="dle-sp-reinjection-cooldown"><small>Reinjection Cooldown (0 = off)</small></label>
+                        <label for="dle-sp-reinjection-cooldown"><small>Repeat Cooldown (0 = off)</small></label>
                         <input id="dle-sp-reinjection-cooldown" type="number" class="text_pole" min="0" max="50" />
                     </div>
                 </div>
@@ -341,10 +347,10 @@
                     </div>
                 </div>
 
-                <label class="dle-advanced-subheader"><small>Gating</small></label>
+                <label class="dle-advanced-subheader"><small>Scene Filters</small></label>
                 <div class="flex-container">
                     <div class="flex1" title="How to handle entries with era/location/scene requirements when no context is set. Strict: block if any dimension is missing. Moderate: block only when entry's dimension is set but doesn't match. Lenient: allow all entries when no context dimensions are set.">
-                        <label for="dle-sp-contextual-gating-tolerance"><small>Contextual Gating Tolerance</small></label>
+                        <label for="dle-sp-contextual-gating-tolerance"><small>Filter Strictness</small></label>
                         <select id="dle-sp-contextual-gating-tolerance" class="text_pole">
                             <option value="strict">Strict (block when context missing)</option>
                             <option value="moderate">Moderate (block only on mismatch)</option>
@@ -520,7 +526,7 @@
             </div>
             <div class="dle-advanced-section" data-section="sp_injection" style="display: none;">
                 <div title="Template for formatting each injected entry. Use {{title}} and {{content}} macros.">
-                    <label for="dle-sp-template"><small>Injection Template</small></label>
+                    <label for="dle-sp-template"><small>Entry Format</small></label>
                     <textarea id="dle-sp-template" class="text_pole textarea_compact" rows="3" placeholder="Use {{title}} and {{content}} macros."></textarea>
                 </div>
                 <label class="checkbox_label" for="dle-sp-allow-wi-scan" title="When enabled, SillyTavern's built-in World Info can trigger on text inside your DeepLore entries. Useful if you use both systems. May cause duplicate injections.">

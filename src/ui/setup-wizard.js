@@ -66,6 +66,7 @@ export async function showSetupWizard(startPage = 1) {
             prefillFromSettings();
             wireNavigation();
             wireConnectionTest();
+            wireDemoVault();
             wireAiSetup();
             wirePresets();
             wireSearchMode();
@@ -338,6 +339,62 @@ function wireConnectionTest() {
             .removeClass('dle-wizard-btn-verified');
         $wizard.find('#dle-wiz-conn-result').hide();
         updateNavButtons();
+    });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Page 2: Demo Vault
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Resolve the filesystem path to the test-vault/ directory bundled with the extension. */
+function getDemoVaultPath() {
+    // ST serves extensions from public/scripts/extensions/third-party/
+    // The actual filesystem location depends on where ST is installed.
+    // We show a relative path from the ST root — users know their install dir.
+    return 'public/scripts/extensions/third-party/sillytavern-DeepLore-Enhanced/test-vault';
+}
+
+function wireDemoVault() {
+    // Toggle instructions
+    $wizard.find('#dle-wiz-demo-toggle').on('click', () => {
+        const $instructions = $wizard.find('#dle-wiz-demo-instructions');
+        const $btn = $wizard.find('#dle-wiz-demo-toggle');
+        const isHidden = !$instructions.is(':visible');
+        $instructions.slideToggle(200);
+        $btn.html(isHidden
+            ? '<i class="fa-solid fa-chevron-up"></i> Hide instructions'
+            : '<i class="fa-solid fa-folder-open"></i> Show me how');
+        // Populate path on first show
+        if (isHidden) {
+            $wizard.find('#dle-wiz-demo-path').text(getDemoVaultPath());
+        }
+    });
+
+    // Copy path to clipboard
+    $wizard.find('#dle-wiz-demo-copy').on('click', () => {
+        const path = $wizard.find('#dle-wiz-demo-path').text();
+        navigator.clipboard.writeText(path).then(
+            () => toastr.info('Path copied to clipboard', 'DeepLore Enhanced'),
+            () => toastr.warning('Failed to copy — select and copy manually', 'DeepLore Enhanced'),
+        );
+    });
+
+    // Auto-fill connection fields for demo vault
+    $wizard.find('#dle-wiz-demo-autofill').on('click', () => {
+        $wizard.find('#dle-wiz-vault-name').val('Duskfrost Demo');
+        $wizard.find('#dle-wiz-host').val('127.0.0.1');
+        $wizard.find('#dle-wiz-port').val('27123');
+        $wizard.find('#dle-wiz-https').prop('checked', false);
+        // Reset connection state since fields changed
+        connectionVerified = false;
+        $wizard.find('#dle-wiz-test-conn')
+            .html('<i class="fa-solid fa-plug"></i> Test Connection')
+            .removeClass('dle-wizard-btn-verified');
+        $wizard.find('#dle-wiz-conn-result').hide();
+        updateNavButtons();
+        // Focus API key — user still needs to enter this
+        $wizard.find('#dle-wiz-api-key').val('').focus();
+        toastr.info('Connection fields filled — enter your Obsidian API key and click Test', 'DeepLore Enhanced');
     });
 }
 
@@ -754,6 +811,14 @@ function buildSummary() {
     if (sessionsCreated) items.push('<i class="fa-solid fa-circle-check"></i> Sessions folder created');
     if (importResult && importResult.imported > 0) {
         items.push(`<i class="fa-solid fa-circle-check"></i> Imported <strong>${importResult.imported}</strong> entries${importResult.failed > 0 ? ` (${importResult.failed} failed)` : ''}`);
+    }
+
+    // Demo vault tips
+    const vaultNameLower = vaultName.toLowerCase();
+    if (vaultNameLower.includes('duskfrost') || vaultNameLower.includes('demo')) {
+        items.push('<i class="fa-solid fa-flask"></i> <strong>Demo vault detected!</strong> Try mentioning "Duskfrost" or "Bellsummit" in chat to see lore injection.');
+        items.push('<i class="fa-solid fa-lightbulb"></i> Run <code>/dle-health</code> to see the health check (edge-case entries will flag intentional warnings)');
+        items.push('<i class="fa-solid fa-lightbulb"></i> Run <code>/dle-graph</code> to see the full relationship graph');
     }
 
     $summary.html(items.map((item, i) => `<div class="dle-wizard-summary-item" style="animation-delay: ${i * 120}ms">${item}</div>`).join(''));

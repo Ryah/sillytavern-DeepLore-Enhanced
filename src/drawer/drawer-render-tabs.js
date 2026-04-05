@@ -53,7 +53,19 @@ export function renderInjectionTab() {
         if (generationLock) {
             $empty.html('<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><p>Choosing lore...</p>').addClass('dle-visible');
         } else {
-            $empty.html('<i class="fa-solid fa-circle-question" aria-hidden="true"></i><p>No lore selected yet. Send a message to see which entries are included and why.</p>').addClass('dle-visible');
+            $empty.html(
+                '<i class="fa-solid fa-circle-question" aria-hidden="true"></i>'
+                + '<p>No entries injected yet.</p>'
+                + '<div class="dle-empty-guide">'
+                + '<p>To see lore injection in action:</p>'
+                + '<ol>'
+                + '<li>Connect to an Obsidian vault with <code>#lorebook</code>-tagged entries</li>'
+                + '<li>Send a message mentioning a keyword from your entries</li>'
+                + '<li>This tab will show which entries were injected and why</li>'
+                + '</ol>'
+                + '<p class="dle-empty-commands"><code>/dle-setup</code> — configure your vault &nbsp; <code>/dle-browse</code> — see indexed entries</p>'
+                + '</div>',
+            ).addClass('dle-visible');
         }
         return;
     }

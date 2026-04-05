@@ -40,10 +40,15 @@ import { toPastel, lightenColor, darkenColor } from '../src/graph/graph-render.j
 
 // State module imports for computeOverallStatus tests
 import {
-    computeOverallStatus,
+    computeOverallStatus, trackerKey,
     setVaultIndex, setIndexEverLoaded, setLastHealthResult,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     recordAiFailure, recordAiSuccess,
+    isAiCircuitOpen, tryAcquireHalfOpenProbe, releaseHalfOpenProbe,
+    setAiCircuitOpenedAt,
+    entityNameSet, entityShortNameRegexes,
+    setFieldDefinitions, setDecayTracker, setConsecutiveInjections,
+    decayTracker, consecutiveInjections,
 } from '../src/state.js';
 
 // normalizeResults is a test-only utility (inlined in aiSearch() in production)
@@ -109,6 +114,16 @@ function assertEqual(actual, expected, message) {
         console.error(`  FAIL: ${message}`);
         console.error(`    expected: ${JSON.stringify(expected)}`);
         console.error(`    actual:   ${JSON.stringify(actual)}`);
+    }
+}
+
+function assertNotEqual(actual, expected, message) {
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    values should differ but both are: ${JSON.stringify(actual)}`);
     }
 }
 
@@ -2379,8 +2394,9 @@ function stripESMForParsing(src) {
     // Strip multi-line and single-line imports
     s = s.replace(/^import\s+\{[^}]*\}\s+from\s+['"].*?['"];?\s*$/gm, '');
     s = s.replace(/^import\s+.*$/gm, '');
-    // Strip re-exports: export { ... } from '...'
+    // Strip re-exports: export { ... } from '...' and bare export { ... };
     s = s.replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '');
+    s = s.replace(/^export\s+\{[^}]*\}\s*;?\s*$/gm, '');
     // Transform export declarations into plain declarations
     s = s.replace(/^export\s+async\s+function/gm, 'async function');
     s = s.replace(/^export\s+function/gm, 'function');
@@ -4394,6 +4410,971 @@ test('sanitizeFilename: replaces all special chars', () => {
 
 test('sanitizeFilename: trims trailing whitespace', () => {
     assertEqual(sanitizeFilename('test   '), 'test');
+});
+
+// ============================================================================
+// Phase 1A: fields.js Edge Cases
+// ============================================================================
+
+test('parseFieldDefinitionYaml: multiple fields in sequence', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: strict
+    values: []
+    contextKey: mood
+  - name: faction
+    label: Faction
+    type: string
+    multi: true
+    gating:
+      enabled: false
+      operator: match_all
+      tolerance: lenient
+    values:
+      - rebels
+      - empire
+    contextKey: active_faction`;
+    const { definitions, errors } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 2, 'should parse two fields');
+    assertEqual(definitions[0].name, 'mood', 'first field name');
+    assertEqual(definitions[0].gating.tolerance, 'strict', 'first field tolerance');
+    assertEqual(definitions[1].name, 'faction', 'second field name');
+    assertEqual(definitions[1].multi, true, 'second field multi');
+    assertEqual(definitions[1].gating.enabled, false, 'second field gating disabled');
+    assertEqual(definitions[1].values, ['rebels', 'empire'], 'second field values');
+    assertEqual(definitions[1].contextKey, 'active_faction', 'second field contextKey');
+});
+
+test('parseFieldDefinitionYaml: comment lines and blank lines interspersed', () => {
+    const yaml = `# Header comment
+fields:
+
+  # This is a mood field
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: moderate
+    values: []
+    contextKey: mood`;
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'should parse field despite comments/blanks');
+    assertEqual(definitions[0].name, 'mood', 'field name');
+});
+
+test('parseFieldDefinitionYaml: unknown gating operator defaults to match_any', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: bogus_op
+      tolerance: moderate
+    values: []
+    contextKey: mood`;
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions[0].gating.operator, 'match_any', 'unknown operator defaults to match_any');
+});
+
+test('parseFieldDefinitionYaml: inline empty array values: []', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: moderate
+    values: []
+    contextKey: mood`;
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions[0].values, [], 'inline empty array should produce empty values');
+});
+
+test('parseFieldDefinitionYaml: round-trip with custom fields preserves structure', () => {
+    const original = [{
+        name: 'danger_level',
+        label: 'Danger Level',
+        type: 'number',
+        multi: false,
+        gating: { enabled: true, operator: 'gt', tolerance: 'strict' },
+        values: [],
+        contextKey: 'danger_level',
+    }];
+    const yaml = serializeFieldDefinitions(original);
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'round-trip count');
+    assertEqual(definitions[0].name, 'danger_level', 'name preserved');
+    assertEqual(definitions[0].type, 'number', 'type preserved');
+    assertEqual(definitions[0].gating.operator, 'gt', 'operator preserved');
+});
+
+test('evaluateOperator: gt/lt with NaN returns false (BUG-L2)', () => {
+    assert(!evaluateOperator('gt', 'abc', 5), 'gt with NaN entryValue');
+    assert(!evaluateOperator('gt', 10, 'xyz'), 'gt with NaN activeValue');
+    assert(!evaluateOperator('lt', 'abc', 5), 'lt with NaN entryValue');
+    assert(!evaluateOperator('lt', 10, 'xyz'), 'lt with NaN activeValue');
+    assert(!evaluateOperator('gt', NaN, NaN), 'gt with both NaN');
+    assert(!evaluateOperator('lt', NaN, NaN), 'lt with both NaN');
+});
+
+test('evaluateOperator: gt/lt with string-encoded numbers', () => {
+    assert(evaluateOperator('gt', '10', '5'), 'gt: "10" > "5"');
+    assert(!evaluateOperator('gt', '3', '5'), 'gt: "3" > "5" = false');
+    assert(evaluateOperator('lt', '3', '5'), 'lt: "3" < "5"');
+});
+
+test('evaluateOperator: match_all with empty entry array (vacuous truth)', () => {
+    assert(evaluateOperator('match_all', [], ['medieval']), 'empty entry array = vacuous truth');
+});
+
+test('evaluateOperator: match_all with empty active array', () => {
+    assert(!evaluateOperator('match_all', ['medieval'], []), 'entry value not in empty active = false');
+});
+
+test('evaluateOperator: not_any with empty arrays', () => {
+    assert(evaluateOperator('not_any', [], ['medieval']), 'empty entry = no overlap');
+    assert(evaluateOperator('not_any', ['medieval'], []), 'empty active = no overlap');
+    assert(evaluateOperator('not_any', [], []), 'both empty = no overlap');
+});
+
+test('evaluateOperator: exists with undefined vs empty string', () => {
+    assert(!evaluateOperator('exists', undefined, null), 'undefined = not exists');
+    assert(evaluateOperator('exists', '', null), 'empty string exists (non-null)');
+    assert(evaluateOperator('exists', 0, null), 'zero exists (non-null)');
+    assert(evaluateOperator('exists', false, null), 'false exists (non-null)');
+});
+
+test('extractCustomFields: number type with string input coerces', () => {
+    const fm = { power: '42' };
+    const defs = [{ name: 'power', type: 'number', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.power, 42, 'string "42" coerces to number');
+});
+
+test('extractCustomFields: number type with non-numeric string returns null', () => {
+    const fm = { power: 'abc' };
+    const defs = [{ name: 'power', type: 'number', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.power, null, 'non-numeric string returns null');
+});
+
+test('extractCustomFields: boolean type with string "false"', () => {
+    const fm = { active: 'false' };
+    const defs = [{ name: 'active', type: 'boolean', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.active, false, '"false" string is not true');
+});
+
+test('extractCustomFields: boolean type with truthy non-true values', () => {
+    const fm = { a: 1, b: 'yes', c: 'true', d: true };
+    const defs = [
+        { name: 'a', type: 'boolean', multi: false },
+        { name: 'b', type: 'boolean', multi: false },
+        { name: 'c', type: 'boolean', multi: false },
+        { name: 'd', type: 'boolean', multi: false },
+    ];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.a, false, 'number 1 is not boolean true');
+    assertEqual(result.b, false, 'string "yes" is not boolean true');
+    assertEqual(result.c, true, 'string "true" is boolean true');
+    assertEqual(result.d, true, 'boolean true is boolean true');
+});
+
+test('extractCustomFields: multi string field with mixed types in array', () => {
+    const fm = { tags: [42, true, 'text', null] };
+    const defs = [{ name: 'tags', type: 'string', multi: true }];
+    const result = extractCustomFields(fm, defs);
+    // String(null) = "null" which is truthy, so it passes the filter
+    assertEqual(result.tags, ['42', 'true', 'text', 'null'], 'non-strings coerced to string');
+});
+
+test('findDuplicateFieldNames: case-insensitive detection', () => {
+    const defs = [{ name: 'Era' }, { name: 'era' }];
+    const dupes = findDuplicateFieldNames(defs);
+    assertEqual(dupes, ['era'], 'case-insensitive duplicate detected');
+});
+
+test('findDuplicateFieldNames: multiple duplicates detected', () => {
+    const defs = [{ name: 'a' }, { name: 'b' }, { name: 'a' }, { name: 'b' }];
+    const dupes = findDuplicateFieldNames(defs);
+    assertEqual(dupes.length, 2, 'two duplicates');
+    assert(dupes.includes('a'), 'includes a');
+    assert(dupes.includes('b'), 'includes b');
+});
+
+test('findDuplicateFieldNames: no duplicates returns empty', () => {
+    const defs = [{ name: 'x' }, { name: 'y' }, { name: 'z' }];
+    assertEqual(findDuplicateFieldNames(defs), [], 'no duplicates');
+});
+
+// ============================================================================
+// Phase 2A: validateCachedEntry (extracted to cache-validate.js)
+// ============================================================================
+
+import { validateCachedEntry } from '../src/vault/cache-validate.js';
+
+test('validateCachedEntry: valid entry passes', () => {
+    const entry = { title: 'Dragon', keys: ['dragon'], content: 'A dragon.', tokenEstimate: 50 };
+    assert(validateCachedEntry(entry), 'valid entry should pass');
+});
+
+test('validateCachedEntry: null/undefined returns false', () => {
+    assert(!validateCachedEntry(null), 'null');
+    assert(!validateCachedEntry(undefined), 'undefined');
+    assert(!validateCachedEntry(42), 'number');
+});
+
+test('validateCachedEntry: missing title returns false', () => {
+    assert(!validateCachedEntry({ keys: [], content: '', tokenEstimate: 0 }), 'no title');
+});
+
+test('validateCachedEntry: empty title returns false', () => {
+    assert(!validateCachedEntry({ title: '', keys: [], content: '', tokenEstimate: 0 }), 'empty title');
+});
+
+test('validateCachedEntry: non-array keys returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: 'not-array', content: '', tokenEstimate: 0 }), 'string keys');
+});
+
+test('validateCachedEntry: non-string content returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: 42, tokenEstimate: 0 }), 'number content');
+});
+
+test('validateCachedEntry: negative tokenEstimate returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: -1 }), 'negative');
+});
+
+test('validateCachedEntry: NaN tokenEstimate returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: NaN }), 'NaN');
+});
+
+test('validateCachedEntry: non-array links returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: 0, links: 'bad' }), 'string links');
+});
+
+test('validateCachedEntry: non-array tags returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: 0, tags: 'bad' }), 'string tags');
+});
+
+test('validateCachedEntry: backfills missing priority to 50', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0 };
+    validateCachedEntry(entry);
+    assertEqual(entry.priority, 50, 'priority backfilled');
+});
+
+test('validateCachedEntry: backfills NaN priority to 50', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, priority: NaN };
+    validateCachedEntry(entry);
+    assertEqual(entry.priority, 50, 'NaN priority backfilled');
+});
+
+test('validateCachedEntry: backfills non-boolean constant to false', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, constant: 'yes' };
+    validateCachedEntry(entry);
+    assertEqual(entry.constant, false, 'constant backfilled');
+});
+
+test('validateCachedEntry: backfills non-array requires/excludes to []', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, requires: 'bad', excludes: 42 };
+    validateCachedEntry(entry);
+    assertEqual(entry.requires, [], 'requires backfilled');
+    assertEqual(entry.excludes, [], 'excludes backfilled');
+});
+
+test('validateCachedEntry: backfills invalid probability to null', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, probability: 'high' };
+    validateCachedEntry(entry);
+    assertEqual(entry.probability, null, 'probability backfilled');
+});
+
+test('validateCachedEntry: backfills missing array fields', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0 };
+    validateCachedEntry(entry);
+    assertEqual(entry.links, [], 'links backfilled');
+    assertEqual(entry.resolvedLinks, [], 'resolvedLinks backfilled');
+    assertEqual(entry.tags, [], 'tags backfilled');
+});
+
+test('validateCachedEntry: backfills missing/corrupt customFields', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, customFields: 'bad' };
+    validateCachedEntry(entry);
+    assertEqual(entry.customFields, {}, 'customFields backfilled from string');
+
+    const entry2 = { title: 'X', keys: [], content: '', tokenEstimate: 0 };
+    validateCachedEntry(entry2);
+    assertEqual(entry2.customFields, {}, 'customFields backfilled from missing');
+});
+
+test('validateCachedEntry: preserves valid existing values', () => {
+    const entry = {
+        title: 'Dragon', keys: ['dragon'], content: 'Fire.',
+        tokenEstimate: 100, priority: 20, constant: true,
+        requires: ['Eris'], excludes: ['Sword'], probability: 0.5,
+        links: ['Eris'], resolvedLinks: ['Eris'], tags: ['lorebook'],
+        customFields: { era: ['medieval'] },
+    };
+    assert(validateCachedEntry(entry), 'should pass');
+    assertEqual(entry.priority, 20, 'priority preserved');
+    assertEqual(entry.constant, true, 'constant preserved');
+    assertEqual(entry.probability, 0.5, 'probability preserved');
+    assertEqual(entry.customFields.era, ['medieval'], 'customFields preserved');
+});
+
+// ============================================================================
+// Phase 2B: deduplicateMultiVault + computeEntityDerivedState (vault-pure.js)
+// ============================================================================
+
+import { deduplicateMultiVault, computeEntityDerivedState } from '../src/vault/vault-pure.js';
+
+test('deduplicateMultiVault: mode "all" returns entries unchanged', () => {
+    const entries = [makeEntry('Dragon', { vaultSource: 'v1' }), makeEntry('Dragon', { vaultSource: 'v2' })];
+    const result = deduplicateMultiVault(entries, 'all');
+    assertEqual(result.length, 2, 'all keeps both');
+});
+
+test('deduplicateMultiVault: undefined mode returns entries unchanged', () => {
+    const entries = [makeEntry('Dragon'), makeEntry('Dragon')];
+    assertEqual(deduplicateMultiVault(entries, undefined).length, 2, 'undefined mode = no dedup');
+    assertEqual(deduplicateMultiVault(entries, '').length, 2, 'empty string mode = no dedup');
+});
+
+test('deduplicateMultiVault: mode "first" keeps first, discards later', () => {
+    const entries = [
+        makeEntry('Dragon', { vaultSource: 'v1', content: 'first' }),
+        makeEntry('Dragon', { vaultSource: 'v2', content: 'second' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'first');
+    assertEqual(result.length, 1, 'one entry');
+    assertEqual(result[0].content, 'first', 'first vault kept');
+});
+
+test('deduplicateMultiVault: mode "last" keeps last, replaces earlier', () => {
+    const entries = [
+        makeEntry('Dragon', { vaultSource: 'v1', content: 'first' }),
+        makeEntry('Dragon', { vaultSource: 'v2', content: 'second' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'last');
+    assertEqual(result.length, 1, 'one entry');
+    assertEqual(result[0].content, 'second', 'last vault kept');
+});
+
+test('deduplicateMultiVault: case-insensitive title matching', () => {
+    const entries = [
+        makeEntry('Dragon', { content: 'first' }),
+        makeEntry('dragon', { content: 'second' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'first');
+    assertEqual(result.length, 1, 'case-insensitive dedup');
+});
+
+test('deduplicateMultiVault: merge unions array fields', () => {
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon', 'drake'], tags: ['lorebook'] }),
+        makeEntry('Dragon', { keys: ['drake', 'wyrm'], tags: ['lorebook', 'creature'] }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result.length, 1, 'merged to one');
+    assert(result[0].keys.includes('dragon'), 'includes dragon');
+    assert(result[0].keys.includes('drake'), 'includes drake');
+    assert(result[0].keys.includes('wyrm'), 'includes wyrm');
+    assertEqual(result[0].keys.length, 3, 'no duplicate drake');
+    assert(result[0].tags.includes('creature'), 'merged tags');
+});
+
+test('deduplicateMultiVault: merge concatenates content', () => {
+    const entries = [
+        makeEntry('Dragon', { content: 'Fire breather.' }),
+        makeEntry('Dragon', { content: 'Ice breather.' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assert(result[0].content.includes('Fire breather.'), 'first content present');
+    assert(result[0].content.includes('Ice breather.'), 'second content present');
+    assert(result[0].content.includes('---'), 'separator present');
+});
+
+test('deduplicateMultiVault: merge recalculates tokenEstimate', () => {
+    const entries = [
+        makeEntry('Dragon', { content: 'Short.', tokenEstimate: 2 }),
+        makeEntry('Dragon', { content: 'Also short.', tokenEstimate: 3 }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    const expectedLen = ('Short.' + '\n\n---\n\n' + 'Also short.').length;
+    assertEqual(result[0].tokenEstimate, Math.ceil(expectedLen / 4.0), 'token estimate recalculated');
+});
+
+test('deduplicateMultiVault: merge prefers first non-empty summary', () => {
+    const entries = [
+        makeEntry('Dragon', { summary: 'First summary' }),
+        makeEntry('Dragon', { summary: 'Second summary' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].summary, 'First summary', 'first summary kept');
+});
+
+test('deduplicateMultiVault: merge fills empty summary from second', () => {
+    const entries = [
+        makeEntry('Dragon', { summary: '' }),
+        makeEntry('Dragon', { summary: 'Second summary' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].summary, 'Second summary', 'second summary used when first empty');
+});
+
+test('deduplicateMultiVault: merge customFields unions arrays', () => {
+    const entries = [
+        makeEntry('Dragon', { customFields: { era: ['medieval'] } }),
+        makeEntry('Dragon', { customFields: { era: ['medieval', 'renaissance'] } }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].customFields.era.length, 2, 'unioned era values');
+    assert(result[0].customFields.era.includes('renaissance'), 'has renaissance');
+});
+
+test('deduplicateMultiVault: merge customFields prefers first non-empty scalar', () => {
+    const entries = [
+        makeEntry('Dragon', { customFields: { mood: 'fierce' } }),
+        makeEntry('Dragon', { customFields: { mood: 'calm' } }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].customFields.mood, 'fierce', 'first scalar kept');
+});
+
+test('deduplicateMultiVault: three-way merge', () => {
+    const entries = [
+        makeEntry('Dragon', { keys: ['a'], content: 'one' }),
+        makeEntry('Dragon', { keys: ['b'], content: 'two' }),
+        makeEntry('Dragon', { keys: ['c'], content: 'three' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result.length, 1, 'one merged entry');
+    assertEqual(result[0].keys.length, 3, 'all keys merged');
+    assert(result[0].content.includes('one'), 'first content');
+    assert(result[0].content.includes('three'), 'third content');
+});
+
+test('deduplicateMultiVault: mixed unique + duplicate entries', () => {
+    const entries = [
+        makeEntry('Dragon', { vaultSource: 'v1' }),
+        makeEntry('Elf', { vaultSource: 'v1' }),
+        makeEntry('Dragon', { vaultSource: 'v2' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'first');
+    assertEqual(result.length, 2, 'Dragon deduped, Elf kept');
+    const titles = result.map(e => e.title);
+    assert(titles.includes('Dragon'), 'has Dragon');
+    assert(titles.includes('Elf'), 'has Elf');
+});
+
+test('deduplicateMultiVault: empty entries array', () => {
+    assertEqual(deduplicateMultiVault([], 'first').length, 0, 'empty');
+    assertEqual(deduplicateMultiVault([], 'merge').length, 0, 'empty merge');
+});
+
+test('computeEntityDerivedState: titles and keys added to entity name set', () => {
+    const entries = [makeEntry('Dragon', { keys: ['drake', 'wyrm'] })];
+    computeEntityDerivedState(entries);
+    assert(entityNameSet.has('dragon'), 'title lowercase in set');
+    assert(entityNameSet.has('drake'), 'key in set');
+    assert(entityNameSet.has('wyrm'), 'key in set');
+});
+
+test('computeEntityDerivedState: single-char keys excluded', () => {
+    const entries = [makeEntry('Dragon', { keys: ['x', 'fire'] })];
+    computeEntityDerivedState(entries);
+    assert(!entityNameSet.has('x'), 'single char key excluded');
+    assert(entityNameSet.has('fire'), 'multi char key included');
+});
+
+test('computeEntityDerivedState: single-char titles included', () => {
+    const entries = [makeEntry('X', {})];
+    computeEntityDerivedState(entries);
+    assert(entityNameSet.has('x'), 'single char title included (>= 1)');
+});
+
+test('computeEntityDerivedState: regexes have word boundaries', () => {
+    const entries = [makeEntry('Arch', { keys: [] })];
+    computeEntityDerivedState(entries);
+    const regex = entityShortNameRegexes.get('arch');
+    assert(regex !== undefined, 'regex exists');
+    assert(regex.test('The Arch stands'), 'matches whole word');
+    assert(!regex.test('monarch'), 'does not match substring');
+});
+
+test('computeEntityDerivedState: special regex chars escaped', () => {
+    const entries = [makeEntry('C++', { keys: [] })];
+    computeEntityDerivedState(entries);
+    const regex = entityShortNameRegexes.get('c++');
+    assert(regex !== undefined, 'regex exists for special chars');
+    // Shouldn't throw when tested
+    assert(!regex.test('cccc'), 'does not match unrelated');
+});
+
+// ============================================================================
+// Phase 1B: state.js — trackerKey, circuit breaker query/probe
+// ============================================================================
+
+test('trackerKey: entry with vaultSource', () => {
+    assertEqual(trackerKey({ title: 'Eris', vaultSource: 'main' }), 'main:Eris');
+});
+
+test('trackerKey: entry with empty vaultSource', () => {
+    assertEqual(trackerKey({ title: 'Eris', vaultSource: '' }), ':Eris');
+});
+
+test('trackerKey: entry with undefined vaultSource', () => {
+    assertEqual(trackerKey({ title: 'Eris' }), ':Eris');
+});
+
+test('trackerKey: same title different vaultSource produces different keys', () => {
+    const k1 = trackerKey({ title: 'Dragon', vaultSource: 'vault1' });
+    const k2 = trackerKey({ title: 'Dragon', vaultSource: 'vault2' });
+    assertNotEqual(k1, k2, 'different vaultSources should produce different keys');
+});
+
+test('isAiCircuitOpen: returns false when circuit is closed', () => {
+    recordAiSuccess(); // ensure closed
+    assert(!isAiCircuitOpen(), 'closed circuit should return false');
+});
+
+test('isAiCircuitOpen: returns true during cooldown', () => {
+    recordAiSuccess(); // reset
+    recordAiFailure();
+    recordAiFailure(); // trip circuit
+    assert(isAiCircuitOpen(), 'circuit should be open during cooldown');
+    recordAiSuccess(); // cleanup
+});
+
+test('tryAcquireHalfOpenProbe: returns true when circuit closed', () => {
+    recordAiSuccess(); // reset
+    assert(tryAcquireHalfOpenProbe(), 'closed circuit always allows calls');
+});
+
+test('tryAcquireHalfOpenProbe: returns false during cooldown', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure(); // trip
+    // Cooldown just started, should be blocked
+    assert(!tryAcquireHalfOpenProbe(), 'should be blocked during cooldown');
+    recordAiSuccess(); // cleanup
+});
+
+test('tryAcquireHalfOpenProbe: allows probe after cooldown expires', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure(); // trip
+    // Simulate cooldown expiry by backdating the opened-at timestamp
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+    assert(tryAcquireHalfOpenProbe(), 'should allow probe after cooldown');
+    recordAiSuccess(); // cleanup
+});
+
+test('tryAcquireHalfOpenProbe: second caller blocked after first acquires probe', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure();
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+    assert(tryAcquireHalfOpenProbe(), 'first caller gets probe');
+    assert(!tryAcquireHalfOpenProbe(), 'second caller blocked');
+    recordAiSuccess(); // cleanup
+});
+
+test('releaseHalfOpenProbe: frees probe without affecting circuit state', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure();
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+    tryAcquireHalfOpenProbe(); // acquire
+    releaseHalfOpenProbe(); // release without success/failure
+    // Circuit should still be open (not closed by release)
+    assert(isAiCircuitOpen() === false, 'after release, cooldown expired, no probe → isAiCircuitOpen returns false for new probe');
+    // Another caller should now be able to acquire
+    assert(tryAcquireHalfOpenProbe(), 'probe should be re-acquirable after release');
+    recordAiSuccess(); // cleanup
+});
+
+test('computeOverallStatus: limited when obsidian circuit open with entries', () => {
+    setVaultIndex([makeEntry('A', {})]);
+    setIndexEverLoaded(true);
+    setLastVaultFailureCount(0);
+    setLastVaultAttemptCount(1);
+    setLastHealthResult(null);
+    recordAiSuccess();
+    const status = computeOverallStatus({ state: 'open' });
+    assertEqual(status, 'limited', 'obsidian circuit open with entries = limited');
+});
+
+test('computeOverallStatus: offline when obsidian circuit open with no entries', () => {
+    setVaultIndex([]);
+    setIndexEverLoaded(false);
+    setLastVaultFailureCount(0);
+    setLastVaultAttemptCount(0);
+    setLastHealthResult(null);
+    recordAiSuccess();
+    const status = computeOverallStatus({ state: 'open' });
+    assertEqual(status, 'offline', 'obsidian circuit open with no entries = offline');
+});
+
+// ============================================================================
+// Phase 2D: matchEntries (extracted to match.js)
+// ============================================================================
+
+import { matchEntries as matchEntriesPure } from '../src/pipeline/match.js';
+import { cooldownTracker } from '../src/state.js';
+import { clearScanTextCache } from '../core/matching.js';
+
+// Helper: create a chat array from messages
+function makeChat(...messages) {
+    return messages.map((m, i) => ({
+        name: typeof m === 'string' ? (i % 2 === 0 ? 'User' : 'Char') : m.name,
+        mes: typeof m === 'string' ? m : m.mes,
+        is_user: typeof m === 'string' ? (i % 2 === 0) : (m.is_user ?? false),
+    }));
+}
+
+test('matchEntries: constants always matched regardless of keywords', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('ConstantLore', { constant: true, keys: [] }),
+        makeEntry('Normal', { keys: ['dragon'] }),
+    ];
+    const chat = makeChat('Hello there');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'ConstantLore'), 'constant always matched');
+    assertEqual(matchedKeys.get('ConstantLore'), '(constant)', 'reason is (constant)');
+});
+
+test('matchEntries: bootstrap entries matched when chat is short', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('BootLore', { bootstrap: true, keys: [] })];
+    const chat = makeChat('Hello');
+    const settings = makeSettings({ scanDepth: 5, newChatThreshold: 3 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'BootLore'), 'bootstrap matched when chat short');
+});
+
+test('matchEntries: bootstrap not matched when chat is long', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('BootLore', { bootstrap: true, keys: [] })];
+    const chat = makeChat('msg1', 'msg2', 'msg3', 'msg4');
+    const settings = makeSettings({ scanDepth: 5, newChatThreshold: 3 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'BootLore'), 'bootstrap not matched when chat > threshold');
+});
+
+test('matchEntries: keyword match triggers entry', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'] })];
+    const chat = makeChat('I see a dragon in the distance');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'keyword match found');
+});
+
+test('matchEntries: warmup gate blocks entry with insufficient occurrences', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], warmup: 3 })];
+    const chat = makeChat('I see a dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, warmupFailed } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'Dragon'), 'warmup blocks with 1 occurrence');
+    assertEqual(warmupFailed.length, 1, 'warmup failure recorded');
+    assertEqual(warmupFailed[0].needed, 3, 'needed 3');
+});
+
+test('matchEntries: warmup gate passes when enough occurrences', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], warmup: 2 })];
+    const chat = makeChat('dragon dragon dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'warmup passes with enough occurrences');
+});
+
+test('matchEntries: probability 0 always skips', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], probability: 0 })];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, probabilitySkipped } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'Dragon'), 'probability 0 always skips');
+    assertEqual(probabilitySkipped.length, 1, 'skip recorded');
+});
+
+test('matchEntries: probability 1.0 always passes', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], probability: 1.0 })];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'probability 1.0 always passes');
+});
+
+test('matchEntries: cooldown gate blocks entry', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], cooldown: 3 })];
+    cooldownTracker.set(':Dragon', 2);
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'Dragon'), 'cooldown blocks entry');
+    cooldownTracker.clear(); // cleanup
+});
+
+test('matchEntries: cascade links pull in linked entries', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], cascadeLinks: ['Sword'] }),
+        makeEntry('Sword', { keys: ['sword'] }),
+    ];
+    const chat = makeChat('I see a dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary match');
+    assert(matched.some(e => e.title === 'Sword'), 'cascade linked');
+    assert(matchedKeys.get('Sword').includes('cascade from'), 'reason shows cascade');
+});
+
+test('matchEntries: BUG-035 cascade links skip warmup', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], cascadeLinks: ['Sword'] }),
+        makeEntry('Sword', { keys: ['sword'], warmup: 5 }),
+    ];
+    const chat = makeChat('I see a dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    // Sword has warmup=5 but is cascade-linked — should still be pulled in
+    assert(matched.some(e => e.title === 'Sword'), 'cascade skips warmup gate');
+});
+
+test('matchEntries: cascade links respect cooldown', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], cascadeLinks: ['Sword'] }),
+        makeEntry('Sword', { keys: ['sword'], cooldown: 3 }),
+    ];
+    cooldownTracker.set(':Sword', 2);
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary matches');
+    assert(!matched.some(e => e.title === 'Sword'), 'cascade blocked by cooldown');
+    cooldownTracker.clear();
+});
+
+test('matchEntries: recursive scanning finds entries in matched content', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], content: 'The dragon guards the sword' }),
+        makeEntry('Sword', { keys: ['sword'] }),
+    ];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5, recursiveScan: true, maxRecursionSteps: 3 });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary match');
+    assert(matched.some(e => e.title === 'Sword'), 'found via recursion');
+    assert(matchedKeys.get('Sword').includes('recursion'), 'reason shows recursion');
+});
+
+test('matchEntries: excludeRecursion flag respected', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], content: 'The dragon guards the sword', excludeRecursion: true }),
+        makeEntry('Sword', { keys: ['sword'] }),
+    ];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5, recursiveScan: true, maxRecursionSteps: 3 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary match');
+    assert(!matched.some(e => e.title === 'Sword'), 'recursion skipped due to excludeRecursion');
+});
+
+test('matchEntries: character context scan', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Eris', { keys: ['eris'] })];
+    const chat = makeChat('Hello');
+    const settings = makeSettings({ scanDepth: 5, characterContextScan: true });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings, characterName: 'Eris' });
+    assert(matched.some(e => e.title === 'Eris'), 'active character matched');
+    assertEqual(matchedKeys.get('Eris'), '(active character)', 'reason shows active character');
+});
+
+test('matchEntries: sorted by priority', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Low', { keys: ['dragon'], priority: 100 }),
+        makeEntry('High', { keys: ['dragon'], priority: 10 }),
+    ];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assertEqual(matched[0].title, 'High', 'higher priority first (lower number)');
+    assertEqual(matched[1].title, 'Low', 'lower priority second');
+});
+
+// ============================================================================
+// Phase 2C: buildCandidateManifest (extracted to manifest.js)
+// ============================================================================
+
+import { buildCandidateManifest } from '../src/ai/manifest.js';
+import { makeSettings } from './helpers.mjs';
+
+// Reset field definitions to defaults for manifest tests
+setFieldDefinitions([
+    { name: 'era', label: 'Era' },
+    { name: 'location', label: 'Location' },
+]);
+
+test('buildCandidateManifest: filters out constants', () => {
+    const candidates = [
+        makeEntry('Dragon', { keys: ['dragon'], summary: 'A dragon', tokenEstimate: 50 }),
+        makeEntry('Always', { keys: ['always'], summary: 'Constant', tokenEstimate: 30, constant: true }),
+    ];
+    const settings = makeSettings();
+    const { manifest, header } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('Dragon'), 'Dragon in manifest');
+    assert(!manifest.includes('name="Always"'), 'constant filtered from manifest');
+    assert(header.includes('1 entries are always included'), 'header mentions forced count');
+});
+
+test('buildCandidateManifest: filters bootstraps when excludeBootstrap=true', () => {
+    const candidates = [
+        makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 }),
+        makeEntry('Boot', { summary: 'Bootstrap', tokenEstimate: 30, bootstrap: true }),
+    ];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, true, settings);
+    assert(manifest.includes('Dragon'), 'Dragon in manifest');
+    assert(!manifest.includes('name="Boot"'), 'bootstrap filtered');
+});
+
+test('buildCandidateManifest: empty selectable returns empty', () => {
+    const candidates = [makeEntry('Always', { constant: true, tokenEstimate: 30 })];
+    const settings = makeSettings();
+    const { manifest, header } = buildCandidateManifest(candidates, false, settings);
+    assertEqual(manifest, '', 'empty manifest');
+    assertEqual(header, '', 'empty header');
+});
+
+test('buildCandidateManifest: prefer_summary mode uses summary when available', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'My summary', content: 'My content', tokenEstimate: 50 })];
+    const settings = makeSettings({ manifestSummaryMode: 'prefer_summary' });
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('My summary'), 'summary text used');
+});
+
+test('buildCandidateManifest: content_only mode ignores summary', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'My summary', content: 'My full content here.', tokenEstimate: 50 })];
+    const settings = makeSettings({ manifestSummaryMode: 'content_only' });
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(!manifest.includes('My summary'), 'summary not used in content_only');
+    assert(manifest.includes('My full content here.'), 'content used');
+});
+
+test('buildCandidateManifest: summary_only mode excludes entries without summary', () => {
+    const candidates = [
+        makeEntry('A', { summary: 'Has summary', tokenEstimate: 50 }),
+        makeEntry('B', { summary: '', content: 'No summary', tokenEstimate: 50 }),
+    ];
+    const settings = makeSettings({ manifestSummaryMode: 'summary_only' });
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('name="A"'), 'A with summary included');
+    assert(!manifest.includes('name="B"'), 'B without summary excluded');
+});
+
+test('buildCandidateManifest: custom field annotations', () => {
+    const candidates = [makeEntry('Dragon', {
+        summary: 'A dragon', tokenEstimate: 50,
+        customFields: { era: ['medieval'], location: 'mountain' },
+    })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('Era: medieval'), 'era annotation');
+    assert(manifest.includes('Location: mountain'), 'location annotation');
+});
+
+test('buildCandidateManifest: decay STALE hint', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ decayEnabled: true, decayBoostThreshold: 5 });
+    setDecayTracker(new Map([[':Dragon', 6]]));
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('[STALE'), 'stale hint present');
+    setDecayTracker(new Map()); // cleanup
+});
+
+test('buildCandidateManifest: consecutive FREQUENT hint', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ decayEnabled: true, decayBoostThreshold: 5, decayPenaltyThreshold: 3 });
+    // decayTracker must be non-empty for the decay block to execute
+    setDecayTracker(new Map([['other:entry', 0]]));
+    setConsecutiveInjections(new Map([[':Dragon', 4]]));
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('[FREQUENT'), 'frequent hint present');
+    setDecayTracker(new Map()); // cleanup
+    setConsecutiveInjections(new Map()); // cleanup
+});
+
+test('buildCandidateManifest: wiki-link formatting', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50, resolvedLinks: ['Eris', 'Sword'] })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('→ Eris, Sword'), 'links formatted');
+});
+
+test('buildCandidateManifest: token count in header', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 123 })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('123tok'), 'token count in manifest');
+});
+
+test('buildCandidateManifest: XML escaping in entry name', () => {
+    const candidates = [makeEntry('Dragon & Fire <Hot>', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('name="Dragon &amp; Fire &lt;Hot&gt;"'), 'XML escaped');
+});
+
+test('buildCandidateManifest: budget info present when not unlimited', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ unlimitedBudget: false, maxTokensBudget: 2000 });
+    const { header } = buildCandidateManifest(candidates, false, settings);
+    assert(header.includes('Token budget: ~2000'), 'budget info present');
+});
+
+test('buildCandidateManifest: budget info absent when unlimited', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ unlimitedBudget: true });
+    const { header } = buildCandidateManifest(candidates, false, settings);
+    assert(!header.includes('Token budget'), 'no budget info');
+});
+
+test('buildCandidateManifest: BUG-047 forcedCount uses candidates.length', () => {
+    const candidates = [
+        makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 }),
+        makeEntry('Const1', { constant: true, tokenEstimate: 30 }),
+        makeEntry('Const2', { constant: true, tokenEstimate: 20 }),
+    ];
+    const settings = makeSettings();
+    const { header } = buildCandidateManifest(candidates, false, settings);
+    assert(header.includes('1 (from 3 total)'), 'selectable=1 from total=3');
+    assert(header.includes('2 entries are always included'), '2 forced');
+    assert(header.includes('~50 tokens'), 'forced token sum');
 });
 
 // ============================================================================

@@ -17,6 +17,8 @@ import {
 import { dedupWarning } from '../toast-dedup.js';
 // Re-export pure functions from helpers.js for consumers that import from ai.js
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
+// buildCandidateManifest extracted to manifest.js for testability
+import { buildCandidateManifest as _buildCandidateManifest } from './manifest.js';
 
 // ── AI call throttle ──
 // Minimum 2 seconds between actual AI API calls to prevent rapid-generation spam.
@@ -218,76 +220,9 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
  * @param {boolean} [excludeBootstrap=false] - Also exclude bootstrap entries (when they're being force-injected)
  * @returns {{ manifest: string, header: string }}
  */
+/** Build candidate manifest — delegates to extracted pure function with settings injection. */
 export function buildCandidateManifest(candidates, excludeBootstrap = false) {
-    const settings = getSettings();
-    const summaryLen = settings.aiSearchManifestSummaryLength || 600;
-
-    const summaryMode = settings.manifestSummaryMode || 'prefer_summary';
-    let selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive: excludeBootstrap }));
-
-    // E8: In summary_only mode, exclude entries that have no summary field
-    if (summaryMode === 'summary_only') {
-        selectable = selectable.filter(e => e.summary && e.summary.trim());
-    }
-
-    if (selectable.length === 0) return { manifest: '', header: '' };
-
-    const fieldLabelMap = new Map(fieldDefinitions.map(f => [f.name, f.label]));
-    const manifest = selectable
-        .map(entry => {
-            // E8: Select summary text based on manifestSummaryMode
-            const summaryText = summaryMode === 'content_only'
-                ? truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen)
-                : (entry.summary || truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen));
-            const safeSummary = summaryText;
-            const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
-                ? ` → ${entry.resolvedLinks.join(', ')}`
-                : '';
-            // Decay/freshness annotation: hint to AI about stale or frequently-injected entries
-            let decayHint = '';
-            if (settings.decayEnabled && decayTracker.size > 0) {
-                const staleness = decayTracker.get(trackerKey(entry));
-                if (staleness !== undefined && staleness >= settings.decayBoostThreshold) {
-                    decayHint = ' [STALE — consider refreshing]';
-                }
-                // Penalty: entries injected many consecutive times get a nudge.
-                if (!decayHint && settings.decayPenaltyThreshold > 0) {
-                    const streak = consecutiveInjections.get(trackerKey(entry));
-                    if (streak !== undefined && streak >= settings.decayPenaltyThreshold) {
-                        decayHint = ' [FREQUENT — consider diversifying]';
-                    }
-                }
-            }
-            // Custom field annotations (e.g. [Era: medieval | Location: tavern])
-            let fieldsHint = '';
-            if (entry.customFields) {
-                const pairs = Object.entries(entry.customFields)
-                    .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
-                    .map(([k, v]) => `${fieldLabelMap.get(k) || k}: ${Array.isArray(v) ? v.join(', ') : v}`);
-                if (pairs.length > 0) fieldsHint = `\n[${pairs.join(' | ')}]`;
-            }
-            const attrSafeTitle = escapeXml(entry.title);
-            const header = `${entry.title} (${entry.tokenEstimate}tok)${links}${decayHint}${fieldsHint}`;
-
-            // Wrap each entry in structural delimiters to prevent summary content
-            // from being interpreted as manifest-level instructions
-            return `<entry name="${attrSafeTitle}">\n${header}\n${safeSummary}\n</entry>`;
-        })
-        .join('\n');
-
-    // BUG-047: Use candidates.length (includes force-injected) not selectable.length (tautological)
-    const forcedCount = candidates.length - selectable.length;
-    let forcedTokens = 0;
-    for (const e of candidates) { if (isForceInjected(e)) forcedTokens += e.tokenEstimate; }
-    const budgetInfo = settings.unlimitedBudget
-        ? ''
-        : `\nToken budget: ~${settings.maxTokensBudget} tokens total.`;
-
-    const header = `Candidate entries: ${selectable.length} (from ${candidates.length} total).`
-        + (forcedCount > 0 ? `\n${forcedCount} entries are always included (~${forcedTokens} tokens).` : '')
-        + budgetInfo;
-
-    return { manifest, header };
+    return _buildCandidateManifest(candidates, excludeBootstrap, getSettings());
 }
 
 // clusterEntries, buildCategoryManifest — imported from ./helpers.js

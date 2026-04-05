@@ -7,6 +7,9 @@
 import { getSettings } from '../../settings.js';
 import { dedupWarning } from '../toast-dedup.js';
 import { simpleHash } from '../../core/utils.js';
+// Re-export from extracted pure module for backward compatibility
+import { validateCachedEntry } from './cache-validate.js';
+export { validateCachedEntry };
 
 const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;
@@ -98,35 +101,7 @@ export async function saveIndexToCache(entries) {
     }
 }
 
-/**
- * Validate a cached entry has the structural invariants needed by the pipeline.
- * Discards corrupt entries (from browser crashes, quota pressure, etc.) rather than
- * letting them propagate through the system.
- * @param {object} entry
- * @returns {boolean}
- */
-export function validateCachedEntry(entry) {
-    if (!entry || typeof entry !== 'object') return false;
-    if (typeof entry.title !== 'string' || !entry.title) return false;
-    if (!Array.isArray(entry.keys)) return false;
-    if (typeof entry.content !== 'string') return false;
-    if (typeof entry.tokenEstimate !== 'number' || entry.tokenEstimate < 0 || Number.isNaN(entry.tokenEstimate)) return false;
-    if (entry.links !== undefined && !Array.isArray(entry.links)) return false;
-    if (entry.tags !== undefined && !Array.isArray(entry.tags)) return false;
-    // Default critical fields that may be missing from partial writes
-    if (typeof entry.priority !== 'number' || Number.isNaN(entry.priority)) entry.priority = 50;
-    if (typeof entry.constant !== 'boolean') entry.constant = false;
-    if (entry.requires !== undefined && !Array.isArray(entry.requires)) entry.requires = [];
-    if (entry.excludes !== undefined && !Array.isArray(entry.excludes)) entry.excludes = [];
-    if (entry.probability !== undefined && entry.probability !== null && typeof entry.probability !== 'number') entry.probability = null;
-    // Default array fields if missing or corrupt (defend against partial IndexedDB writes)
-    for (const field of ['links', 'resolvedLinks', 'tags']) {
-        if (!Array.isArray(entry[field])) entry[field] = [];
-    }
-    // Validate customFields object
-    if (!entry.customFields || typeof entry.customFields !== 'object') entry.customFields = {};
-    return true;
-}
+// validateCachedEntry — extracted to cache-validate.js, re-exported above
 
 /**
  * Load the vault index from IndexedDB cache.

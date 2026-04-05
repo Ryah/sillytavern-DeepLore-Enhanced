@@ -1824,6 +1824,33 @@ button.dle-browse-block.dle-block-active {
     margin: 0;
 }
 
+/* --- Empty state tutorial guide --- */
+.dle-empty-guide {
+    text-align: left;
+    font-size: var(--dle-text-xs);
+    margin-top: var(--dle-space-2);
+    line-height: 1.6;
+    max-width: 320px;
+}
+.dle-empty-guide ol,
+.dle-empty-guide ul {
+    padding-left: 18px;
+    margin: var(--dle-space-1) 0;
+}
+.dle-empty-guide li {
+    margin-bottom: 2px;
+}
+.dle-empty-guide code {
+    padding: 1px 4px;
+    background: var(--dle-bg-1, rgba(0, 0, 0, 0.12));
+    border-radius: 3px;
+    font-size: 0.9em;
+}
+.dle-empty-commands {
+    margin-top: var(--dle-space-2);
+    opacity: 0.7;
+}
+
 /* --- Pipeline activity animation --- */
 @keyframes dle-pulse {
     0%, 100% { opacity: 1; }
@@ -2990,6 +3017,15 @@ button.dle-browse-block.dle-block-active {
 /* Settings popup utility classes */
 .dle-sp-margin-top { margin-top: 8px; }
 .dle-sp-indent { margin-left: 20px; }
+.dle-unlimited-warning {
+    display: block;
+    font-size: var(--dle-text-xs, 0.75em);
+    color: var(--dle-warning, #ff9800);
+    margin-top: 2px;
+    padding: 2px 6px;
+    background: color-mix(in srgb, var(--dle-warning, #ff9800) 8%, transparent);
+    border-radius: var(--dle-radius-sm, 4px);
+}
 .dle-sp-narrow-input { width: 60px; }
 .dle-sp-command-table { width: 100%; font-size: 0.85em; border-collapse: collapse; }
 .dle-sp-command-table th { padding: 4px; text-align: center; border-bottom: 1px solid var(--SmartThemeBorderColor); }
@@ -3585,6 +3621,46 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     25% { transform: scale(1.03); }
     50% { transform: scale(0.97); }
     75% { transform: scale(1.02); }
+}
+
+/* --- Demo vault callout --- */
+.dle-wizard-demo-callout {
+    border-color: var(--dle-info, var(--SmartThemeQuoteColor, #4fc3f7));
+    background: color-mix(in srgb, var(--dle-info, #4fc3f7) 6%, var(--dle-bg-2));
+    margin-top: var(--dle-space-4);
+}
+.dle-wizard-demo-callout h3 i {
+    color: var(--dle-info);
+}
+.dle-wizard-demo-callout ol {
+    padding-left: 20px;
+    margin: var(--dle-space-2) 0;
+}
+.dle-wizard-demo-callout ol li {
+    margin-bottom: var(--dle-space-2);
+    line-height: 1.5;
+}
+.dle-wizard-demo-path-row {
+    display: flex;
+    align-items: center;
+    gap: var(--dle-space-1);
+    margin-top: 4px;
+}
+.dle-wizard-demo-path {
+    display: inline-block;
+    padding: 3px 8px;
+    background: var(--dle-bg-1, rgba(0, 0, 0, 0.15));
+    border-radius: var(--dle-radius-sm, 4px);
+    font-size: var(--dle-text-xs);
+    user-select: all;
+    word-break: break-all;
+    flex: 1;
+}
+.dle-wizard-demo-copy {
+    padding: 2px 8px !important;
+    min-height: unset !important;
+    font-size: var(--dle-text-xs);
+    flex-shrink: 0;
 }
 
 /* Responsive */

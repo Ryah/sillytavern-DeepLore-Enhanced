@@ -118,6 +118,33 @@
             <p class="dle-wizard-muted dle-wizard-wiki-link">
                 <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Installation" target="_blank" rel="noopener"><i class="fa-solid fa-book"></i> Installation guide</a>
             </p>
+
+            <!-- Demo vault callout -->
+            <div class="dle-wizard-card dle-wizard-demo-callout">
+                <h3><i class="fa-solid fa-flask"></i> New to DeepLore? Try the demo vault</h3>
+                <p>257 pre-built entries — the fantasy city of <strong>Duskfrost</strong>. Characters, locations, lore, factions, species, and more. Perfect for exploring DLE before building your own vault.</p>
+                <button id="dle-wiz-demo-toggle" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-folder-open"></i> Show me how
+                </button>
+                <div id="dle-wiz-demo-instructions" style="display: none;">
+                    <ol>
+                        <li>In Obsidian, click the vault icon (bottom-left) → <strong>Open folder as vault</strong></li>
+                        <li>Navigate to the <code>test-vault</code> folder inside the DLE extension directory:
+                            <div class="dle-wizard-demo-path-row">
+                                <code id="dle-wiz-demo-path" class="dle-wizard-demo-path"></code>
+                                <button id="dle-wiz-demo-copy" class="menu_button menu_button_icon dle-wizard-demo-copy" title="Copy path">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                        </li>
+                        <li>Install &amp; enable the <strong>Local REST API</strong> community plugin in the demo vault</li>
+                        <li>Set an API key in the plugin settings, then come back here</li>
+                    </ol>
+                    <button id="dle-wiz-demo-autofill" class="menu_button dle-wizard-action-btn">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-fill connection for demo vault
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- ═══ Page 3: Tags & Search Mode ═══ -->

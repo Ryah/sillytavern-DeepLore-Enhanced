@@ -15,7 +15,7 @@ export const MODULE_NAME = 'deeplore-enhanced';
 export const TAB_LABELS = {
     injection: 'Why?',
     browse: 'Browse',
-    gating: 'Gating',
+    gating: 'Filters',
     librarian: 'Librarian',
     tools: 'Tools',
 };

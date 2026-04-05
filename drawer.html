@@ -115,7 +115,16 @@
         <!-- Empty state (shown when no pipeline has run) -->
         <div class="dle-empty-state dle-visible">
             <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
-            <p>Send a message to see which lore gets included and why.</p>
+            <p>No entries injected yet.</p>
+            <div class="dle-empty-guide">
+                <p>To see lore injection in action:</p>
+                <ol>
+                    <li>Connect to an Obsidian vault with <code>#lorebook</code>-tagged entries</li>
+                    <li>Send a message mentioning a keyword from your entries</li>
+                    <li>This tab will show which entries were injected and why</li>
+                </ol>
+                <p class="dle-empty-commands"><code>/dle-setup</code> — configure your vault &nbsp; <code>/dle-browse</code> — see indexed entries</p>
+            </div>
         </div>
         <!-- Entry Timers (cooldown, decay) — collapsible -->
         <details class="dle-why-timers-section">
@@ -175,7 +184,15 @@
         <!-- Empty state: no entries loaded -->
         <div class="dle-empty-state dle-visible" id="dle-browse-empty-no-data">
             <i class="fa-solid fa-database" aria-hidden="true"></i>
-            <p>No entries loaded. Connect to Obsidian in Settings.</p>
+            <p>No entries indexed.</p>
+            <div class="dle-empty-guide">
+                <p>Your vault needs notes tagged with <code>#lorebook</code>. Each entry needs:</p>
+                <ul>
+                    <li><code>tags: [lorebook]</code> in frontmatter</li>
+                    <li><code>keys: [keyword1, keyword2]</code> for matching</li>
+                </ul>
+                <p class="dle-empty-commands"><code>/dle-setup</code> — configure vault &nbsp; <code>/dle-import</code> — import from World Info</p>
+            </div>
         </div>
         <!-- Empty state: filters returned no results -->
         <div class="dle-empty-state" id="dle-browse-empty-no-results">

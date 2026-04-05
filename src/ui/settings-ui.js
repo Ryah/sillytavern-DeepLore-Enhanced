@@ -1093,8 +1093,10 @@ function loadPopupSettings($container) {
     if (settings.fuzzySearchEnabled) runFuzzyPreview();
     $c('#dle-sp-unlimited-entries').prop('checked', settings.unlimitedEntries);
     $c('#dle-sp-max-entries').val(settings.maxEntries).prop('disabled', settings.unlimitedEntries);
+    $c('#dle-sp-unlimited-entries-warn').toggle(!!settings.unlimitedEntries);
     $c('#dle-sp-unlimited-budget').prop('checked', settings.unlimitedBudget);
     $c('#dle-sp-token-budget').val(settings.maxTokensBudget).prop('disabled', settings.unlimitedBudget);
+    $c('#dle-sp-unlimited-budget-warn').toggle(!!settings.unlimitedBudget);
     $c('#dle-sp-optimize-keys-mode').val(settings.optimizeKeysMode);
     $c('#dle-sp-case-sensitive').prop('checked', settings.caseSensitive);
     $c('#dle-sp-match-whole-words').prop('checked', settings.matchWholeWords);
@@ -1465,9 +1467,9 @@ function bindPopupEvents($container) {
         saveSettingsDebounced();
         runFuzzyPreview();
     });
-    $c('#dle-sp-unlimited-entries').on('change', function () { settings.unlimitedEntries = $(this).prop('checked'); $c('#dle-sp-max-entries').prop('disabled', settings.unlimitedEntries); saveSettingsDebounced(); });
+    $c('#dle-sp-unlimited-entries').on('change', function () { settings.unlimitedEntries = $(this).prop('checked'); $c('#dle-sp-max-entries').prop('disabled', settings.unlimitedEntries); $c('#dle-sp-unlimited-entries-warn').toggle(settings.unlimitedEntries); saveSettingsDebounced(); });
     $c('#dle-sp-max-entries').on('input', function () { settings.maxEntries = numVal($(this).val(), 10); saveSettingsDebounced(); });
-    $c('#dle-sp-unlimited-budget').on('change', function () { settings.unlimitedBudget = $(this).prop('checked'); $c('#dle-sp-token-budget').prop('disabled', settings.unlimitedBudget); saveSettingsDebounced(); });
+    $c('#dle-sp-unlimited-budget').on('change', function () { settings.unlimitedBudget = $(this).prop('checked'); $c('#dle-sp-token-budget').prop('disabled', settings.unlimitedBudget); $c('#dle-sp-unlimited-budget-warn').toggle(settings.unlimitedBudget); saveSettingsDebounced(); });
     $c('#dle-sp-token-budget').on('input', function () { settings.maxTokensBudget = numVal($(this).val(), 3072); saveSettingsDebounced(); });
     $c('#dle-sp-optimize-keys-mode').on('change', function () { settings.optimizeKeysMode = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle-sp-case-sensitive').on('change', function () { settings.caseSensitive = $(this).prop('checked'); saveSettingsDebounced(); });

@@ -3,7 +3,7 @@
  * Registers search_lore and flag_lore tools with SillyTavern's ToolManager.
  */
 import { ToolManager } from '../../../../../tool-calling.js';
-import { getSettings, invalidateSettingsCache } from '../../settings.js';
+import { getSettings } from '../../settings.js';
 import { librarianToolsRegistered, setLibrarianToolsRegistered } from '../state.js';
 import { searchLoreAction, flagLoreAction } from './librarian-tools.js';
 
@@ -17,28 +17,34 @@ import { searchLoreAction, flagLoreAction } from './librarian-tools.js';
  */
 export function registerLibrarianTools() {
     if (librarianToolsRegistered) return;
+    if (typeof ToolManager?.registerFunctionTool !== 'function') return;
 
     try {
         ToolManager.registerFunctionTool({
             name: 'dle_search_lore',
             displayName: 'Search Lore Vault',
             description:
-                'Search the lore vault for information not already provided. '
-                + 'ONLY use if you genuinely need world/character/lore details that were '
-                + 'not included in the injected context above.',
+                'Search the lore vault for entries not already in your context. '
+                + 'Pass an array of up to 4 search queries. For each query, you receive: '
+                + '(1) the full content of the best matching entry, and '
+                + '(2) a manifest of up to 10 entries linked from that entry, showing their '
+                + 'title, size, connections, and summary. '
+                + 'Use linked entry summaries to identify characters, places, or concepts '
+                + 'connected to your search result.',
             parameters: {
                 $schema: 'http://json-schema.org/draft-04/schema#',
                 type: 'object',
                 properties: {
-                    query: {
-                        type: 'string',
-                        description: 'Topic, name, or concept to search for',
+                    queries: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description: 'Topics, names, or concepts to search for (up to 4)',
                     },
                 },
-                required: ['query'],
+                required: ['queries'],
             },
             action: searchLoreAction,
-            formatMessage: (args) => `Searching lore: "${(args?.query || '').slice(0, 50)}"`,
+            formatMessage: () => null,
             shouldRegister: () => {
                 const s = getSettings();
                 return s.librarianEnabled && s.librarianSearchEnabled
@@ -74,7 +80,7 @@ export function registerLibrarianTools() {
                 required: ['title', 'reason'],
             },
             action: flagLoreAction,
-            formatMessage: (args) => `Flagging gap: "${args?.title || '...'}"`,
+            formatMessage: () => null,
             shouldRegister: () => {
                 const s = getSettings();
                 return s.librarianEnabled && s.librarianFlagEnabled
@@ -110,23 +116,3 @@ export function unregisterLibrarianTools() {
 // ════════════════════════════════════════════════════════════════════════════
 // Lifecycle
 // ════════════════════════════════════════════════════════════════════════════
-
-/**
- * Initialize the Librarian feature. Called once from index.js init().
- * Registers tools if librarianEnabled is true and ToolManager is available.
- */
-export function initLibrarian() {
-    const settings = getSettings();
-    if (!settings.librarianEnabled) {
-        console.log('[DLE] Librarian disabled, skipping tool registration');
-        return;
-    }
-
-    // Check if ToolManager is available (may not be on all ST versions)
-    if (typeof ToolManager?.registerFunctionTool !== 'function') {
-        console.warn('[DLE] ToolManager not available, Librarian tools cannot be registered');
-        return;
-    }
-
-    registerLibrarianTools();
-}

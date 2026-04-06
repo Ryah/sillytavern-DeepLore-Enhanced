@@ -19,7 +19,7 @@ import { buildObsidianURI } from '../helpers.js';
 import { openRuleBuilder } from '../ui/rule-builder.js';
 import {
     ds, TAB_LABELS, TOOL_ACTIONS, EXPAND_ACTIONS, BROWSE_ROW_HEIGHT,
-    scheduleRender,
+    scheduleRender, announceToScreenReader,
 } from './drawer-state.js';
 import { renderInjectionTab, renderBrowseTab, renderBrowseWindow, renderGatingTab, renderStatusZone } from './drawer-render.js';
 import { renderLibrarianTab, updateBulkBar } from './drawer-render-librarian.js';
@@ -628,7 +628,20 @@ export function wireLibrarianTab($drawer) {
     // Sub-tab buttons (Flags / Activity)
     $drawer.on('click', '.dle-librarian-sub-tab', function () {
         ds.librarianFilter = $(this).data('filter') || 'flag';
+        // Roving tabindex: active tab gets tabindex=0, others get -1
+        $drawer.find('.dle-librarian-sub-tab').attr('tabindex', '-1');
+        $(this).attr('tabindex', '0');
         scheduleRender(renderLibrarianTab);
+    });
+
+    // Roving tabindex: arrow keys between sub-tabs
+    $drawer.on('keydown', '.dle-librarian-sub-tab', function (e) {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        const $tabs = $drawer.find('.dle-librarian-sub-tab');
+        const idx = $tabs.index(this);
+        const next = e.key === 'ArrowRight' ? (idx + 1) % $tabs.length : (idx - 1 + $tabs.length) % $tabs.length;
+        $tabs.eq(next).trigger('click').focus();
     });
 
     // Activity sub-filter dropdown
@@ -652,8 +665,10 @@ export function wireLibrarianTab($drawer) {
         if (!gap) return;
 
         const cycle = { pending: 'acknowledged', acknowledged: 'rejected', rejected: 'pending' };
+        const statusLabelsShort = { acknowledged: 'Noted', rejected: 'Dismissed', pending: 'Pending' };
         gap.status = cycle[gap.status] || 'acknowledged';
         setLoreGaps([...loreGaps]); // trigger observers
+        announceToScreenReader(`${gap.query || 'Gap'} marked as ${statusLabelsShort[gap.status] || gap.status}`);
         scheduleRender(renderLibrarianTab);
     });
 
@@ -689,13 +704,13 @@ export function wireLibrarianTab($drawer) {
         if ($existing.length) {
             // Collapse
             $existing.remove();
-            $entry.removeClass('dle-gap-expanded');
+            $entry.removeClass('dle-gap-expanded').attr('aria-expanded', 'false');
             return;
         }
 
         // Collapse any other expanded entry
         $drawer.find('.dle-gap-detail').remove();
-        $drawer.find('.dle-librarian-entry').removeClass('dle-gap-expanded');
+        $drawer.find('.dle-librarian-entry').removeClass('dle-gap-expanded').attr('aria-expanded', 'false');
 
         // Build expanded detail
         const gapId = $entry.data('gap-id');
@@ -730,7 +745,7 @@ export function wireLibrarianTab($drawer) {
         detailHtml += '</div>';
 
         $entry.append(detailHtml);
-        $entry.addClass('dle-gap-expanded');
+        $entry.addClass('dle-gap-expanded').attr('aria-expanded', 'true');
     });
 
     // Keyboard shortcuts on focused gap entries
@@ -742,11 +757,13 @@ export function wireLibrarianTab($drawer) {
             e.preventDefault();
             gap.status = 'acknowledged';
             setLoreGaps([...loreGaps]);
+            announceToScreenReader(`${gap.query || 'Gap'} marked as Noted`);
             scheduleRender(renderLibrarianTab);
         } else if (e.key === 'x' && gap) {
             e.preventDefault();
             gap.status = 'rejected';
             setLoreGaps([...loreGaps]);
+            announceToScreenReader(`${gap.query || 'Gap'} marked as Dismissed`);
             scheduleRender(renderLibrarianTab);
         } else if (e.key === 'Enter') {
             // Enter always opens editor directly
@@ -774,9 +791,20 @@ export function wireLibrarianTab($drawer) {
         scheduleRender(renderLibrarianTab);
     });
 
-    // New Entry button in empty state
+    // New Entry button (empty state and bottom toolbar)
     $drawer.on('click', '.dle-librarian-new-entry-btn', function () {
         executeCommand('/dle-librarian');
+    });
+
+    // Vault Review button (empty state and bottom toolbar)
+    $drawer.on('click', '.dle-librarian-vault-review-btn', function () {
+        executeCommand('/dle-review');
+    });
+
+    // Quick Create chips — open editor pre-populated with the query
+    $drawer.on('click', '.dle-quick-create-chip', function () {
+        const query = $(this).data('query');
+        if (query) executeCommand(`/dle-librarian new title="${query}"`);
     });
 
     // ─── Bulk selection ───
@@ -824,6 +852,7 @@ export function wireLibrarianTab($drawer) {
         }
 
         if (action === 'note') {
+            const count = ds.librarianSelected.size;
             for (const id of ds.librarianSelected) {
                 const gap = loreGaps.find(g => g.id === id);
                 if (gap) gap.status = 'acknowledged';
@@ -831,6 +860,7 @@ export function wireLibrarianTab($drawer) {
             ds.librarianSelected.clear();
             ds.librarianLastClicked = null;
             setLoreGaps([...loreGaps]);
+            announceToScreenReader(`${count} item${count !== 1 ? 's' : ''} marked as Noted`);
             scheduleRender(renderLibrarianTab);
         }
 
@@ -841,6 +871,7 @@ export function wireLibrarianTab($drawer) {
             if (!btn.data('confirming')) {
                 btn.data('confirming', true);
                 btn.html('<i class="fa-solid fa-xmark"></i> Confirm?');
+                announceToScreenReader(`Confirm dismiss ${count} item${count !== 1 ? 's' : ''}? Click again to confirm.`);
                 setTimeout(() => { btn.data('confirming', false); btn.html('<i class="fa-solid fa-xmark"></i> Dismiss All'); }, 3000);
                 return;
             }
@@ -852,6 +883,7 @@ export function wireLibrarianTab($drawer) {
             ds.librarianSelected.clear();
             ds.librarianLastClicked = null;
             setLoreGaps([...loreGaps]);
+            announceToScreenReader(`${count} item${count !== 1 ? 's' : ''} dismissed`);
             scheduleRender(renderLibrarianTab);
         }
     });

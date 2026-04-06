@@ -258,6 +258,7 @@
                 </button>
             </div>
         </div>
+        <div class="dle-librarian-progress-summary dle-text-xs dle-muted" style="display:none" aria-live="polite"></div>
         <div class="dle-librarian-keyhint" aria-hidden="true">
             <kbd>A</kbd> Note &nbsp; <kbd>X</kbd> Dismiss &nbsp; <kbd>Enter</kbd> Open &nbsp; <kbd>Space</kbd> Expand
         </div>
@@ -265,10 +266,23 @@
         <div class="dle-empty-state dle-visible" id="dle-librarian-empty">
             <i class="fa-solid fa-book-bookmark" aria-hidden="true"></i>
             <p class="dle-librarian-empty-text">No lore gaps recorded yet.</p>
+            <div class="dle-librarian-empty-actions">
+                <button class="menu_button dle-tool-btn dle-librarian-new-entry-btn" data-action="librarian-new" title="Create a new vault entry from scratch">
+                    <i class="fa-solid fa-plus" aria-hidden="true"></i> New Entry
+                </button>
+                <button class="menu_button dle-tool-btn dle-librarian-vault-review-btn" data-action="librarian-review" title="AI-guided review of your vault">
+                    <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Vault Review
+                </button>
+            </div>
         </div>
-        <button class="menu_button dle-tool-btn dle-librarian-new-entry-btn" data-action="librarian-new" title="Open Librarian to create a new entry">
-            <i class="fa-solid fa-plus" aria-hidden="true"></i> New Entry
-        </button>
+        <div class="dle-librarian-toolbar-bottom">
+            <button class="menu_button dle-tool-btn dle-librarian-new-entry-btn" data-action="librarian-new" title="Create a new vault entry from scratch">
+                <i class="fa-solid fa-plus" aria-hidden="true"></i> New Entry
+            </button>
+            <button class="menu_button dle-tool-btn dle-librarian-vault-review-btn" data-action="librarian-review" title="AI-guided review of your vault">
+                <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Vault Review
+            </button>
+        </div>
     </div>
 
     <!-- ─── Tab: Tools ─── -->

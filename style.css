@@ -3868,6 +3868,42 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     background: color-mix(in srgb, var(--SmartThemeBodyColor) 16%, transparent);
 }
 
+/* Quick Create chips */
+.dle-librarian-quick-create {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 0 2px;
+}
+.dle-quick-create-chip {
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: var(--dle-text-xs);
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 15%, transparent);
+    color: var(--SmartThemeBodyColor);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.dle-quick-create-chip:hover {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 30%, transparent);
+}
+.dle-quick-create-chip:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: 1px;
+}
+.dle-quick-create-chip i { font-size: 9px; }
+
+/* Progress summary */
+.dle-librarian-progress-summary {
+    padding: 2px 4px;
+    margin-bottom: 2px;
+}
+
 /* Keyboard hint bar — shown when a gap entry has focus */
 .dle-librarian-keyhint {
     display: none;
@@ -3891,12 +3927,23 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 
 /* Entrance animation moved into main .dle-librarian-entry rule above */
 
-/* --- Gap status indicator (FA icons) --- */
+/* --- Gap status indicator (button with 24px minimum target) --- */
 .dle-gap-status {
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font-size: var(--dle-text-xs);
     text-align: center;
     line-height: 1;
-    width: 14px;
+    width: 24px;
+    min-height: 24px;
+    cursor: pointer;
+    border-radius: var(--dle-radius-sm);
+}
+.dle-gap-status:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: -2px;
 }
 .dle-gap-pending { color: var(--dle-warning); }
 .dle-gap-acknowledged { color: var(--SmartThemeBotMesColorName, #8899aa); }
@@ -4097,10 +4144,32 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-field-updated {
     animation: dle-field-flash 0.8s ease-out;
 }
+/* Persistent "AI updated" dot on field label */
+.dle-ai-modified > label::after {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--SmartThemeQuoteColor);
+    margin-left: 4px;
+    vertical-align: middle;
+}
 
-/* --- New Entry button in Librarian empty state --- */
-.dle-librarian-new-entry-btn {
-    margin-top: 8px;
+/* --- Librarian empty state actions & bottom toolbar --- */
+.dle-librarian-empty-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    justify-content: center;
+}
+.dle-librarian-toolbar-bottom {
+    display: flex;
+    gap: 8px;
+    padding: 6px 0 2px;
+}
+.dle-librarian-new-entry-btn,
+.dle-librarian-vault-review-btn {
     font-size: var(--dle-text-sm);
 }
 
@@ -4342,6 +4411,22 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     transition: opacity 0.15s;
 }
 #dle-lib-chat-collapse:hover { opacity: 1; }
+#dle-lib-chat-collapse { position: relative; }
+.dle-chat-unread {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 16px;
+    height: 16px;
+    line-height: 16px;
+    font-size: 10px;
+    font-weight: 700;
+    text-align: center;
+    border-radius: 8px;
+    background: var(--dle-error, #e74c3c);
+    color: #fff;
+    padding: 0 3px;
+}
 .dle-librarian-chat-title {
     margin: 0;
     font-size: var(--dle-text-base);

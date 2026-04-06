@@ -74,10 +74,10 @@ export function renderLibrarianTab() {
     const $list = $drawer.find('.dle-librarian-list');
     const $empty = $drawer.find('#dle-panel-librarian .dle-empty-state');
 
-    // Update sub-tab active states
+    // Update sub-tab active states + roving tabindex
     const $subTabs = $drawer.find('.dle-librarian-sub-tabs');
-    $subTabs.find('.dle-librarian-sub-tab').removeClass('active').attr('aria-checked', 'false');
-    $subTabs.find(`[data-filter="${ds.librarianFilter}"]`).addClass('active').attr('aria-checked', 'true');
+    $subTabs.find('.dle-librarian-sub-tab').removeClass('active').attr('aria-checked', 'false').attr('tabindex', '-1');
+    $subTabs.find(`[data-filter="${ds.librarianFilter}"]`).addClass('active').attr('aria-checked', 'true').attr('tabindex', '0');
 
     // Show/hide activity filter dropdown (only visible on Activity sub-tab)
     const $activityFilter = $drawer.find('.dle-librarian-activity-filter');
@@ -117,6 +117,23 @@ export function renderLibrarianTab() {
     $subTabs.find('[data-filter="flag"] .dle-sub-tab-count').text(flagCount > 0 ? `(${flagCount})` : '');
     $subTabs.find('[data-filter="activity"] .dle-sub-tab-count').text(activityCount > 0 ? `(${activityCount})` : '');
 
+    // Progress summary (Flags tab only, when there are items)
+    const $summary = $drawer.find('.dle-librarian-progress-summary');
+    if (ds.librarianFilter === 'flag' && flagCount > 0) {
+        const byStatus = { pending: 0, acknowledged: 0, in_progress: 0, written: 0, rejected: 0 };
+        for (const g of loreGaps) {
+            if (g.type === 'flag') byStatus[g.status] = (byStatus[g.status] || 0) + 1;
+        }
+        const parts = [];
+        if (byStatus.pending) parts.push(`${byStatus.pending} pending`);
+        if (byStatus.in_progress) parts.push(`${byStatus.in_progress} in progress`);
+        if (byStatus.acknowledged) parts.push(`${byStatus.acknowledged} noted`);
+        if (byStatus.written + byStatus.rejected) parts.push(`${byStatus.written + byStatus.rejected} done`);
+        $summary.text(`${flagCount} flag${flagCount !== 1 ? 's' : ''}: ${parts.join(', ')}`).css('display', '');
+    } else {
+        $summary.css('display', 'none');
+    }
+
     // Sort gaps
     switch (ds.librarianSort) {
         case 'frequency':
@@ -133,22 +150,30 @@ export function renderLibrarianTab() {
             break;
     }
 
+    const $toolbarBottom = $drawer.find('#dle-panel-librarian .dle-librarian-toolbar-bottom');
+
     // Empty state — show dynamic enabled/disabled status
     if (gaps.length === 0) {
         $list.empty();
         const enabled = getSettings().librarianEnabled;
         const $text = $empty.find('.dle-librarian-empty-text');
+        const $emptyActions = $empty.find('.dle-librarian-empty-actions');
         if (!enabled) {
             $text.text('Librarian is disabled. Enable it in Settings \u2192 Features \u2192 Librarian.');
+            $emptyActions.css('display', 'none');
         } else if (ds.librarianFilter === 'flag') {
             $text.text('No flagged gaps yet. The AI will flag missing lore during replies.');
+            $emptyActions.css('display', '');
         } else {
             $text.text('No activity recorded yet. Tool calls will appear here after your next reply.');
+            $emptyActions.css('display', '');
         }
         $empty.addClass('dle-visible');
+        $toolbarBottom.css('display', 'none'); // Hide bottom toolbar when empty (actions are inside empty state)
         return;
     }
     $empty.removeClass('dle-visible');
+    $toolbarBottom.css('display', ''); // Show bottom toolbar when populated
 
     // Build inbox HTML — scan tier: status, type, title, time only
     let html = '';
@@ -169,11 +194,15 @@ export function renderLibrarianTab() {
         const isSelected = ds.librarianSelected.has(gap.id);
         const selClass = isSelected ? 'dle-gap-selected' : '';
 
+        const nextStatus = { pending: 'noted', acknowledged: 'dismissed', rejected: 'pending' };
+        const statusTooltip = `${statusInfo.label} — click to mark as ${nextStatus[gap.status] || 'noted'}`;
+
         html += `<div class="dle-librarian-entry ${heatClass} ${staleClass} ${selClass}" style="--dle-gap:${score.toFixed(2)}" `
             + `data-gap-id="${escapeHtml(gap.id)}" data-urgency="${gap.urgency || 'medium'}" role="listitem" `
+            + `aria-expanded="false" aria-keyshortcuts="a x Enter Space ArrowUp ArrowDown" `
             + `aria-label="${title}, ${statusInfo.label}, ${gap.urgency || 'medium'} urgency" tabindex="0">`;
         html += `<input type="checkbox" class="dle-gap-check" ${isSelected ? 'checked' : ''} aria-label="Select ${title}" tabindex="-1">`;
-        html += `<span class="dle-gap-status ${statusInfo.cls}" title="${statusInfo.label}" aria-label="${statusInfo.label}">${statusInfo.icon}</span>`;
+        html += `<button type="button" class="dle-gap-status ${statusInfo.cls}" title="${statusTooltip}" aria-label="${statusTooltip}" tabindex="-1">${statusInfo.icon}</button>`;
         html += `<span class="dle-gap-type" aria-label="${gap.type === 'search' ? 'Search' : 'Flag'}">${typeIcon}</span>`;
         html += `<span class="dle-gap-title">${title}</span>`;
         html += `<span class="dle-gap-time">${time}</span>`;
@@ -202,6 +231,43 @@ export function renderLibrarianTab() {
 
     // Update badge count on tab button (pending flags only — the actionable items)
     updateLibrarianBadge();
+
+    // Quick Create chips — top unmet queries from analytics (Flags tab only)
+    renderQuickCreateChips($drawer);
+}
+
+/**
+ * Render Quick Create chips from top unmet queries (analytics data).
+ * Shows up to 3 chips at the bottom of the Flags tab for one-click entry creation.
+ */
+function renderQuickCreateChips($drawer) {
+    let $chips = $drawer.find('.dle-librarian-quick-create');
+    if (ds.librarianFilter !== 'flag') {
+        $chips.remove();
+        return;
+    }
+
+    const settings = getSettings();
+    const unmet = settings.analyticsData?._librarian?.topUnmetQueries || [];
+    // Filter to queries with count >= 2 (repeated unmet searches are stronger signals)
+    const top = unmet.filter(u => u.count >= 2).slice(0, 3);
+
+    if (top.length === 0) {
+        $chips.remove();
+        return;
+    }
+
+    const chipsHtml = top.map(u =>
+        `<button class="dle-quick-create-chip" data-query="${escapeHtml(u.query)}" title="Create entry for &quot;${escapeHtml(u.query)}&quot; (searched ${u.count}×, no results)">` +
+        `<i class="fa-solid fa-plus" aria-hidden="true"></i> ${escapeHtml(u.query)}</button>`
+    ).join('');
+
+    if (!$chips.length) {
+        $chips = $(`<div class="dle-librarian-quick-create"><span class="dle-text-xs dle-muted">Quick create:</span> ${chipsHtml}</div>`);
+        $drawer.find('.dle-librarian-list').after($chips);
+    } else {
+        $chips.html(`<span class="dle-text-xs dle-muted">Quick create:</span> ${chipsHtml}`);
+    }
 }
 
 /**

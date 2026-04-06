@@ -211,7 +211,7 @@ export const defaultSettings = {
     decayBoostThreshold: 5,    // Generations without injection before freshness boost
     decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
     // Librarian (tool-assisted lore retrieval + gap detection)
-    librarianEnabled: false,
+    librarianEnabled: true,
     librarianSearchEnabled: true,       // search_lore tool during generation
     librarianFlagEnabled: true,         // flag_lore tool during generation
     librarianMaxSearches: 2,            // max search_lore calls per generation

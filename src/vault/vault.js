@@ -117,8 +117,8 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
     // Pre-compute entity names and short-name regexes for AI cache sliding window
     computeEntityDerivedState(entries);
 
-    // Build BM25 fuzzy search index if enabled
-    if (settings.fuzzySearchEnabled) {
+    // Build BM25 index if fuzzy search or Librarian search is enabled
+    if (settings.fuzzySearchEnabled || settings.librarianSearchEnabled) {
         setFuzzySearchIndex(buildBM25Index(entries));
     } else {
         setFuzzySearchIndex(null);
@@ -415,7 +415,8 @@ export async function hydrateFromCache() {
         computeEntityDerivedState(cached.entries);
         // Build BM25 index during hydration so fuzzy search and Librarian tools
         // are available immediately, before the background rebuild completes
-        if (getSettings().fuzzySearchEnabled) {
+        const hydrateSettings = getSettings();
+        if (hydrateSettings.fuzzySearchEnabled || hydrateSettings.librarianSearchEnabled) {
             setFuzzySearchIndex(buildBM25Index(cached.entries));
         }
         // Note: indexEverLoaded is NOT set here — it's set in buildIndex() after

@@ -78,6 +78,12 @@ function buildPopupHTML(session) {
                 <input type="text" class="dle-key-input" id="dle-lib-key-input" placeholder="Add key (Enter or comma)..." aria-label="Add keyword">
             </div>
         </div>
+        <div class="dle-librarian-frontmatter-preview" id="dle-lib-frontmatter-wrap">
+            <div class="dle-librarian-frontmatter-label" id="dle-lib-frontmatter-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="dle-lib-frontmatter">
+                <i class="fa-solid fa-chevron-right dle-frontmatter-chevron" aria-hidden="true"></i> Frontmatter Preview
+            </div>
+            <pre id="dle-lib-frontmatter" class="dle-librarian-frontmatter-code"></pre>
+        </div>
         <div class="dle-librarian-field">
             <label for="dle-lib-summary">Summary <span class="dle-field-hint">(for AI selection, not the writing AI)</span></label>
             <textarea id="dle-lib-summary" class="text_pole" rows="4" placeholder="What is this? When should it be selected? Key relationships?">${escapeHtml(draft.summary || '')}</textarea>
@@ -85,12 +91,6 @@ function buildPopupHTML(session) {
         <div class="dle-librarian-field dle-librarian-field-grow">
             <label for="dle-lib-content">Content</label>
             <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Write your entry here (markdown, [[wikilinks]])">${escapeHtml(draft.content || '')}</textarea>
-        </div>
-        <div class="dle-librarian-frontmatter-preview" id="dle-lib-frontmatter-wrap">
-            <div class="dle-librarian-frontmatter-label" id="dle-lib-frontmatter-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="dle-lib-frontmatter">
-                <i class="fa-solid fa-chevron-right dle-frontmatter-chevron" aria-hidden="true"></i> Frontmatter Preview
-            </div>
-            <pre id="dle-lib-frontmatter" class="dle-librarian-frontmatter-code"></pre>
         </div>
     </div>
     <div class="dle-librarian-chat" role="region" aria-label="AI assistant">
@@ -138,7 +138,9 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
     let session;
     let isRestored = false;
     const saved = loadSessionState();
-    if (saved && saved.messages?.length > 0) {
+    const STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
+    const isStale = saved?.timestamp && (Date.now() - saved.timestamp) > STALE_MS;
+    if (saved && saved.messages?.length > 0 && !isStale) {
         const resume = await callGenericPopup(
             'You have a previous Librarian session in progress. Resume where you left off?',
             POPUP_TYPE.CONFIRM,
@@ -152,6 +154,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             session = createSession(entryPoint, options);
         }
     } else {
+        if (isStale) clearSessionState();
         session = createSession(entryPoint, options);
     }
 
@@ -182,6 +185,12 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 const okBtn = popup.dlg.querySelector('.popup-button-ok');
                 if (okBtn) okBtn.addEventListener('click', () => { writingToVault = true; });
             }
+
+            // Focus the title input on open
+            requestAnimationFrame(() => {
+                const ti = container.querySelector('#dle-lib-title');
+                if (ti) ti.focus();
+            });
 
             // ─── Editor field sync ───
             const titleInput = container.querySelector('#dle-lib-title');
@@ -216,16 +225,34 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 debouncedSaveSession();
             }
 
-            function flashField(el) {
-                el.classList.remove('dle-field-updated');
-                // Force reflow to restart animation
-                void el.offsetWidth;
-                el.classList.add('dle-field-updated');
+            let _flashIndex = 0;
+            function flashField(el, stagger = true) {
+                const delay = stagger ? (_flashIndex++ * 100) : 0;
+                setTimeout(() => {
+                    el.classList.remove('dle-field-updated');
+                    void el.offsetWidth;
+                    el.classList.add('dle-field-updated');
+                    // Add persistent "AI updated" dot on parent field wrapper
+                    const wrap = el.closest('.dle-librarian-field');
+                    if (wrap) wrap.classList.add('dle-ai-modified');
+                }, delay);
+            }
+
+            // Clear "AI updated" dot when user interacts with a field
+            function clearAiDot(e) {
+                const wrap = e.target.closest?.('.dle-librarian-field');
+                if (wrap) wrap.classList.remove('dle-ai-modified');
+            }
+            for (const el of [titleInput, typeSelect, priorityInput, tagsInput, summaryInput, contentInput]) {
+                el.addEventListener('input', clearAiDot);
+                el.addEventListener('change', clearAiDot);
+                el.addEventListener('focus', clearAiDot);
             }
 
             function updateFieldsFromDraft() {
                 if (!session.draftState) return;
                 const d = session.draftState;
+                _flashIndex = 0; // Reset stagger counter for batch updates
                 if (d.title !== undefined && titleInput.value !== d.title) { titleInput.value = d.title; flashField(titleInput); }
                 if (d.type !== undefined && typeSelect.value !== d.type) { typeSelect.value = d.type; flashField(typeSelect); }
                 if (d.priority !== undefined && String(priorityInput.value) !== String(d.priority)) { priorityInput.value = d.priority; flashField(priorityInput); }
@@ -344,6 +371,11 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             let msgCounter = 0;
 
             function appendMessage(role, content) {
+                // Track unread AI messages while chat is collapsed
+                if (role === 'ai' && popupEl.classList.contains('dle-librarian-chat-collapsed')) {
+                    _chatUnreadCount++;
+                    updateUnreadBadge();
+                }
                 const div = document.createElement('div');
                 const msgIdx = msgCounter++;
                 div.className = `dle-lib-msg dle-lib-msg-${role}`;
@@ -533,6 +565,8 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 chatInput.disabled = isSending;
                 sendBtn.style.display = isSending ? 'none' : '';
                 stopBtn.style.display = isSending ? '' : 'none';
+                const chatMessages = container.querySelector('#dle-lib-chat-messages');
+                if (chatMessages) chatMessages.setAttribute('aria-busy', isSending ? 'true' : 'false');
             }
 
             // ─── Stop button ───
@@ -907,6 +941,21 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             const popupEl = container.querySelector('.dle-librarian-popup');
             const chatPanel = container.querySelector('.dle-librarian-chat');
 
+            let _chatUnreadCount = 0;
+            function updateUnreadBadge() {
+                let badge = collapseBtn.querySelector('.dle-chat-unread');
+                if (_chatUnreadCount > 0) {
+                    if (!badge) {
+                        badge = document.createElement('span');
+                        badge.className = 'dle-chat-unread';
+                        collapseBtn.appendChild(badge);
+                    }
+                    badge.textContent = _chatUnreadCount;
+                } else if (badge) {
+                    badge.remove();
+                }
+            }
+
             function setChatCollapsed(collapsed) {
                 popupEl.classList.toggle('dle-librarian-chat-collapsed', collapsed);
                 collapseBtn.setAttribute('aria-expanded', String(!collapsed));
@@ -914,6 +963,7 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 if (icon) icon.className = collapsed
                     ? 'fa-solid fa-chevron-left'
                     : 'fa-solid fa-chevron-right';
+                if (!collapsed) { _chatUnreadCount = 0; updateUnreadBadge(); }
                 try { localStorage.setItem('dle-librarian-panel-state', collapsed ? 'collapsed' : 'both'); } catch {}
             }
 
@@ -988,8 +1038,9 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 clearSessionState();
                 return true;
             }
-            // Warn on unsaved changes when closing without writing
-            if (dirty && session.draftState?.title) {
+            // Warn on unsaved changes when closing without writing (any non-empty field counts)
+            const hasContent = session.draftState?.title || session.draftState?.summary || session.draftState?.content || (session.draftState?.keys?.length > 0);
+            if (dirty && hasContent) {
                 const confirmResult = await callGenericPopup(
                     'You have unsaved changes. Discard draft, or keep session for later?',
                     POPUP_TYPE.CONFIRM,
@@ -1026,6 +1077,16 @@ async function writeToVault(session) {
     if (!draft || !draft.title) {
         toastr.warning('No draft to write. Fill in the entry fields first.', 'DeepLore Enhanced');
         return;
+    }
+
+    // Validation warning: no trigger keys means the entry won't match in chat
+    if (!draft.keys?.length) {
+        const proceed = await callGenericPopup(
+            'This entry has no trigger keys, so it won\'t match in chat unless it\'s a constant. Write anyway?',
+            POPUP_TYPE.CONFIRM,
+            '', { okButton: 'Write Anyway', cancelButton: 'Go Back' },
+        );
+        if (proceed !== POPUP_RESULT.AFFIRMATIVE) return;
     }
 
     const vault = getPrimaryVault(settings);

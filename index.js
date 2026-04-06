@@ -40,6 +40,7 @@ import {
     notifyPipelineComplete, notifyGatingChanged,
     fieldDefinitions,
     setLoreGaps, setLoreGapSearchCount, setLibrarianChatStats,
+    librarianToolsRegistered,
 } from './src/state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
@@ -56,6 +57,7 @@ import { pushActivity } from './src/drawer/drawer-state.js';
 import { extractAiNotes } from './src/helpers.js';
 import { clearSessionActivityLog, consumePendingToolCalls, clearPendingToolCalls } from './src/librarian/librarian-tools.js';
 import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
+import { registerLibrarianTools } from './src/librarian/librarian.js';
 
 /** Default instruction prompt for the AI Notebook feature. */
 const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
@@ -122,6 +124,27 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (settings.debugMode) console.debug('[DLE] Skipping pipeline for tool-call continuation');
             return;
         }
+    }
+
+    // Strip DLE tool call messages from previous generations so they don't bloat context.
+    // Tool results are ephemeral (like lorebook injections) — they served their purpose and
+    // should not persist. The continuation check above already returned for current-gen tool calls.
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const msg = chat[i];
+        if (!msg?.is_system || !Array.isArray(msg.extra?.tool_invocations)) continue;
+        const invocations = msg.extra.tool_invocations;
+        const allDle = invocations.every(inv => inv.name?.startsWith('dle_'));
+        if (allDle) {
+            chat.splice(i, 1);
+        } else {
+            msg.extra.tool_invocations = invocations.filter(inv => !inv.name?.startsWith('dle_'));
+        }
+    }
+
+    // Lazy Librarian tool registration — ensures tools are registered even if init() ran
+    // before settings were fully loaded (race condition with ST's extension_settings hydration)
+    if (settings.librarianEnabled && !librarianToolsRegistered) {
+        try { registerLibrarianTools(); } catch { /* logged inside */ }
     }
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
@@ -613,13 +636,11 @@ jQuery(async function () {
         registerSlashCommands();
         setupSyncPolling(buildIndex, buildIndexWithReuse);
 
-        // Initialize Librarian (tool registration) if enabled
+        // Register Librarian tools if enabled (also retried lazily in onGenerate)
         try {
-            const { initLibrarian } = await import('./src/librarian/librarian.js');
-            initLibrarian();
+            registerLibrarianTools();
         } catch (err) {
             console.warn('[DLE] Failed to initialize Librarian:', err.message);
-            if (getSettings().librarianEnabled) dedupWarning('Librarian tools failed to initialize.', 'librarian_init');
         }
 
         // First-run detection: if no vaults configured and wizard not completed, show wizard

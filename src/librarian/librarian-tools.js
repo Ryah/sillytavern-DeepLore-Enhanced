@@ -4,14 +4,14 @@
  */
 import { saveChatDebounced } from '../../../../../../script.js';
 import { getContext } from '../../../../../extensions.js';
-import { truncateToSentence } from '../../core/utils.js';
+import { truncateToSentence, escapeXml } from '../../core/utils.js';
 import { queryBM25, tokenize } from '../vault/bm25.js';
 import { getSettings } from '../../settings.js';
 import {
     loreGaps, setLoreGaps,
     loreGapSearchCount, setLoreGapSearchCount,
     lastInjectionSources,
-    fuzzySearchIndex,
+    fuzzySearchIndex, vaultIndex,
     buildPromise,
     generationCount,
     chatEpoch,
@@ -162,124 +162,162 @@ function incrementStats(field, extraTokens = 0) {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Format an array of VaultEntries as a manifest of summaries (XML <entry> blocks).
+ * Simpler than the sidecar manifest — no decay hints, no budget headers.
+ * @param {Array} entries - VaultEntry objects to format
+ * @param {number} [summaryLen=400] - Max summary character length
+ * @returns {string} Manifest text
+ */
+function formatLinkedManifest(entries, summaryLen = 400) {
+    if (!entries.length) return '';
+    return entries.map(entry => {
+        const summary = entry.summary
+            || truncateToSentence((entry.content || '').substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen);
+        const links = entry.resolvedLinks?.length > 0
+            ? ` → ${entry.resolvedLinks.join(', ')}` : '';
+        const safeName = escapeXml(entry.title);
+        return `<entry name="${safeName}">\n${entry.title} (${entry.tokenEstimate}tok)${links}\n${summary}\n</entry>`;
+    }).join('\n');
+}
+
+/**
+ * Look up linked entries from a VaultEntry's resolvedLinks.
+ * @param {object} entry - The source entry
+ * @param {Set<string>} excludeTitles - Titles to exclude (already injected or already shown)
+ * @param {number} [max=10] - Maximum linked entries to return
+ * @returns {Array} Resolved VaultEntry objects
+ */
+function resolveLinkedEntries(entry, excludeTitles, max = 10) {
+    if (!entry.resolvedLinks?.length) return [];
+    const linked = [];
+    for (const linkTitle of entry.resolvedLinks) {
+        if (linked.length >= max) break;
+        if (excludeTitles.has(linkTitle.toLowerCase())) continue;
+        const found = vaultIndex.find(e => e.title.toLowerCase() === linkTitle.toLowerCase());
+        if (found) linked.push(found);
+    }
+    return linked;
+}
+
+/**
  * search_lore tool action: search the vault index for entries the pipeline missed.
- * @param {{ query: string }} args
+ * Returns full content for the top BM25 hit per query, plus a manifest of linked entries.
+ * @param {{ queries: string[] }} args
  * @returns {Promise<string>} Result text (returned to the writing AI as tool result)
  */
 export async function searchLoreAction(args) {
     const settings = getSettings();
-    const epoch = chatEpoch; // Snapshot for stale-guard
-    const query = args?.query?.trim();
-    if (!query) return 'No query provided.';
+    const epoch = chatEpoch;
+
+    // Accept both { queries: [...] } and legacy { query: "..." }
+    let queries = args?.queries;
+    if (!queries && args?.query) queries = [args.query];
+    if (!Array.isArray(queries)) return 'No queries provided.';
+    queries = queries.map(q => (q || '').trim()).filter(Boolean).slice(0, 4);
+    if (queries.length === 0) return 'No queries provided.';
 
     // Guard: max searches per generation
     if (loreGapSearchCount >= settings.librarianMaxSearches) {
-        return `Search limit reached (${settings.librarianMaxSearches} per generation). This is a rate limit, not a hard block — you can search again on the next generation. For now, work with the lore already provided and the entries injected above.`;
+        return `Search limit reached (${settings.librarianMaxSearches} per generation). Work with the lore already provided.`;
     }
 
-    // If index is currently building, wait for it rather than returning "not ready"
+    // Wait for index if building
     if (!fuzzySearchIndex && buildPromise) {
-        try { await buildPromise; } catch { /* index build failed, fall through to null check */ }
+        try { await buildPromise; } catch { /* fall through */ }
     }
 
-    // Still no index after waiting — record the gap anyway so it shows in the drawer
+    // Still no index — record gaps and bail
     if (!fuzzySearchIndex) {
-        // Record gap even on failure so user can see what the AI tried
-        const failGap = {
-            id: gapId(),
-            type: 'search',
-            query,
-            reason: `AI searched for "${query}" but vault index was not ready`,
-            timestamp: Date.now(),
-            generation: generationCount,
-            status: 'pending',
-            frequency: 1,
-            urgency: 'medium',
-            hadResults: false,
-            resultTitles: [],
-        };
-        const existingGap = findSimilarGap(loreGaps, query, 'search');
-        const updatedGaps = existingGap
-            ? loreGaps.map(g => g === existingGap ? { ...existingGap, frequency: existingGap.frequency + 1, timestamp: Date.now() } : g)
-            : [...loreGaps, failGap];
-        if (epoch === chatEpoch) persistGaps(updatedGaps);
-        // Do NOT increment search count — failed searches shouldn't eat into the limit
-        return 'Lore vault index is still loading. This does NOT count against your search limit — wait a moment and try the same search again. The index usually finishes within a few seconds of the first generation.';
+        for (const query of queries) {
+            const failGap = {
+                id: gapId(), type: 'search', query,
+                reason: `AI searched for "${query}" but vault index was not ready`,
+                timestamp: Date.now(), generation: generationCount,
+                status: 'pending', frequency: 1, urgency: 'medium',
+                hadResults: false, resultTitles: [],
+            };
+            const existing = findSimilarGap(loreGaps, query, 'search');
+            const updated = existing
+                ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now() } : g)
+                : [...loreGaps, failGap];
+            if (epoch === chatEpoch) persistGaps(updated);
+        }
+        return 'Lore vault index is still loading. This does NOT count against your search limit — try again on the next message.';
     }
 
-    // Index is ready — count this search
+    // Count this search call
     setLoreGapSearchCount(loreGapSearchCount + 1);
 
-    const hits = queryBM25(
-        fuzzySearchIndex,
-        query,
-        settings.librarianMaxResults,
-        settings.fuzzySearchMinScore || 0.5,
-    );
-
-    // Filter out entries already injected by the pipeline
+    // Build injected titles set for filtering
     const injectedTitles = new Set();
     if (lastInjectionSources && Array.isArray(lastInjectionSources)) {
         for (const src of lastInjectionSources) {
             if (src.title) injectedTitles.add(src.title.toLowerCase());
         }
     }
-    const filtered = hits.filter(h => !injectedTitles.has(h.entry.title.toLowerCase()));
 
-    // Truncate results to token budget
-    const perEntryBudget = filtered.length > 0
-        ? Math.floor(settings.librarianResultTokenBudget / filtered.length)
-        : 0;
-    const results = filtered.map(h => ({
-        title: h.entry.title,
-        keys: h.entry.keys?.slice(0, 5) || [],
-        snippet: truncateToSentence(h.entry.content || '', perEntryBudget),
-        score: Math.round(h.score * 100) / 100,
-    }));
+    // Track entries already shown across queries to avoid duplication
+    const shownTitles = new Set(injectedTitles);
+    const resultParts = [];
+    const allResultTitles = [];
+    let totalTokens = 0;
 
-    // Estimate extra tokens from this search result
-    const resultText = results.length > 0
-        ? results.map(r => `## ${r.title}\nKeys: ${r.keys.join(', ')}\n${r.snippet}`).join('\n\n')
-        : '';
-    const estimatedTokens = Math.ceil(resultText.length / 4); // rough char-to-token estimate
+    for (const query of queries) {
+        const hits = queryBM25(
+            fuzzySearchIndex, query,
+            settings.librarianMaxResults,
+            settings.fuzzySearchMinScore || 0.5,
+        );
+        const filtered = hits.filter(h => !shownTitles.has(h.entry.title.toLowerCase()));
 
-    // Record gap signal (merge frequency with similar queries)
-    const existingGap = findSimilarGap(loreGaps, query, 'search');
-    let updatedGaps;
-    if (existingGap) {
-        const updated = {
-            ...existingGap,
-            frequency: existingGap.frequency + 1,
-            timestamp: Date.now(),
-            hadResults: results.length > 0,
-            resultTitles: results.map(r => r.title),
-        };
-        updatedGaps = loreGaps.map(g => g === existingGap ? updated : g);
-    } else {
-        const newGap = {
-            id: gapId(),
-            type: 'search',
-            query,
-            reason: `AI searched for "${query}" during generation`,
-            timestamp: Date.now(),
-            generation: generationCount,
-            status: 'pending',
-            frequency: 1,
-            urgency: 'medium',
-            hadResults: results.length > 0,
-            resultTitles: results.map(r => r.title),
-        };
-        updatedGaps = [...loreGaps, newGap];
+        if (filtered.length === 0) {
+            resultParts.push(`## Query: "${query}"\nNo matching entries found.`);
+            trackUnmetQuery(query);
+            // Record gap
+            const existing = findSimilarGap(loreGaps, query, 'search');
+            const gapUpdate = existing
+                ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: false } : g)
+                : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
+            if (epoch === chatEpoch) persistGaps(gapUpdate);
+            continue;
+        }
+
+        // Top hit: full content
+        const topEntry = filtered[0].entry;
+        shownTitles.add(topEntry.title.toLowerCase());
+        allResultTitles.push(topEntry.title);
+
+        let part = `## Query: "${query}"\n\n### ${topEntry.title}\n${topEntry.content || ''}`;
+
+        // Linked entries from top hit: manifest summaries, up to 10
+        const linked = resolveLinkedEntries(topEntry, shownTitles, 10);
+        if (linked.length > 0) {
+            // Mark linked entries as shown to avoid duplication in later queries
+            for (const le of linked) shownTitles.add(le.title.toLowerCase());
+            allResultTitles.push(...linked.map(le => le.title));
+            part += `\n\n### Linked entries:\n${formatLinkedManifest(linked)}`;
+        }
+
+        resultParts.push(part);
+        totalTokens += (topEntry.tokenEstimate || 0) + linked.reduce((s, e) => s + (e.tokenEstimate || 0) / 4, 0);
+
+        // Record gap signal
+        const existing = findSimilarGap(loreGaps, query, 'search');
+        const gapUpdate = existing
+            ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] } : g)
+            : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] }];
+        if (epoch === chatEpoch) persistGaps(gapUpdate);
     }
-    // Guard: don't persist if chat changed during generation
-    if (epoch === chatEpoch) persistGaps(updatedGaps);
 
-    // Activity log + pending buffer for consolidated dropdown
+    const resultText = resultParts.join('\n\n---\n\n');
+    const estimatedTokens = Math.ceil(resultText.length / 4);
+
+    // Activity log + pending buffer
     const logEntry = {
         type: 'search',
-        query,
-        resultCount: results.length,
-        resultTitles: results.map(r => r.title),
+        query: queries.join('; '),
+        resultCount: allResultTitles.length,
+        resultTitles: allResultTitles,
         tokens: estimatedTokens,
         timestamp: Date.now(),
         generation: generationCount,
@@ -289,12 +327,10 @@ export async function searchLoreAction(args) {
 
     // Analytics
     updateAnalytics('totalGapSearches');
-    if (results.length === 0) trackUnmetQuery(query);
     incrementStats('searchCalls', estimatedTokens);
 
-    // Return results to the writing AI
-    if (results.length === 0) {
-        return `No entries found for "${query}". If this information is important to the scene, use flag_lore to record the gap.`;
+    if (allResultTitles.length === 0) {
+        return `No entries found for ${queries.map(q => `"${q}"`).join(', ')}. If this information is important to the scene, use flag_lore to record the gap.`;
     }
     return resultText;
 }

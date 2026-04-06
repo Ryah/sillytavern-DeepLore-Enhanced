@@ -14,7 +14,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
 import {
     vaultIndex,
-    lastInjectionSources,
+    lastInjectionSources, loreGaps,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
     onIndexingChanged, onLoreGapsChanged,
@@ -479,8 +479,23 @@ export async function createDrawerPanel() {
         scheduleRender(renderBrowseTab);
     });
 
+    let _gapAnnounceTimer = null;
+    let _lastGapCount = loreGaps.length;
     onLoreGapsChanged(() => {
         scheduleRender(renderLibrarianTab);
+        // Debounced screen reader announcement for new gaps (500ms during generation bursts)
+        const newCount = loreGaps.length;
+        if (newCount > _lastGapCount) {
+            const added = newCount - _lastGapCount;
+            clearTimeout(_gapAnnounceTimer);
+            _gapAnnounceTimer = setTimeout(() => {
+                const pendingFlags = loreGaps.filter(g => g.status === 'pending' && g.type === 'flag').length;
+                if (pendingFlags > 0) {
+                    announceToScreenReader(`${added} new lore gap${added !== 1 ? 's' : ''} flagged. ${pendingFlags} pending.`);
+                }
+            }, 500);
+        }
+        _lastGapCount = newCount;
     });
 }
 

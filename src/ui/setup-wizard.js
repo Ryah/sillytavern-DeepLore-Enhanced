@@ -164,8 +164,13 @@ function wireNavigation() {
     });
 
     $wizard.find('#dle-wiz-finish').on('click', async () => {
-        await applyWizardSettings();
-        // Close popup
+        try {
+            await applyWizardSettings();
+        } catch (err) {
+            console.error('[DLE] Wizard finish error:', err);
+            toastr.warning('Setup saved but index build failed — it will retry on first generation.', 'DeepLore Enhanced');
+        }
+        // Close popup regardless — settings are saved before buildIndex()
         const popup = $wizard.closest('.popup');
         if (popup.length) {
             popup.find('.popup_ok, .popup_close').trigger('click');
@@ -472,7 +477,7 @@ function wireAiSetup() {
             if (mode === 'profile') {
                 const profileId = $wizard.find('#dle-wiz-ai-profile').val();
                 if (!profileId) throw new Error('Select a connection profile first');
-                const { ConnectionManagerRequestService } = await import('../../../../../shared.js')
+                const { ConnectionManagerRequestService } = await import('../../../../shared.js')
                     .catch(() => ({ ConnectionManagerRequestService: null }));
                 if (!ConnectionManagerRequestService) throw new Error('Connection Manager not available');
                 // Verify profile exists
@@ -524,7 +529,7 @@ function wireAiSetup() {
 async function loadAiProfiles() {
     const $select = $wizard.find('#dle-wiz-ai-profile');
     try {
-        const { ConnectionManagerRequestService } = await import('../../../../../shared.js')
+        const { ConnectionManagerRequestService } = await import('../../../../shared.js')
             .catch(() => ({ ConnectionManagerRequestService: null }));
         if (!ConnectionManagerRequestService) {
             $select.html('<option value="">Connection Manager not available</option>');

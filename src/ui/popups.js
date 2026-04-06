@@ -188,8 +188,8 @@ export async function showBrowsePopup() {
     const settings = getSettings();
     const analytics = settings.analyticsData || {};
     const allTags = [...new Set(vaultIndex.flatMap(e => e.tags))].sort();
-    const pins = new Set((chat_metadata.deeplore_pins || []).map(t => t.toLowerCase()));
-    const blocks = new Set((chat_metadata.deeplore_blocks || []).map(t => t.toLowerCase()));
+    const pins = new Set((chat_metadata.deeplore_pins || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
+    const blocks = new Set((chat_metadata.deeplore_blocks || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
 
     const container = document.createElement('div');
     container.classList.add('dle-popup');

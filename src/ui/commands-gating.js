@@ -387,7 +387,7 @@ export function registerGatingCommands() {
                 }
 
                 const sorted = [...valueMap.entries()].sort((a, b) => b[1].count - a[1].count || a[1].display.localeCompare(b[1].display));
-                const currentArr = Array.isArray(ctx.characters_present) ? ctx.characters_present : [];
+                const currentArr = Array.isArray(ctx.character_present) ? ctx.character_present : [];
                 const currentLower = new Set(currentArr.map(c => c.toLowerCase()));
 
                 // Track selected set (mutable copy)
@@ -436,7 +436,7 @@ export function registerGatingCommands() {
                         }
                     },
                     onClose: () => {
-                        ctx.characters_present = [...selected];
+                        ctx.character_present = [...selected];
                         saveChatDebounced();
                         notifyGatingChanged();
                         if (selected.size > 0) {
@@ -450,10 +450,10 @@ export function registerGatingCommands() {
             }
 
             // With argument — set directly
-            ctx.characters_present = v.split(',').map(c => c.trim()).filter(Boolean);
+            ctx.character_present = v.split(',').map(c => c.trim()).filter(Boolean);
             saveChatDebounced();
             notifyGatingChanged();
-            toastr.success(`Characters present: ${ctx.characters_present.join(', ')}`, 'DeepLore Enhanced');
+            toastr.success(`Characters present: ${ctx.character_present.join(', ')}`, 'DeepLore Enhanced');
             return '';
         },
         helpString: 'Set which characters are present for contextual gating. Usage: /dle-set-characters <name1, name2>. Run without args to browse and toggle.',

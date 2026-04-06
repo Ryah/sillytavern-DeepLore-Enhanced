@@ -91,9 +91,9 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
     }
 
+    let backupTimer;
     try {
         // BUG-028: Use Promise.race to enforce timeout even if CMRS ignores AbortSignal
-        let backupTimer;
         const timeoutPromise = new Promise((_, reject) => {
             backupTimer = setTimeout(() => reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' })), timeout + 500);
         });
@@ -142,6 +142,7 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
                 );
             }
         }
+        if (!err.throttled) recordAiFailure();
         throw new Error(`${err.message}${profileLabel}${modelLabel}`);
     } finally {
         clearTimeout(timer);

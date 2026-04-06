@@ -16,6 +16,7 @@ import { stripObsidianSyntax } from '../helpers.js';
 import {
     scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
     setScribeInProgress, setLastScribeSummary, setLastScribeChatLength,
+    isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure,
 } from '../state.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
 
@@ -43,8 +44,15 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     const mode = resolved.mode;
 
     if (mode === 'profile' || mode === 'proxy') {
-        const result = await callAI(systemPrompt, userMessage, resolved);
-        return result.text || '';
+        if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
+        try {
+            const result = await callAI(systemPrompt, userMessage, resolved);
+            recordAiSuccess();
+            return result.text || '';
+        } catch (err) {
+            if (!err.throttled) recordAiFailure();
+            throw err;
+        }
     }
 
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt

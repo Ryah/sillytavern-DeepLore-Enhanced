@@ -205,6 +205,9 @@ export function renderInjectionTab() {
 export function renderBrowseTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
+    // Invalidate virtual scroll cache so stale entry references are never rendered
+    ds.browseLastRangeStart = -1;
+    ds.browseLastRangeEnd = -1;
     const $list = $drawer.find('.dle-browse-list');
     const $emptyLoading = $drawer.find('#dle-browse-loading');
     const $emptyNoData = $drawer.find('#dle-browse-empty-no-data');

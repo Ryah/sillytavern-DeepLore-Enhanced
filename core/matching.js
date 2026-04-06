@@ -392,7 +392,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
             let key, position, depth, role;
             if (hasOverride) {
                 // Per-entry override → own group with IN_CHAT, bypasses PM
-                key = `${promptTagPrefix}override_d${item.depth}_r${item.role}`;
+                key = `${promptTagPrefix}override_p${item.position}_d${item.depth}_r${item.role}`;
                 position = item.position;
                 depth = item.depth;
                 role = item.role;

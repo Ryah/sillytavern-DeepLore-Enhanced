@@ -81,7 +81,8 @@ export function registerPipelineCommands() {
             const gatingContext = chat_metadata?.deeplore_context || {};
             const cmdPins = chat_metadata.deeplore_pins || [];
             const cmdBlocks = chat_metadata.deeplore_blocks || [];
-            const { finalEntries, matchedKeys } = await runPipeline(chat, [...vaultIndex], gatingContext, { pins: cmdPins, blocks: cmdBlocks });
+            const folderFilter = chat_metadata?.deeplore_folder_filter || null;
+            const { finalEntries, matchedKeys } = await runPipeline(chat, [...vaultIndex], gatingContext, { pins: cmdPins, blocks: cmdBlocks, folderFilter });
 
             // Apply re-injection cooldown (matches onGenerate order)
             let filtered = finalEntries;

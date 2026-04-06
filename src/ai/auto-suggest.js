@@ -64,7 +64,14 @@ export async function callAutoSuggest(systemPrompt, userMessage) {
         }
     } else if (mode === 'profile' || mode === 'proxy') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
-        return await callAI(systemPrompt, userMessage, resolved);
+        try {
+            const result = await callAI(systemPrompt, userMessage, resolved);
+            recordAiSuccess();
+            return result;
+        } catch (err) {
+            recordAiFailure();
+            throw err;
+        }
     }
     throw new Error(`Unknown auto-suggest connection mode: ${mode}`);
 }

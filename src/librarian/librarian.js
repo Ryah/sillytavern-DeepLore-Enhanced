@@ -14,6 +14,20 @@ import { searchLoreAction, flagLoreAction } from './librarian-tools.js';
 /**
  * Register librarian tools with SillyTavern's ToolManager.
  * Safe to call multiple times — will skip if already registered.
+ *
+ * IMPORTANT — boot order / default-off contract:
+ * This runs at extension init, BEFORE extensionSettings finish hydrating from disk,
+ * so we cannot read a "user has it on" flag here to decide whether to register at all.
+ * We always register the tool *definitions* so the plumbing exists, and instead gate
+ * actual attachment per-request via the `shouldRegister` callbacks below — those run
+ * when ST is building each generation request and CAN see live settings.
+ *
+ * Because the gate is per-request, the default for `librarianEnabled` in settings.js
+ * MUST be `false`. If it defaulted to true, a fresh install would attach these tools
+ * to every generation before the user has ever seen the Librarian UI, and any model
+ * that responds with a tool_use block (Claude in particular) can produce empty
+ * assistant replies if the recursion path doesn't unwrap cleanly through the user's
+ * proxy. Keep the default off; let users opt in from the Librarian tab.
  */
 export function registerLibrarianTools() {
     if (librarianToolsRegistered) return;

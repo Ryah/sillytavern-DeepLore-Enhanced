@@ -211,9 +211,13 @@ export const defaultSettings = {
     decayBoostThreshold: 5,    // Generations without injection before freshness boost
     decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
     // Librarian (tool-assisted lore retrieval + gap detection)
-    librarianEnabled: true,
-    librarianSearchEnabled: true,       // search_lore tool during generation
-    librarianFlagEnabled: true,         // flag_lore tool during generation
+    // NOTE: librarianEnabled defaults to OFF. The tools still get registered at boot
+    // (registration happens before extension settings finish loading, so we can't gate
+    // registration itself), but shouldRegister() reads this flag and skips them when
+    // building each generation request. Users opt in via the Librarian settings tab.
+    librarianEnabled: false,
+    librarianSearchEnabled: true,       // search_lore tool during generation (gated by librarianEnabled)
+    librarianFlagEnabled: true,         // flag_lore tool during generation (gated by librarianEnabled)
     librarianMaxSearches: 2,            // max search_lore calls per generation
     librarianMaxResults: 5,             // max entries returned per search call
     librarianResultTokenBudget: 1500,   // token budget for search results

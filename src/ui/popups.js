@@ -596,7 +596,8 @@ export async function showOptimizePopup(entry, result) {
                 setIndexTimestamp(0);
                 await buildIndex();
             } else {
-                toastr.error(`Failed: ${data.error}`, 'DeepLore Enhanced');
+                console.warn('[DLE] Optimize keys write failed:', data && data.error);
+                toastr.error('Couldn\'t save the new keywords to your vault.', 'DeepLore Enhanced');
             }
         } catch (err) {
             toastr.error(classifyError(err), 'DeepLore Enhanced');

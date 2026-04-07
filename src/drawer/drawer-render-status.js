@@ -8,7 +8,7 @@ import { getSettings } from '../../settings.js';
 import {
     vaultIndex, lastInjectionSources, lastPipelineTrace,
     generationLock, indexing, indexEverLoaded, computeOverallStatus,
-    vaultAvgTokens,
+    vaultAvgTokens, claudeAutoEffortBad, claudeAutoEffortDetail,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
 import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS } from './drawer-state.js';
@@ -197,6 +197,14 @@ export function renderStatusZone() {
             }
         }
     }
+    // Claude adaptive-thinking misconfiguration warning chip — persistent
+    // signal so the user always sees the issue without spammy toasts.
+    if (claudeAutoEffortBad && claudeAutoEffortDetail) {
+        const d = claudeAutoEffortDetail;
+        const tip = `${d.modelName || 'Claude'} on profile "${d.profileName || '?'}" needs reasoning_effort set on preset "${d.presetName || '?'}" (Low/Medium/High). Click to open settings.`;
+        chips.push(`<span class="dle-chip dle-chip-sm dle-chip-warn" title="${escapeHtml(tip)}" data-action="goto-ai-connections" style="cursor:pointer;background:color-mix(in srgb, var(--dle-warning, #d97706) 20%, transparent);color:var(--dle-warning, #d97706);"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>Reasoning Effort</span>`);
+    }
+
     if (chips.length > 0) {
         $filters.html(chips.join(''));
         $filters.show();

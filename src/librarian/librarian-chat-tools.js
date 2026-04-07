@@ -4,7 +4,7 @@
  * These are NOT registered with SillyTavern's ToolManager — they execute locally
  * within the Librarian's conversation loop only.
  */
-import { vaultIndex, fuzzySearchIndex } from '../state.js';
+import { vaultIndex, fuzzySearchIndex, loreGaps } from '../state.js';
 import { queryBM25 } from '../vault/bm25.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -45,6 +45,28 @@ const LIBRARIAN_TOOLS = [
         description: 'Find all entries that link TO a given title — what references this entry.',
         parameters: {
             title: { type: 'string', required: true, description: 'Target title to find backlinks for' },
+        },
+    },
+    {
+        name: 'get_full_content',
+        description: 'Get the FULL untruncated content of a vault entry by title. Use when get_entry truncated something important and you need to see the rest. More expensive than get_entry — only call when needed.',
+        parameters: {
+            title: { type: 'string', required: true, description: 'Entry title (case-insensitive)' },
+        },
+    },
+    {
+        name: 'find_similar',
+        description: 'Find vault entries similar to a given title or topic — useful for spotting duplicates or near-duplicates before creating a new entry. Returns higher top_k than search_vault and flags likely duplicates.',
+        parameters: {
+            query: { type: 'string', required: true, description: 'Title, topic, or concept to find similar entries for' },
+            threshold: { type: 'number', required: false, description: 'Min BM25 score to consider similar (default 0.5)' },
+        },
+    },
+    {
+        name: 'list_flags',
+        description: 'List the lore-gap queue — entries flagged by the librarian during generation as missing or incomplete. Read-only.',
+        parameters: {
+            status: { type: 'string', required: false, description: 'Filter by status: open, in_progress, resolved, dismissed (default: all)' },
         },
     },
     {
@@ -94,6 +116,9 @@ export function executeToolCall(name, args = {}) {
     switch (name) {
         case 'search_vault': return toolSearchVault(args);
         case 'get_entry': return toolGetEntry(args);
+        case 'get_full_content': return toolGetFullContent(args);
+        case 'find_similar': return toolFindSimilar(args);
+        case 'list_flags': return toolListFlags(args);
         case 'get_links': return toolGetLinks(args);
         case 'get_backlinks': return toolGetBacklinks(args);
         case 'list_entries': return toolListEntries(args);
@@ -149,6 +174,70 @@ function toolGetEntry(args) {
 
     const content = truncate(entry.content || '(no content)', TOOL_RESULT_MAX_CHARS - meta.length - 20);
     return `${meta}\n\n---\n${content}`;
+}
+
+// Hard cap for full-content fetches: still keep a ceiling so a 50KB entry
+// doesn't blow the prompt budget, but much higher than the standard 2000.
+const FULL_CONTENT_MAX_CHARS = 16000;
+
+function toolGetFullContent(args) {
+    const title = args.title?.trim();
+    if (!title) return 'Error: title is required.';
+    const entry = findEntry(title);
+    if (!entry) return `Entry "${title}" not found.`;
+    const content = entry.content || '(no content)';
+    if (content.length <= FULL_CONTENT_MAX_CHARS) {
+        return `**${entry.title}** (full content, ${content.length} chars):\n\n${content}`;
+    }
+    // Even "full" has a ceiling — but document it honestly
+    return `**${entry.title}** (full content, ${content.length} chars — capped at ${FULL_CONTENT_MAX_CHARS}):\n\n`
+        + content.slice(0, FULL_CONTENT_MAX_CHARS)
+        + `\n\n[...${content.length - FULL_CONTENT_MAX_CHARS} more chars not shown — entry is unusually large]`;
+}
+
+function toolFindSimilar(args) {
+    const query = args.query?.trim();
+    if (!query) return 'Error: query is required.';
+    if (!fuzzySearchIndex) return 'Error: vault index not built yet.';
+
+    const threshold = Math.max(Number(args.threshold) || 0.5, 0.1);
+    const hits = queryBM25(fuzzySearchIndex, query, 15, threshold);
+
+    if (hits.length === 0) {
+        return `No similar entries found for "${query}" (threshold ${threshold.toFixed(2)}). This topic looks safe to create as a new entry.`;
+    }
+
+    // Flag likely duplicates: title substring match OR very high score
+    const lowerQuery = query.toLowerCase();
+    const lines = hits.map((h, i) => {
+        const e = h.entry;
+        const titleMatch = e.title.toLowerCase().includes(lowerQuery)
+            || lowerQuery.includes(e.title.toLowerCase());
+        const flag = (titleMatch || h.score > 2.0) ? ' **[LIKELY DUPLICATE]**' : '';
+        const snippet = truncate(e.summary || e.content || '', 160);
+        return `${i + 1}. **${e.title}** (${e.type || '?'}, p${e.priority || 50}, score ${h.score.toFixed(2)})${flag}\n   Keys: ${(e.keys || []).join(', ')}\n   ${snippet}`;
+    });
+    const header = `Found ${hits.length} potentially similar entries. Review before creating a new one:`;
+    return truncate(`${header}\n\n${lines.join('\n\n')}`, TOOL_RESULT_MAX_CHARS);
+}
+
+function toolListFlags(args) {
+    const statusFilter = args.status?.trim()?.toLowerCase();
+    if (!loreGaps || loreGaps.length === 0) {
+        return 'The lore-gap queue is empty. No flagged gaps.';
+    }
+    let gaps = loreGaps;
+    if (statusFilter) {
+        gaps = gaps.filter(g => (g.status || 'open').toLowerCase() === statusFilter);
+        if (gaps.length === 0) return `No gaps with status "${statusFilter}".`;
+    }
+    const lines = gaps.slice(0, 30).map((g, i) => {
+        const status = g.status || 'open';
+        const urgency = g.urgency || 'medium';
+        return `${i + 1}. [${status}/${urgency}] **${g.query || '(no query)'}**\n   ${g.reason || '(no reason)'}`;
+    });
+    const header = `${gaps.length} flagged gap${gaps.length === 1 ? '' : 's'}${gaps.length > 30 ? ' (showing first 30)' : ''}:`;
+    return truncate(`${header}\n${lines.join('\n')}`, TOOL_RESULT_MAX_CHARS);
 }
 
 function toolGetLinks(args) {
@@ -245,9 +334,14 @@ You may call multiple tools in a single response.
 ${toolDocs}
 
 ### Rules:
-- Tools are **read-only** — you cannot write to the vault.
+- Tools are **read-only** — you cannot write to the vault. The user is the only one who clicks "Write to Vault."
 - Use tools when the manifest lacks detail or you need to see an entry's full content.
 - After receiving tool results, respond with your final answer (action: "update_draft", "propose_options", or null).
 - Don't use tools for entries already visible in the manifest summary.
+
+### Usage hints:
+- **find_similar** before creating a new entry — if there's already something close, you should know.
+- **get_full_content** only when **get_entry** truncated something you actually need (it caps at ~2000 chars). It's more expensive — be deliberate.
+- **list_flags** when the user asks "what's broken" or "what needs work" or you want to know what gaps the librarian has been collecting.
 `;
 }

@@ -306,27 +306,42 @@ export function initFocus(gs, dbg) {
         return anyMoving;
     }
 
-    // G2: Max nodes illuminated by hover BFS — prevents hub nodes from lighting up the whole graph
-    const HOVER_MAX_NODES = 30;
+    // Per-ring soft caps for hover BFS — keeps the lit subgraph bounded on hub nodes
+    // without truncating ring 1 (immediate neighbors are always shown). Tiebreak: lowest
+    // degree first, so we prefer leafy edges over chasing more hubs.
+    const HOVER_RING_CAPS = [Infinity, Infinity, 40, 60, 80, 100];
 
     function computeHoverDistances(startId, maxDepth) {
-        const depth = maxDepth ?? (gs.settings.graphHoverDimDistance ?? 1);
+        const depth = maxDepth ?? (gs.settings.graphHoverDimDistance ?? 3);
         const dist = new Map();
         dist.set(startId, 0);
-        const queue = [startId];
-        let head = 0;
-        while (head < queue.length) {
-            if (dist.size >= HOVER_MAX_NODES) break; // G2: cap total highlighted nodes
-            const current = queue[head++];
-            const d = dist.get(current);
-            if (d >= depth) continue;
-            for (const neighbor of (gs.adjacency.get(current) || [])) {
-                if (!dist.has(neighbor)) {
-                    dist.set(neighbor, d + 1);
-                    queue.push(neighbor);
-                    if (dist.size >= HOVER_MAX_NODES) break;
+        // BFS ring-by-ring so we can sort/cap each ring independently.
+        let frontier = [startId];
+        for (let d = 0; d < depth; d++) {
+            const ringCap = HOVER_RING_CAPS[d + 1] ?? HOVER_RING_CAPS[HOVER_RING_CAPS.length - 1];
+            // Collect all candidate next-ring neighbors, dedup'd against existing dist.
+            const candidates = [];
+            const seenInRing = new Set();
+            for (const u of frontier) {
+                for (const v of (gs.adjacency.get(u) || [])) {
+                    if (dist.has(v) || seenInRing.has(v)) continue;
+                    seenInRing.add(v);
+                    candidates.push(v);
                 }
             }
+            if (!candidates.length) break;
+            // Cap by degree (lowest first) when over the soft limit. Ring 1 is uncapped.
+            let next = candidates;
+            if (candidates.length > ringCap) {
+                const degOf = (id) => (gs.edgeCountByNode?.get(id) || (gs.adjacency.get(id)?.length || 0));
+                next = candidates
+                    .map(id => ({ id, deg: degOf(id) }))
+                    .sort((a, b) => a.deg - b.deg)
+                    .slice(0, ringCap)
+                    .map(x => x.id);
+            }
+            for (const v of next) dist.set(v, d + 1);
+            frontier = next;
         }
         return dist;
     }

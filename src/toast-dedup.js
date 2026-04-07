@@ -19,11 +19,14 @@ const recentToasts = new Map();
  */
 export function dedupError(message, category, options = {}) {
     if (_isDuplicate(category)) return;
-    toastr.error(message, 'DeepLore Enhanced', {
+    const { hint, ...rest } = options;
+    if (hint) console.warn('[DLE]', category, '-', hint);
+    const t = toastr.error(message, 'DeepLore Enhanced', {
         preventDuplicates: true,
         timeOut: 10000,
-        ...options,
+        ...rest,
     });
+    if (hint && t && t[0]) t[0].title = hint;
 }
 
 /**
@@ -34,11 +37,14 @@ export function dedupError(message, category, options = {}) {
  */
 export function dedupWarning(message, category, options = {}) {
     if (_isDuplicate(category)) return;
-    toastr.warning(message, 'DeepLore Enhanced', {
+    const { hint, ...rest } = options;
+    if (hint) console.warn('[DLE]', category, '-', hint);
+    const t = toastr.warning(message, 'DeepLore Enhanced', {
         preventDuplicates: true,
         timeOut: 8000,
-        ...options,
+        ...rest,
     });
+    if (hint && t && t[0]) t[0].title = hint;
 }
 
 /**
@@ -49,11 +55,14 @@ export function dedupWarning(message, category, options = {}) {
  */
 export function dedupInfo(message, category, options = {}) {
     if (_isDuplicate(category)) return;
-    toastr.info(message, 'DeepLore Enhanced', {
+    const { hint, ...rest } = options;
+    if (hint) console.info('[DLE]', category, '-', hint);
+    const t = toastr.info(message, 'DeepLore Enhanced', {
         preventDuplicates: true,
         timeOut: 6000,
-        ...options,
+        ...rest,
     });
+    if (hint && t && t[0]) t[0].title = hint;
 }
 
 /**

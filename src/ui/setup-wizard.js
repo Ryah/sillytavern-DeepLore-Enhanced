@@ -769,7 +769,7 @@ function wireImport() {
             importJsonData = JSON.stringify(data, null, 2);
         } catch (err) {
             console.error('[DLE] Wizard loadWorldInfo error:', err);
-            toastr.error(`Load error: ${err.message}`, 'DeepLore Enhanced');
+            toastr.error('Couldn\'t load that lorebook. Try a different one or paste the JSON directly.', 'DeepLore Enhanced');
         }
     });
 

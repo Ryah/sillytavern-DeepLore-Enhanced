@@ -127,7 +127,7 @@ export async function loadIndexFromCache() {
         // Schema version mismatch — cache is stale, force full rebuild
         if (result.schemaVersion !== CACHE_SCHEMA_VERSION) {
             if (getSettings().debugMode) console.log(`[DLE] Cache schema version mismatch (have ${result.schemaVersion}, want ${CACHE_SCHEMA_VERSION}) — rebuilding`);
-            try { dedupWarning('Vault cache format outdated — rebuilding from Obsidian. This is normal after an update.', 'cache_schema'); } catch { /* toastr may not be ready */ }
+            try { dedupWarning('Refreshing your lore cache after an update — back in a moment.', 'cache_schema'); } catch { /* toastr may not be ready */ }
             return null;
         }
 

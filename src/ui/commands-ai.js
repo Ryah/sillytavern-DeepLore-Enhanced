@@ -149,7 +149,8 @@ export function registerAiCommands() {
 
             return '';
             } catch (err) {
-                toastr.error('Review failed: ' + err.message, 'DeepLore Enhanced');
+                console.warn('[DLE] /dle-review failed:', err);
+                toastr.error('Couldn\'t send your lore for review. Check your AI connection and try again.', 'DeepLore Enhanced');
                 return '';
             }
         },

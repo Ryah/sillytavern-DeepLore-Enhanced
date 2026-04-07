@@ -175,7 +175,8 @@ export function registerVaultCommands() {
             try {
                 JSON.parse(jsonText);
             } catch (parseErr) {
-                toastr.error(`Invalid JSON: ${parseErr.message}`, 'DeepLore Enhanced');
+                console.warn('[DLE] /dle-import JSON parse failed:', parseErr);
+                toastr.error('That doesn\'t look like valid JSON. Paste a lorebook export and try again.', 'DeepLore Enhanced');
                 return '';
             }
 

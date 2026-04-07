@@ -159,11 +159,11 @@ async function onGenerate(chat, contextSize, abort, type) {
         const lockAge = Date.now() - generationLockTimestamp;
         if (lockAge > 30_000) {
             console.warn(`[DLE] Previous lore selection took too long (${Math.round(lockAge / 1000)}s) — releasing lock`);
-            dedupWarning('Previous lore selection took too long — check your AI search timeout settings.', 'pipeline_lock_stale');
+            dedupWarning('Lore from the last message is taking a while — check your AI timeout setting.', 'pipeline_lock_stale', { hint: 'Pipeline lock held past 30s.' });
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
-            dedupWarning('Lore selection from the previous message is still running — reusing last results. This usually resolves in a few seconds.', 'pipeline_lock');
+            dedupWarning('Lore from the last message is still loading — reusing what we had.', 'pipeline_lock');
             return;
         }
     }
@@ -207,7 +207,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (timeoutErr) {
             console.warn(`[DLE] ${timeoutErr.message} — proceeding with stale data`);
             if (vaultIndex.length === 0) {
-                dedupWarning('Obsidian connection timed out and no cached data available. Check that Obsidian is running with the REST API plugin.', 'obsidian_connect');
+                dedupWarning('Couldn\'t reach your vault and no cache to fall back on.', 'obsidian_connect', { hint: 'Obsidian connection timed out; check the Local REST API plugin.' });
                 return;
             }
         }
@@ -617,7 +617,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     } catch (err) {
         console.error('[DLE] Error during generation:', err);
-        dedupError(`Lore loading failed: ${classifyError(err)}. Try /dle-health for diagnostics or /dle-refresh to reload.`, 'pipeline');
+        dedupError('Couldn\'t load your lore. Try /dle-refresh, or /dle-health for diagnostics.', 'pipeline', { hint: classifyError(err) });
     } finally {
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
@@ -686,41 +686,73 @@ jQuery(async function () {
         // Pre-flight Claude adaptive-thinking misconfiguration sweep across all
         // 3 AI features so the user is warned at startup, not at first generation.
         try {
-            const { detectClaudeAdaptiveIssue, buildClaudeAdaptiveMessage } = await import('./src/ai/claude-adaptive-check.js');
+            const {
+                detectClaudeAdaptiveIssue,
+                buildClaudeAdaptiveMessage,
+                shouldCheckClaudeAdaptiveForFeature,
+                claimClaudeAdaptiveToastSlot,
+            } = await import('./src/ai/claude-adaptive-check.js');
             const { setClaudeAutoEffortState } = await import('./src/state.js');
             const { dedupWarning } = await import('./src/toast-dedup.js');
             const s = getSettings();
+            // Only check features whose effective connection mode is `profile`.
+            // Proxy mode routes through a local proxy that handles thinking
+            // itself, so the native-preset check is a false positive there.
             const checks = [
-                { id: s.aiSearchProfileId, model: s.aiSearchModel, label: 'AI Search' },
-                { id: s.scribeProfileId, model: s.scribeModel, label: 'Session Scribe' },
-                { id: s.autoSuggestProfileId, model: s.autoSuggestModel, label: 'Auto Lorebook' },
-            ];
+                { id: s.aiSearchProfileId, model: s.aiSearchModel, label: 'AI Search', feature: 'aiSearch' },
+                { id: s.scribeProfileId, model: s.scribeModel, label: 'Session Scribe', feature: 'scribe' },
+                { id: s.autoSuggestProfileId, model: s.autoSuggestModel, label: 'Auto Lorebook', feature: 'autoSuggest' },
+            ].filter(c => shouldCheckClaudeAdaptiveForFeature(s, c.feature));
             let firstBad = null;
             for (const c of checks) {
                 const d = detectClaudeAdaptiveIssue(c.id, c.model);
                 if (d.bad) { firstBad = { ...d, feature: c.label }; break; }
             }
             if (firstBad) {
+                // Persistent surfaces (drawer chip + settings banner) are driven
+                // by this state. The toast is a one-shot heads-up only.
                 setClaudeAutoEffortState(true, firstBad);
-                dedupWarning(buildClaudeAdaptiveMessage(firstBad, 'toast'), 'claude_auto_effort', { timeOut: 12000 });
+                if (claimClaudeAdaptiveToastSlot(firstBad)) {
+                    dedupWarning(buildClaudeAdaptiveMessage(firstBad, 'toast'), 'claude_auto_effort', { timeOut: 12000 });
+                }
+            } else {
+                setClaudeAutoEffortState(false, null);
             }
         } catch (err) {
             console.debug('[DLE] Claude adaptive-thinking pre-flight check skipped:', err?.message);
         }
 
-        // First-run detection: if no vaults configured and wizard not completed, show wizard
+        // First-run detection: if no vaults configured and wizard not completed, show wizard.
+        // MUST wait for ST's APP_READY (fires after ST's own first-run onboarding popup is dismissed),
+        // otherwise DLE's wizard lands on top of ST's persona-name popup on brand-new installs.
         const firstRunSettings = getSettings();
         const hasEnabledVaults = (firstRunSettings.vaults || []).some(v => v.enabled);
         if (!hasEnabledVaults && !firstRunSettings._wizardCompleted) {
-            // Delay so ST finishes rendering first
-            setTimeout(async () => {
+            const launchWizard = async () => {
                 try {
+                    // Wait for ST's onboarding popup to be gone, in case APP_READY fired early
+                    // or a future ST version moves onboarding to a non-blocking flow.
+                    const onboardingVisible = () => {
+                        const el = document.querySelector('#onboarding_template .onboarding')
+                            || document.querySelector('dialog[open] .onboarding');
+                        return el && el.offsetParent !== null;
+                    };
+                    let waited = 0;
+                    while (onboardingVisible() && waited < 30000) {
+                        await new Promise(r => setTimeout(r, 250));
+                        waited += 250;
+                    }
+                    // Re-check settings — user may have configured a vault during the wait.
+                    const s = getSettings();
+                    if ((s.vaults || []).some(v => v.enabled) || s._wizardCompleted) return;
                     const { showSetupWizard } = await import('./src/ui/setup-wizard.js');
                     showSetupWizard();
                 } catch (err) {
-                    console.warn('[DLE] Setup wizard auto-open failed:', err.message);
+                    console.warn('[DLE] Setup wizard auto-open failed:', err?.message);
                 }
-            }, 100);
+            };
+            // APP_READY fires after ST's getSettings() and its awaited doOnboarding() popup.
+            eventSource.once(event_types.APP_READY, () => setTimeout(launchWizard, 500));
         }
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.

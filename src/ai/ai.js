@@ -72,18 +72,25 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         throw new Error(`Connection profile not found or invalid. Select one in AI Search settings, or create one in SillyTavern's Connection Manager.`);
     }
 
-    // Pre-flight: detect Claude adaptive-thinking misconfiguration. We do not
-    // override the user's setting — we surface a deduped warning and a friendlier
-    // error rewrite if the call fails with a 400. See claude-adaptive-check.js.
+    // Pre-flight: detect Claude adaptive-thinking misconfiguration. We do NOT
+    // toast here — the persistent surfaces (drawer chip + settings banner)
+    // handle visibility, and the catch block below rewrites the actual 400
+    // error message into something actionable. callViaProfile is only invoked
+    // when the feature is in `profile` mode, so the proxy false-positive case
+    // can't reach this code path.
     let claudeAdaptiveDetail = null;
     try {
-        const { detectClaudeAdaptiveIssue, buildClaudeAdaptiveMessage } = await import('./claude-adaptive-check.js');
+        const { detectClaudeAdaptiveIssue, claimClaudeAdaptiveToastSlot, buildClaudeAdaptiveMessage } = await import('./claude-adaptive-check.js');
         const detail = detectClaudeAdaptiveIssue(resolvedProfileId, resolvedModel);
         if (detail.bad) {
             claudeAdaptiveDetail = detail;
             const { setClaudeAutoEffortState } = await import('../state.js');
             setClaudeAutoEffortState(true, detail);
-            dedupWarning(buildClaudeAdaptiveMessage(detail, 'toast'), 'claude_auto_effort', { timeOut: 12000 });
+            // One-shot heads-up toast per (profile,model,preset) per session.
+            // After the first time, the chip + banner are the signal.
+            if (claimClaudeAdaptiveToastSlot(detail)) {
+                dedupWarning(buildClaudeAdaptiveMessage(detail, 'toast'), 'claude_auto_effort', { timeOut: 12000 });
+            }
         }
     } catch (_) { /* detection must never block the call */ }
 
@@ -150,9 +157,7 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
             console.warn('[DLE] Role-related API error detected:', err.message);
             if (typeof toastr !== 'undefined') {
                 toastr.warning(
-                    'AI search failed — your provider may not support the system role. ' +
-                    'Try setting "Prompt Post-Processing" to "Semi" or "Strict" in your Connection Manager profile, ' +
-                    'or enable "Force merge system prompt" in DLE AI Search settings.',
+                    'AI search couldn\'t talk to your provider. Try switching Prompt Post-Processing to Semi or Strict in your Connection profile.',
                     'DeepLore Enhanced', { timeOut: 10000 },
                 );
             }
@@ -294,7 +299,7 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
 
     // BUG-AUDIT-1: Use tryAcquireHalfOpenProbe for actual AI calls (not pure query)
     if (!tryAcquireHalfOpenProbe()) {
-        dedupWarning('AI circuit breaker is open — skipping hierarchical pre-filter.', 'circuit-prefilter');
+        dedupWarning('AI search is resting after errors — using keywords for now.', 'circuit-prefilter', { hint: 'Circuit breaker open during hierarchical pre-filter.' });
         return null;
     }
 
@@ -412,7 +417,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // BUG-AUDIT-1: Use tryAcquireHalfOpenProbe for actual AI calls (not pure query)
     if (!tryAcquireHalfOpenProbe()) {
         if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
-        dedupWarning('AI search paused after 2 consecutive failures — auto-retrying in ~30s. Keywords active.', 'ai_circuit', { timeOut: 8000 });
+        dedupWarning('AI search is resting after errors — using keywords for now.', 'ai_circuit', { timeOut: 8000, hint: 'Circuit breaker tripped after 2 consecutive failures; retrying in ~30s.' });
         return { results: [], error: true, errorMessage: 'AI search temporarily paused' };
     }
 

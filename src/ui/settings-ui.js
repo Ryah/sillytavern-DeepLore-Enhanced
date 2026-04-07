@@ -20,6 +20,7 @@ import {
     setVaultIndex, setIndexTimestamp, setLastHealthResult,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     librarianSessionStats, librarianChatStats,
+    claudeAutoEffortBad, claudeAutoEffortDetail, onClaudeAutoEffortChanged,
 } from '../state.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 import {
@@ -553,6 +554,25 @@ const MODE_LABELS = {
     profile: 'Connection Profile',
     proxy: 'Custom Proxy',
 };
+
+/**
+ * Show / hide / update the Claude adaptive-thinking misconfiguration banner
+ * inside the AI Connections sub-tab. Driven by claudeAutoEffortBad state.
+ */
+export function refreshClaudeEffortBanner($container) {
+    const $root = $container || $('#dle-settings-popup');
+    const $banner = $root.find('#dle-claude-effort-banner');
+    if (!$banner.length) return;
+    if (claudeAutoEffortBad && claudeAutoEffortDetail) {
+        const d = claudeAutoEffortDetail;
+        const featureLabel = d.feature ? ` (detected on ${escapeHtml(d.feature)})` : '';
+        const msg = `Profile <b>"${escapeHtml(d.profileName || '?')}"</b> uses <b>${escapeHtml(d.modelName || '?')}</b>, but its completion preset <b>"${escapeHtml(d.presetName || '?')}"</b> has <code>reasoning_effort</code> unset or "auto". SillyTavern will reject every request with a 400 error. Fix it in <i>Connection Manager &rarr; edit preset &rarr; Reasoning Effort &rarr; Low / Medium / High</i>${featureLabel}. If this profile actually points at a proxy, switch the feature's connection mode to <b>Proxy</b> below to silence this warning.`;
+        $banner.find('.dle-claude-effort-banner-text').html(msg);
+        $banner.css('display', 'block');
+    } else {
+        $banner.css('display', 'none');
+    }
+}
 
 /**
  * Build the accordion HTML for all 5 tools and inject into the placeholder.
@@ -1135,6 +1155,7 @@ function loadPopupSettings($container) {
     // ── AI Connections accordion ──
     buildAccordionHtml($container);
     populateAccordions($container);
+    refreshClaudeEffortBanner($container);
 
     // ── AI Search ──
     $c('#dle-sp-ai-scan-depth').val(settings.aiSearchScanDepth);
@@ -1447,7 +1468,7 @@ function bindPopupEvents($container) {
             );
         } catch (err) {
             $label.text(origLabel);
-            try { toastr.error(`Export failed: ${err?.message || err}`, 'DeepLore Enhanced'); } catch {}
+            try { toastr.error('Couldn\'t export the diagnostic report.', 'DeepLore Enhanced'); } catch {}
             console.error('[DLE] Diagnostic export failed:', err);
         } finally {
             $btn.prop('disabled', false).removeClass('disabled');
@@ -1487,7 +1508,7 @@ function bindPopupEvents($container) {
             }
         } catch (err) {
             console.error('[DLE] Vault scan error:', err);
-            toastr.error(`Vault scan failed: ${err.message}`, 'DeepLore Enhanced');
+            toastr.error('Vault scan didn\'t find anything. Make sure Obsidian is running.', 'DeepLore Enhanced');
         } finally {
             $btn.prop('disabled', false).removeClass('disabled');
         }
@@ -1766,7 +1787,7 @@ function bindPopupEvents($container) {
         const $btn = $(this), $icon = $btn.find('i');
         $btn.prop('disabled', true); $icon.removeClass('fa-rotate').addClass('fa-spinner fa-spin');
         try { setVaultIndex([]); setIndexTimestamp(0); await buildIndex(); toastr.success(`Indexed ${vaultIndex.length} entries.`, 'DeepLore Enhanced'); updatePopupIndexStats(); }
-        catch (err) { toastr.error(String(err), 'DeepLore Enhanced'); }
+        catch (err) { console.warn('[DLE] Refresh index failed:', err); toastr.error('Couldn\'t refresh your lore. Check your Obsidian connection.', 'DeepLore Enhanced'); }
         finally { $btn.prop('disabled', false); $icon.removeClass('fa-spinner fa-spin').addClass('fa-rotate'); }
     });
     $c('#dle-sp-browse-entries').on('click', () => showBrowsePopup());
@@ -1891,6 +1912,11 @@ export function loadSettingsUI() {
     });
     onAiStatsUpdated(() => updateStubStatus());
     onCircuitStateChanged(() => { updateStubStatus(); updateHeaderBadge(); });
+    onClaudeAutoEffortChanged(() => {
+        // Refresh the AI Connections banner if the popup is currently open.
+        const $popup = $('#dle-settings-popup');
+        if ($popup.length) refreshClaudeEffortBanner($popup);
+    });
 }
 
 function updateStubStatus() {

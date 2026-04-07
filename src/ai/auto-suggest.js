@@ -225,7 +225,8 @@ ${safeContent}`;
                             // Reindex so the new entry is immediately retrievable
                             try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Auto-suggest reindex after write failed:', reidxErr?.message); }
                         } else {
-                            toastr.error(`Could not create entry: ${data.error}`, 'DeepLore Enhanced');
+                            console.warn('[DLE] Auto-suggest write failed:', data && data.error);
+                            toastr.error('Couldn\'t save that entry to your vault.', 'DeepLore Enhanced');
                         }
                     } catch (err) {
                         toastr.error(classifyError(err), 'DeepLore Enhanced');

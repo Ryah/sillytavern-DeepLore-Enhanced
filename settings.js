@@ -197,8 +197,9 @@ export const defaultSettings = {
     graphSpringLength: 80,             // Legacy — not used in FA2 LinLog
     graphGravity: 11.0,                // ForceAtlas2 strong gravity (0.1-20)
     graphDamping: 0.50,                // Velocity damping (0.3-0.98)
-    graphHoverDimDistance: 4,           // BFS hops kept visible on hover (0-8)
-    graphHoverFalloff: 0.9,            // Exponential alpha falloff k (0.4-2.0, higher = sharper)
+    graphHoverDimDistance: 3,           // BFS hops kept visible on hover (0-8)
+    graphHoverFalloff: 0.55,           // Transmission per hop (0.3-0.85, higher = light reaches further)
+    graphHoverAmbient: 0.06,           // Ambient floor for off-set elements (0.0-0.2)
     graphNodeSizeMode: 'centrality',   // centrality / priority / uniform
     graphFocusTreeDepth: 2,            // N-hop depth for focus tree mode (1-15)
     graphDefaultColorMode: 'type',     // type, priority, centrality, frequency
@@ -383,7 +384,8 @@ export const settingsConstraints = {
     graphGravity: { min: 0.1, max: 20 },
     graphDamping: { min: 0.3, max: 0.98 },
     graphHoverDimDistance: { min: 0, max: 8 },
-    graphHoverFalloff: { min: 0.4, max: 2.0 },
+    graphHoverFalloff: { min: 0.3, max: 0.85 },
+    graphHoverAmbient: { min: 0.0, max: 0.2 },
     graphFocusTreeDepth: { min: 1, max: 15 },
     graphEdgeFilterAlpha: { min: 0.01, max: 0.5 },
     decayBoostThreshold: { min: 2, max: 20 },

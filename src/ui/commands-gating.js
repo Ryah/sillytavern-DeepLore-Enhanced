@@ -24,14 +24,14 @@ export function registerGatingCommands() {
         name: 'dle-pin',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.info('Usage: /dle-pin <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Pin which entry? Try: /dle-pin Eris', 'DeepLore Enhanced'); return ''; }
             try { await ensureIndexFresh(); } catch (err) {
                 toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-pin:', err);
                 return '';
             }
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
-            if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
+            if (!entry) { toastr.warning(`Couldn't find "${name}" in your lore.`, 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
             if (chat_metadata.deeplore_pins.some(p => matchesPinBlock(p, entry))) {
                 toastr.info(`"${entry.title}" is already pinned.`, 'DeepLore Enhanced'); return '';
@@ -54,7 +54,7 @@ export function registerGatingCommands() {
         name: 'dle-unpin',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.info('Usage: /dle-unpin <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Unpin which entry? Try: /dle-unpin Eris', 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_pins || chat_metadata.deeplore_pins.length === 0) {
                 toastr.info('No pinned entries.', 'DeepLore Enhanced'); return '';
             }
@@ -75,14 +75,14 @@ export function registerGatingCommands() {
         name: 'dle-block',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.info('Usage: /dle-block <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Block which entry? Try: /dle-block Eris', 'DeepLore Enhanced'); return ''; }
             try { await ensureIndexFresh(); } catch (err) {
                 toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-block:', err);
                 return '';
             }
             const entry = vaultIndex.find(e => e.title.toLowerCase() === name.toLowerCase());
-            if (!entry) { toastr.warning(`Entry "${name}" not found in vault.`, 'DeepLore Enhanced'); return ''; }
+            if (!entry) { toastr.warning(`Couldn't find "${name}" in your lore.`, 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
             if (chat_metadata.deeplore_blocks.some(b => matchesPinBlock(b, entry))) {
                 toastr.info(`"${entry.title}" is already blocked.`, 'DeepLore Enhanced'); return '';
@@ -105,7 +105,7 @@ export function registerGatingCommands() {
         name: 'dle-unblock',
         callback: async (_args, entryName) => {
             const name = (entryName || '').trim();
-            if (!name) { toastr.info('Usage: /dle-unblock <entry name>', 'DeepLore Enhanced'); return ''; }
+            if (!name) { toastr.info('Unblock which entry? Try: /dle-unblock Eris', 'DeepLore Enhanced'); return ''; }
             if (!chat_metadata.deeplore_blocks || chat_metadata.deeplore_blocks.length === 0) {
                 toastr.info('No blocked entries.', 'DeepLore Enhanced'); return '';
             }
@@ -489,7 +489,7 @@ export function registerGatingCommands() {
             const value = parts.slice(1).join(' ').trim();
 
             if (!fieldName) {
-                toastr.info('Usage: /dle-set-field <field_name> [value]. Run with just a field name to browse values.', 'DeepLore Enhanced');
+                toastr.info('Set which field? Try: /dle-set-field era Modern (or run with just the field name to browse values).', 'DeepLore Enhanced');
                 return '';
             }
 
@@ -540,7 +540,7 @@ export function registerGatingCommands() {
         callback: async (_args, fieldName) => {
             const name = (fieldName || '').trim();
             if (!name) {
-                toastr.info('Usage: /dle-clear-field <field_name>', 'DeepLore Enhanced');
+                toastr.info('Clear which field? Try: /dle-clear-field era', 'DeepLore Enhanced');
                 return '';
             }
 
@@ -665,7 +665,7 @@ export function registerGatingCommands() {
             // With argument — set directly (space-separated or quoted folder names)
             const folders = value.match(/"[^"]+"|[^\s]+/g)?.map(f => f.replace(/"/g, '').trim()).filter(Boolean) || [];
             if (folders.length === 0) {
-                toastr.info('Usage: /dle-set-folder <folder> [folder2] or /dle-set-folder "Folder With Spaces"', 'DeepLore Enhanced');
+                toastr.info('Set which folder? Try: /dle-set-folder Characters (run with no args to browse folders).', 'DeepLore Enhanced');
                 return '';
             }
 

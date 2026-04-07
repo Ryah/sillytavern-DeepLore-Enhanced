@@ -17,7 +17,7 @@ import {
     lastInjectionSources, loreGaps,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
-    onIndexingChanged, onLoreGapsChanged,
+    onIndexingChanged, onLoreGapsChanged, onClaudeAutoEffortChanged,
 } from '../state.js';
 
 // ─── Drawer sub-modules ───
@@ -446,6 +446,10 @@ export async function createDrawerPanel() {
     onCircuitStateChanged(() => {
         scheduleRender(renderStatusZone);
         scheduleRender(renderFooter);
+    });
+
+    onClaudeAutoEffortChanged(() => {
+        scheduleRender(renderStatusZone);
     });
 
     onPipelineComplete(() => {

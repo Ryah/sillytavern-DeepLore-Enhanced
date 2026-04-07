@@ -115,7 +115,7 @@ export async function runScribe(customPrompt) {
         const summary = await callScribe(systemPrompt, userMessage, settings);
 
         if (!summary || !summary.trim()) {
-            dedupWarning('Scribe generated an empty summary.', 'scribe');
+            dedupWarning('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe', { hint: 'Scribe returned empty summary.' });
             return;
         }
 
@@ -162,11 +162,11 @@ export async function runScribe(customPrompt) {
             // Reindex so the newly-written note is immediately retrievable
             try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Scribe reindex after write failed:', reidxErr?.message); }
         } else {
-            dedupError(`Failed to save session note: ${data.error}`, 'scribe');
+            dedupError('Couldn\'t save the session note to your vault.', 'scribe', { hint: data && data.error });
         }
     } catch (err) {
         console.error('[DLE] Session Scribe error:', err);
-        dedupError(`Scribe error: ${err.message}`, 'scribe');
+        dedupError('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe', { hint: err && err.message });
     } finally {
         // Only reset if we're still the active scribe (CHAT_CHANGED may have already reset it)
         if (epoch === chatEpoch) {

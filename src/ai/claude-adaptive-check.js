@@ -98,3 +98,70 @@ export function buildClaudeAdaptiveMessage(detail, surface = 'toast') {
     // toast (default)
     return `DeepLore: ${modelName} on profile "${profileName}" will fail — set reasoning_effort on preset "${presetName}" (Low/Medium/High).`;
 }
+
+/**
+ * Resolve a DLE feature's effective AI connection mode, following the
+ * `inherit` chain back to AI Search. Returns 'profile' | 'proxy' | 'inherit'
+ * (only AI Search itself, defaulted) | whatever else the user set.
+ *
+ * @param {object} settings - getSettings() result
+ * @param {'aiSearch'|'scribe'|'autoSuggest'|'aiNotepad'|'librarian'|'optimizeKeys'} feature
+ * @returns {string}
+ */
+export function resolveFeatureConnectionMode(settings, feature) {
+    if (!settings) return 'profile';
+    const map = {
+        aiSearch: 'aiSearchConnectionMode',
+        scribe: 'scribeConnectionMode',
+        autoSuggest: 'autoSuggestConnectionMode',
+        aiNotepad: 'aiNotepadConnectionMode',
+        librarian: 'librarianConnectionMode',
+        optimizeKeys: 'optimizeKeysConnectionMode',
+    };
+    const key = map[feature];
+    if (!key) return 'profile';
+    let mode = settings[key];
+    // Fall back through inherit → AI Search root.
+    if (mode === 'inherit') mode = settings.aiSearchConnectionMode || 'profile';
+    return mode || 'profile';
+}
+
+/**
+ * Whether the adaptive-thinking check is meaningful for this feature.
+ * Proxy mode routes through a local proxy (e.g. claude-code-proxy) that
+ * handles thinking itself, so the native-Anthropic preset check is a
+ * false positive there. Only `profile` mode warrants the warning.
+ *
+ * @param {object} settings
+ * @param {string} feature
+ */
+export function shouldCheckClaudeAdaptiveForFeature(settings, feature) {
+    return resolveFeatureConnectionMode(settings, feature) === 'profile';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session-scoped one-shot toast tracking. The drawer chip + settings banner
+// are the persistent surfaces; the toast is just a heads-up on first detection
+// per (profile, model, preset) combo per browser session.
+// ─────────────────────────────────────────────────────────────────────────────
+const _sessionToastShown = new Set();
+
+/**
+ * Returns true if the toast for this combo has NOT been shown yet this
+ * session, and marks it as shown. Returns false if it was already shown.
+ *
+ * @param {object} detail - detectClaudeAdaptiveIssue result with bad===true
+ * @returns {boolean}
+ */
+export function claimClaudeAdaptiveToastSlot(detail) {
+    if (!detail) return false;
+    const key = `${detail.profileName || '?'}|${detail.modelName || '?'}|${detail.presetName || '?'}`;
+    if (_sessionToastShown.has(key)) return false;
+    _sessionToastShown.add(key);
+    return true;
+}
+
+/** Test helper — clears the session toast set. */
+export function _resetClaudeAdaptiveToastSession() {
+    _sessionToastShown.clear();
+}

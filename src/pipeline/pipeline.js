@@ -127,7 +127,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                     if (nonConstant.length === 0 && finalEntries.length > 0) {
                         console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
-                        dedupWarning('AI search failed — only always-send entries are active. Check your AI connection in DeepLore settings.', 'ai_fallback');
+                        dedupWarning('AI search hit a snag — only your always-send lore is active.', 'ai_fallback', { hint: 'Check AI connection in DeepLore settings.' });
                     }
                 } else if (fallback === 'constants_only') {
                     finalEntries = alwaysInject;
@@ -138,7 +138,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
-                dedupWarning(`AI found no relevant entries for this context — using ${emptyFallback} fallback as configured.`, 'ai_empty_fallback');
+                dedupWarning('AI didn\'t pick any lore for this scene — using your fallback.', 'ai_empty_fallback', { hint: `Empty fallback mode: ${emptyFallback}` });
                 if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
                     finalEntries = alwaysInject;
                 } else if (emptyFallback === 'keyword') {
@@ -237,7 +237,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
-                dedupWarning(`AI found no relevant entries for this context — using ${emptyFallback} fallback as configured.`, 'ai_empty_fallback');
+                dedupWarning('AI didn\'t pick any lore for this scene — using your fallback.', 'ai_empty_fallback', { hint: `Empty fallback mode: ${emptyFallback}` });
                 if (emptyFallback === 'constants') {
                     // AI found nothing relevant — fall back to force-injected entries only (constants + active bootstrap)
                     finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));

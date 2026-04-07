@@ -175,7 +175,7 @@ export function initEvents(gs, dbg) {
             link.click();
             toastr.success('Graph exported as PNG', 'DeepLore Enhanced');
         } catch (e) {
-            toastr.error('Failed to export PNG: ' + e.message, 'DeepLore Enhanced');
+            console.warn('[DLE] PNG export failed:', e); toastr.error('Couldn\'t save the graph image.', 'DeepLore Enhanced');
         }
     }
 
@@ -213,7 +213,7 @@ export function initEvents(gs, dbg) {
             toastr.success('Graph exported as JSON', 'DeepLore Enhanced');
         } catch (e) {
             dbg('JSON export failed:', e.message);
-            toastr.error('Failed to export JSON: ' + e.message, 'DeepLore Enhanced');
+            console.warn('[DLE] JSON export failed:', e); toastr.error('Couldn\'t save the graph data.', 'DeepLore Enhanced');
         } finally {
             if (objectUrl) URL.revokeObjectURL(objectUrl);
         }
@@ -383,30 +383,23 @@ export function initEvents(gs, dbg) {
                 dbg('Keyboard: fit to view');
                 gs.fitToView();
                 break;
-            case 'Escape':
-                // Exit focus tree OR reset isolation
+            case 'e':
+            case 'E':
+                // Exit focus tree OR reset isolation. ESC is left alone so ST's popup
+                // close behavior works naturally.
                 if (gs.focusTreeRoot) {
-                    dbg('Keyboard: Escape — exiting focus tree');
+                    dbg('Keyboard: e — exiting focus tree');
                     gs.exitFocusTree();
                     hideContextMenu();
                     gs.needsDraw = true;
+                    e.preventDefault();
                 } else {
-                    dbg('Keyboard: Escape — resetting isolation and context menu');
+                    dbg('Keyboard: e — resetting isolation and context menu');
                     for (const n of nodes) {
                         const shouldBeHidden = n.orphan || (n.revealBatchIdx != null && n.revealBatchIdx >= gs.revealedBatch && n.revealBatchIdx !== -1);
                         if (n.hidden && !shouldBeHidden) { n.vx = 0; n.vy = 0; }
                         n.hidden = shouldBeHidden;
                     }
-                    hideContextMenu();
-                    gs.needsDraw = true;
-                }
-                // Don't try to prevent popup close — just let focus exit happen
-                break;
-            case 'Backspace':
-                // Alternative: Backspace exits focus tree without closing popup
-                if (gs.focusTreeRoot) {
-                    dbg('Keyboard: Backspace — exiting focus tree');
-                    gs.exitFocusTree();
                     hideContextMenu();
                     gs.needsDraw = true;
                     e.preventDefault();
@@ -509,6 +502,7 @@ export function initEvents(gs, dbg) {
         }
         if (gs.focusTreeRoot._depthMap) delete gs.focusTreeRoot._depthMap;
         if (gs.focusTreeRoot._treeEdgeIdx) delete gs.focusTreeRoot._treeEdgeIdx;
+        if (gs.focusTreeRoot._hasDownwardChildSet) delete gs.focusTreeRoot._hasDownwardChildSet;
         gs.focusTreeRoot.pinned = false;
         gs.focusTreeRoot = null;
         gs.focusTreePhysics = false;

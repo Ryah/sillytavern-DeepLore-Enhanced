@@ -326,7 +326,7 @@ export async function buildIndex() {
                 // Surface auth errors as user-facing toasts even in multi-vault mode
                 // (otherwise a misconfigured API key silently produces zero entries)
                 if (/401|403/.test(String(vaultErr.message))) {
-                    dedupWarning(`Vault "${vault.name}" authentication failed — check its API key.`, 'vault_auth');
+                    dedupWarning(`Vault "${vault.name}" rejected the API key.`, 'vault_auth', { hint: 'Check the API key in Connection → Obsidian.' });
                 }
                 if (enabledVaults.length === 1) throw vaultErr;
             }
@@ -337,8 +337,9 @@ export async function buildIndex() {
         // instead of replacing it with an empty array (which would destroy valid cached data)
         if (vaultFailCount > 0 && vaultFailCount === enabledVaults.length && enabledVaults.length > 1) {
             dedupError(
-                `All ${enabledVaults.length} vaults failed to connect. Preserving existing index (${vaultIndex.length} entries). Check vault connections.`,
+                'Couldn\'t reach any of your vaults — keeping the lore you already had.',
                 'obsidian_connect',
+                { hint: `${enabledVaults.length} vaults failed; existing ${vaultIndex.length} entries preserved.` },
             );
             // Set short-lived timestamp so ensureIndexFresh retries soon
             const ttl = settings.cacheTTL * 1000;
@@ -467,7 +468,7 @@ export async function hydrateFromCache() {
                 // (not Date.now() which would prevent retries until TTL expires)
                 const s = getSettings();
                 setIndexTimestamp(Date.now() - (s.cacheTTL * 1000) + 30_000); // retry in ~30s
-                dedupWarning('Obsidian is not responding — using previously cached entries. Check that Obsidian is running, then use /dle-refresh to reconnect.', 'obsidian_connect', { timeOut: CACHE_FALLBACK_TOAST_TIMEOUT });
+                dedupWarning('Couldn\'t reach your vault — using your saved cache for now.', 'obsidian_connect', { timeOut: CACHE_FALLBACK_TOAST_TIMEOUT, hint: 'Check that Obsidian is running, then /dle-refresh.' });
             }
         });
 

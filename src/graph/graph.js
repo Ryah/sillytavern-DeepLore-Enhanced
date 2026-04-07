@@ -736,9 +736,8 @@ export async function showGraphPopup() {
         observer.observe(popupContainer, { childList: true, subtree: true });
     }
 
-    // Focus tree Escape is handled by:
-    // 1. onClosing callback (returns false to prevent popup close)
-    // 2. capture-phase keydown in graph-events.js (exits focus mode)
+    // Focus tree exit: press 'e' (handled in graph-events.js). ESC closes the popup
+    // (ST default) and is no longer captured here.
 
     // ========================================================================
     // Shared graph state — passed to all sub-modules

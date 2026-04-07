@@ -406,35 +406,56 @@ export function initRender(gs) {
                     const hoverDepth = dm.get(hid) ?? 0;
                     const isDownward = touchesHover && otherDepth > hoverDepth;
                     const isUpward = touchesHover && otherDepth < hoverDepth;
-                    const isLeaf = !edges.some(e => {
-                        if (!focusTreeRoot._treeEdgeIdx.has(e._idx)) return false;
-                        const oId = e.from === hid ? e.to : e.to === hid ? e.from : -1;
-                        return oId !== -1 && (dm.get(oId) ?? 0) > hoverDepth;
-                    });
+                    // Cache "node has downward child" set on the focus root once per focus
+                    // session — replaces an O(E) edges.some() per edge (was O(E²) overall).
+                    if (!focusTreeRoot._hasDownwardChildSet) {
+                        const downSet = new Set();
+                        for (const eIdx of focusTreeRoot._treeEdgeIdx) {
+                            const e = edges[eIdx];
+                            const dF = dm.get(e.from) ?? 0;
+                            const dT = dm.get(e.to) ?? 0;
+                            if (dF < dT) downSet.add(e.from);
+                            else if (dT < dF) downSet.add(e.to);
+                        }
+                        focusTreeRoot._hasDownwardChildSet = downSet;
+                    }
+                    const isLeaf = !focusTreeRoot._hasDownwardChildSet.has(hid);
                     const highlight = isDownward || (isLeaf && isUpward);
                     ctx.globalAlpha = highlight ? 0.35 : 0.03;
                     ctx.lineWidth = highlight ? 3 : 1;
                 } else if (hoverDistances) {
-                    // Exponential falloff: alpha = exp(-k * (max(du, dv) - 1))
-                    // Edges with either endpoint outside hoverDistances are skipped entirely.
+                    // "Mirrors and lasers": each hop transmits a fraction `t` of the energy.
+                    // Edge brightness = min(E_from, E_to). Out-of-set edges fall back to ambient.
+                    const t = settings.graphHoverFalloff ?? 0.55;
+                    const ambient = settings.graphHoverAmbient ?? 0.06;
                     const du = hoverDistances.get(edge.from);
                     const dv = hoverDistances.get(edge.to);
-                    if (du === undefined || dv === undefined) continue;
                     const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
                     if (drawnDimPairs.has(pairKey)) continue;
                     drawnDimPairs.add(pairKey);
 
-                    const k = settings.graphHoverFalloff ?? 0.9;
-                    const ringDepth = Math.max(du, dv);
-                    const sameRing = (du === dv && du > 0); // within-ring "scatter" edge
-                    let alpha = Math.exp(-k * Math.max(0, ringDepth - 1));
-                    if (sameRing) alpha *= 0.6;
-                    if (alpha < 0.02) continue;
-
-                    ctx.globalAlpha = alpha;
-                    if (ringDepth <= 1)      { ctx.lineWidth = 3; ctx.shadowColor = edgeColors[type] || '#aac8ff'; ctx.shadowBlur = 3; }
-                    else if (ringDepth === 2){ ctx.lineWidth = 1.5; ctx.shadowBlur = 0; }
-                    else                     { ctx.lineWidth = 1;   ctx.shadowBlur = 0; }
+                    if (du === undefined || dv === undefined) {
+                        // Off-graph relative to hover — keep faintly visible as backdrop
+                        ctx.globalAlpha = ambient;
+                        ctx.lineWidth = 1;
+                        ctx.shadowBlur = 0;
+                    } else {
+                        const eF = Math.pow(t, du);
+                        const eT = Math.pow(t, dv);
+                        const minE = Math.min(eF, eT);
+                        const maxE = Math.max(eF, eT);
+                        let alpha = minE * 0.95;
+                        if (du === dv && du > 0) alpha *= 0.7; // same-ring sibling damp
+                        if (alpha < ambient) alpha = ambient;
+                        ctx.globalAlpha = alpha;
+                        ctx.lineWidth = 1 + 2.5 * minE;
+                        if (minE > 0.3) {
+                            ctx.shadowColor = edgeColors[type] || '#aac8ff';
+                            ctx.shadowBlur = Math.min(6, 6 * maxE);
+                        } else {
+                            ctx.shadowBlur = 0;
+                        }
+                    }
                 } else if (focusTreeRoot && focusTreeRoot._treeEdgeIdx) {
                     if (!focusTreeRoot._treeEdgeIdx.has(edge._idx)) continue;
                     const dm = focusTreeRoot._depthMap;
@@ -484,12 +505,11 @@ export function initRender(gs) {
                 const nd = focusTreeRoot._depthMap.get(n.id) ?? 99;
                 ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.6;
             } else if (hoverDistances) {
+                const t = settings.graphHoverFalloff ?? 0.55;
+                const ambient = settings.graphHoverAmbient ?? 0.06;
                 const hopDist = hoverDistances.get(n.id);
-                if (hopDist === undefined) continue; // outside reach — skip draw entirely
-                const k = settings.graphHoverFalloff ?? 0.9;
-                const a = Math.exp(-k * Math.max(0, hopDist - 1));
-                if (a < 0.02) continue;
-                ctx.globalAlpha = a;
+                const energy = hopDist === undefined ? 0 : Math.pow(t, hopDist);
+                ctx.globalAlpha = Math.max(energy, ambient);
             } else if (focusTreeRoot && focusTreeRoot._depthMap) {
                 const nd = focusTreeRoot._depthMap.get(n.id) ?? 99;
                 ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.5;
@@ -574,12 +594,19 @@ export function initRender(gs) {
             for (const n of nodes) {
                 if (n.hidden || n._revealScale < 0.5) continue;
                 if (n.filtered && !focusTreeRoot) continue;
-                if (hoverDistances && !focusTreeRoot && !hoverDistances.has(n.id)) continue;
+                const inHoverSet = hoverDistances && hoverDistances.has(n.id);
+                if (hoverDistances && !focusTreeRoot && !inHoverSet) continue;
                 const s = toScreen(n.x, n.y);
                 const isHub = (gs.edgeCountByNode.get(n.id) || 0) >= 5;
                 const matchesFilter = (searchQuery || typeFilter || tagFilter) && !n.filtered;
-                if (focusTreeRoot || zoom > 0.7 || (zoom > 0.4 && (isHub || matchesFilter))) {
-                    if (focusTreeRoot) {
+                const hoverDist = inHoverSet ? hoverDistances.get(n.id) : null;
+                const inHoverLabelSet = inHoverSet && hoverDist !== null && hoverDist <= 1;
+                if (focusTreeRoot || inHoverLabelSet || zoom > 0.7 || (zoom > 0.4 && (isHub || matchesFilter))) {
+                    if (inHoverLabelSet && !focusTreeRoot) {
+                        const isHovered = n === hoverNode;
+                        ctx.fillStyle = isHovered ? '#fff' : '#ddd';
+                        ctx.globalAlpha = isHovered ? 1.0 : 0.85;
+                    } else if (focusTreeRoot) {
                         const isHovered = n === hoverNode;
                         const treeEdgeSet = focusTreeRoot._depthMap?._treeEdges;
                         const isTreeNeighbor = isHovered ? false : (hoverNode && treeEdgeSet &&
@@ -601,8 +628,8 @@ export function initRender(gs) {
                 }
             }
 
-            // Zoomed hover label — only in focus tree mode
-            if (hoverNode && zoom < 0.8 && focusTreeRoot) {
+            // Zoomed hover label — bold pill for the hovered node
+            if (hoverNode && zoom < 0.8) {
                 const hs = toScreen(hoverNode.x, hoverNode.y);
                 const fontSize = Math.max(13, 14);
                 ctx.save();

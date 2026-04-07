@@ -3,10 +3,10 @@
 
     <!-- Sidebar tabs -->
     <nav class="dle-settings-sidebar" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
-        <button class="dle-settings-tab active" id="dle-sp-tab-general" data-settings-tab="general" role="tab"
-                aria-selected="true" aria-controls="dle-sp-general">
-            <i class="fa-solid fa-toggle-on" aria-hidden="true"></i>
-            <span>General</span>
+        <button class="dle-settings-tab active" id="dle-sp-tab-about" data-settings-tab="about" role="tab"
+                aria-selected="true" aria-controls="dle-sp-about">
+            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
+            <span>About</span>
         </button>
         <div class="dle-settings-tab dle-settings-tab--header" id="dle-sp-tab-connection" data-settings-tab="connection"
              aria-expanded="true">
@@ -66,33 +66,10 @@
             <i class="fa-solid fa-sliders" aria-hidden="true"></i>
             <span>System</span>
         </button>
-        <button class="dle-settings-tab" id="dle-sp-tab-about" data-settings-tab="about" role="tab"
-                aria-selected="false" aria-controls="dle-sp-about">
-            <i class="fa-solid fa-circle-info" aria-hidden="true"></i>
-            <span>About</span>
-        </button>
     </nav>
 
     <!-- Content area -->
     <div class="dle-settings-content">
-        <!-- ═══════════════════════════════════════════════════════════════════
-             TAB: General
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="dle-settings-panel active" id="dle-sp-general" data-settings-panel="general"
-             role="tabpanel" aria-labelledby="dle-sp-tab-general">
-            <div class="dle-settings-section">
-                <h4>DeepLore Enhanced</h4>
-                <label class="checkbox_label" for="dle-sp-enabled" title="Enable or disable DeepLore Enhanced. When disabled, no entries are injected into prompts.">
-                    <input id="dle-sp-enabled" type="checkbox" class="checkbox">
-                    <span>Enable DeepLore Enhanced</span>
-                </label>
-                <p class="dle-section-desc">Master on/off switch for the entire extension. When off, no entries are matched, no AI calls are made, and no prompts are injected.</p>
-                <div style="margin-top: 8px;">
-                    <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki" target="_blank" rel="noopener noreferrer" class="dle-text-sm dle-muted">Documentation Wiki &rarr;</a>
-                </div>
-            </div>
-        </div>
-
         <!-- ═══════════════════════════════════════════════════════════════════
              TAB: Connection
              ═══════════════════════════════════════════════════════════════════ -->
@@ -141,28 +118,6 @@
             </div>
             </div>
 
-            </div><!-- end Sub-panel: Obsidian -->
-
-            <!-- Sub-panel: AI Connections -->
-            <div class="dle-connection-subpanel" id="dle-sp-conn-ai-connections" data-connection-subpanel="ai-connections"
-                 role="tabpanel" hidden>
-
-            <div class="dle-settings-section" id="dle-sp-ai-connections">
-                <h4>AI Connections</h4>
-                <p class="dle-section-desc">Configure AI connections for each tool. Tools set to "Inherit" use the AI Search connection.</p>
-                <!-- Accordion items generated dynamically by settings-ui.js -->
-            </div>
-
-            </div><!-- end Sub-panel: AI Connections -->
-
-        </div>
-
-        <!-- ═══════════════════════════════════════════════════════════════════
-             TAB: Matching
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="dle-settings-panel" id="dle-sp-matching" data-settings-panel="matching"
-             role="tabpanel" aria-labelledby="dle-sp-tab-matching" hidden>
-
             <div class="dle-settings-section">
             <h4>Vault Tags</h4>
             <p class="dle-section-desc">Tags control which Obsidian notes are indexed and how they behave.</p>
@@ -182,15 +137,6 @@
                     <div class="flex1" title="Tag (without #) that prevents a note from ever being included.">
                         <label for="dle-sp-never-insert-tag"><small>Never-Insert Tag</small></label>
                         <input id="dle-sp-never-insert-tag" type="text" class="text_pole" placeholder="lorebook-never" />
-                    </div>
-                </div>
-                <div class="flex-container" style="align-items: flex-end;">
-                    <div class="flex1" title="Path to the YAML file in Obsidian that defines custom gating fields (e.g., era, location, mood). Relative to vault root.">
-                        <label for="dle-sp-field-definitions-path"><small>Field Definitions Path</small></label>
-                        <input id="dle-sp-field-definitions-path" type="text" class="text_pole" placeholder="DeepLore/field-definitions.yaml" />
-                    </div>
-                    <div id="dle-sp-edit-fields-btn" class="menu_button" title="Open the field definition editor" style="height: fit-content; margin-left: 8px; white-space: nowrap;">
-                        <i class="fa-solid fa-gear"></i> Edit Fields
                     </div>
                 </div>
                 <div class="dle-advanced-toggle" data-section="sp_vault_tags" tabindex="0" role="button" aria-expanded="false">
@@ -216,6 +162,48 @@
                 </div>
             </div>
             </div>
+
+            <div class="dle-settings-section">
+            <h4>Field Definitions</h4>
+            <p class="dle-section-desc">Custom gating fields (era, location, mood, etc.) defined in a YAML file inside your vault.</p>
+
+            <div class="flex-container" style="align-items: flex-end;">
+                <div class="flex1" title="Path to the YAML file in Obsidian that defines custom gating fields. Relative to vault root.">
+                    <label for="dle-sp-field-definitions-path"><small>Field Definitions Path</small></label>
+                    <input id="dle-sp-field-definitions-path" type="text" class="text_pole" placeholder="DeepLore/field-definitions.yaml" />
+                </div>
+                <div id="dle-sp-edit-fields-btn" class="menu_button" title="Open the field definition editor" style="height: fit-content; margin-left: 8px; white-space: nowrap;">
+                    <i class="fa-solid fa-gear"></i> Edit Fields
+                </div>
+            </div>
+            </div>
+
+            </div><!-- end Sub-panel: Obsidian -->
+
+            <!-- Sub-panel: AI Connections -->
+            <div class="dle-connection-subpanel" id="dle-sp-conn-ai-connections" data-connection-subpanel="ai-connections"
+                 role="tabpanel" hidden>
+
+            <div class="dle-settings-section" id="dle-sp-ai-connections">
+                <h4>AI Connections</h4>
+                <p class="dle-section-desc">Configure AI connections for each tool. Tools set to "Inherit" use the AI Search connection.</p>
+                <!-- Claude adaptive-thinking misconfiguration banner (populated by settings-ui.js) -->
+                <div id="dle-claude-effort-banner" class="dle-warning-banner" style="display:none; padding: var(--dle-space-2) var(--dle-space-3); background: color-mix(in srgb, var(--dle-warning, #d97706) 15%, transparent); border-left: 3px solid var(--dle-warning, #d97706); border-radius: 4px; margin: var(--dle-space-2) 0; font-size: var(--dle-text-sm);" role="alert">
+                    <i class="fa-solid fa-triangle-exclamation" style="color: var(--dle-warning, #d97706); margin-right: 6px;"></i>
+                    <span class="dle-claude-effort-banner-text"></span>
+                </div>
+                <!-- Accordion items generated dynamically by settings-ui.js -->
+            </div>
+
+            </div><!-- end Sub-panel: AI Connections -->
+
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             TAB: Matching
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="dle-settings-panel" id="dle-sp-matching" data-settings-panel="matching"
+             role="tabpanel" aria-labelledby="dle-sp-tab-matching" hidden>
 
             <div class="dle-settings-section">
             <h4>Search Mode</h4>
@@ -273,9 +261,7 @@
                         <input id="dle-sp-unlimited-entries" type="checkbox" class="checkbox">
                         <span>Unlimited Entries</span>
                     </label>
-                    <span class="dle-unlimited-warning" id="dle-sp-unlimited-entries-warn" style="display:none;">
-                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May cause slow responses with large vaults (100+ entries)
-                    </span>
+                    <small class="dle-text-xs dle-muted dle-unlimited-warning" id="dle-sp-unlimited-entries-warn" style="display:none;" title="Larger vaults take longer to inject every entry every generation.">Larger vaults may feel slower.</small>
                 </div>
                 <div class="flex1" title="Maximum number of lorebook entries to inject per generation.">
                     <label for="dle-sp-max-entries"><small>Max Entries</small></label>
@@ -288,9 +274,7 @@
                         <input id="dle-sp-unlimited-budget" type="checkbox" class="checkbox">
                         <span>Unlimited Token Budget</span>
                     </label>
-                    <span class="dle-unlimited-warning" id="dle-sp-unlimited-budget-warn" style="display:none;">
-                        <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i> May cause slow responses with large vaults (100+ entries)
-                    </span>
+                    <small class="dle-text-xs dle-muted dle-unlimited-warning" id="dle-sp-unlimited-budget-warn" style="display:none;" title="Larger vaults take longer to inject every entry every generation.">Larger vaults may feel slower.</small>
                 </div>
                 <div class="flex1" title="Maximum total tokens to inject from lorebook entries per generation.">
                     <label for="dle-sp-token-budget"><small>Token Budget</small></label>
@@ -914,37 +898,7 @@
                     <span>Show Labels</span>
                 </label>
 
-                <div class="dle-advanced-toggle" data-section="sp_graph" tabindex="0" role="button" aria-expanded="false">
-                    <i class="fa-solid fa-chevron-right dle-advanced-icon" aria-hidden="true"></i> Show Advanced (Physics)
-                </div>
-                <div class="dle-advanced-section" data-section="sp_graph" style="display: none;">
-                    <div class="flex-container">
-                        <div class="flex1" title="Node repulsion coefficient. Higher = more spread. Default: 0.3.">
-                            <label for="dle-sp-graph-repulsion"><small>Repulsion</small></label>
-                            <input id="dle-sp-graph-repulsion" type="number" class="text_pole" min="0.1" max="50" step="0.1" />
-                        </div>
-                    </div>
-                    <div class="flex-container">
-                        <div class="flex1" title="Center pull strength. Higher = tighter cluster. Default: 11.0.">
-                            <label for="dle-sp-graph-gravity"><small>Gravity</small></label>
-                            <input id="dle-sp-graph-gravity" type="number" class="text_pole" min="0.1" max="20" step="0.1" />
-                        </div>
-                        <div class="flex1" title="Velocity damping. Higher = calmer settling. Default: 0.50.">
-                            <label for="dle-sp-graph-damping"><small>Damping</small></label>
-                            <input id="dle-sp-graph-damping" type="number" class="text_pole" min="0.3" max="0.98" step="0.01" />
-                        </div>
-                        <div class="flex1" title="Opacity of dimmed nodes/edges on hover. Default: 0.1.">
-                            <label for="dle-sp-graph-hover-falloff"><small>Hover Falloff</small></label>
-                            <input id="dle-sp-graph-hover-falloff" type="number" class="text_pole" min="0.4" max="2.0" step="0.1" />
-                        </div>
-                    </div>
-                    <div class="flex-container">
-                        <div class="flex1" title="Edge filtering threshold — lower = sparser graph, showing only the most significant connections. Default: 0.05.">
-                            <label for="dle-sp-graph-edge-filter-alpha"><small>Edge Filtering Threshold</small></label>
-                            <input id="dle-sp-graph-edge-filter-alpha" type="number" class="text_pole" min="0.01" max="0.5" step="0.01" />
-                        </div>
-                    </div>
-                </div>
+                <p class="dle-section-desc" style="margin-top: 8px;"><small><i class="fa-solid fa-circle-info"></i> Most graph controls live in the graph window's own settings panel — open the graph to tune physics, focus depth, edge filtering, and presets.</small></p>
             </div>
             </div>
             </div>
@@ -1217,14 +1171,21 @@
         <!-- ═══════════════════════════════════════════════════════════════════
              TAB: About
              ═══════════════════════════════════════════════════════════════════ -->
-        <div class="dle-settings-panel" id="dle-sp-about" data-settings-panel="about"
-             role="tabpanel" aria-labelledby="dle-sp-tab-about" hidden>
+        <div class="dle-settings-panel active" id="dle-sp-about" data-settings-panel="about"
+             role="tabpanel" aria-labelledby="dle-sp-tab-about">
 
             <div style="text-align: center;" class="dle-my-3">
                 <h3 style="margin: 0;">DeepLore Enhanced</h3>
                 <span class="dle-text-xs dle-muted" id="dle-sp-version">v0.2.0-beta</span>
             </div>
             <p class="dle-section-desc" style="text-align: center;">AI-powered Obsidian vault lorebook for SillyTavern with keyword and semantic search.</p>
+
+            <div class="dle-settings-section" style="text-align: center;">
+                <label class="checkbox_label" for="dle-sp-enabled" title="Master on/off switch. When disabled, no entries are matched, no AI calls are made, and no prompts are injected." style="display: inline-flex;">
+                    <input id="dle-sp-enabled" type="checkbox" class="checkbox">
+                    <span>Enable DeepLore Enhanced</span>
+                </label>
+            </div>
 
             <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 16px 0;">
                 <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced" target="_blank" rel="noopener noreferrer" class="menu_button menu_button_icon" style="display: inline-flex; gap: 6px; text-decoration: none;">
@@ -1249,66 +1210,46 @@
 
             <hr>
             <h4>Slash Commands</h4>
-            <table class="dle-sp-command-table">
-                <colgroup><col style="width:33%"><col style="width:33%"><col style="width:34%"></colgroup>
-                <thead><tr>
-                    <th>Browse & Diagnose</th>
-                    <th>Create & Manage</th>
-                    <th>Per-Chat Control</th>
-                </tr></thead>
-                <tbody>
-                <tr>
-                    <td><code>/dle-help</code><br><span class="dle-text-xs dle-muted">List all commands</span></td>
-                    <td><code>/dle-refresh</code><br><span class="dle-text-xs dle-muted">Re-index vault from Obsidian</span></td>
-                    <td><code>/dle-pin</code><br><span class="dle-text-xs dle-muted">Force-inject an entry</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-status</code><br><span class="dle-text-xs dle-muted">Connection &amp; index info</span></td>
-                    <td><code>/dle-import</code><br><span class="dle-text-xs dle-muted">Import ST World Info JSON</span></td>
-                    <td><code>/dle-unpin</code><br><span class="dle-text-xs dle-muted">Remove a pin</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-health</code><br><span class="dle-text-xs dle-muted">Audit entries (30+ checks)</span></td>
-                    <td><code>/dle-setup</code><br><span class="dle-text-xs dle-muted">First-time setup wizard</span></td>
-                    <td><code>/dle-block</code><br><span class="dle-text-xs dle-muted">Suppress an entry</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-browse</code><br><span class="dle-text-xs dle-muted">Search &amp; filter all entries</span></td>
-                    <td><code>/dle-notebook</code><br><span class="dle-text-xs dle-muted">Author Notebook editor</span></td>
-                    <td><code>/dle-unblock</code><br><span class="dle-text-xs dle-muted">Remove a block</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-graph</code><br><span class="dle-text-xs dle-muted">Entry relationship map</span></td>
-                    <td><code>/dle-newlore</code><br><span class="dle-text-xs dle-muted">AI suggests new entries</span></td>
-                    <td><code>/dle-pins</code><br><span class="dle-text-xs dle-muted">Show all pins &amp; blocks</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-analytics</code><br><span class="dle-text-xs dle-muted">Entry usage statistics</span></td>
-                    <td><code>/dle-scribe</code><br><span class="dle-text-xs dle-muted">Write a session summary</span></td>
-                    <td><code>/dle-set-era</code><br><span class="dle-text-xs dle-muted">Set active era filter</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-simulate</code><br><span class="dle-text-xs dle-muted">Replay chat activation</span></td>
-                    <td><code>/dle-scribe-history</code><br><span class="dle-text-xs dle-muted">View past session notes</span></td>
-                    <td><code>/dle-set-location</code><br><span class="dle-text-xs dle-muted">Set active location filter</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-why</code><br><span class="dle-text-xs dle-muted">Preview what would inject</span></td>
-                    <td><code>/dle-review</code><br><span class="dle-text-xs dle-muted">AI reviews your whole vault</span></td>
-                    <td><code>/dle-set-scene</code><br><span class="dle-text-xs dle-muted">Set active scene type</span></td>
-                </tr>
-                <tr>
-                    <td><code>/dle-inspect</code><br><span class="dle-text-xs dle-muted">Last pipeline trace</span></td>
-                    <td><code>/dle-optimize-keys</code><br><span class="dle-text-xs dle-muted">AI keyword suggestions</span></td>
-                    <td><code>/dle-set-characters</code><br><span class="dle-text-xs dle-muted">Set present characters</span></td>
-                </tr>
-                <tr>
-                    <td></td>
-                    <td><code>/dle-summarize</code><br><span class="dle-text-xs dle-muted">Generate entry summaries</span></td>
-                    <td><code>/dle-context-state</code><br><span class="dle-text-xs dle-muted">Show active filters</span></td>
-                </tr>
-                </tbody>
-            </table>
+            <div class="dle-cmd-grid">
+                <div class="dle-cmd-grid-col">
+                    <span class="dle-cmd-grid-header">Browse &amp; Diagnose</span>
+                    <div class="dle-cmd-row"><code>/dle-help</code><span>List all commands</span></div>
+                    <div class="dle-cmd-row"><code>/dle-status</code><span>Connection &amp; index info</span></div>
+                    <div class="dle-cmd-row"><code>/dle-health</code><span>Audit entries</span></div>
+                    <div class="dle-cmd-row"><code>/dle-browse</code><span>Search all entries</span></div>
+                    <div class="dle-cmd-row"><code>/dle-graph</code><span>Relationship map</span></div>
+                    <div class="dle-cmd-row"><code>/dle-analytics</code><span>Usage statistics</span></div>
+                    <div class="dle-cmd-row"><code>/dle-simulate</code><span>Replay activation</span></div>
+                    <div class="dle-cmd-row"><code>/dle-why</code><span>Preview injections</span></div>
+                    <div class="dle-cmd-row"><code>/dle-inspect</code><span>Last pipeline trace</span></div>
+                </div>
+                <div class="dle-cmd-grid-col">
+                    <span class="dle-cmd-grid-header">Create &amp; Manage</span>
+                    <div class="dle-cmd-row"><code>/dle-refresh</code><span>Re-index vault</span></div>
+                    <div class="dle-cmd-row"><code>/dle-import</code><span>Import World Info JSON</span></div>
+                    <div class="dle-cmd-row"><code>/dle-setup</code><span>Setup wizard</span></div>
+                    <div class="dle-cmd-row"><code>/dle-notebook</code><span>Author Notebook editor</span></div>
+                    <div class="dle-cmd-row"><code>/dle-newlore</code><span>AI suggests entries</span></div>
+                    <div class="dle-cmd-row"><code>/dle-scribe</code><span>Session summary</span></div>
+                    <div class="dle-cmd-row"><code>/dle-scribe-history</code><span>Past session notes</span></div>
+                    <div class="dle-cmd-row"><code>/dle-review</code><span>AI vault review</span></div>
+                    <div class="dle-cmd-row"><code>/dle-optimize-keys</code><span>AI keyword tuning</span></div>
+                    <div class="dle-cmd-row"><code>/dle-summarize</code><span>Generate summaries</span></div>
+                </div>
+                <div class="dle-cmd-grid-col">
+                    <span class="dle-cmd-grid-header">Per-Chat Control</span>
+                    <div class="dle-cmd-row"><code>/dle-pin</code><span>Force-inject entry</span></div>
+                    <div class="dle-cmd-row"><code>/dle-unpin</code><span>Remove a pin</span></div>
+                    <div class="dle-cmd-row"><code>/dle-block</code><span>Suppress an entry</span></div>
+                    <div class="dle-cmd-row"><code>/dle-unblock</code><span>Remove a block</span></div>
+                    <div class="dle-cmd-row"><code>/dle-pins</code><span>Show pins &amp; blocks</span></div>
+                    <div class="dle-cmd-row"><code>/dle-set-era</code><span>Set active era</span></div>
+                    <div class="dle-cmd-row"><code>/dle-set-location</code><span>Set active location</span></div>
+                    <div class="dle-cmd-row"><code>/dle-set-scene</code><span>Set scene type</span></div>
+                    <div class="dle-cmd-row"><code>/dle-set-characters</code><span>Present characters</span></div>
+                    <div class="dle-cmd-row"><code>/dle-context-state</code><span>Show active filters</span></div>
+                </div>
+            </div>
 
             <hr>
             <h4>Danger Zone</h4>

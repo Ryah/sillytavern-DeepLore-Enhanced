@@ -12,7 +12,7 @@ import { getSettings, getPrimaryVault } from '../../settings.js';
 import { getContext } from '../../../../../extensions.js';
 import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
-import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession } from './librarian-session.js';
+import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession, pickFlavorIntro } from './librarian-session.js';
 import { getSessionActivityLog } from './librarian-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -36,7 +36,8 @@ function buildPopupHTML(session) {
     } else if (isReview) {
         welcomeMsg = `*leans back, flips through your vault* Alright, let's see what kind of mess we're working with. Send me a direction or I'll start pulling threads from your recent chat.`;
     } else {
-        welcomeMsg = `*pulls out a blank card, uncaps a pen* New entry. What are we documenting? Give me a name, a concept, a fever dream — I'll make it canon.`;
+        // Empty 'new' session — Emma greets with a random flavor intro
+        welcomeMsg = escapeHtml(pickFlavorIntro());
     }
 
     const settings = getSettings();
@@ -78,24 +79,24 @@ function buildPopupHTML(session) {
                 <input type="text" class="dle-key-input" id="dle-lib-key-input" placeholder="Add key (Enter or comma)..." aria-label="Add keyword">
             </div>
         </div>
-        <div class="dle-librarian-frontmatter-preview" id="dle-lib-frontmatter-wrap">
-            <div class="dle-librarian-frontmatter-label" id="dle-lib-frontmatter-toggle" role="button" tabindex="0" aria-expanded="false" aria-controls="dle-lib-frontmatter">
-                <i class="fa-solid fa-chevron-right dle-frontmatter-chevron" aria-hidden="true"></i> Frontmatter Preview
+        <div class="dle-librarian-frontmatter-preview dle-frontmatter-expanded" id="dle-lib-frontmatter-wrap">
+            <div class="dle-librarian-frontmatter-label" id="dle-lib-frontmatter-toggle" role="button" tabindex="0" aria-expanded="true" aria-controls="dle-lib-frontmatter">
+                <i class="fa-solid fa-chevron-right dle-frontmatter-chevron" aria-hidden="true"></i> Frontmatter (editable)
             </div>
-            <pre id="dle-lib-frontmatter" class="dle-librarian-frontmatter-code"></pre>
+            <textarea id="dle-lib-frontmatter" class="dle-librarian-frontmatter-code" spellcheck="false" wrap="off" aria-label="Frontmatter YAML"></textarea>
         </div>
         <div class="dle-librarian-field">
             <label for="dle-lib-summary">Summary <span class="dle-field-hint">(for AI selection, not the writing AI)</span></label>
-            <textarea id="dle-lib-summary" class="text_pole" rows="4" placeholder="What is this? When should it be selected? Key relationships?">${escapeHtml(draft.summary || '')}</textarea>
+            <textarea id="dle-lib-summary" class="text_pole" rows="4" placeholder="Index-card style. What is this, when should the AI select it, who is it connected to. Not prose — Emma will gently roast prose summaries.">${escapeHtml(draft.summary || '')}</textarea>
         </div>
         <div class="dle-librarian-field dle-librarian-field-grow">
             <label for="dle-lib-content">Content</label>
-            <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Write your entry here (markdown, [[wikilinks]])">${escapeHtml(draft.content || '')}</textarea>
+            <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Markdown goes here. # Title, intro paragraph, meta-block, prose. Wikilink things with [[brackets]]. Emma will tell you if you forget the heading.">${escapeHtml(draft.content || '')}</textarea>
         </div>
     </div>
     <div class="dle-librarian-chat" role="region" aria-label="AI assistant">
         <div class="dle-librarian-chat-header">
-            <h4 class="dle-librarian-chat-title">Librarian</h4>
+            <h4 class="dle-librarian-chat-title">Emma <span class="dle-librarian-chat-subtitle">the Librarian</span></h4>
             <button class="menu_button_icon" id="dle-lib-clear-chat" title="Clear chat history" aria-label="Clear chat history">
                 <i class="fa-solid fa-eraser" aria-hidden="true"></i>
             </button>
@@ -109,10 +110,11 @@ function buildPopupHTML(session) {
         <div class="dle-lib-activity-log" id="dle-lib-activity" hidden aria-label="Tool use activity log"></div>
         <div class="dle-librarian-messages" id="dle-lib-messages" role="log" aria-live="polite">
             <div class="dle-lib-msg dle-lib-msg-ai">${welcomeMsg}</div>
+            <div class="dle-lib-status-line" id="dle-lib-status-line" aria-live="polite" hidden></div>
         </div>
         ${isReview && session.workQueue ? `<div class="dle-librarian-queue" id="dle-lib-queue"></div>` : ''}
         <div class="dle-librarian-input-row">
-            <input type="text" id="dle-lib-chat-input" class="text_pole" placeholder="Ask the Librarian anything..." aria-label="Chat message">
+            <input type="text" id="dle-lib-chat-input" class="text_pole" placeholder="Ask Emma anything..." aria-label="Chat message">
             <button id="dle-lib-send" class="menu_button" aria-label="Send message">
                 <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
             </button>
@@ -168,22 +170,62 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
 
     let dirty = false;
     let sending = false;
-    let writingToVault = false;
     let _saveTimer = null;
+    // Track whether there are edits since the last successful write.
+    // Starts false; any field edit sets true; successful write clears it.
+    let dirtySinceLastWrite = false;
+    let hasWrittenOnce = false;
 
     const result = await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
         wider: true,
         large: true,
         allowVerticalScrolling: true,
-        okButton: 'Write to Vault',
-        cancelButton: 'Close',
+        okButton: 'Close',
+        cancelButton: false,
         onOpen: (popup) => {
             // Add custom class for CSS targeting
             if (popup?.dlg) {
                 popup.dlg.classList.add('dle-librarian-review');
-                // Set writingToVault flag when OK button is clicked (before onClosing fires)
-                const okBtn = popup.dlg.querySelector('.popup-button-ok');
-                if (okBtn) okBtn.addEventListener('click', () => { writingToVault = true; });
+            }
+
+            // Inject "Write to Vault" button + status into the popup's own button row,
+            // sitting next to the Close button at the bottom of the popup chrome.
+            let writeBtn = null;
+            let writeStatusEl = null;
+            try {
+                const dlg = popup?.dlg;
+                const controls = dlg?.querySelector('.popup-controls');
+                const okBtn = controls?.querySelector('.popup-button-ok');
+                if (controls && okBtn) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'dle-librarian-write-action';
+                    wrap.innerHTML = `
+                        <span id="dle-lib-write-status" class="dle-lib-write-status" aria-live="polite"></span>
+                        <button type="button" id="dle-lib-write-btn" class="menu_button interactable" title="Write entry to Obsidian vault (Ctrl+S)">
+                            <i class="fa-solid fa-floppy-disk" aria-hidden="true"></i><span>Write to Vault</span>
+                        </button>
+                    `;
+                    controls.insertBefore(wrap, okBtn);
+                    writeBtn = wrap.querySelector('#dle-lib-write-btn');
+                    writeStatusEl = wrap.querySelector('#dle-lib-write-status');
+                }
+            } catch (_) { /* fallback below */ }
+            // Fallback: if injection failed for any reason, look in the container
+            if (!writeBtn) writeBtn = container.querySelector('#dle-lib-write-btn');
+            if (!writeStatusEl) writeStatusEl = container.querySelector('#dle-lib-write-status');
+            if (writeBtn) {
+                writeBtn.addEventListener('click', async () => {
+                    writeBtn.disabled = true;
+                    try {
+                        const wrote = await writeToVault(session, { statusEl: writeStatusEl });
+                        if (wrote) {
+                            dirtySinceLastWrite = false;
+                            hasWrittenOnce = true;
+                        }
+                    } finally {
+                        writeBtn.disabled = false;
+                    }
+                });
             }
 
             // Focus the title input on open
@@ -220,6 +262,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 session.draftState.summary = summaryInput.value;
                 session.draftState.content = contentInput.value;
                 dirty = true;
+                dirtySinceLastWrite = true;
                 updateDirtyIndicator();
                 updateFrontmatterPreview();
                 debouncedSaveSession();
@@ -264,24 +307,22 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 updateFrontmatterPreview();
             }
 
-            function updateFrontmatterPreview() {
-                const d = session.draftState || {};
+            function buildFrontmatterYaml(d) {
                 const settings = getSettings();
                 const keysYaml = (d.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
                 const tags = d.tags?.length ? d.tags : [settings.lorebookTag || 'lorebook'];
                 const tagsYaml = tags.map(t => `  - ${yamlEscape(t)}`).join('\n');
                 const typeStr = d.type || 'lore';
                 const fileClassLine = typeStr !== 'story' ? `fileClass: ${yamlEscape(typeStr)}\n` : '';
-                frontmatterPre.textContent = `---
-${fileClassLine}type: ${yamlEscape(typeStr)}
-status: active
-priority: ${d.priority || 50}
-tags:
-${tagsYaml}
-keys:
-${keysYaml || '  - (none)'}
-summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
----`;
+                return `---\n${fileClassLine}type: ${yamlEscape(typeStr)}\nstatus: active\npriority: ${d.priority || 50}\ntags:\n${tagsYaml}\nkeys:\n${keysYaml || '  - '}\nsummary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"\n---`;
+            }
+
+            function updateFrontmatterPreview() {
+                const d = session.draftState || {};
+                // Once the user has hand-edited the frontmatter, don't clobber their edits
+                // when other fields change. They opted in to manual control.
+                if (session.frontmatterUserEdited) return;
+                frontmatterPre.value = buildFrontmatterYaml(d);
             }
 
             function rebuildKeyChips() {
@@ -320,6 +361,7 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 }
                 keyInput.value = '';
                 dirty = true;
+                dirtySinceLastWrite = true;
                 rebuildKeyChips();
                 updateFrontmatterPreview();
                 return true;
@@ -342,9 +384,19 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                     const key = removeBtn.dataset.key;
                     session.draftState.keys = session.draftState.keys.filter(k => k !== key);
                     dirty = true;
+                    dirtySinceLastWrite = true;
                     rebuildKeyChips();
                     updateFrontmatterPreview();
                 }
+            });
+
+            // ─── Frontmatter editable ───
+            frontmatterPre.addEventListener('input', () => {
+                session.frontmatterUserEdited = true;
+                session.frontmatterOverride = frontmatterPre.value;
+                dirty = true;
+                dirtySinceLastWrite = true;
+                updateDirtyIndicator();
             });
 
             // ─── Frontmatter toggle ───
@@ -525,41 +577,11 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 setSendingUI(false);
             });
 
-            let loadingTimers = [];
-            function showLoading(show, stage = 'Preparing...') {
-                if (show) {
-                    // Clear any previous loading state
-                    const existing = messagesDiv.querySelector('#dle-lib-loading');
-                    if (existing) existing.remove();
-                    loadingTimers.forEach(t => clearTimeout(t));
-                    loadingTimers = [];
-
-                    const spinner = document.createElement('div');
-                    spinner.className = 'dle-lib-msg dle-lib-msg-loading';
-                    spinner.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span class="dle-lib-loading-text">${stage}</span>`;
-                    spinner.id = 'dle-lib-loading';
-                    messagesDiv.appendChild(spinner);
-                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-
-                    // Staged timeout feedback
-                    const textEl = spinner.querySelector('.dle-lib-loading-text');
-                    loadingTimers.push(setTimeout(() => {
-                        if (textEl) textEl.textContent = 'Still thinking...';
-                    }, 15000));
-                    loadingTimers.push(setTimeout(() => {
-                        if (textEl) textEl.textContent = 'Working through a lot — hang tight...';
-                    }, 30000));
-                } else {
-                    loadingTimers.forEach(t => clearTimeout(t));
-                    loadingTimers = [];
-                    const el = messagesDiv.querySelector('#dle-lib-loading');
-                    if (el) el.remove();
-                }
-            }
-            function updateLoadingStage(text) {
-                const textEl = messagesDiv.querySelector('#dle-lib-loading .dle-lib-loading-text');
-                if (textEl) textEl.textContent = text;
-            }
+            // Loading state is shown via the status line (see setSendingUI). The old
+            // in-chat spinner was redundant with it, so showLoading/updateLoadingStage
+            // are no-ops kept for call-site compatibility.
+            function showLoading(_show, _stage) { /* no-op */ }
+            function updateLoadingStage(_text) { /* no-op */ }
 
             function setSendingUI(isSending) {
                 chatInput.disabled = isSending;
@@ -567,6 +589,20 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                 stopBtn.style.display = isSending ? '' : 'none';
                 const chatMessages = container.querySelector('#dle-lib-chat-messages');
                 if (chatMessages) chatMessages.setAttribute('aria-busy', isSending ? 'true' : 'false');
+                const statusLine = container.querySelector('#dle-lib-status-line');
+                if (statusLine) {
+                    if (isSending) {
+                        statusLine.textContent = 'Emma is consulting the stacks';
+                        statusLine.classList.add('dle-lib-status-thinking');
+                        statusLine.hidden = false;
+                        const cm = container.querySelector('#dle-lib-chat-messages');
+                        if (cm) cm.scrollTop = cm.scrollHeight;
+                    } else {
+                        statusLine.classList.remove('dle-lib-status-thinking');
+                        statusLine.hidden = true;
+                        statusLine.textContent = '';
+                    }
+                }
             }
 
             // ─── Stop button ───
@@ -841,12 +877,14 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
                     chatInput.blur();
                 }
             });
-            // Ctrl+S anywhere in popup → Write to Vault
+            // Ctrl+S anywhere in popup → Write to Vault (inline, does not close popup)
             container.addEventListener('keydown', (e) => {
                 if (e.key === 's' && (e.ctrlKey || e.metaKey)) {
                     e.preventDefault();
-                    const okBtn = popup?.dlg?.querySelector('.popup-button-ok');
-                    if (okBtn) okBtn.click();
+                    // Button now lives in popup chrome, not container — use document scope
+                    const btn = document.querySelector('.dle-librarian-review #dle-lib-write-btn')
+                        || container.querySelector('#dle-lib-write-btn');
+                    if (btn && !btn.disabled) btn.click();
                 }
             });
 
@@ -1033,16 +1071,14 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             // Clear auto-send timer to prevent wasted API call
             if (session._autoSendTimer) clearTimeout(session._autoSendTimer);
             clearTimeout(_saveTimer);
-            // Skip discard prompt when writing to vault (OK button was clicked)
-            if (writingToVault) {
-                clearSessionState();
-                return true;
-            }
-            // Warn on unsaved changes when closing without writing (any non-empty field counts)
+            // Only prompt if there is unwritten work — i.e. edits that were never written.
+            // Writing to vault clears dirtySinceLastWrite, so a freshly-written session closes silently.
             const hasContent = session.draftState?.title || session.draftState?.summary || session.draftState?.content || (session.draftState?.keys?.length > 0);
-            if (dirty && hasContent) {
+            if (dirtySinceLastWrite && hasContent) {
                 const confirmResult = await callGenericPopup(
-                    'You have unsaved changes. Discard draft, or keep session for later?',
+                    hasWrittenOnce
+                        ? 'You have changes since your last write. Discard them, or keep the session for later?'
+                        : 'You have unsaved changes. Discard draft, or keep session for later?',
                     POPUP_TYPE.CONFIRM,
                     '', { okButton: 'Discard', cancelButton: 'Keep for Later' },
                 );
@@ -1059,24 +1095,30 @@ summary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replac
             return true;
         },
     });
-
-    // Handle result
-    if (result === POPUP_RESULT.AFFIRMATIVE) {
-        // "Write to Vault" clicked
-        await writeToVault(session);
-    }
+    // Note: the popup only has a Close button now. Writing happens via the
+    // in-popup "Write to Vault" button, which opens a nested confirm dialog
+    // and leaves the Librarian popup open after completion.
 }
 
 // ════════════════════════════════════════════════════════════════════════════
 // Write to Vault
 // ════════════════════════════════════════════════════════════════════════════
 
-async function writeToVault(session) {
+async function writeToVault(session, opts = {}) {
+    const statusEl = opts.statusEl || null;
+    const setStatus = (text, kind) => {
+        if (!statusEl) return;
+        statusEl.textContent = text || '';
+        statusEl.classList.remove('dle-lib-write-status--ok', 'dle-lib-write-status--err');
+        if (kind === 'ok') statusEl.classList.add('dle-lib-write-status--ok');
+        if (kind === 'err') statusEl.classList.add('dle-lib-write-status--err');
+    };
     const settings = getSettings();
     const draft = session.draftState;
     if (!draft || !draft.title) {
         toastr.warning('No draft to write. Fill in the entry fields first.', 'DeepLore Enhanced');
-        return;
+        setStatus('Needs a title.', 'err');
+        return false;
     }
 
     // Validation warning: no trigger keys means the entry won't match in chat
@@ -1086,7 +1128,7 @@ async function writeToVault(session) {
             POPUP_TYPE.CONFIRM,
             '', { okButton: 'Write Anyway', cancelButton: 'Go Back' },
         );
-        if (proceed !== POPUP_RESULT.AFFIRMATIVE) return;
+        if (proceed !== POPUP_RESULT.AFFIRMATIVE) return false;
     }
 
     const vault = getPrimaryVault(settings);
@@ -1094,42 +1136,53 @@ async function writeToVault(session) {
     const folder = settings.librarianWriteFolder || settings.autoSuggestFolder || '';
     const filename = folder ? `${folder}/${safeTitle}.md` : `${safeTitle}.md`;
 
-    const keysYaml = (draft.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
     const tags = draft.tags?.length ? draft.tags : [settings.lorebookTag || 'lorebook'];
-    const tagsYaml = tags.map(t => `  - ${yamlEscape(t)}`).join('\n');
     const typeStr = draft.type || 'lore';
-    const fileClassLine = typeStr !== 'story' ? `fileClass: ${yamlEscape(typeStr)}\n` : '';
     const safeContent = stripObsidianSyntax(draft.content || '');
-    const fileContent = `---
-${fileClassLine}type: ${yamlEscape(typeStr)}
-status: active
-priority: ${draft.priority || 50}
-tags:
-${tagsYaml}
-keys:
-${keysYaml}
-summary: "${(draft.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
----
-# ${draft.title}
+    let frontmatterBlock;
+    if (session.frontmatterUserEdited && typeof session.frontmatterOverride === 'string' && session.frontmatterOverride.trim()) {
+        // Honor the user's hand-edited frontmatter verbatim. They own it now.
+        frontmatterBlock = session.frontmatterOverride.trim();
+    } else {
+        const keysYaml = (draft.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
+        const tagsYaml = tags.map(t => `  - ${yamlEscape(t)}`).join('\n');
+        const fileClassLine = typeStr !== 'story' ? `fileClass: ${yamlEscape(typeStr)}\n` : '';
+        frontmatterBlock = `---\n${fileClassLine}type: ${yamlEscape(typeStr)}\nstatus: active\npriority: ${draft.priority || 50}\ntags:\n${tagsYaml}\nkeys:\n${keysYaml}\nsummary: "${(draft.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"\n---`;
+    }
+    const fileContent = `${frontmatterBlock}\n# ${draft.title}\n\n${safeContent}`;
 
-${safeContent}`;
-
-    // Preview before writing
+    // Preview before writing — nested dialog stacked over the Librarian popup
+    const lineCount = fileContent.split('\n').length;
+    const byteCount = new Blob([fileContent]).size;
+    const tagsPreview = tags.join(', ');
     const previewHtml = document.createElement('div');
-    previewHtml.innerHTML = `<div style="margin-bottom:8px"><strong>File:</strong> <code>${escapeHtml(filename)}</code></div>`
-        + `<pre style="max-height:400px;overflow-y:auto;font-size:11px;padding:8px;background:var(--SmartThemeBlurTintColor);border-radius:4px;white-space:pre-wrap;word-break:break-word">${escapeHtml(fileContent)}</pre>`;
+    previewHtml.innerHTML = `<h3 style="margin:0 0 8px 0;">Write entry to vault?</h3>`
+        + `<div style="margin-bottom:6px"><strong>File:</strong> <code>${escapeHtml(filename)}</code></div>`
+        + `<div style="margin-bottom:6px;font-size:11px;opacity:0.85;">`
+        + `<strong>Title:</strong> ${escapeHtml(draft.title)} &nbsp; `
+        + `<strong>Type:</strong> ${escapeHtml(typeStr)} &nbsp; `
+        + `<strong>Priority:</strong> ${draft.priority || 50} &nbsp; `
+        + `<strong>Keys:</strong> ${(draft.keys || []).length} &nbsp; `
+        + `<strong>Tags:</strong> ${escapeHtml(tagsPreview)} &nbsp; `
+        + `<strong>${lineCount} lines / ${byteCount} bytes</strong>`
+        + `</div>`
+        + `<pre style="max-height:360px;overflow-y:auto;font-size:11px;padding:8px;background:var(--SmartThemeBlurTintColor);border-radius:4px;white-space:pre-wrap;word-break:break-word">${escapeHtml(fileContent)}</pre>`;
     const confirmWrite = await callGenericPopup(previewHtml, POPUP_TYPE.CONFIRM, '', {
         wider: true,
         allowVerticalScrolling: true,
         okButton: 'Write',
         cancelButton: 'Cancel',
     });
-    if (confirmWrite !== POPUP_RESULT.AFFIRMATIVE) return;
+    if (confirmWrite !== POPUP_RESULT.AFFIRMATIVE) {
+        setStatus('Write cancelled.', null);
+        return false;
+    }
 
     try {
         const data = await writeNote(vault.host, vault.port, vault.apiKey, filename, fileContent, !!vault.https);
         if (data.ok) {
             toastr.success(`Created: ${draft.title} (${filename})`, 'DeepLore Enhanced');
+            setStatus(`Written to ${filename}`, 'ok');
 
             // Update gap status if applicable
             if (session.gapRecord?.id) {
@@ -1152,11 +1205,17 @@ ${safeContent}`;
 
             // Trigger index rebuild
             buildIndex(true).catch(err => console.warn('[DLE] Post-write index rebuild failed:', err.message));
+            return true;
         } else {
-            toastr.error(`Could not create entry: ${data.error || 'Unknown error'}`, 'DeepLore Enhanced');
+            console.warn('[DLE] Librarian write failed:', data && data.error);
+            toastr.error('Couldn\'t save that entry to your vault.', 'DeepLore Enhanced');
+            setStatus('Write failed.', 'err');
+            return false;
         }
     } catch (err) {
         toastr.error(classifyError(err), 'DeepLore Enhanced');
+        setStatus('Write failed.', 'err');
+        return false;
     }
 }
 

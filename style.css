@@ -48,6 +48,51 @@
     --dle-opacity-disabled: 0.4;
 }
 
+/* ============================================================================
+ * Layout Stability Primitives
+ * Utilities to eliminate layout shift from font-weight swaps, digit width
+ * changes, hover borders, and toolbar overflow.
+ * ============================================================================ */
+
+/* Fake-bold via text-shadow — no width change vs font-weight: 600 */
+.dle-stable-weight {
+    text-shadow:
+        0.4px 0 0 currentColor,
+        -0.4px 0 0 currentColor;
+}
+
+/* Tabular numerals — keep digit columns from reflowing as values change */
+.dle-num,
+.dle-num-slot {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+}
+
+/* Toolbar that wraps gracefully instead of clipping or pushing siblings */
+.dle-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--dle-space-2);
+    min-width: 0;
+    align-items: center;
+}
+.dle-toolbar > * {
+    flex-shrink: 0;
+}
+
+/* Button that never breaks mid-word and never shrinks below content */
+.dle-btn-stable {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Reserve border space so hover-colored borders don't cause 1px shift */
+.dle-border-reserve {
+    border: 1px solid transparent;
+}
+
+/* ============================================================================ */
+
 /* --- Utility classes --- */
 .dle-settings .dle-header-badge {
     font-size: 0.75em;
@@ -845,6 +890,8 @@ dle-notes { display: none !important; }
 /* Tab bar */
 .dle-tab-bar {
     display: flex;
+    flex-wrap: wrap;
+    row-gap: 2px;
     border-bottom: 1px solid var(--dle-border);
     gap: 0;
     padding: 0 var(--dle-space-2);
@@ -872,7 +919,7 @@ dle-notes { display: none !important; }
 
 .dle-tab.active {
     color: var(--SmartThemeBodyColor, #eee);
-    font-weight: 600;
+    text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor;
     border-bottom-color: var(--dle-accent);
 }
 
@@ -2045,7 +2092,7 @@ button.dle-browse-block.dle-block-active {
 
 .dle-settings-popup {
     display: grid;
-    grid-template-columns: 170px 1fr;
+    grid-template-columns: 190px 1fr;
     /* Fill the ST popup container — popup-content is flex-grow:1 inside the 90vh dialog */
     height: 100%;
     min-height: 400px;
@@ -2104,7 +2151,7 @@ button.dle-browse-block.dle-block-active {
 .dle-settings-tab.active {
     background: var(--dle-bg-hover);
     border-left-color: var(--SmartThemeQuoteColor, #4caf50);
-    font-weight: 600;
+    text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor;
 }
 
 .dle-settings-tab i {
@@ -2159,7 +2206,7 @@ button.dle-browse-block.dle-block-active {
 .dle-connection-subtab.active {
     background: var(--dle-bg-hover);
     border-left-color: var(--SmartThemeQuoteColor, #4caf50);
-    font-weight: 600;
+    text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor;
 }
 
 .dle-connection-subtab i {
@@ -2209,7 +2256,7 @@ button.dle-browse-block.dle-block-active {
 .dle-features-subtab.active {
     background: var(--dle-bg-hover);
     border-left-color: var(--SmartThemeQuoteColor, #4caf50);
-    font-weight: 600;
+    text-shadow: 0.4px 0 0 currentColor, -0.4px 0 0 currentColor;
 }
 
 .dle-features-subtab i {

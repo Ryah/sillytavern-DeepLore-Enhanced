@@ -15,7 +15,7 @@ export let buildPromise = null;
 export let indexEverLoaded = false;
 
 /** AI search result cache (sliding window: tracks manifest + chat lines separately) */
-export let aiSearchCache = { hash: '', manifestHash: '', chatLineCount: 0, results: [] };
+export let aiSearchCache = { hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null };
 
 /** Session-scoped AI search usage stats */
 export let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputTokens: 0 };

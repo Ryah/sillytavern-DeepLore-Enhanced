@@ -390,7 +390,20 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         return { results: [], error: true, errorMessage: 'AI search temporarily paused' };
     }
 
-    let chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth);
+    // BUG-CACHE-FIX: Strip trailing assistant slot before hashing.
+    // During onGenerate, chat[] may or may not yet contain a pending assistant slot
+    // depending on call timing. On swipe/regen, the prior assistant turn is in chat[]
+    // but was NOT present when the cache was populated → hash & line-count both drift,
+    // missing the cache. Excluding the trailing assistant message normalizes both
+    // populating and lookup sides so swipe/regen become exact-hit cases.
+    let chatForCache = chat;
+    if (chat && chat.length > 0) {
+        const last = chat[chat.length - 1];
+        if (last && !last.is_user && !last.is_system) {
+            chatForCache = chat.slice(0, -1);
+        }
+    }
+    let chatContext = buildAiChatContext(chatForCache, settings.aiSearchScanDepth);
     if (!chatContext.trim()) return { results: [], error: false };
 
     // Prepend seed entry content as story context on new chats
@@ -449,8 +462,32 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         return { results: resolveCachedResults(aiSearchCache.results), error: false };
     }
 
-    // Swipe/regen: manifest unchanged + chat lines stayed same or decreased (last AI message
-    // replaced or removed). The vault candidates haven't changed — reuse cached results.
+    // Keyword-set stability check: manifest unchanged and current keyword-matched
+    // candidate set is a subset of the cached one. Catches typo fixes, prose edits,
+    // "ok continue", reaction messages — anything that doesn't introduce a new lore
+    // mention. Skipped in ai-only mode (those users opted into "always ask AI").
+    if (settings.aiSearchMode !== 'ai-only'
+        && aiSearchCache.manifestHash === manifestHash
+        && aiSearchCache.matchedEntrySet
+        && Array.isArray(candidateEntries)) {
+        const cachedSet = aiSearchCache.matchedEntrySet;
+        let isSubset = true;
+        for (const e of candidateEntries) {
+            const t = (e?.title || '').toLowerCase();
+            if (t && !cachedSet.has(t)) { isSubset = false; break; }
+        }
+        if (isSubset) {
+            aiSearchStats.cachedHits++;
+            notifyAiStatsUpdated();
+            if (settings.debugMode) console.debug('[DLE] AI search cache hit (keyword-stable)');
+            return { results: resolveCachedResults(aiSearchCache.results), error: false };
+        }
+    }
+
+    // Defensive sliding-window degenerate case: manifest unchanged and chat shorter
+    // or equal to cached count (e.g. user deleted messages, or scanDepth changed).
+    // After the trailing-assistant strip above, normal swipe/regen should already
+    // hit the exact-match branch — this is a safety net.
     if (aiSearchCache.manifestHash === manifestHash
         && aiSearchCache.chatLineCount > 0
         && getChatLines().length <= aiSearchCache.chatLineCount) {
@@ -629,12 +666,18 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
                 return allowedTiers.includes(r.confidence);
             });
 
-        // Cache results by title (not entry reference) to survive index rebuilds
+        // Cache results by title (not entry reference) to survive index rebuilds.
+        // Also store the keyword-matched candidate set so subsequent calls can do
+        // cheap subset checks ("keyword-stable hit") even when chat hash drifts.
+        const matchedEntrySet = Array.isArray(candidateEntries)
+            ? new Set(candidateEntries.map(e => (e?.title || '').toLowerCase()).filter(Boolean))
+            : null;
         setAiSearchCache({
             hash: chatHash,
             manifestHash,
             chatLineCount: getChatLines().length,
             results: filteredResults.map(r => ({ title: r.entry.title, confidence: r.confidence, reason: r.reason })),
+            matchedEntrySet,
         });
 
         if (settings.debugMode) {

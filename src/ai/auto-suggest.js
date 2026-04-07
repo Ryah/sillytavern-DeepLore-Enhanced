@@ -14,7 +14,7 @@ import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI } from './ai.js';
 import { extractAiResponseClient } from '../helpers.js';
-import { vaultIndex, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
+import { getWriterVisibleEntries, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
 import { stripObsidianSyntax } from '../helpers.js';
 import { ensureIndexFresh, buildIndex } from '../vault/vault.js';
 
@@ -91,7 +91,8 @@ export async function runAutoSuggest() {
     await ensureIndexFresh();
     if (epoch !== chatEpoch) return []; // chat changed during index refresh
 
-    const existingTitles = vaultIndex.map(e => `"${e.title.replace(/"/g, '\\"')}"`).join(', ');
+    const visibleEntries = getWriterVisibleEntries();
+    const existingTitles = visibleEntries.map(e => `"${e.title.replace(/"/g, '\\"')}"`).join(', ');
     // BUG 3 FIX: Use a proper scan depth, not the interval frequency
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth || 20);
 
@@ -104,7 +105,7 @@ export async function runAutoSuggest() {
     if (!Array.isArray(parsed)) return [];
 
     // Filter out entries that already exist
-    const existingLower = new Set(vaultIndex.map(e => e.title.toLowerCase()));
+    const existingLower = new Set(visibleEntries.map(e => e.title.toLowerCase()));
     return parsed.filter(s =>
         s && typeof s === 'object' && s.title &&
         !existingLower.has(s.title.toLowerCase())

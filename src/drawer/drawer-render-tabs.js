@@ -533,7 +533,7 @@ export function renderBrowseWindow() {
 
         html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" aria-setsize="${entries.length}" aria-posinset="${i + 1}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
         html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}">`;
-        html += `<span class="dle-browse-title">${escapeHtml(e.title)}</span>`;
+        html += `<span class="dle-browse-title">${escapeHtml(e.title)}${e.guide ? ' <span class="dle-browse-guide-pill" title="Writing guide — read by the Librarian (Emma) only, never sent to the writing AI"><i class="fa-solid fa-book-open-reader" aria-hidden="true"></i> Guide</span>' : ''}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
         html += `<div class="dle-browse-controls">`;

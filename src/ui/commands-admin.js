@@ -98,6 +98,7 @@ export function registerAdminCommands() {
             const constants = vaultIndex.filter(e => e.constant).length;
             const seeds = vaultIndex.filter(e => e.seed).length;
             const bootstraps = vaultIndex.filter(e => e.bootstrap).length;
+            const guides = vaultIndex.filter(e => e.guide).length;
             const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
             const lines = [
                 `Enabled: ${settings.enabled}`,
@@ -107,7 +108,7 @@ export function registerAdminCommands() {
                 `Never-Insert Tag: ${settings.neverInsertTag ? '#' + settings.neverInsertTag : '(none)'}`,
                 `Seed Tag: ${settings.seedTag ? '#' + settings.seedTag : '(none)'}`,
                 `Bootstrap Tag: ${settings.bootstrapTag ? '#' + settings.bootstrapTag : '(none)'} (threshold: ${settings.newChatThreshold} messages)`,
-                `Entries: ${vaultIndex.length} (${constants} always-send, ${seeds} seed, ${bootstraps} bootstrap, ~${totalTokens} tokens)`,
+                `Entries: ${vaultIndex.length} (${constants} always-send, ${seeds} seed, ${bootstraps} bootstrap, ${guides} guide, ~${totalTokens} tokens)`,
                 `Budget: ${settings.unlimitedBudget ? 'unlimited' : settings.maxTokensBudget + ' tokens'}`,
                 `Max Entries: ${settings.unlimitedEntries ? 'unlimited' : settings.maxEntries}`,
                 `Recursive: ${settings.recursiveScan ? 'on (max ' + settings.maxRecursionSteps + ' steps)' : 'off'}`,

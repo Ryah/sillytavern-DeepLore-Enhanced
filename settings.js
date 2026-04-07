@@ -67,6 +67,7 @@ export const defaultSettings = {
     neverInsertTag: 'lorebook-never',
     seedTag: 'lorebook-seed',
     bootstrapTag: 'lorebook-bootstrap',
+    librarianGuideTag: 'lorebook-guide',
     newChatThreshold: 3,
     scanDepth: 4,
     maxEntries: 10,

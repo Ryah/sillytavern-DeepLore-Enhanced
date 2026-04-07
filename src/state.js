@@ -98,6 +98,21 @@ export function trackerKey(entry) {
 // modules to update the state.
 
 export function setVaultIndex(v) { vaultIndex = v; }
+
+/**
+ * Returns vault entries that are safe to show to the writing AI.
+ * Filters out `lorebook-guide` entries (Librarian-only meta/style guides).
+ *
+ * **Use this everywhere except:** Emma's Librarian chat tools, the drawer Browse tab,
+ * the graph, and diagnostics. Anything that produces content the writing AI may see —
+ * pipeline matching, AI candidate manifest, dle_search_lore, scribe, auto-suggest —
+ * MUST go through this function instead of reading `vaultIndex` directly.
+ *
+ * @returns {Array} Filtered vault index excluding guide entries.
+ */
+export function getWriterVisibleEntries() {
+    return vaultIndex.filter(e => !e.guide);
+}
 export function setFolderList(v) { folderList = v; }
 export function setIndexTimestamp(v) { indexTimestamp = v; }
 export function setIndexing(v) { indexing = v; notifyIndexingChanged(); }
@@ -513,7 +528,7 @@ export function onLoreGapsChanged(callback) {
 
 export function clearLoreGapsCallbacks() { loreGapsChangedCallbacks.length = 0; }
 
-function notifyLoreGapsChanged() {
+export function notifyLoreGapsChanged() {
     for (const cb of [...loreGapsChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Lore gaps changed callback error:', err.message); }
     }

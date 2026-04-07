@@ -12,6 +12,11 @@ import { getSettings, resolveConnectionConfig } from '../../settings.js';
 import { vaultIndex, fuzzySearchIndex, loreGaps, setLoreGaps } from '../state.js';
 import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
 import { executeToolCall, buildToolsPromptSection } from './librarian-chat-tools.js';
+import {
+    buildLibrarianBootstrapSystemPrompt,
+    EMMA_FIRSTRUN_GREETING,
+    EMMA_ADHOC_GREETING,
+} from './librarian-prompts.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Constants
@@ -110,11 +115,37 @@ export function createSession(entryPoint, options = {}) {
         }
     }
 
+    // Guide modes — Emma helps the user write a lorebook-guide entry.
+    // 'guide-firstrun' is the wizard's "Meet Emma" page (full Q&A script + greeting).
+    // 'guide-adhoc' is the Settings → Library Tour entrypoint (no script, ad-hoc greeting).
+    const mode = options.mode || null;
+    const isGuideMode = mode === 'guide-firstrun' || mode === 'guide-adhoc';
+    let guideBootstrap = '';
+    let seededGreeting = null;
+    if (isGuideMode) {
+        guideBootstrap = buildLibrarianBootstrapSystemPrompt({
+            includeFirstRunScript: mode === 'guide-firstrun',
+        });
+        seededGreeting = mode === 'guide-firstrun' ? EMMA_FIRSTRUN_GREETING : EMMA_ADHOC_GREETING;
+    }
+
     const session = {
-        messages: [],
-        draftState: null,
+        messages: seededGreeting
+            ? [{ role: 'assistant', content: JSON.stringify({ message: seededGreeting, action: null }) }]
+            : [],
+        draftState: isGuideMode ? {
+            title: '',
+            type: 'lore',
+            priority: 50,
+            tags: ['lorebook-guide'],
+            summary: '',
+            content: '',
+            folder: settings.librarianWriteFolder || 'DeepLore/Guides/',
+        } : null,
         gapRecord: options.gap || null,
         entryPoint,
+        mode,
+        guideBootstrap,
         manifest,
         chatContext,
         relatedEntries,
@@ -147,6 +178,8 @@ export function saveSessionState(session) {
             chatContext: session.chatContext,
             relatedEntries: session.relatedEntries,
             workQueue: session.workQueue,
+            mode: session.mode || null,
+            guideBootstrap: session.guideBootstrap || '',
             savedAt: Date.now(),
         }));
     } catch (e) {
@@ -192,6 +225,8 @@ export function restoreSession(saved) {
         chatContext: saved.chatContext || '',
         relatedEntries: saved.relatedEntries || '',
         workQueue: saved.workQueue || null,
+        mode: saved.mode || null,
+        guideBootstrap: saved.guideBootstrap || '',
     };
 }
 
@@ -378,6 +413,12 @@ function buildSystemPrompt(session) {
     const settings = getSettings();
     const lorebookTag = settings.lorebookTag || 'lorebook';
     const parts = [];
+
+    // Guide-mode bootstrap: DLE primer + vault constants snapshot (+ Q&A script for first-run).
+    // Prepended so Emma reads it before any instructions about output format.
+    if (session.guideBootstrap) {
+        parts.push(session.guideBootstrap);
+    }
 
     const promptMode = settings.librarianSystemPromptMode || 'default';
     const customPrompt = settings.librarianCustomSystemPrompt || '';

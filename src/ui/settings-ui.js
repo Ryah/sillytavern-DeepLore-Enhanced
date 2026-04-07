@@ -1666,6 +1666,11 @@ function bindPopupEvents($container) {
     $c('#dle-sp-graph-edge-filter-alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
 
     // ── Librarian settings ──
+    $c('#dle-sp-librarian-tour').on('click', function () {
+        import('../librarian/librarian-review.js')
+            .then(m => m.openLibrarianPopup(null, { mode: 'guide-adhoc' }))
+            .catch(err => console.warn('[DLE] Library Tour open failed:', err));
+    });
     $c('#dle-sp-librarian-enabled').on('change', function () {
         const enabled = $(this).prop('checked');
         settings.librarianEnabled = enabled;
@@ -1677,6 +1682,8 @@ function bindPopupEvents($container) {
         } else {
             import('../librarian/librarian.js').then(m => m.unregisterLibrarianTools()).catch(err => console.warn('[DLE] Librarian tool unregistration error:', err));
         }
+        // Toggle drawer tab/panel visibility + strip per-message dropdowns
+        import('../librarian/visibility.js').then(m => m.applyLibrarianVisibility(enabled)).catch(err => console.warn('[DLE] Librarian visibility error:', err));
     });
     $c('#dle-sp-librarian-search').on('change', function () { settings.librarianSearchEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });

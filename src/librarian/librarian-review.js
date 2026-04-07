@@ -13,7 +13,7 @@ import { getContext } from '../../../../../extensions.js';
 import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession, pickFlavorIntro } from './librarian-session.js';
-import { getSessionActivityLog } from './librarian-tools.js';
+import { getSessionActivityLog, buildLibrarianActivityFeed } from './librarian-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -136,13 +136,18 @@ function buildPopupHTML(session) {
  * @param {object} [options] - Options (e.g. { gap: gapRecord })
  */
 export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
+    // Allow openLibrarianPopup(null, { mode: 'guide-firstrun' }) — guide modes default entryPoint to 'new'.
+    if (entryPoint === null || entryPoint === undefined) entryPoint = 'new';
+    const isGuideMode = options.mode === 'guide-firstrun' || options.mode === 'guide-adhoc';
+
     // Check for saved session from a previous page refresh
     let session;
     let isRestored = false;
     const saved = loadSessionState();
     const STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
     const isStale = saved?.timestamp && (Date.now() - saved.timestamp) > STALE_MS;
-    if (saved && saved.messages?.length > 0 && !isStale) {
+    // Guide mode always starts fresh — never resume into a different conversation.
+    if (!isGuideMode && saved && saved.messages?.length > 0 && !isStale) {
         const resume = await callGenericPopup(
             'You have a previous Librarian session in progress. Resume where you left off?',
             POPUP_TYPE.CONFIRM,
@@ -160,10 +165,9 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
         session = createSession(entryPoint, options);
     }
 
-    // If gap, mark it in-progress
-    if (!isRestored && entryPoint === 'gap' && options.gap?.id) {
-        updateGapStatus(options.gap.id, 'in_progress');
-    }
+    // (v2) Do NOT mark gap as in_progress on popup open — that left a stuck
+    // spinner on the row when the popup was closed without writing.
+    // Status flips to 'written' on successful confirm/write instead.
 
     const container = document.createElement('div');
     container.innerHTML = buildPopupHTML(session);
@@ -923,46 +927,36 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             const activityPanel = container.querySelector('#dle-lib-activity');
 
             function renderActivityLog() {
-                const log = getSessionActivityLog();
-                if (log.length === 0) {
-                    activityPanel.innerHTML = '<div class="dle-lib-activity-empty">No tool activity recorded this session.</div>';
+                // v2: combined feed (session tool calls + persistent search gaps)
+                const feed = buildLibrarianActivityFeed();
+                if (feed.length === 0) {
+                    activityPanel.innerHTML = '<div class="dle-lib-activity-empty">No tool activity recorded yet.</div>';
                     return;
                 }
-
-                // Summary line
-                const searches = log.filter(e => e.type === 'search').length;
-                const flags = log.filter(e => e.type === 'flag').length;
-                const totalTokens = log.reduce((sum, e) => sum + (e.tokens || 0), 0);
+                const session = getSessionActivityLog();
+                const searches = session.filter(e => e.type === 'search').length;
+                const flags = session.filter(e => e.type === 'flag').length;
+                const totalTokens = session.reduce((sum, e) => sum + (e.tokens || 0), 0);
                 let html = `<div class="dle-lib-activity-summary">${searches} search${searches !== 1 ? 'es' : ''}, ${flags} flag${flags !== 1 ? 's' : ''}, ~${totalTokens} tokens this session</div>`;
 
-                // Group by generation
-                const byGen = new Map();
-                for (const entry of log) {
-                    const gen = entry.generation || 0;
-                    if (!byGen.has(gen)) byGen.set(gen, []);
-                    byGen.get(gen).push(entry);
-                }
-
-                // Render groups (newest generation first)
-                const genKeys = [...byGen.keys()].sort((a, b) => b - a);
-                for (const gen of genKeys) {
-                    const entries = byGen.get(gen);
-                    html += `<div class="dle-lib-activity-gen-label">Reply #${gen}</div>`;
-                    for (const entry of entries) {
-                        const icon = entry.type === 'search'
-                            ? '<i class="fa-solid fa-magnifying-glass"></i>'
-                            : '<i class="fa-solid fa-flag"></i>';
-                        const results = entry.type === 'search'
-                            ? `${entry.resultCount} result${entry.resultCount !== 1 ? 's' : ''}`
-                            : '';
-                        const tokens = entry.tokens ? `~${entry.tokens}tok` : '';
-                        html += `<div class="dle-lib-activity-row">`;
-                        html += `<span class="dle-lib-activity-icon">${icon}</span>`;
-                        html += `<span class="dle-lib-activity-query">${escapeHtml(entry.query || '')}</span>`;
-                        html += `<span class="dle-lib-activity-result">${results}</span>`;
-                        html += `<span class="dle-lib-activity-tokens">${tokens}</span>`;
-                        html += `</div>`;
-                    }
+                for (const item of feed) {
+                    const icon = item.kind === 'tool-search'
+                        ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search tool call"></i>'
+                        : item.kind === 'tool-flag'
+                            ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag tool call"></i>'
+                            : '<i class="fa-solid fa-thumbtack" aria-hidden="true" title="Persistent search gap"></i>';
+                    const meta = item.kind === 'gap-search'
+                        ? (item.hadResults ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}` : 'no results')
+                        : item.type === 'search'
+                            ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}`
+                            : (item.urgency || '');
+                    const tokens = item.tokens ? `~${item.tokens}tok` : '';
+                    html += `<div class="dle-lib-activity-row">`;
+                    html += `<span class="dle-lib-activity-icon">${icon}</span>`;
+                    html += `<span class="dle-lib-activity-query">${escapeHtml(item.query || '')}</span>`;
+                    html += `<span class="dle-lib-activity-result">${escapeHtml(meta)}</span>`;
+                    html += `<span class="dle-lib-activity-tokens">${tokens}</span>`;
+                    html += `</div>`;
                 }
                 activityPanel.innerHTML = html;
             }

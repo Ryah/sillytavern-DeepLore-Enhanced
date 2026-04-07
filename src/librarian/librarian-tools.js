@@ -17,6 +17,7 @@ import {
     chatEpoch,
     librarianSessionStats, setLibrarianSessionStats,
     librarianChatStats, setLibrarianChatStats,
+    notifyLoreGapsChanged,
 } from '../state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -108,6 +109,109 @@ function persistGaps(updatedGaps) {
         meta.deeplore_lore_gaps = updatedGaps;
         saveChatDebounced();
     }
+}
+
+// ── Soft-remove sibling-array helpers (mirrors deeplore_pins/blocks pattern) ──
+
+/** Read a sibling-array of gap ids from chat_metadata. */
+function readGapIdArray(key) {
+    const meta = getContext()?.chatMetadata;
+    const raw = meta?.[key];
+    return Array.isArray(raw) ? raw : [];
+}
+
+/** Write a sibling-array of gap ids and persist. */
+function writeGapIdArray(key, ids) {
+    const meta = getContext()?.chatMetadata;
+    if (!meta) return;
+    meta[key] = ids;
+    saveChatDebounced();
+}
+
+/** Get the set of hidden gap ids for the current chat. */
+export function getHiddenGapIds() {
+    return new Set(readGapIdArray('deeplore_lore_gaps_hidden'));
+}
+
+/** Get the set of dismissed-forever gap ids for the current chat. */
+export function getDismissedGapIds() {
+    return new Set(readGapIdArray('deeplore_lore_gaps_dismissed'));
+}
+
+/** First-tier soft-remove: hide a gap (re-flag will resurface it). */
+export function hideGap(id) {
+    const arr = readGapIdArray('deeplore_lore_gaps_hidden');
+    if (!arr.includes(id)) writeGapIdArray('deeplore_lore_gaps_hidden', [...arr, id]);
+    setLoreGaps([...loreGaps]); // trigger render
+}
+
+/** Second-tier soft-remove: dismiss forever (re-flag will NOT resurface). */
+export function dismissGap(id) {
+    const arr = readGapIdArray('deeplore_lore_gaps_dismissed');
+    if (!arr.includes(id)) writeGapIdArray('deeplore_lore_gaps_dismissed', [...arr, id]);
+    // Also drop from hidden if present
+    const hidden = readGapIdArray('deeplore_lore_gaps_hidden');
+    if (hidden.includes(id)) writeGapIdArray('deeplore_lore_gaps_hidden', hidden.filter(x => x !== id));
+    setLoreGaps([...loreGaps]);
+}
+
+/** Resurface a hidden gap. */
+export function unhideGap(id) {
+    const arr = readGapIdArray('deeplore_lore_gaps_hidden');
+    if (arr.includes(id)) writeGapIdArray('deeplore_lore_gaps_hidden', arr.filter(x => x !== id));
+    setLoreGaps([...loreGaps]);
+}
+
+/** Bring back a dismissed-forever gap. */
+export function undismissGap(id) {
+    const arr = readGapIdArray('deeplore_lore_gaps_dismissed');
+    if (arr.includes(id)) writeGapIdArray('deeplore_lore_gaps_dismissed', arr.filter(x => x !== id));
+    setLoreGaps([...loreGaps]);
+}
+
+/** Internal: silently clear an id from the hidden array (used during re-flag merge). */
+function clearHiddenSilently(id) {
+    const arr = readGapIdArray('deeplore_lore_gaps_hidden');
+    if (arr.includes(id)) writeGapIdArray('deeplore_lore_gaps_hidden', arr.filter(x => x !== id));
+}
+
+/**
+ * Build a combined activity feed: persistent search gaps + session tool calls.
+ * Pure data builder — newest first. Two renderers consume this (drawer + popup).
+ * @returns {Array<{kind: string, ts: number, query: string, type: string, resultCount?: number, urgency?: string}>}
+ */
+export function buildLibrarianActivityFeed() {
+    const feed = [];
+    // Session tool calls (in-memory, current session only)
+    for (const e of sessionActivityLog) {
+        feed.push({
+            kind: e.type === 'search' ? 'tool-search' : 'tool-flag',
+            ts: e.timestamp || 0,
+            query: e.query || '',
+            type: e.type,
+            resultCount: e.resultCount || 0,
+            resultTitles: Array.isArray(e.resultTitles) ? e.resultTitles : [],
+            tokens: e.tokens || 0,
+            generation: e.generation || 0,
+            urgency: e.urgency,
+        });
+    }
+    // Persistent search gaps (across chat reloads)
+    for (const g of loreGaps) {
+        if (g.type !== 'search') continue;
+        feed.push({
+            kind: 'gap-search',
+            ts: g.timestamp || 0,
+            query: g.query || '',
+            type: 'search',
+            resultCount: (g.resultTitles || []).length,
+            resultTitles: Array.isArray(g.resultTitles) ? g.resultTitles : [],
+            hadResults: !!g.hadResults,
+            frequency: g.frequency || 1,
+        });
+    }
+    feed.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    return feed;
 }
 
 /** Update analytics counters */
@@ -237,6 +341,8 @@ export async function searchLoreAction(args) {
                 hadResults: false, resultTitles: [],
             };
             const existing = findSimilarGap(loreGaps, query, 'search');
+            // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone.
+            if (existing) clearHiddenSilently(existing.id);
             const updated = existing
                 ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now() } : g)
                 : [...loreGaps, failGap];
@@ -268,13 +374,15 @@ export async function searchLoreAction(args) {
             settings.librarianMaxResults,
             settings.fuzzySearchMinScore || 0.5,
         );
-        const filtered = hits.filter(h => !shownTitles.has(h.entry.title.toLowerCase()));
+        const filtered = hits.filter(h => !shownTitles.has(h.entry.title.toLowerCase()) && !h.entry.guide);
 
         if (filtered.length === 0) {
             resultParts.push(`## Query: "${query}"\nNo matching entries found.`);
             trackUnmetQuery(query);
             // Record gap
             const existing = findSimilarGap(loreGaps, query, 'search');
+            // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone.
+            if (existing) clearHiddenSilently(existing.id);
             const gapUpdate = existing
                 ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: false } : g)
                 : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
@@ -303,6 +411,8 @@ export async function searchLoreAction(args) {
 
         // Record gap signal
         const existing = findSimilarGap(loreGaps, query, 'search');
+        // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone.
+        if (existing) clearHiddenSilently(existing.id);
         const gapUpdate = existing
             ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] } : g)
             : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] }];
@@ -324,6 +434,7 @@ export async function searchLoreAction(args) {
     };
     sessionActivityLog.push(logEntry);
     pendingToolCalls.push(logEntry);
+    notifyLoreGapsChanged(); // Re-render Activity sub-tab even when persistGaps wasn't called
 
     // Analytics
     updateAnalytics('totalGapSearches');
@@ -351,6 +462,9 @@ export async function flagLoreAction(args) {
 
     // Merge frequency with existing flags for the same topic
     const existingGap = findSimilarGap(loreGaps, title, 'flag');
+    // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone —
+    // dismissed entries still escalate urgency silently so the user sees the latest state on un-dismiss.
+    if (existingGap) clearHiddenSilently(existingGap.id);
     let updatedGaps;
     if (existingGap) {
         const urgencyOrder = { low: 0, medium: 1, high: 2 };
@@ -398,6 +512,7 @@ export async function flagLoreAction(args) {
     };
     sessionActivityLog.push(logEntry);
     pendingToolCalls.push(logEntry);
+    notifyLoreGapsChanged();
 
     // Analytics + stats (flags have minimal token overhead)
     updateAnalytics('totalGapFlags');

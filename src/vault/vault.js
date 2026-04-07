@@ -284,6 +284,7 @@ export async function buildIndex() {
             neverInsertTag: settings.neverInsertTag,
             seedTag: settings.seedTag,
             bootstrapTag: settings.bootstrapTag,
+            guideTag: settings.librarianGuideTag,
         };
 
         let totalFiles = 0;

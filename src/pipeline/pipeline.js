@@ -9,6 +9,7 @@ import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGatin
 import {
     vaultIndex, cooldownTracker, injectionHistory, generationCount,
     trackerKey, setLastPipelineTrace, fuzzySearchIndex, fieldDefinitions,
+    getWriterVisibleEntries,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from '../ai/ai.js';
@@ -40,7 +41,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
     // Snapshot settings and vault index so async stages (AI search) see a consistent view
     const rawSettings = getSettings();
     const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
-    const vaultSnapshot = externalSnapshot || [...vaultIndex];
+    // Filter out lorebook-guide entries — they are Librarian-only and must never reach the writing AI.
+    // External snapshots are assumed already-filtered if the caller used getWriterVisibleEntries().
+    const vaultSnapshot = externalSnapshot || getWriterVisibleEntries();
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
     const trace = {

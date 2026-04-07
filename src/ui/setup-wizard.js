@@ -923,6 +923,11 @@ function wireDoneActions() {
                 case 'settings':
                     import('./settings-ui.js').then(m => m.openSettingsPopup?.()).catch(() => {});
                     break;
+                case 'meet-emma':
+                    import('../librarian/librarian-review.js')
+                        .then(m => m.openLibrarianPopup(null, { mode: 'guide-firstrun' }))
+                        .catch(err => console.warn('[DLE] Meet Emma open failed:', err));
+                    break;
             }
         }, 300);
     });

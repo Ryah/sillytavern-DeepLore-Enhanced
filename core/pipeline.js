@@ -16,6 +16,7 @@ import { extractCustomFields } from '../src/fields.js';
  * @property {boolean} constant - Always inject regardless of keywords
  * @property {boolean} seed - Content sent to AI as story context on new chats
  * @property {boolean} bootstrap - Force-inject when chat is short
+ * @property {boolean} guide - Librarian-only writing/style/meta guide; never reaches the writing AI
  * @property {number} tokenEstimate - Rough token count estimate
  * @property {number|null} scanDepth - Per-entry scan depth override (null = use global)
  * @property {boolean} excludeRecursion - Don't scan this entry's content during recursion
@@ -44,6 +45,7 @@ import { extractCustomFields } from '../src/fields.js';
  * @property {string} neverInsertTag - Tag for entries to skip
  * @property {string} [seedTag] - Tag for seed entries (Enhanced only)
  * @property {string} [bootstrapTag] - Tag for bootstrap entries (Enhanced only)
+ * @property {string} [guideTag] - Tag for Librarian-only writing-guide entries
  */
 
 /**
@@ -62,7 +64,10 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
         : (typeof frontmatter.tags === 'string' ? [frontmatter.tags.toLowerCase()] : []);
 
     const tagToMatch = tagConfig.lorebookTag.toLowerCase();
-    if (!tags.includes(tagToMatch)) {
+    const guideTagToMatch = tagConfig.guideTag ? tagConfig.guideTag.toLowerCase() : '';
+    const hasGuideTag = !!(guideTagToMatch && tags.includes(guideTagToMatch));
+    // Guide entries are admitted even without the lorebook tag — they live in the index for Emma's tools
+    if (!tags.includes(tagToMatch) && !hasGuideTag) {
         return null;
     }
 
@@ -95,6 +100,9 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
 
     const bootstrapTagToMatch = tagConfig.bootstrapTag ? tagConfig.bootstrapTag.toLowerCase() : '';
     const bootstrap = !!(bootstrapTagToMatch && tags.includes(bootstrapTagToMatch));
+
+    // Librarian-only guide flag (filtered out of every writing-AI path; only Emma's tools see these)
+    const guide = hasGuideTag;
 
     const scanDepth = typeof frontmatter.scanDepth === 'number' ? frontmatter.scanDepth : null;
     const excludeRecursion = frontmatter.excludeRecursion === true;
@@ -148,8 +156,8 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
     // Custom fields extraction (driven by field definitions, replaces hardcoded era/location/sceneType/characterPresent)
     const customFields = extractCustomFields(frontmatter, fieldDefinitions || []);
 
-    // Preserve all tags except the lorebook marker tag itself
-    const entryTags = tags.filter(t => t !== tagToMatch);
+    // Preserve all tags except the lorebook/guide marker tags themselves
+    const entryTags = tags.filter(t => t !== tagToMatch && t !== guideTagToMatch);
 
     return {
         filename: file.filename,
@@ -161,6 +169,7 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
         constant,
         seed,
         bootstrap,
+        guide,
         tokenEstimate: 0,
         scanDepth,
         excludeRecursion,

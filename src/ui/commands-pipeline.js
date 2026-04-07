@@ -12,7 +12,7 @@ import { formatAndGroup } from '../../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
 import {
-    vaultIndex, lastPipelineTrace, injectionHistory, generationCount,
+    vaultIndex, getWriterVisibleEntries, lastPipelineTrace, injectionHistory, generationCount,
     generationLock, trackerKey, buildPromise, fieldDefinitions,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
@@ -82,7 +82,7 @@ export function registerPipelineCommands() {
             const cmdPins = chat_metadata.deeplore_pins || [];
             const cmdBlocks = chat_metadata.deeplore_blocks || [];
             const folderFilter = chat_metadata?.deeplore_folder_filter || null;
-            const { finalEntries, matchedKeys } = await runPipeline(chat, [...vaultIndex], gatingContext, { pins: cmdPins, blocks: cmdBlocks, folderFilter });
+            const { finalEntries, matchedKeys } = await runPipeline(chat, getWriterVisibleEntries(), gatingContext, { pins: cmdPins, blocks: cmdBlocks, folderFilter });
 
             // Apply re-injection cooldown (matches onGenerate order)
             let filtered = finalEntries;

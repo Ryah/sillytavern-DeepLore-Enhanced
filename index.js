@@ -27,7 +27,7 @@ import {
 import { clearPrompts } from './core/pipeline.js';
 import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache, resolveConnectionConfig } from './settings.js';
 import {
-    vaultIndex, indexEverLoaded, indexing,
+    vaultIndex, getWriterVisibleEntries, indexEverLoaded, indexing,
     lastInjectionSources, lastInjectionEpoch, lastScribeChatLength, scribeInProgress,
     cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
     chatInjectionCounts, setChatInjectionCounts, trackerKey,
@@ -60,7 +60,7 @@ import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
 import { pushActivity } from './src/drawer/drawer-state.js';
-import { extractAiNotes } from './src/helpers.js';
+import { extractAiNotes, normalizeLoreGap } from './src/helpers.js';
 import { clearSessionActivityLog, consumePendingToolCalls, clearPendingToolCalls } from './src/librarian/librarian-tools.js';
 import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
 import { registerLibrarianTools } from './src/librarian/librarian.js';
@@ -213,7 +213,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Snapshot vaultIndex at pipeline start to avoid races with background rebuilds
-        const vaultSnapshot = [...vaultIndex];
+        // Filter out lorebook-guide entries — they are Librarian-only and must never reach the writing AI.
+        const vaultSnapshot = getWriterVisibleEntries();
 
         if (vaultSnapshot.length === 0) {
             if (!indexEverLoaded) {
@@ -683,6 +684,14 @@ jQuery(async function () {
             console.warn('[DLE] Failed to initialize Librarian:', err.message);
         }
 
+        // Apply Librarian visibility (hides drawer tab/panel when feature is off)
+        try {
+            const { applyLibrarianVisibility } = await import('./src/librarian/visibility.js');
+            applyLibrarianVisibility(!!getSettings().librarianEnabled);
+        } catch (err) {
+            console.warn('[DLE] Librarian visibility init failed:', err.message);
+        }
+
         // Pre-flight Claude adaptive-thinking misconfiguration sweep across all
         // 3 AI features so the user is warned at startup, not at first generation.
         try {
@@ -1084,8 +1093,10 @@ jQuery(async function () {
             resetCartographer();
 
             // Librarian: hydrate gaps from chat_metadata, reset per-gen counter + per-chat stats
+            // Run each saved gap through normalizeLoreGap so legacy statuses
+            // (acknowledged / in_progress / rejected) collapse to the v2 set (pending ↔ written).
             const savedGaps = chat_metadata?.deeplore_lore_gaps;
-            setLoreGaps(savedGaps ? [...savedGaps] : []);
+            setLoreGaps(savedGaps ? savedGaps.map(normalizeLoreGap) : []);
             setLoreGapSearchCount(0);
             setLibrarianChatStats({ searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 });
             clearSessionActivityLog();

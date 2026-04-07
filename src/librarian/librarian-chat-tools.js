@@ -122,6 +122,7 @@ export function executeToolCall(name, args = {}) {
         case 'get_links': return toolGetLinks(args);
         case 'get_backlinks': return toolGetBacklinks(args);
         case 'list_entries': return toolListEntries(args);
+        case 'get_writing_guide': return toolGetWritingGuide(args);
         default: return `Unknown tool: "${name}". Available tools: ${LIBRARIAN_TOOLS.map(t => t.name).join(', ')}`;
     }
 }
@@ -300,6 +301,53 @@ function toolListEntries(args) {
     return truncate(`${header}\n${lines.join('\n')}`, TOOL_RESULT_MAX_CHARS);
 }
 
+// ── Writing-guide tool (dynamic, runtime-built) ──────────────────────────
+
+/**
+ * Convert a title to kebab-case for stable enum identifiers.
+ * @param {string} s
+ */
+function kebabCase(s) {
+    return String(s || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Get all guide entries currently in the vault.
+ */
+function getGuideEntries() {
+    return vaultIndex.filter(e => e.guide);
+}
+
+/**
+ * Resolve a kebab-cased guide name back to a vault entry.
+ * @param {string} kebabName
+ */
+function findGuideByName(kebabName) {
+    if (!kebabName) return null;
+    const target = String(kebabName).toLowerCase();
+    return getGuideEntries().find(e => kebabCase(e.title) === target) || null;
+}
+
+function toolGetWritingGuide(args) {
+    const name = args?.name?.trim();
+    if (!name) return 'Error: name is required.';
+    const entry = findGuideByName(name);
+    if (!entry) {
+        const avail = getGuideEntries().map(e => kebabCase(e.title)).join(', ');
+        return `Guide "${name}" not found. Available: ${avail || '(none)'}`;
+    }
+    const content = entry.content || '(no content)';
+    if (content.length <= FULL_CONTENT_MAX_CHARS) {
+        return `**${entry.title}** (writing guide, ${content.length} chars):\n\n${content}`;
+    }
+    return `**${entry.title}** (writing guide, ${content.length} chars — capped at ${FULL_CONTENT_MAX_CHARS}):\n\n`
+        + content.slice(0, FULL_CONTENT_MAX_CHARS)
+        + `\n\n[...${content.length - FULL_CONTENT_MAX_CHARS} more chars not shown]`;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // System Prompt Section
 // ════════════════════════════════════════════════════════════════════════════
@@ -316,6 +364,19 @@ export function buildToolsPromptSection() {
         return `- **${t.name}**(${params}): ${t.description}`;
     }).join('\n');
 
+    // Dynamic writing-guide tool — only advertised when guide entries exist.
+    // Rebuilt every turn so the enum reflects the current vault.
+    const guides = getGuideEntries();
+    let guideToolDoc = '';
+    if (guides.length > 0) {
+        const guideList = guides.map(g => {
+            const kebab = kebabCase(g.title);
+            const blurb = (g.summary || g.content || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+            return `\`${kebab}\` — ${blurb}`;
+        }).join('; ');
+        guideToolDoc = `\n- **get_writing_guide**(name: enum): Fetch a meta/style/reference guide written for the Librarian (you). These are NOT shown to the writing AI — they are your private notes. Available guides: ${guideList}.`;
+    }
+
     return `
 ## Available Tools
 You can query the vault during our conversation using tools. To use tools, respond with:
@@ -331,7 +392,7 @@ You will receive tool results, then respond with your final answer. Max 5 tool c
 You may call multiple tools in a single response.
 
 ### Tools:
-${toolDocs}
+${toolDocs}${guideToolDoc}
 
 ### Rules:
 - Tools are **read-only** — you cannot write to the vault. The user is the only one who clicks "Write to Vault."

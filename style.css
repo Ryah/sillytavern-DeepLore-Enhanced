@@ -1543,6 +1543,20 @@ button.dle-chip-x:hover {
     color: var(--dle-accent);
 }
 
+.dle-browse-guide-pill {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    font-size: 0.75em;
+    font-weight: 600;
+    border-radius: 8px;
+    background: rgba(140, 100, 220, 0.18);
+    color: #b89cff;
+    border: 1px solid rgba(140, 100, 220, 0.4);
+    vertical-align: middle;
+}
+.dle-browse-guide-pill i { margin-right: 3px; }
+
 button.dle-browse-pin,
 button.dle-browse-block,
 button.dle-browse-why {
@@ -3758,7 +3772,8 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 }
 .dle-librarian-sub-tab {
     flex: 1;
-    padding: 5px 10px;
+    position: relative;
+    padding: 5px 32px 5px 10px;
     font-size: var(--dle-text-sm);
     font-weight: 600;
     text-align: center;
@@ -3780,9 +3795,13 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     color: var(--SmartThemeBodyColor);
 }
 .dle-sub-tab-count {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
     font-size: var(--dle-text-xs);
+    font-variant-numeric: tabular-nums;
     opacity: 0.7;
-    margin-left: 2px;
 }
 
 /* --- Librarian toolbar right (sort + activity filter) --- */
@@ -3792,14 +3811,62 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     align-items: center;
     margin-bottom: 6px;
 }
-.dle-librarian-activity-filter {
-    flex: 1;
+/* --- Librarian select-all bar --- */
+.dle-librarian-select-all-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
     font-size: var(--dle-text-xs);
-    padding: 2px 4px;
-    background: var(--SmartThemeBlurTintColor);
-    color: var(--SmartThemeBodyColor);
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: var(--dle-radius-sm);
+    border-bottom: 1px solid var(--dle-border);
+}
+.dle-librarian-select-all-bar input[type="checkbox"] {
+    accent-color: var(--dle-accent);
+    cursor: pointer;
+}
+
+/* --- Librarian action row (footer) --- */
+.dle-librarian-action-row {
+    display: flex;
+    gap: 6px;
+    padding: 6px 4px;
+    border-top: 1px solid var(--dle-border);
+}
+.dle-librarian-action-row .dle-tool-btn {
+    flex: 1;
+}
+.dle-librarian-action-row .dle-tool-btn[disabled] {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* --- Librarian activity row --- */
+.dle-librarian-activity-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    font-size: var(--dle-text-xs);
+    border-bottom: 1px solid var(--dle-border);
+}
+.dle-librarian-activity-row .dle-activity-icon {
+    width: 14px;
+    text-align: center;
+    opacity: 0.7;
+}
+.dle-activity-results-link {
+    all: unset;
+    cursor: pointer;
+    color: var(--SmartThemeQuoteColor);
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+}
+.dle-activity-results-link:hover { opacity: 0.85; }
+.dle-activity-results-link:focus-visible {
+    outline: 2px solid var(--SmartThemeQuoteColor);
+    outline-offset: 2px;
+    border-radius: 2px;
 }
 
 /* --- Librarian sort --- */
@@ -3835,9 +3902,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     border-left: 3px solid transparent;
     animation: dle-entry-in 200ms ease-out both;
 }
-.dle-librarian-entry:hover,
-.dle-librarian-entry.dle-gap-warm:hover,
-.dle-librarian-entry.dle-gap-hot:hover {
+.dle-librarian-entry:hover {
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 25%, var(--SmartThemeBlurTintColor, rgba(0,0,0,0.3)));
 }
 .dle-librarian-entry:focus-visible {
@@ -3845,31 +3910,11 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     outline-offset: -2px;
 }
 
-/* --- Amber heatmap (background only, border handled separately by urgency) --- */
-/* HOT: strong signal */
-.dle-librarian-entry.dle-gap-hot {
+/* --- Selective tint (only when frequency>=2 OR urgency=high) --- */
+.dle-librarian-entry.dle-gap-tinted {
     background: color-mix(in srgb,
         hsl(35, calc(var(--dle-gap, 0) * 30%), calc(25% + var(--dle-gap, 0) * 5%))
         calc(var(--dle-gap, 0) * 22%), transparent);
-}
-/* WARM: soft signal */
-.dle-librarian-entry.dle-gap-warm {
-    background: color-mix(in srgb,
-        hsl(35, calc(var(--dle-gap, 0) * 20%), calc(25% + var(--dle-gap, 0) * 3%))
-        calc(var(--dle-gap, 0) * 14%), transparent);
-}
-
-/* Urgency-colored left border — always applies, independent of heatmap */
-.dle-librarian-entry[data-urgency="high"] {
-    border-left: 3px solid var(--dle-error);
-}
-.dle-librarian-entry[data-urgency="medium"] {
-    border-left: 3px solid var(--dle-warning);
-}
-
-/* Staleness: de-emphasize pending gaps older than 24h */
-.dle-librarian-entry.dle-gap-stale {
-    opacity: 0.6;
 }
 
 /* --- Bulk selection --- */
@@ -3881,17 +3926,6 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     accent-color: var(--dle-accent);
     grid-column: 1;
     grid-row: 1;
-    opacity: 0;
-    pointer-events: none;
-}
-/* Show checkboxes only when list has an active selection; hide status icon */
-.dle-has-selection .dle-gap-check {
-    opacity: 1;
-    pointer-events: auto;
-}
-.dle-has-selection .dle-gap-status {
-    opacity: 0;
-    pointer-events: none;
 }
 /* Checkbox and status share column 1; type=2, title=3, time=4 */
 .dle-gap-status { grid-column: 1; }
@@ -3900,88 +3934,6 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-gap-time { grid-column: 4; }
 .dle-gap-selected {
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 12%, transparent) !important;
-}
-.dle-librarian-bulk-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 8px;
-    font-size: var(--dle-text-sm);
-    background: color-mix(in srgb, var(--dle-accent) 10%, transparent);
-    border-bottom: 1px solid var(--dle-border);
-    animation: dle-entry-in 150ms ease-out;
-}
-.dle-bulk-count {
-    font-weight: 600;
-    margin-right: auto;
-}
-.dle-bulk-action {
-    font-size: var(--dle-text-xs);
-    padding: 2px 8px;
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: var(--dle-radius-sm, 4px);
-    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
-    cursor: pointer;
-}
-.dle-bulk-action:hover {
-    background: color-mix(in srgb, var(--SmartThemeBodyColor) 16%, transparent);
-}
-
-/* Quick Create chips */
-.dle-librarian-quick-create {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-    padding: 6px 0 2px;
-}
-.dle-quick-create-chip {
-    all: unset;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: var(--dle-text-xs);
-    padding: 2px 8px;
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 15%, transparent);
-    color: var(--SmartThemeBodyColor);
-    cursor: pointer;
-    transition: background 0.15s;
-}
-.dle-quick-create-chip:hover {
-    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 30%, transparent);
-}
-.dle-quick-create-chip:focus-visible {
-    outline: 2px solid var(--SmartThemeQuoteColor);
-    outline-offset: 1px;
-}
-.dle-quick-create-chip i { font-size: 9px; }
-
-/* Progress summary */
-.dle-librarian-progress-summary {
-    padding: 2px 4px;
-    margin-bottom: 2px;
-}
-
-/* Keyboard hint bar — shown when a gap entry has focus */
-.dle-librarian-keyhint {
-    display: none;
-    font-size: var(--dle-text-xs);
-    opacity: 0.5;
-    padding: 2px 6px;
-    text-align: center;
-}
-.dle-librarian-keyhint kbd {
-    font-family: inherit;
-    font-size: 0.85em;
-    padding: 0 3px;
-    border: 1px solid var(--SmartThemeBorderColor);
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
-}
-/* Show hint when any entry in the list has focus */
-.dle-librarian-keyhint:has(+ .dle-librarian-list :focus) {
-    display: block;
 }
 
 /* Entrance animation moved into main .dle-librarian-entry rule above */
@@ -4150,13 +4102,6 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 @keyframes dle-badge-pulse {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.15); }
-}
-/* Urgency-aware badge colors */
-.dle-librarian-badge.dle-badge-warning {
-    background: var(--dle-warning);
-}
-.dle-librarian-badge.dle-badge-urgent {
-    background: var(--dle-error);
 }
 
 /* --- Librarian stats table (settings popup) --- */

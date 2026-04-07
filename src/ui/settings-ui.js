@@ -1453,6 +1453,43 @@ function bindPopupEvents($container) {
         }
     });
 
+    $c('#dle-sp-scan-vaults').on('click', async function () {
+        const $btn = $(this);
+        if ($btn.prop('disabled')) return;
+        $btn.prop('disabled', true).addClass('disabled');
+        try {
+            const { openVaultScanPopup } = await import('./vault-scan-popup.js');
+            // Use first enabled vault's host/key as scan defaults
+            const first = (settings.vaults || []).find(v => v.enabled) || (settings.vaults || [])[0] || {};
+            const picked = await openVaultScanPopup({
+                host: first.host || '127.0.0.1',
+                apiKey: first.apiKey || '',
+                portCenter: first.port || 27124,
+                radius: 25,
+            });
+            if (picked) {
+                // Add as a new vault entry
+                settings.vaults = settings.vaults || [];
+                settings.vaults.push({
+                    name: picked.vaultName || `Vault ${picked.port}`,
+                    host: picked.host,
+                    port: picked.port,
+                    apiKey: first.apiKey || '',
+                    https: picked.scheme === 'https',
+                    enabled: true,
+                });
+                saveSettingsDebounced();
+                bindVaultListEvents(settings, $c('#dle-sp-vault-list'), $c('#dle-sp-add-vault'));
+                toastr.success(`Added ${picked.vaultName} (${picked.host}:${picked.port}) — fill in the API key if needed.`, 'DeepLore Enhanced');
+            }
+        } catch (err) {
+            console.error('[DLE] Vault scan error:', err);
+            toastr.error(`Vault scan failed: ${err.message}`, 'DeepLore Enhanced');
+        } finally {
+            $btn.prop('disabled', false).removeClass('disabled');
+        }
+    });
+
     $c('#dle-sp-test-connection').on('click', async function () {
         const $btn = $(this);
         if ($btn.prop('disabled')) return;

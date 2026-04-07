@@ -16,49 +16,49 @@
  * @param {AbortSignal} [externalSignal] - Optional AbortSignal for caller-initiated cancellation
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
-export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000, cacheHints, externalSignal) {
-    // Validate proxy URL to prevent SSRF via internal network
-    try {
-        const parsed = new URL(proxyUrl);
-        const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, ''); // strip IPv6 brackets
-        // Block cloud metadata endpoints
-        const blockedHosts = ['169.254.169.254', 'metadata.google.internal', '100.100.100.200'];
-        if (blockedHosts.includes(hostname)) {
-            throw new Error(`Proxy URL "${hostname}" is blocked (potential SSRF target)`);
-        }
-        // BUG-036: Block localhost variants (except 127.0.0.1 which is required for local proxies)
-        if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1'
-            || hostname === '::ffff:127.0.0.1') {
-            throw new Error(`Proxy URL "${hostname}" is blocked — use 127.0.0.1 for local proxies`);
-        }
-        // Block private/reserved IP ranges (RFC 1918, RFC 6598, link-local)
-        const privatePatterns = [
-            /^10\./, // 10.0.0.0/8
-            /^127\./, // BUG-037: Block 127.0.0.0/8 (127.0.0.2 etc., except 127.0.0.1 below)
-            /^172\.(1[6-9]|2\d|3[01])\./, // 172.16.0.0/12
-            /^192\.168\./, // 192.168.0.0/16
-            /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, // 100.64.0.0/10 (CGNAT)
-            /^169\.254\./, // 169.254.0.0/16 (link-local)
-            /^0\./, // 0.0.0.0/8
-            /^::ffff:/, // IPv4-mapped IPv6
-            /^fd[0-9a-f]{2}:/, // IPv6 ULA
-            /^fe80:/, // IPv6 link-local
-        ];
-        if (privatePatterns.some(p => p.test(hostname)) && hostname !== '127.0.0.1') {
-            throw new Error(`Proxy URL "${hostname}" points to a private/reserved network address`);
-        }
-        // Block numeric IP shorthand forms (decimal, hex, octal)
-        if (/^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname)) {
-            throw new Error(`Proxy URL "${hostname}" uses a numeric IP shorthand — use dotted notation`);
-        }
-        // Block octal IP notation (e.g. 0177.0.0.1 = 127.0.0.1)
-        if (/(?:^|\.)0\d+(?:\.|$)/.test(hostname)) {
-            throw new Error(`Proxy URL "${hostname}" uses octal IP notation — use standard dotted decimal`);
-        }
-    } catch (e) {
-        if (e.message.includes('blocked') || e.message.includes('private') || e.message.includes('numeric') || e.message.includes('shorthand') || e.message.includes('octal')) throw e;
-        // Invalid URL format — let it fail naturally downstream
+/**
+ * Validate a proxy/base URL against SSRF targets (cloud metadata, private ranges, octal/decimal IP shorthand).
+ * Throws on bad URL; safe to call from any module that builds outbound HTTP from a user-supplied URL.
+ * Allows 127.0.0.1 (local proxies) but blocks broader 127.0.0.0/8 and all RFC1918/CGNAT/link-local ranges.
+ * @param {string} url
+ */
+export function validateProxyUrl(url) {
+    let parsed;
+    try { parsed = new URL(url); } catch { return; /* invalid format — let downstream fail */ }
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const blockedHosts = ['169.254.169.254', 'metadata.google.internal', '100.100.100.200'];
+    if (blockedHosts.includes(hostname)) {
+        throw new Error(`Proxy URL "${hostname}" is blocked (potential SSRF target)`);
     }
+    if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1'
+        || hostname === '::ffff:127.0.0.1') {
+        throw new Error(`Proxy URL "${hostname}" is blocked — use 127.0.0.1 for local proxies`);
+    }
+    const privatePatterns = [
+        /^10\./,
+        /^127\./,
+        /^172\.(1[6-9]|2\d|3[01])\./,
+        /^192\.168\./,
+        /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
+        /^169\.254\./,
+        /^0\./,
+        /^::ffff:/,
+        /^fd[0-9a-f]{2}:/,
+        /^fe80:/,
+    ];
+    if (privatePatterns.some(p => p.test(hostname)) && hostname !== '127.0.0.1') {
+        throw new Error(`Proxy URL "${hostname}" points to a private/reserved network address`);
+    }
+    if (/^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname)) {
+        throw new Error(`Proxy URL "${hostname}" uses a numeric IP shorthand — use dotted notation`);
+    }
+    if (/(?:^|\.)0\d+(?:\.|$)/.test(hostname)) {
+        throw new Error(`Proxy URL "${hostname}" uses octal IP notation — use standard dotted decimal`);
+    }
+}
+
+export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000, cacheHints, externalSignal) {
+    validateProxyUrl(proxyUrl);
 
     const targetUrl = proxyUrl.replace(/\/+$/, '') + '/v1/messages';
     // Encode the target URL to prevent Express from collapsing :// to :/

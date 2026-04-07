@@ -1176,6 +1176,25 @@
             </div>
             </div>
 
+            <div class="dle-settings-section">
+            <h4>Diagnostics</h4>
+            <div class="flex-container flexFlowColumn">
+                <small class="dle-muted">
+                    Export a self-contained diagnostic report to share when reporting bugs.
+                    The file is anonymized (API keys, IP addresses, hostnames, user paths are
+                    pseudonymized) and is designed to be readable by a flagship LLM for
+                    self-service triage. You're encouraged to verify the file before sharing.
+                </small>
+                <div class="flex-container" style="gap: 6px;">
+                    <div id="dle-sp-export-diagnostics" class="menu_button menu_button_icon" role="button" tabindex="0"
+                         title="Export an anonymized diagnostic report you can attach to a GitHub issue.">
+                        <i class="fa-solid fa-stethoscope"></i>
+                        <span id="dle-sp-export-diagnostics-label">Export Diagnostics</span>
+                    </div>
+                </div>
+            </div>
+            </div>
+
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════

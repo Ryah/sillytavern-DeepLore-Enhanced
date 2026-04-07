@@ -278,6 +278,24 @@ export function registerAdminCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-diagnostics',
+        aliases: ['dle-diag'],
+        callback: async () => {
+            try {
+                const { triggerDiagnosticDownload } = await import('../diagnostics/ui.js');
+                await triggerDiagnosticDownload();
+                toastr.success('Diagnostic report downloaded. Open the file and verify before sharing — see the Privacy section at the top.', 'DeepLore Enhanced', { timeOut: 8000 });
+            } catch (err) {
+                toastr.error(`Diagnostic export failed: ${classifyError(err)}`, 'DeepLore Enhanced');
+                console.error('[DLE] /dle-diagnostics failed:', err);
+            }
+            return '';
+        },
+        helpString: 'Export an anonymized diagnostic report (.md) for support requests. Same as the System tab button.',
+        returns: 'Triggers a browser download.',
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-health',
         aliases: ['dle-h'],
         callback: async () => {

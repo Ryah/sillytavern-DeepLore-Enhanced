@@ -1,6 +1,6 @@
 {
     "display_name": "DeepLore Enhanced",
-    "loading_order": 101,
+    "loading_order": 1,
     "requires": [],
     "optional": [],
     "generate_interceptor": "deepLoreEnhanced_onGenerate",

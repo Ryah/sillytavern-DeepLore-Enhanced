@@ -1403,6 +1403,56 @@ function bindPopupEvents($container) {
         openRuleBuilder();
     });
 
+    $c('#dle-sp-export-diagnostics').on('click', async function () {
+        const $btn = $(this);
+        const $label = $btn.find('#dle-sp-export-diagnostics-label');
+        const origLabel = $label.text();
+        if ($btn.prop('disabled')) return;
+        $btn.prop('disabled', true).addClass('disabled');
+        $label.text('Processing...');
+        try {
+            const { triggerDiagnosticDownload } = await import('../diagnostics/ui.js');
+            await triggerDiagnosticDownload();
+            $label.text('Done');
+            await callGenericPopup(
+                `<div class="dle-diag-done">
+                    <h3>Diagnostic report downloaded</h3>
+                    <p>Check your browser's downloads folder for the <code>.md</code> file.</p>
+                    <p><strong>This file has been anonymized as much as possible.</strong>
+                    API keys, auth headers, and long opaque tokens are stripped. IP addresses,
+                    hostnames, emails, and user paths are pseudonymized (e.g. <code>&lt;ip-1&gt;</code>,
+                    <code>&lt;host-2&gt;</code>) so cardinality is preserved without leaking the
+                    real values. Chat content and vault entry contents are <em>not</em> included.</p>
+                    <p><strong>You should verify this yourself before sharing — we want to prove
+                    we aren't hiding anything.</strong> The format is plain markdown wrapped around
+                    a base64 gzip blob, designed to be read by a flagship LLM (Claude, GPT-5,
+                    Gemini). Drop the file into one of those and ask:</p>
+                    <p><em>"Decode the base64 blob in this DLE diagnostic report and tell me
+                    everything personally identifiable that's still in it."</em></p>
+                    <p>The model can decompress and audit it inline. Please do this at least once.
+                    If you find anything we missed, that's a bug — please open an issue.</p>
+                    <p style="margin-top: 14px;">
+                        <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/new"
+                           target="_blank" rel="noopener noreferrer"
+                           class="menu_button menu_button_icon">
+                            <i class="fa-solid fa-up-right-from-square"></i>
+                            <span>Open New Issue on GitHub</span>
+                        </a>
+                    </p>
+                </div>`,
+                POPUP_TYPE.TEXT, '', { wide: false, large: false, allowVerticalScrolling: true }
+            );
+        } catch (err) {
+            $label.text(origLabel);
+            try { toastr.error(`Export failed: ${err?.message || err}`, 'DeepLore Enhanced'); } catch {}
+            console.error('[DLE] Diagnostic export failed:', err);
+        } finally {
+            $btn.prop('disabled', false).removeClass('disabled');
+            // Restore label after a beat so the user sees "Done" briefly.
+            setTimeout(() => { try { $label.text(origLabel); } catch {} }, 4000);
+        }
+    });
+
     $c('#dle-sp-test-connection').on('click', async function () {
         const $btn = $(this);
         if ($btn.prop('disabled')) return;

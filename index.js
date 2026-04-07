@@ -2,6 +2,9 @@
  * DeepLore Enhanced — Entry Point
  * Wires up the generation interceptor, event listeners, and UI initialization.
  */
+// MUST be the first import — installs console/fetch/XHR/error interceptors
+// at module-eval time so we capture cold-start bugs in DLE and other extensions.
+import './src/diagnostics/boot.js';
 import {
     setExtensionPrompt,
     extension_prompts,
@@ -635,6 +638,14 @@ jQuery(async function () {
         bindSettingsEvents(buildIndex);
         registerSlashCommands();
         setupSyncPolling(buildIndex, buildIndexWithReuse);
+
+        // Start the diagnostic flight recorder (always-on, debug-mode-independent).
+        try {
+            const { startFlightRecorder } = await import('./src/diagnostics/flight-recorder.js');
+            startFlightRecorder();
+        } catch (err) {
+            console.warn('[DLE] Flight recorder failed to start:', err?.message);
+        }
 
         // Register Librarian tools if enabled (also retried lazily in onGenerate)
         try {

@@ -100,8 +100,42 @@ export function registerLibrarianTools() {
 
         setLibrarianToolsRegistered(true);
         console.log('[DLE] Librarian tools registered');
+
+        // Force-enable function calling on the user's chat completion profile.
+        // ST gates tool sending behind oai_settings.function_calling — without this,
+        // registered tools are silently dropped from outbound requests.
+        ensureFunctionCallingEnabled();
     } catch (err) {
         console.warn('[DLE] Failed to register Librarian tools:', err.message);
+    }
+}
+
+/**
+ * Ensure ST's chat-completion profile has Function Calling enabled.
+ * Librarian is opt-in, so the user has already consented to tool use by enabling it.
+ */
+function ensureFunctionCallingEnabled() {
+    try {
+        // Lazy import — openai.js is heavy and only needed once at registration
+        import('../../../../../openai.js').then(({ oai_settings, saveSettingsDebounced }) => {
+            if (!oai_settings) return;
+            if (oai_settings.function_calling === true) return; // already on
+            oai_settings.function_calling = true;
+            // Sync the visible checkbox if the panel is rendered
+            const cb = document.getElementById('openai_function_calling');
+            if (cb instanceof HTMLInputElement) cb.checked = true;
+            try { saveSettingsDebounced?.(); } catch { /* non-fatal */ }
+            try {
+                if (typeof toastr !== 'undefined') {
+                    toastr.info('DLE Librarian enabled Function Calling on your connection profile.', 'DeepLore Enhanced', { timeOut: 6000 });
+                }
+            } catch { /* non-fatal */ }
+            console.log('[DLE] Auto-enabled oai_settings.function_calling for Librarian');
+        }).catch(err => {
+            console.warn('[DLE] Could not auto-enable function calling:', err?.message);
+        });
+    } catch (err) {
+        console.warn('[DLE] ensureFunctionCallingEnabled error:', err?.message);
     }
 }
 

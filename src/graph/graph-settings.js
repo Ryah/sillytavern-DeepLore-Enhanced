@@ -97,6 +97,9 @@ export function initGraphSettings(gs, dbg) {
         const gsColorMode = document.getElementById('dle-gs-color-mode');
         if (gsColorMode) gsColorMode.value = gs.colorMode;
 
+        const gsNodeSize = document.getElementById('dle-gs-node-size-mode');
+        if (gsNodeSize) gsNodeSize.value = settings.graphNodeSizeMode || 'centrality';
+
         const gsLabels = document.getElementById('dle-gs-labels');
         if (gsLabels) gsLabels.checked = gs.showLabels;
 
@@ -162,6 +165,14 @@ export function initGraphSettings(gs, dbg) {
                 updateSetting('graphDefaultColorMode', gs.colorMode);
                 if (colorModeEl) colorModeEl.value = gs.colorMode;
                 gs.updateTooltip();
+            }, lOpt);
+        }
+
+        // Wire node size mode
+        const gsNodeSize = document.getElementById('dle-gs-node-size-mode');
+        if (gsNodeSize) {
+            gsNodeSize.addEventListener('change', () => {
+                updateSetting('graphNodeSizeMode', gsNodeSize.value);
             }, lOpt);
         }
 
@@ -241,12 +252,15 @@ export function initGraphSettings(gs, dbg) {
             }, lOpt);
         }
 
-        // Presets — set all physics params at once
+        // Presets — set all physics params at once.
+        // Compact: dense cluster, high damping for 200+ entry vaults.
+        // Balanced: takes the prior Compact values (general-purpose).
+        // Spacious + Ginormous unchanged.
         const presets = {
-            compact:    { graphRepulsion: 0.2, graphSpringLength: 50,  graphGravity: 13.0, graphDamping: 0.50 },
-            balanced:   { graphRepulsion: 0.3, graphSpringLength: 80,  graphGravity: 11.0, graphDamping: 0.50 },
-            spacious:   { graphRepulsion: 0.6, graphSpringLength: 180, graphGravity: 7.0,  graphDamping: 0.50 },
-            ginormous:  { graphRepulsion: 1.2, graphSpringLength: 300, graphGravity: 3.5,  graphDamping: 0.50 },
+            compact:    { graphRepulsion: 0.15, graphSpringLength: 40,  graphGravity: 16.0, graphDamping: 0.85 },
+            balanced:   { graphRepulsion: 0.2,  graphSpringLength: 50,  graphGravity: 13.0, graphDamping: 0.50 },
+            spacious:   { graphRepulsion: 0.6,  graphSpringLength: 180, graphGravity: 7.0,  graphDamping: 0.50 },
+            ginormous:  { graphRepulsion: 1.2,  graphSpringLength: 300, graphGravity: 3.5,  graphDamping: 0.50 },
         };
         settingsPanel.querySelectorAll('.dle-gs-preset').forEach(btn => {
             btn.addEventListener('click', () => {

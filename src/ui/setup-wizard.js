@@ -592,15 +592,78 @@ function wireVaultStructure() {
     // Handled on page entry via runVaultStructureCreation
 }
 
+// wizardState lives at module scope; track helper outcome for summary page
+const wizardState = (typeof globalThis.__dleWizardState === 'object' && globalThis.__dleWizardState) || (globalThis.__dleWizardState = {});
+
 function wireVaultStructurePage() {
-    const $btn = $wizard.find('#dle-wiz-create-files');
-    if ($btn.data('wired')) return;
-    $btn.data('wired', true);
-    $btn.on('click', async () => {
-        $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Creating...');
-        await runVaultStructureCreation();
-        $btn.html('<i class="fa-solid fa-circle-check"></i> Done').addClass('dle-wizard-btn-verified');
+    // Check connection state — if not verified, show warning card and bail out of wiring
+    // Heuristic: if host + API key are present, assume connection was verified on page 2
+    const host = $wizard.find('#dle-wiz-host').val()?.trim();
+    const apiKey = $wizard.find('#dle-wiz-api-key').val()?.trim();
+    const connVerified = !!(host && apiKey);
+    if (!connVerified) {
+        $wizard.find('#dle-wiz-vault-conn-warning').show();
+        $wizard.find('#dle-wiz-vault-helpers-wrap').hide();
+        $wizard.find('#dle-wiz-vault-back-conn').off('click.dlewiz').on('click.dlewiz', () => goToPage(2));
+        return;
+    }
+    $wizard.find('#dle-wiz-vault-conn-warning').hide();
+    $wizard.find('#dle-wiz-vault-helpers-wrap').show();
+
+    const s = getSettings();
+
+    // Pre-populate path inputs from settings
+    const $fieldsPath = $wizard.find('#dle-wiz-fields-path');
+    if (!$fieldsPath.val()) $fieldsPath.val(s.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml');
+    const $sessPath = $wizard.find('#dle-wiz-sessions-path');
+    if (!$sessPath.val()) $sessPath.val(s.scribeFolder || 'Sessions');
+
+    // Persist on blur
+    $fieldsPath.off('blur.dlewiz').on('blur.dlewiz', () => {
+        const v = $fieldsPath.val().trim();
+        if (v) { getSettings().fieldDefinitionsPath = v; saveSettingsDebounced(); }
     });
+    $sessPath.off('blur.dlewiz').on('blur.dlewiz', () => {
+        const v = $sessPath.val().trim();
+        if (v) { getSettings().scribeFolder = v; saveSettingsDebounced(); }
+    });
+
+    // YAML preview
+    try {
+        const yaml = serializeFieldDefinitions(DEFAULT_FIELD_DEFINITIONS);
+        $wizard.find('#dle-wiz-fields-yaml').text(yaml);
+    } catch { /* non-fatal */ }
+
+    // Collapse Sessions card if Scribe disabled upstream
+    const $optDetails = $wizard.find('#dle-wiz-optional-helpers');
+    if (!s.scribeEnabled) {
+        $optDetails.prop('open', false);
+        $wizard.find('#dle-wiz-create-sessions').prop('checked', false);
+    } else {
+        $optDetails.prop('open', true);
+        $wizard.find('#dle-wiz-create-sessions').prop('checked', true);
+    }
+
+    // Wire create button (idempotent)
+    const $btn = $wizard.find('#dle-wiz-create-files');
+    if (!$btn.data('wired')) {
+        $btn.data('wired', true);
+        $btn.on('click', async () => {
+            $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i> Creating...');
+            await runVaultStructureCreation();
+            $btn.html('<i class="fa-solid fa-circle-check"></i> Done').addClass('dle-wizard-btn-verified').prop('disabled', false);
+        });
+    }
+
+    // Skip button
+    const $skip = $wizard.find('#dle-wiz-vault-skip');
+    if (!$skip.data('wired')) {
+        $skip.data('wired', true);
+        $skip.on('click', () => {
+            wizardState.vaultHelpers = 'skipped';
+            goToPage(8);
+        });
+    }
 }
 
 async function runVaultStructureCreation() {
@@ -609,49 +672,54 @@ async function runVaultStructureCreation() {
     const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
     const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
+    const outcome = { fields: 'skipped', sessions: 'skipped' };
+
     // Field definitions
     const createFields = $wizard.find('#dle-wiz-create-fields').is(':checked');
-    const $fieldsStatus = $wizard.find('#dle-wiz-fields-status');
-
     if (createFields) {
-        $fieldsStatus.html('<i class="fa-solid fa-spinner fa-spin"></i> Creating field-definitions.yaml...').show();
         try {
             const yaml = serializeFieldDefinitions(DEFAULT_FIELD_DEFINITIONS);
-            const s = getSettings();
-            const path = s.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
+            const path = ($wizard.find('#dle-wiz-fields-path').val().trim()) || 'DeepLore/field-definitions.yaml';
+            getSettings().fieldDefinitionsPath = path;
+            saveSettingsDebounced();
             await writeFieldDefinitions(host, port, apiKey, path, yaml, useHttps);
-            $fieldsStatus
-                .html('<i class="fa-solid fa-circle-check dle-wizard-status-ok"></i> field-definitions.yaml created')
-                .addClass('dle-wizard-file-ok');
+            outcome.fields = 'created';
         } catch (err) {
-            $fieldsStatus
-                .html(`<i class="fa-solid fa-circle-xmark dle-wizard-status-err"></i> Failed: ${escapeHtml(err.message)}`)
-                .addClass('dle-wizard-file-err');
+            outcome.fields = 'failed';
+            outcome.fieldsError = err.message;
         }
-    } else {
-        $fieldsStatus.html('<span class="dle-wizard-status-skip">— Skipped</span>').show();
     }
 
     // Sessions folder
     const createSessions = $wizard.find('#dle-wiz-create-sessions').is(':checked');
-    const $sessionsStatus = $wizard.find('#dle-wiz-sessions-status');
-
     if (createSessions) {
-        $sessionsStatus.html('<i class="fa-solid fa-spinner fa-spin"></i> Creating Sessions folder...').show();
         try {
-            // Write a placeholder note to create the folder
-            await writeNote(host, port, apiKey, 'Sessions/.gitkeep', '# Session Scribe\nThis folder is used by DeepLore Enhanced Session Scribe.\n', useHttps);
-            $sessionsStatus
-                .html('<i class="fa-solid fa-circle-check dle-wizard-status-ok"></i> Sessions/ folder created')
-                .addClass('dle-wizard-file-ok');
+            const folder = ($wizard.find('#dle-wiz-sessions-path').val().trim()) || 'Sessions';
+            getSettings().scribeFolder = folder;
+            saveSettingsDebounced();
+            await writeNote(host, port, apiKey, `${folder}/.gitkeep`, '# Session Scribe\nThis folder is used by DeepLore Enhanced Session Scribe.\n', useHttps);
+            outcome.sessions = 'created';
         } catch (err) {
-            $sessionsStatus
-                .html(`<i class="fa-solid fa-circle-xmark dle-wizard-status-err"></i> Failed: ${escapeHtml(err.message)}`)
-                .addClass('dle-wizard-file-err');
+            outcome.sessions = 'failed';
+            outcome.sessionsError = err.message;
         }
-    } else {
-        $sessionsStatus.html('<span class="dle-wizard-status-skip">— Skipped</span>').show();
     }
+
+    // Render consolidated banner
+    const $result = $wizard.find('#dle-wiz-vault-result');
+    const lines = [];
+    const labels = { created: 'Created', skipped: 'Skipped', failed: 'Failed', exists: 'Already present' };
+    lines.push(`<div><strong>Field definitions:</strong> ${labels[outcome.fields]}${outcome.fieldsError ? ` &mdash; ${escapeHtml(outcome.fieldsError)}` : ''}</div>`);
+    lines.push(`<div><strong>Sessions folder:</strong> ${labels[outcome.sessions]}${outcome.sessionsError ? ` &mdash; ${escapeHtml(outcome.sessionsError)}` : ''}</div>`);
+    const anyFailed = outcome.fields === 'failed' || outcome.sessions === 'failed';
+    const anyDone = outcome.fields === 'created' || outcome.sessions === 'created';
+    $result
+        .html(lines.join(''))
+        .removeClass('dle-wizard-result-success dle-wizard-result-error')
+        .addClass(anyFailed ? 'dle-wizard-result-error' : 'dle-wizard-result-success')
+        .show();
+
+    wizardState.vaultHelpers = anyFailed ? 'partial' : (anyDone ? 'done' : 'skipped');
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -813,8 +881,9 @@ function buildSummary() {
         }
     }
 
-    const fieldsCreated = $wizard.find('#dle-wiz-create-fields').is(':checked');
-    const sessionsCreated = $wizard.find('#dle-wiz-create-sessions').is(':checked');
+    const helperState = wizardState.vaultHelpers; // 'done' | 'partial' | 'skipped' | undefined
+    const fieldsCreated = helperState === 'done' || helperState === 'partial';
+    const sessionsCreated = helperState === 'done';
 
     const items = [
         `<i class="fa-solid fa-circle-check"></i> Vault connected: <strong>${esc(vaultName)}</strong> on ${esc(host)}:${esc(port)}`,

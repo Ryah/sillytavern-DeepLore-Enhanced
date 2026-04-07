@@ -654,6 +654,31 @@ jQuery(async function () {
             console.warn('[DLE] Failed to initialize Librarian:', err.message);
         }
 
+        // Pre-flight Claude adaptive-thinking misconfiguration sweep across all
+        // 3 AI features so the user is warned at startup, not at first generation.
+        try {
+            const { detectClaudeAdaptiveIssue, buildClaudeAdaptiveMessage } = await import('./src/ai/claude-adaptive-check.js');
+            const { setClaudeAutoEffortState } = await import('./src/state.js');
+            const { dedupWarning } = await import('./src/toast-dedup.js');
+            const s = getSettings();
+            const checks = [
+                { id: s.aiSearchProfileId, model: s.aiSearchModel, label: 'AI Search' },
+                { id: s.scribeProfileId, model: s.scribeModel, label: 'Session Scribe' },
+                { id: s.autoSuggestProfileId, model: s.autoSuggestModel, label: 'Auto Lorebook' },
+            ];
+            let firstBad = null;
+            for (const c of checks) {
+                const d = detectClaudeAdaptiveIssue(c.id, c.model);
+                if (d.bad) { firstBad = { ...d, feature: c.label }; break; }
+            }
+            if (firstBad) {
+                setClaudeAutoEffortState(true, firstBad);
+                dedupWarning(buildClaudeAdaptiveMessage(firstBad, 'toast'), 'claude_auto_effort', { timeOut: 12000 });
+            }
+        } catch (err) {
+            console.debug('[DLE] Claude adaptive-thinking pre-flight check skipped:', err?.message);
+        }
+
         // First-run detection: if no vaults configured and wizard not completed, show wizard
         const firstRunSettings = getSettings();
         const hasEnabledVaults = (firstRunSettings.vaults || []).some(v => v.enabled);

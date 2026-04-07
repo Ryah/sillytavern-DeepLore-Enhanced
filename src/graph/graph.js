@@ -322,32 +322,10 @@ export async function showGraphPopup() {
                 </div>
                 <div class="dle-graph-settings-body">
                     <div class="dle-graph-settings-row dle-gap-1">
-                        <button class="menu_button dle-gs-preset" data-preset="compact">Compact</button>
-                        <button class="menu_button dle-gs-preset" data-preset="balanced">Balanced</button>
-                        <button class="menu_button dle-gs-preset" data-preset="spacious">Spacious</button>
-                        <button class="menu_button dle-gs-preset" data-preset="ginormous">Ginormous</button>
-                    </div>
-                    <div class="dle-graph-settings-sep"></div>
-                    <div class="dle-graph-settings-section-label">Layout</div>
-                    <div class="dle-graph-settings-row">
-                        <label title="Push force between unconnected nodes — higher spreads them further apart">Repulsion</label>
-                        <input type="range" id="dle-gs-repulsion" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle-gs-repulsion-val"></span>
-                    </div>
-                    <div class="dle-graph-settings-row">
-                        <label title="Preferred length of edges between connected nodes">Link Length</label>
-                        <input type="range" id="dle-gs-spring" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle-gs-spring-val"></span>
-                    </div>
-                    <div class="dle-graph-settings-row">
-                        <label title="Pull force toward the center of the canvas — prevents nodes from drifting off-screen">Gravity</label>
-                        <input type="range" id="dle-gs-gravity" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle-gs-gravity-val"></span>
-                    </div>
-                    <div class="dle-graph-settings-row">
-                        <label title="Friction applied to node movement — higher values make nodes settle faster">Damping</label>
-                        <input type="range" id="dle-gs-damping" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle-gs-damping-val"></span>
+                        <button class="menu_button dle-gs-preset" data-preset="compact" title="Dense cluster — high damping, tight repulsion. Good for 200+ entry vaults.">Compact</button>
+                        <button class="menu_button dle-gs-preset" data-preset="balanced" title="General-purpose layout for most vaults.">Balanced</button>
+                        <button class="menu_button dle-gs-preset" data-preset="spacious" title="Loose spread — easier to read individual nodes.">Spacious</button>
+                        <button class="menu_button dle-gs-preset" data-preset="ginormous" title="Maximum spread — best for very large displays.">Ginormous</button>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-section-label">Display</div>
@@ -367,36 +345,68 @@ export async function showGraphPopup() {
                         </select>
                     </div>
                     <div class="dle-graph-settings-row">
+                        <label title="How node radius is computed">Node Size</label>
+                        <select id="dle-gs-node-size-mode" class="text_pole dle-gs-compact-select">
+                            <option value="centrality">Centrality</option>
+                            <option value="priority">Priority</option>
+                            <option value="uniform">Uniform</option>
+                        </select>
+                    </div>
+                    <div class="dle-graph-settings-row">
                         <label>Show Labels</label>
                         <input type="checkbox" id="dle-gs-labels" />
                     </div>
                     <div class="dle-graph-settings-sep"></div>
-                    <div class="dle-graph-settings-section-label">Interaction</div>
+                    <div class="dle-graph-settings-section-label">Hover</div>
                     <div class="dle-graph-settings-row">
-                        <label title="Number of connection hops from the hovered node that remain bright — nodes beyond this distance are dimmed">Hover Depth</label>
+                        <label title="How many connection hops from the hovered node remain visible">Reach</label>
                         <input type="range" id="dle-gs-hover-dim" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle-gs-hover-dim-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
-                        <label title="Exponential alpha falloff per hop on hover — higher = sharper drop, lower = gentler reach">Hover Falloff</label>
+                        <label title="Exponential alpha falloff per hop — higher = sharper drop">Falloff</label>
                         <input type="range" id="dle-gs-hover-falloff" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle-gs-hover-falloff-val"></span>
                     </div>
+                    <div class="dle-graph-settings-sep"></div>
+                    <div class="dle-graph-settings-section-label">Focus Mode</div>
                     <div class="dle-graph-settings-row">
-                        <label title="Number of hops shown in Focus Tree mode (double-click a node to enter)">Focus Tree Depth</label>
+                        <label title="Hops shown in Focus Tree mode — also adjustable with +/− while in focus mode">Tree Depth</label>
                         <input type="range" id="dle-gs-tree-depth" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle-gs-tree-depth-val"></span>
                     </div>
                     <div class="dle-graph-settings-sep"></div>
-                    <div class="dle-graph-settings-section-label">Filtering</div>
+                    <div class="dle-graph-settings-section-label">Edge Filtering</div>
                     <div class="dle-graph-settings-row">
-                        <label title="Statistical significance threshold for edges — lower values hide weak connections, keeping only the strongest relationships">Edge Pruning</label>
+                        <label title="Statistical significance threshold — lower hides weak connections">Pruning</label>
                         <input type="range" id="dle-gs-edge-filter" min="-100" max="100" step="1" />
                         <span class="dle-gs-value" id="dle-gs-edge-filter-val"></span>
-                    </div>
-                    <div class="dle-graph-settings-row dle-gs-center-row">
                         <small id="dle-gs-edge-count" class="dle-dimmed dle-gs-edge-count"></small>
                     </div>
+                    <div class="dle-graph-settings-sep"></div>
+                    <details class="dle-graph-settings-advanced">
+                        <summary>Advanced Physics</summary>
+                        <div class="dle-graph-settings-row">
+                            <label title="Push force between unconnected nodes">Repulsion</label>
+                            <input type="range" id="dle-gs-repulsion" min="-100" max="100" step="1" />
+                            <span class="dle-gs-value" id="dle-gs-repulsion-val"></span>
+                        </div>
+                        <div class="dle-graph-settings-row">
+                            <label title="Preferred length of edges">Link Length</label>
+                            <input type="range" id="dle-gs-spring" min="-100" max="100" step="1" />
+                            <span class="dle-gs-value" id="dle-gs-spring-val"></span>
+                        </div>
+                        <div class="dle-graph-settings-row">
+                            <label title="Pull toward canvas center">Gravity</label>
+                            <input type="range" id="dle-gs-gravity" min="-100" max="100" step="1" />
+                            <span class="dle-gs-value" id="dle-gs-gravity-val"></span>
+                        </div>
+                        <div class="dle-graph-settings-row">
+                            <label title="Friction — higher = settle faster">Damping</label>
+                            <input type="range" id="dle-gs-damping" min="-100" max="100" step="1" />
+                            <span class="dle-gs-value" id="dle-gs-damping-val"></span>
+                        </div>
+                    </details>
                     <div class="dle-graph-settings-sep"></div>
                     <div class="dle-graph-settings-row dle-gap-1">
                         <button id="dle-gs-redraw" class="menu_button dle-gs-compact-btn" title="Clear saved positions and replay the BFS rollout animation">Redraw</button>

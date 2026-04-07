@@ -363,35 +363,71 @@
             </div>
         </div>
 
-        <!-- ═══ Page 7: Vault Structure ═══ -->
+        <!-- ═══ Page 7: Prepare Your Vault ═══ -->
         <div class="dle-wizard-page" data-wizard-page="7">
-            <h2>Vault Structure</h2>
-            <p class="dle-wizard-subtitle">Create helper files in your Obsidian vault.</p>
+            <h2>Prepare Your Vault</h2>
+            <p class="dle-wizard-subtitle">Optional scaffolding for advanced features.</p>
 
-            <div class="dle-wizard-card">
-                <h3><i class="fa-solid fa-file-lines"></i> Field Definitions</h3>
-                <p>Contextual gating fields let you filter entries by era, location, scene type, and characters present. This creates a YAML configuration file in your vault.</p>
-                <label class="checkbox_label dle-wizard-checkbox">
-                    <input id="dle-wiz-create-fields" type="checkbox" class="checkbox" checked />
-                    <span>Create <code>DeepLore/field-definitions.yaml</code></span>
-                </label>
-                <div id="dle-wiz-fields-status" class="dle-wizard-file-status" style="display: none;"></div>
+            <div class="dle-wizard-card dle-wizard-card-info">
+                <p><i class="fa-solid fa-circle-info"></i> DeepLore scans your whole vault by tag, not by folder &mdash; so there's nothing to point at here. These files are just scaffolding for optional features. You can skip this entirely and add them later from Settings.</p>
             </div>
 
-            <div class="dle-wizard-card">
-                <h3><i class="fa-solid fa-scroll"></i> Sessions Folder</h3>
-                <p>Session Scribe writes AI-generated summaries of your roleplay sessions to Obsidian. This creates the folder for those notes.</p>
-                <label class="checkbox_label dle-wizard-checkbox">
-                    <input id="dle-wiz-create-sessions" type="checkbox" class="checkbox" checked />
-                    <span>Create <code>Sessions/</code> folder</span>
-                </label>
-                <div id="dle-wiz-sessions-status" class="dle-wizard-file-status" style="display: none;"></div>
+            <div id="dle-wiz-vault-conn-warning" class="dle-wizard-card" style="display: none;">
+                <h3><i class="fa-solid fa-triangle-exclamation"></i> Connection Not Verified</h3>
+                <p>You haven't successfully connected to Obsidian yet. Go back and verify your connection before creating helper files.</p>
+                <div class="dle-wizard-action-row">
+                    <button id="dle-wiz-vault-back-conn" class="menu_button">
+                        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to Connection
+                    </button>
+                </div>
             </div>
 
-            <div class="dle-wizard-action-row">
-                <button id="dle-wiz-create-files" class="menu_button dle-wizard-btn-primary">
-                    <i class="fa-solid fa-folder-plus" aria-hidden="true"></i> Create Selected Files
-                </button>
+            <div id="dle-wiz-vault-helpers-wrap">
+                <div class="dle-wizard-card">
+                    <h3><i class="fa-solid fa-file-lines"></i> Field Definitions</h3>
+                    <p>Contextual gating fields let you filter entries by era, location, scene type, and characters present.</p>
+                    <label class="checkbox_label dle-wizard-checkbox">
+                        <input id="dle-wiz-create-fields" type="checkbox" class="checkbox" checked />
+                        <span>Create field definitions file</span>
+                    </label>
+                    <div class="dle-wizard-field">
+                        <label>Path in vault</label>
+                        <input id="dle-wiz-fields-path" type="text" class="text_pole" placeholder="DeepLore/field-definitions.yaml" />
+                    </div>
+                    <details class="dle-wizard-template-details">
+                        <summary>Show template</summary>
+                        <pre id="dle-wiz-fields-yaml" class="dle-wizard-yaml-preview"></pre>
+                    </details>
+                    <div id="dle-wiz-fields-status" class="dle-wizard-file-status" style="display: none;"></div>
+                </div>
+
+                <details id="dle-wiz-optional-helpers">
+                    <summary>Optional: Session Scribe folder</summary>
+                    <div class="dle-wizard-card">
+                        <h3><i class="fa-solid fa-scroll"></i> Sessions Folder</h3>
+                        <p>Session Scribe writes AI-generated summaries of your roleplay sessions to Obsidian. This creates the folder for those notes.</p>
+                        <label class="checkbox_label dle-wizard-checkbox">
+                            <input id="dle-wiz-create-sessions" type="checkbox" class="checkbox" />
+                            <span>Create sessions folder</span>
+                        </label>
+                        <div class="dle-wizard-field">
+                            <label>Folder path in vault</label>
+                            <input id="dle-wiz-sessions-path" type="text" class="text_pole" placeholder="Sessions" />
+                        </div>
+                        <div id="dle-wiz-sessions-status" class="dle-wizard-file-status" style="display: none;"></div>
+                    </div>
+                </details>
+
+                <div class="dle-wizard-action-row">
+                    <button id="dle-wiz-create-files" class="menu_button dle-wizard-btn-primary">
+                        <i class="fa-solid fa-folder-plus" aria-hidden="true"></i> Create Helpers
+                    </button>
+                    <button id="dle-wiz-vault-skip" class="menu_button">
+                        <i class="fa-solid fa-forward" aria-hidden="true"></i> Skip this step
+                    </button>
+                </div>
+
+                <div id="dle-wiz-vault-result" class="dle-wizard-result-banner" style="display: none;"></div>
             </div>
         </div>
 

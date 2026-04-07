@@ -72,6 +72,21 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         throw new Error(`Connection profile not found or invalid. Select one in AI Search settings, or create one in SillyTavern's Connection Manager.`);
     }
 
+    // Pre-flight: detect Claude adaptive-thinking misconfiguration. We do not
+    // override the user's setting — we surface a deduped warning and a friendlier
+    // error rewrite if the call fails with a 400. See claude-adaptive-check.js.
+    let claudeAdaptiveDetail = null;
+    try {
+        const { detectClaudeAdaptiveIssue, buildClaudeAdaptiveMessage } = await import('./claude-adaptive-check.js');
+        const detail = detectClaudeAdaptiveIssue(resolvedProfileId, resolvedModel);
+        if (detail.bad) {
+            claudeAdaptiveDetail = detail;
+            const { setClaudeAutoEffortState } = await import('../state.js');
+            setClaudeAutoEffortState(true, detail);
+            dedupWarning(buildClaudeAdaptiveMessage(detail, 'toast'), 'claude_auto_effort', { timeOut: 12000 });
+        }
+    } catch (_) { /* detection must never block the call */ }
+
     // Some providers (e.g. Anthropic) require system prompt separately, not as a message.
     // ConnectionManagerRequestService handles this via the options parameter.
     // When aiForceUserRole is enabled, merge system prompt into user message for providers
@@ -140,6 +155,17 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
                     'or enable "Force merge system prompt" in DLE AI Search settings.',
                     'DeepLore Enhanced', { timeOut: 10000 },
                 );
+            }
+        }
+        // Claude adaptive-thinking error rewrite — only if pre-flight flagged it AND
+        // the error looks like the 400/top_k/thinking signature.
+        if (claudeAdaptiveDetail && /400|bad request|top_k|thinking|reasoning_effort/i.test(err.message || '')) {
+            try {
+                const { buildClaudeAdaptiveMessage } = await import('./claude-adaptive-check.js');
+                if (!err.throttled) recordAiFailure();
+                throw new Error(buildClaudeAdaptiveMessage(claudeAdaptiveDetail, 'error') + profileLabel + modelLabel);
+            } catch (rethrow) {
+                if (rethrow !== err) throw rethrow;
             }
         }
         if (!err.throttled) recordAiFailure();

@@ -107,6 +107,19 @@ export function setScribeInProgress(v) { scribeInProgress = v; }
 /** AI Notepad extract lock — prevents concurrent extraction calls */
 export let notepadExtractInProgress = false;
 export function setNotepadExtractInProgress(v) { notepadExtractInProgress = v; }
+
+/** Claude adaptive-thinking misconfiguration flag (any feature in bad combo) */
+export let claudeAutoEffortBad = false;
+export let claudeAutoEffortDetail = null;
+const claudeAutoEffortObservers = new Set();
+export function setClaudeAutoEffortState(bad, detail) {
+    claudeAutoEffortBad = !!bad;
+    claudeAutoEffortDetail = detail || null;
+    for (const cb of claudeAutoEffortObservers) {
+        try { cb(claudeAutoEffortBad, claudeAutoEffortDetail); } catch (e) { /* swallow */ }
+    }
+}
+export function onClaudeAutoEffortChanged(cb) { claudeAutoEffortObservers.add(cb); return () => claudeAutoEffortObservers.delete(cb); }
 export function setLastScribeSummary(v) { lastScribeSummary = v; }
 export function setPreviousIndexSnapshot(v) { previousIndexSnapshot = v; }
 export function setCooldownTracker(v) { cooldownTracker = v; }

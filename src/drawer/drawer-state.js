@@ -136,14 +136,14 @@ export const ds = {
     // Librarian tab state
     /** Librarian filter: 'flag' | 'activity' */
     librarianFilter: 'flag',
-    /** Activity sub-filter: 'all' | 'search' | 'search-noresults' | 'search-results' */
-    librarianActivityFilter: 'all',
     /** Librarian sort: 'newest' | 'frequency' | 'urgency' */
     librarianSort: 'newest',
     /** Selected gap IDs for bulk operations */
     librarianSelected: new Set(),
     /** Last clicked gap ID for shift+click range selection */
     librarianLastClicked: null,
+    /** Last-viewed timestamps per sub-tab — used to compute "new since last view" badge */
+    librarianLastViewed: { flag: 0, activity: 0 },
 };
 
 // ─── Activity Feed ───

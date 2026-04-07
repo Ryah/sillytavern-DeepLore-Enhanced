@@ -1,53 +1,44 @@
 /**
  * DeepLore Enhanced — Drawer Render: Librarian Tab
- * Renders the Librarian inbox with gap records, green heatmap, and filters.
+ *
+ * v2: Flat Flags-only list (with Activity sub-tab), plain rows, selective
+ * heatmap (only for repeat or high-urgency gaps), always-visible checkboxes,
+ * persistent footer action row. Two-tier soft-remove via sibling arrays
+ * in chat_metadata (`deeplore_lore_gaps_hidden` / `_dismissed`).
  */
 import { escapeHtml } from '../../../../../utils.js';
 import { loreGaps } from '../state.js';
 import { getSettings } from '../../settings.js';
+import { getHiddenGapIds, getDismissedGapIds, buildLibrarianActivityFeed } from '../librarian/librarian-tools.js';
 import { ds, scheduleRender } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Urgency → normalized score for heatmap */
 const URGENCY_SCORE = { low: 0.2, medium: 0.5, high: 1.0 };
 
-/** Status → icon mapping (FontAwesome) */
+/** Status set is now `pending` ↔ `written`. Soft-remove uses sibling arrays. */
 const STATUS_ICONS = {
-    pending: { icon: '<i class="fa-solid fa-circle-exclamation"></i>', cls: 'dle-gap-pending', label: 'Pending' },
-    acknowledged: { icon: '<i class="fa-solid fa-eye"></i>', cls: 'dle-gap-acknowledged', label: 'Noted' },
-    in_progress: { icon: '<i class="fa-solid fa-spinner fa-spin"></i>', cls: 'dle-gap-in-progress', label: 'In progress' },
-    written: { icon: '<i class="fa-solid fa-check"></i>', cls: 'dle-gap-written', label: 'Written' },
-    rejected: { icon: '<i class="fa-solid fa-xmark"></i>', cls: 'dle-gap-rejected', label: 'Dismissed' },
+    pending: { icon: '<i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i>', cls: 'dle-gap-pending', label: 'Pending' },
+    written: { icon: '<i class="fa-solid fa-check" aria-hidden="true"></i>', cls: 'dle-gap-written', label: 'Written' },
 };
 
 /**
- * Compute a 0-3 relevance score for heatmap intensity.
- * Higher = stronger signal (green tint), lower = weaker (grey/no tint).
+ * Compute a 0-3 relevance score for the (selective) heatmap intensity.
+ * Only entries with `frequency >= 2 || urgency === 'high'` get tinted at all.
  */
 function computeGapScore(gap) {
     const urgency = URGENCY_SCORE[gap.urgency] || 0.5;
-    // Normalize frequency to 0-1 range (1 → 0, 10+ → 1)
     const freqNorm = Math.min(1, ((gap.frequency || 1) - 1) / 9);
-
-    // Recency: 1.0 at <1hr, decays to 0 at 24hr
     const ageMs = Date.now() - (gap.timestamp || 0);
     const ageHours = ageMs / (1000 * 60 * 60);
     const recency = Math.max(0, 1.0 - ageHours / 24);
-
-    // Unmet search bonus (strongest triage signal)
-    const unmetBonus = (gap.type === 'search' && !gap.hadResults) ? 0.3 : 0;
-
-    // Rescale to use more of the 0-3 range (raw max is ~1.2)
-    const raw = (freqNorm * 0.3) + (urgency * 0.3) + (recency * 0.2) + unmetBonus;
+    const raw = (freqNorm * 0.4) + (urgency * 0.4) + (recency * 0.2);
     return Math.min(3, raw * 2.5);
 }
 
-/**
- * Format a timestamp as relative time (e.g. "2m ago", "3h ago", "1d ago").
- */
+/** Format a timestamp as relative time (e.g. "2m ago"). */
 function relativeTime(ts) {
     if (!ts) return '';
     const diffMs = Date.now() - ts;
@@ -65,7 +56,7 @@ function relativeTime(ts) {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Render the Librarian tab — inbox of gap records with green heatmap.
+ * Render the Librarian tab.
  */
 export function renderLibrarianTab() {
     const $drawer = ds.$drawer;
@@ -73,68 +64,85 @@ export function renderLibrarianTab() {
 
     const $list = $drawer.find('.dle-librarian-list');
     const $empty = $drawer.find('#dle-panel-librarian .dle-empty-state');
+    const $selectAllBar = $drawer.find('.dle-librarian-select-all-bar');
+    const $actionRow = $drawer.find('.dle-librarian-action-row');
+    const $toolbarBottom = $drawer.find('#dle-panel-librarian .dle-librarian-toolbar-bottom');
 
-    // Update sub-tab active states + roving tabindex
+    // Sub-tabs (Flags / Activity) — roving tabindex
     const $subTabs = $drawer.find('.dle-librarian-sub-tabs');
     $subTabs.find('.dle-librarian-sub-tab').removeClass('active').attr('aria-checked', 'false').attr('tabindex', '-1');
     $subTabs.find(`[data-filter="${ds.librarianFilter}"]`).addClass('active').attr('aria-checked', 'true').attr('tabindex', '0');
 
-    // Show/hide activity filter dropdown (only visible on Activity sub-tab)
-    const $activityFilter = $drawer.find('.dle-librarian-activity-filter');
-    $activityFilter.css('display', ds.librarianFilter === 'activity' ? '' : 'none');
-    $activityFilter.val(ds.librarianActivityFilter);
-
-    // Update sort select
+    // Sort select
     $drawer.find('.dle-librarian-sort').val(ds.librarianSort);
 
-    // Show/hide Clear Written button
-    const hasCompleted = loreGaps.some(g => g.status === 'written' || g.status === 'rejected');
-    $drawer.find('.dle-librarian-clear-written').css('display', hasCompleted ? '' : 'none');
+    // Sub-tab counts: show only the COUNT OF NEW items since last view of that sub-tab.
+    // Viewing a sub-tab clears its badge by stamping `lastViewed[subtab] = now`.
+    const hiddenIds = getHiddenGapIds();
+    const dismissedIds = getDismissedGapIds();
+    const visibleFlagGaps = loreGaps.filter(g => g.type === 'flag' && !hiddenIds.has(g.id) && !dismissedIds.has(g.id));
+    const activityFeed = buildLibrarianActivityFeed();
 
-    // Filter gaps by sub-tab
-    let gaps = [...loreGaps];
-    if (ds.librarianFilter === 'flag') {
-        gaps = gaps.filter(g => g.type === 'flag');
-    } else if (ds.librarianFilter === 'activity') {
-        // Activity tab: show everything, then apply activity sub-filter
-        switch (ds.librarianActivityFilter) {
-            case 'search':
-                gaps = gaps.filter(g => g.type === 'search');
-                break;
-            case 'search-noresults':
-                gaps = gaps.filter(g => g.type === 'search' && !g.hadResults);
-                break;
-            case 'search-results':
-                gaps = gaps.filter(g => g.type === 'search' && g.hadResults);
-                break;
-            // 'all' — no additional filtering
+    // Stamp the active sub-tab as viewed BEFORE computing counts so its badge stays empty
+    ds.librarianLastViewed[ds.librarianFilter] = Date.now();
+
+    const flagNew = visibleFlagGaps.filter(g => (g.timestamp || 0) > ds.librarianLastViewed.flag).length;
+    const activityNew = activityFeed.filter(it => (it.ts || 0) > ds.librarianLastViewed.activity).length;
+    $subTabs.find('[data-filter="flag"] .dle-sub-tab-count').text(flagNew > 0 ? `(${flagNew})` : '');
+    $subTabs.find('[data-filter="activity"] .dle-sub-tab-count').text(activityNew > 0 ? `(${activityNew})` : '');
+
+    // ─── Activity sub-tab ───────────────────────────────────────────────────
+    if (ds.librarianFilter === 'activity') {
+        $selectAllBar.hide();
+        $actionRow.hide();
+        const feed = activityFeed;
+
+        if (feed.length === 0) {
+            $list.empty();
+            const $text = $empty.find('.dle-librarian-empty-text');
+            $text.text('No tool activity recorded yet.');
+            $empty.find('.dle-librarian-empty-actions').css('display', '');
+            $empty.addClass('dle-visible');
+            $toolbarBottom.css('display', 'none');
+            updateLibrarianBadge();
+            return;
         }
+        $empty.removeClass('dle-visible');
+        $toolbarBottom.css('display', '');
+
+        let html = '';
+        for (const item of feed) {
+            const icon = item.kind === 'tool-search'
+                ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search tool call"></i>'
+                : item.kind === 'tool-flag'
+                    ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag tool call"></i>'
+                    : '<i class="fa-solid fa-thumbtack" aria-hidden="true" title="Persistent search gap"></i>';
+            const isSearch = item.type === 'search';
+            const hasResults = isSearch && (item.resultTitles && item.resultTitles.length > 0);
+            const metaText = item.kind === 'gap-search'
+                ? (item.hadResults ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}` : 'no results')
+                : isSearch
+                    ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}`
+                    : (item.urgency || '');
+            const metaHtml = hasResults
+                ? `<button type="button" class="dle-activity-meta dle-activity-results-link dle-text-xs" data-results="${escapeHtml(JSON.stringify(item.resultTitles))}" data-query="${escapeHtml(item.query)}" title="Show context returned to writing AI">${escapeHtml(metaText)}</button>`
+                : `<span class="dle-activity-meta dle-text-xs dle-muted">${escapeHtml(metaText)}</span>`;
+            html += `<div class="dle-librarian-activity-row" role="listitem">`
+                + `<span class="dle-activity-icon">${icon}</span>`
+                + `<span class="dle-activity-query">${escapeHtml(item.query)}</span>`
+                + metaHtml
+                + `<span class="dle-activity-time dle-text-xs dle-muted">${relativeTime(item.ts)}</span>`
+                + `</div>`;
+        }
+        $list.html(html);
+        updateLibrarianBadge();
+        return;
     }
 
-    // Update sub-tab counts
-    const flagCount = loreGaps.filter(g => g.type === 'flag').length;
-    const activityCount = loreGaps.length;
-    $subTabs.find('[data-filter="flag"] .dle-sub-tab-count').text(flagCount > 0 ? `(${flagCount})` : '');
-    $subTabs.find('[data-filter="activity"] .dle-sub-tab-count').text(activityCount > 0 ? `(${activityCount})` : '');
+    // ─── Flags sub-tab ──────────────────────────────────────────────────────
+    let gaps = [...visibleFlagGaps];
 
-    // Progress summary (Flags tab only, when there are items)
-    const $summary = $drawer.find('.dle-librarian-progress-summary');
-    if (ds.librarianFilter === 'flag' && flagCount > 0) {
-        const byStatus = { pending: 0, acknowledged: 0, in_progress: 0, written: 0, rejected: 0 };
-        for (const g of loreGaps) {
-            if (g.type === 'flag') byStatus[g.status] = (byStatus[g.status] || 0) + 1;
-        }
-        const parts = [];
-        if (byStatus.pending) parts.push(`${byStatus.pending} pending`);
-        if (byStatus.in_progress) parts.push(`${byStatus.in_progress} in progress`);
-        if (byStatus.acknowledged) parts.push(`${byStatus.acknowledged} noted`);
-        if (byStatus.written + byStatus.rejected) parts.push(`${byStatus.written + byStatus.rejected} done`);
-        $summary.text(`${flagCount} flag${flagCount !== 1 ? 's' : ''}: ${parts.join(', ')}`).css('display', '');
-    } else {
-        $summary.css('display', 'none');
-    }
-
-    // Sort gaps
+    // Sort
     switch (ds.librarianSort) {
         case 'frequency':
             gaps.sort((a, b) => (b.frequency || 1) - (a.frequency || 1));
@@ -150,184 +158,107 @@ export function renderLibrarianTab() {
             break;
     }
 
-    const $toolbarBottom = $drawer.find('#dle-panel-librarian .dle-librarian-toolbar-bottom');
-
-    // Empty state — show dynamic enabled/disabled status
+    // Empty state
     if (gaps.length === 0) {
         $list.empty();
+        $selectAllBar.hide();
+        $actionRow.hide();
         const enabled = getSettings().librarianEnabled;
         const $text = $empty.find('.dle-librarian-empty-text');
         const $emptyActions = $empty.find('.dle-librarian-empty-actions');
         if (!enabled) {
             $text.text('Librarian is disabled. Enable it in Settings \u2192 Features \u2192 Librarian.');
             $emptyActions.css('display', 'none');
-        } else if (ds.librarianFilter === 'flag') {
-            $text.text('No flagged gaps yet. The AI will flag missing lore during replies.');
-            $emptyActions.css('display', '');
         } else {
-            $text.text('No activity recorded yet. Tool calls will appear here after your next reply.');
+            $text.text('No flagged gaps yet. The AI will flag missing lore during replies.');
             $emptyActions.css('display', '');
         }
         $empty.addClass('dle-visible');
-        $toolbarBottom.css('display', 'none'); // Hide bottom toolbar when empty (actions are inside empty state)
+        $toolbarBottom.css('display', 'none');
+        updateLibrarianBadge();
         return;
     }
     $empty.removeClass('dle-visible');
-    $toolbarBottom.css('display', ''); // Show bottom toolbar when populated
+    $toolbarBottom.css('display', '');
+    $selectAllBar.show();
+    $actionRow.show();
 
-    // Build inbox HTML — scan tier: status, type, title, time only
+    // Build inbox HTML
     let html = '';
     for (const gap of gaps) {
         const score = computeGapScore(gap);
-        const heatClass = score > 1.5 ? 'dle-gap-hot' : score > 0.6 ? 'dle-gap-warm' : '';
-        // Stale: pending and older than 24 hours
-        const isStale = gap.status === 'pending' && gap.timestamp && (Date.now() - gap.timestamp) > 24 * 60 * 60 * 1000;
-        const staleClass = isStale ? 'dle-gap-stale' : '';
+        // Selective heatmap: only repeat-flagged or high-urgency gaps get tinted
+        const tinted = (gap.frequency || 1) >= 2 || gap.urgency === 'high';
+        const tintClass = tinted ? 'dle-gap-tinted' : '';
         const statusInfo = STATUS_ICONS[gap.status] || STATUS_ICONS.pending;
-        const typeIcon = gap.type === 'search'
-            ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>'
-            : '<i class="fa-solid fa-flag" aria-hidden="true"></i>';
-
         const title = escapeHtml(gap.query || '');
         const time = relativeTime(gap.timestamp);
-
         const isSelected = ds.librarianSelected.has(gap.id);
         const selClass = isSelected ? 'dle-gap-selected' : '';
 
-        const nextStatus = { pending: 'noted', acknowledged: 'dismissed', rejected: 'pending' };
-        const statusTooltip = `${statusInfo.label} — click to mark as ${nextStatus[gap.status] || 'noted'}`;
-
-        html += `<div class="dle-librarian-entry ${heatClass} ${staleClass} ${selClass}" style="--dle-gap:${score.toFixed(2)}" `
+        html += `<div class="dle-librarian-entry ${tintClass} ${selClass}" style="--dle-gap:${score.toFixed(2)}" `
             + `data-gap-id="${escapeHtml(gap.id)}" data-urgency="${gap.urgency || 'medium'}" role="listitem" `
-            + `aria-expanded="false" aria-keyshortcuts="a x Enter Space ArrowUp ArrowDown" `
-            + `aria-label="${title}, ${statusInfo.label}, ${gap.urgency || 'medium'} urgency" tabindex="0">`;
+            + `aria-expanded="false" aria-label="${title}, ${statusInfo.label}, ${gap.urgency || 'medium'} urgency" tabindex="0">`;
         html += `<input type="checkbox" class="dle-gap-check" ${isSelected ? 'checked' : ''} aria-label="Select ${title}" tabindex="-1">`;
-        html += `<button type="button" class="dle-gap-status ${statusInfo.cls}" title="${statusTooltip}" aria-label="${statusTooltip}" tabindex="-1">${statusInfo.icon}</button>`;
-        html += `<span class="dle-gap-type" aria-label="${gap.type === 'search' ? 'Search' : 'Flag'}">${typeIcon}</span>`;
+        html += `<span class="dle-gap-status ${statusInfo.cls}" title="${statusInfo.label}" aria-label="${statusInfo.label}">${statusInfo.icon}</span>`;
         html += `<span class="dle-gap-title">${title}</span>`;
-        html += `<span class="dle-gap-time">${time}</span>`;
+        html += `<span class="dle-gap-time dle-text-xs dle-muted">${time}</span>`;
         html += `</div>`;
     }
 
-    // Preserve focused gap id before replacing DOM
+    // Preserve focus across re-render
     const focusedGapId = document.activeElement?.closest?.('.dle-librarian-entry')?.dataset?.gapId;
-
     $list.html(html);
-
-    // Restore focus after re-render
     if (focusedGapId) {
         const $target = $list.find(`[data-gap-id="${focusedGapId}"]`);
         if ($target.length) {
             $target[0].focus();
         } else {
-            // Entry was removed — focus next available entry
             const $first = $list.find('.dle-librarian-entry').first();
             if ($first.length) $first[0].focus();
         }
     }
 
-    // Update bulk action bar visibility
-    updateBulkBar();
+    // Select-all checkbox + count + action-row enablement
+    const selCount = ds.librarianSelected.size;
+    const allSelected = selCount > 0 && gaps.every(g => ds.librarianSelected.has(g.id));
+    $selectAllBar.find('.dle-librarian-select-all').prop('checked', allSelected);
+    $selectAllBar.find('.dle-librarian-select-count').text(selCount > 0 ? `${selCount} selected` : '');
 
-    // Update badge count on tab button (pending flags only — the actionable items)
+    // Action buttons: act on selection only; disable when empty
+    const hasSelection = selCount > 0;
+    const hasSingleSelection = selCount === 1;
+    $actionRow.find('[data-librarian-action="open"]').prop('disabled', !hasSingleSelection);
+    $actionRow.find('[data-librarian-action="done"]').prop('disabled', !hasSelection);
+    $actionRow.find('[data-librarian-action="remove"]').prop('disabled', !hasSelection);
+
     updateLibrarianBadge();
-
-    // Quick Create chips — top unmet queries from analytics (Flags tab only)
-    renderQuickCreateChips($drawer);
-}
-
-/**
- * Render Quick Create chips from top unmet queries (analytics data).
- * Shows up to 3 chips at the bottom of the Flags tab for one-click entry creation.
- */
-function renderQuickCreateChips($drawer) {
-    let $chips = $drawer.find('.dle-librarian-quick-create');
-    if (ds.librarianFilter !== 'flag') {
-        $chips.remove();
-        return;
-    }
-
-    const settings = getSettings();
-    const unmet = settings.analyticsData?._librarian?.topUnmetQueries || [];
-    // Filter to queries with count >= 2 (repeated unmet searches are stronger signals)
-    const top = unmet.filter(u => u.count >= 2).slice(0, 3);
-
-    if (top.length === 0) {
-        $chips.remove();
-        return;
-    }
-
-    const chipsHtml = top.map(u =>
-        `<button class="dle-quick-create-chip" data-query="${escapeHtml(u.query)}" title="Create entry for &quot;${escapeHtml(u.query)}&quot; (searched ${u.count}×, no results)">` +
-        `<i class="fa-solid fa-plus" aria-hidden="true"></i> ${escapeHtml(u.query)}</button>`
-    ).join('');
-
-    if (!$chips.length) {
-        $chips = $(`<div class="dle-librarian-quick-create"><span class="dle-text-xs dle-muted">Quick create:</span> ${chipsHtml}</div>`);
-        $drawer.find('.dle-librarian-list').after($chips);
-    } else {
-        $chips.html(`<span class="dle-text-xs dle-muted">Quick create:</span> ${chipsHtml}`);
-    }
-}
-
-/**
- * Show/hide the bulk action bar based on selection state.
- */
-export function updateBulkBar() {
-    const $drawer = ds.$drawer;
-    if (!$drawer) return;
-
-    const count = ds.librarianSelected.size;
-    let $bar = $drawer.find('.dle-librarian-bulk-bar');
-
-    if (count === 0) {
-        $bar.remove();
-        $drawer.find('.dle-librarian-list').removeClass('dle-has-selection');
-        return;
-    }
-
-    $drawer.find('.dle-librarian-list').addClass('dle-has-selection');
-
-    if (!$bar.length) {
-        $bar = $(`<div class="dle-librarian-bulk-bar">
-            <span class="dle-bulk-count">${count} selected</span>
-            <button class="menu_button_icon dle-bulk-action" data-bulk="note" title="Note all selected"><i class="fa-solid fa-eye"></i> Note All</button>
-            <button class="menu_button_icon dle-bulk-action" data-bulk="dismiss" title="Dismiss all selected"><i class="fa-solid fa-xmark"></i> Dismiss All</button>
-            <button class="menu_button_icon dle-bulk-action" data-bulk="deselect" title="Clear selection"><i class="fa-solid fa-times"></i> Deselect</button>
-        </div>`);
-        $drawer.find('.dle-librarian-list').before($bar);
-    } else {
-        $bar.find('.dle-bulk-count').text(`${count} selected`);
-    }
 }
 
 /**
  * Update the pending count badge on the Librarian tab button.
- * Badge color reflects highest urgency among pending items.
  */
 export function updateLibrarianBadge() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
 
-    const pending = loreGaps.filter(g => g.status === 'pending' && g.type === 'flag');
-    const pendingCount = pending.length;
-    const $badge = $drawer.find('.dle-librarian-badge');
-    const $tab = $drawer.find('#dle-tab-librarian');
+    const hiddenIds = getHiddenGapIds();
+    const dismissedIds = getDismissedGapIds();
+    const pendingCount = loreGaps.filter(g =>
+        g.status === 'pending'
+        && g.type === 'flag'
+        && !hiddenIds.has(g.id)
+        && !dismissedIds.has(g.id)
+    ).length;
 
+    const $badge = $drawer.find('.dle-librarian-badge');
     if (pendingCount > 0) {
         $badge.text(pendingCount).addClass('dle-visible');
-
-        // Urgency-aware badge coloring
-        const hasHigh = pending.some(g => g.urgency === 'high');
-        const hasMedium = pending.some(g => g.urgency === 'medium');
-        $badge.removeClass('dle-badge-urgent dle-badge-warning');
-        if (hasHigh) $badge.addClass('dle-badge-urgent');
-        else if (hasMedium) $badge.addClass('dle-badge-warning');
     } else {
-        $badge.text('').removeClass('dle-visible dle-badge-urgent dle-badge-warning');
+        $badge.text('').removeClass('dle-visible');
     }
 
-    // Update tab aria-label with count
+    const $tab = $drawer.find('#dle-tab-librarian');
     $tab.attr('aria-label', pendingCount > 0
         ? `Librarian -- ${pendingCount} pending flag${pendingCount !== 1 ? 's' : ''}`
         : 'Librarian -- lore activity and writing assistant');

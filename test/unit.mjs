@@ -20,7 +20,7 @@ import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, fuzzyTitleMatch, extractAiNotes } from '../src/helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, normalizeLoreGap, fuzzyTitleMatch, extractAiNotes } from '../src/helpers.js';
 import { encodeVaultPath, validateVaultPath } from '../src/vault/obsidian-api.js';
 
 // BM25 functions (extracted to bm25.js for testability)
@@ -3450,6 +3450,32 @@ test('isForceInjected: missing fields default to falsy', () => {
 // ============================================================================
 // Sprint 2: Pin/Block Migration (H23)
 // ============================================================================
+
+test('normalizeLoreGap: legacy acknowledged status collapses to pending', () => {
+    const out = normalizeLoreGap({ id: 'a', status: 'acknowledged', query: 'x' });
+    assertEqual(out.status, 'pending', 'acknowledged → pending');
+    assertEqual(out.query, 'x', 'other fields preserved');
+});
+
+test('normalizeLoreGap: legacy in_progress status collapses to pending', () => {
+    const out = normalizeLoreGap({ id: 'a', status: 'in_progress' });
+    assertEqual(out.status, 'pending', 'in_progress → pending');
+});
+
+test('normalizeLoreGap: legacy rejected status collapses to pending', () => {
+    const out = normalizeLoreGap({ id: 'a', status: 'rejected' });
+    assertEqual(out.status, 'pending', 'rejected → pending');
+});
+
+test('normalizeLoreGap: pending and written are preserved', () => {
+    assertEqual(normalizeLoreGap({ status: 'pending' }).status, 'pending');
+    assertEqual(normalizeLoreGap({ status: 'written' }).status, 'written');
+});
+
+test('normalizeLoreGap: missing/unknown status defaults to pending', () => {
+    assertEqual(normalizeLoreGap({}).status, 'pending');
+    assertEqual(normalizeLoreGap({ status: 'bogus' }).status, 'pending');
+});
 
 test('normalizePinBlock: bare string normalized to {title, vaultSource: null}', () => {
     const result = normalizePinBlock('Eris');

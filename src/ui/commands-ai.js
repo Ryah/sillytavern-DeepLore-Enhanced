@@ -208,6 +208,11 @@ export function registerAiCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-librarian',
         callback: async (_args, subcommand) => {
+            // Hard gate: do not run if Librarian is disabled.
+            if (!getSettings().librarianEnabled) {
+                toastr.warning('Librarian is disabled. Enable it in DeepLore Enhanced settings.', 'DeepLore Enhanced');
+                return '';
+            }
             const { openLibrarianPopup } = await import('../librarian/librarian-review.js');
             const { loreGaps } = await import('../state.js');
             const sub = (subcommand || '').trim();

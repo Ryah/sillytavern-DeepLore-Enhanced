@@ -242,25 +242,19 @@
                 <button class="dle-librarian-sub-tab" data-filter="activity" role="radio" aria-checked="false">Activity <span class="dle-sub-tab-count"></span></button>
             </div>
             <div class="dle-librarian-toolbar-right">
-                <select class="text_pole dle-librarian-activity-filter" aria-label="Filter activity" style="display:none">
-                    <option value="all">All activity</option>
-                    <option value="search-noresults">Searches (no results)</option>
-                    <option value="search-results">Searches (with results)</option>
-                    <option value="search">All searches</option>
-                </select>
                 <select class="text_pole dle-librarian-sort" data-sort aria-label="Sort by">
                     <option value="newest">Newest</option>
                     <option value="frequency">Frequency</option>
                     <option value="urgency">Urgency</option>
                 </select>
-                <button class="menu_button_icon dle-librarian-clear-written" title="Clear resolved items" aria-label="Clear written and dismissed items" style="display:none">
-                    <i class="fa-solid fa-broom" aria-hidden="true"></i>
-                </button>
             </div>
         </div>
-        <div class="dle-librarian-progress-summary dle-text-xs dle-muted" style="display:none" aria-live="polite"></div>
-        <div class="dle-librarian-keyhint" aria-hidden="true">
-            <kbd>A</kbd> Note &nbsp; <kbd>X</kbd> Dismiss &nbsp; <kbd>Enter</kbd> Open &nbsp; <kbd>Space</kbd> Expand
+        <div class="dle-librarian-select-all-bar" role="group" aria-label="Bulk selection">
+            <label class="dle-librarian-select-all-label">
+                <input type="checkbox" class="dle-librarian-select-all" aria-label="Select all visible">
+                <span>Select all</span>
+            </label>
+            <span class="dle-librarian-select-count dle-text-xs dle-muted" aria-live="polite"></span>
         </div>
         <div class="dle-librarian-list" role="list" aria-label="Librarian activity"></div>
         <div class="dle-empty-state dle-visible" id="dle-librarian-empty">
@@ -274,6 +268,17 @@
                     <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Vault Review
                 </button>
             </div>
+        </div>
+        <div class="dle-librarian-action-row">
+            <button class="menu_button dle-tool-btn dle-librarian-action" data-librarian-action="open" title="Open the selected gap in the Librarian editor" disabled>
+                <i class="fa-solid fa-pen-to-square" aria-hidden="true"></i> Open
+            </button>
+            <button class="menu_button dle-tool-btn dle-librarian-action" data-librarian-action="done" title="Mark selected gaps as written" disabled>
+                <i class="fa-solid fa-check" aria-hidden="true"></i> Mark Done
+            </button>
+            <button class="menu_button dle-tool-btn dle-librarian-action" data-librarian-action="remove" title="Remove (hide on first click, dismiss forever on second)" disabled>
+                <i class="fa-solid fa-trash" aria-hidden="true"></i> Remove
+            </button>
         </div>
         <div class="dle-librarian-toolbar-bottom">
             <button class="menu_button dle-tool-btn dle-librarian-new-entry-btn" data-action="librarian-new" title="Create a new vault entry from scratch">

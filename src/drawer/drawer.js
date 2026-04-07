@@ -57,8 +57,10 @@ export function resetDrawerState() {
     ds.contextTokens = 0;
     // Note: ds.stGenerating is NOT reset here — it tracks ST's generation state
     // which persists across chat switches. GENERATION_ENDED clears it.
-    ds.librarianFilter = 'all';
+    ds.librarianFilter = 'flag';
     ds.librarianSort = 'newest';
+    ds.librarianSelected.clear();
+    ds.librarianLastClicked = null;
     if (ds.browseSearchTimeout) { clearTimeout(ds.browseSearchTimeout); ds.browseSearchTimeout = null; }
     // Clear the search input and filter selects if drawer exists
     const $input = $(`#${DRAWER_ID} .dle-browse-input`);

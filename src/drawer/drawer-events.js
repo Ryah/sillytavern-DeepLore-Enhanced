@@ -22,7 +22,8 @@ import {
     scheduleRender, announceToScreenReader,
 } from './drawer-state.js';
 import { renderInjectionTab, renderBrowseTab, renderBrowseWindow, renderGatingTab, renderStatusZone } from './drawer-render.js';
-import { renderLibrarianTab, updateBulkBar } from './drawer-render-librarian.js';
+import { renderLibrarianTab } from './drawer-render-librarian.js';
+import { hideGap, dismissGap, getHiddenGapIds, getDismissedGapIds } from '../librarian/librarian-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -89,6 +90,12 @@ export function switchTab($drawer, tabName) {
     if (ds.browseScrollRAF) {
         cancelAnimationFrame(ds.browseScrollRAF);
         ds.browseScrollRAF = null;
+    }
+
+    // Librarian: always land on Flags. Sub-tab selection is intentionally NOT preserved.
+    if (tabName === 'librarian') {
+        ds.librarianFilter = 'flag';
+        scheduleRender(renderLibrarianTab);
     }
 
     if (tabName === 'browse') {
@@ -623,14 +630,16 @@ export function wireHealthIcons($drawer) {
 // Librarian Tab
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Wire Librarian tab interactions (filter, sort, gap click) */
+/** Wire Librarian tab interactions (sub-tabs, sort, selection, footer actions) */
 export function wireLibrarianTab($drawer) {
-    // Sub-tab buttons (Flags / Activity)
+    // Sub-tab buttons (Flags / Activity) — selection NOT persisted across tab entries
     $drawer.on('click', '.dle-librarian-sub-tab', function () {
         ds.librarianFilter = $(this).data('filter') || 'flag';
-        // Roving tabindex: active tab gets tabindex=0, others get -1
         $drawer.find('.dle-librarian-sub-tab').attr('tabindex', '-1');
         $(this).attr('tabindex', '0');
+        // Sub-tab change clears selection (a different list is now displayed)
+        ds.librarianSelected.clear();
+        ds.librarianLastClicked = null;
         scheduleRender(renderLibrarianTab);
     });
 
@@ -644,136 +653,47 @@ export function wireLibrarianTab($drawer) {
         $tabs.eq(next).trigger('click').focus();
     });
 
-    // Activity sub-filter dropdown
-    $drawer.on('change', '.dle-librarian-activity-filter', function () {
-        ds.librarianActivityFilter = $(this).val() || 'all';
-        scheduleRender(renderLibrarianTab);
-    });
-
     // Sort select
     $drawer.on('change', '.dle-librarian-sort', function () {
         ds.librarianSort = $(this).val() || 'newest';
         scheduleRender(renderLibrarianTab);
     });
 
-    // Click status icon → cycle pending→noted→dismissed (quick-toggle)
-    $drawer.on('click', '.dle-gap-status', function (e) {
-        e.stopPropagation();
-        const $entry = $(this).closest('.dle-librarian-entry');
-        const gapId = $entry.data('gap-id');
-        const gap = loreGaps.find(g => g.id === gapId);
-        if (!gap) return;
-
-        const cycle = { pending: 'acknowledged', acknowledged: 'rejected', rejected: 'pending' };
-        const statusLabelsShort = { acknowledged: 'Noted', rejected: 'Dismissed', pending: 'Pending' };
-        gap.status = cycle[gap.status] || 'acknowledged';
-        setLoreGaps([...loreGaps]); // trigger observers
-        announceToScreenReader(`${gap.query || 'Gap'} marked as ${statusLabelsShort[gap.status] || gap.status}`);
-        scheduleRender(renderLibrarianTab);
-    });
-
-    // Click gap action buttons (inside expanded view)
-    $drawer.on('click', '.dle-gap-action', function (e) {
-        e.stopPropagation();
-        const action = $(this).data('action');
-        const $entry = $(this).closest('.dle-librarian-entry');
-        const gapId = $entry.data('gap-id');
-        const gap = loreGaps.find(g => g.id === gapId);
-        if (!gap) return;
-
-        if (action === 'acknowledge') {
-            gap.status = 'acknowledged';
-            setLoreGaps([...loreGaps]);
-            scheduleRender(renderLibrarianTab);
-        } else if (action === 'reject') {
-            gap.status = 'rejected';
-            setLoreGaps([...loreGaps]);
-            scheduleRender(renderLibrarianTab);
-        } else if (action === 'open-editor') {
-            executeCommand(`/dle-librarian gap ${gapId}`);
-        }
-    });
-
-    // Click on a gap entry (not status icon, not action buttons) → toggle expand
+    // Click on a gap row → toggle expand (plain text detail). Ignore clicks on
+    // the checkbox itself.
     $drawer.on('click', '.dle-librarian-entry', function (e) {
-        if ($(e.target).closest('.dle-gap-status, .dle-gap-action').length) return;
+        if ($(e.target).closest('.dle-gap-check').length) return;
 
         const $entry = $(this);
         const $existing = $entry.find('.dle-gap-detail');
-
         if ($existing.length) {
-            // Collapse
             $existing.remove();
             $entry.removeClass('dle-gap-expanded').attr('aria-expanded', 'false');
             return;
         }
-
-        // Collapse any other expanded entry
         $drawer.find('.dle-gap-detail').remove();
         $drawer.find('.dle-librarian-entry').removeClass('dle-gap-expanded').attr('aria-expanded', 'false');
 
-        // Build expanded detail
         const gapId = $entry.data('gap-id');
         const gap = loreGaps.find(g => g.id === gapId);
         if (!gap) return;
 
-        const statusLabels = { pending: 'Pending', acknowledged: 'Noted', in_progress: 'In progress', written: 'Written', rejected: 'Dismissed' };
-        let detailHtml = '<div class="dle-gap-detail">';
-        detailHtml += `<div class="dle-gap-detail-reason">${escapeHtml(gap.reason || 'No reason provided')}</div>`;
-        detailHtml += `<div class="dle-gap-detail-meta">`;
         const metaParts = [];
         if ((gap.frequency || 1) > 1) metaParts.push(`Flagged ${gap.frequency}×`);
         metaParts.push(`Urgency: ${gap.urgency || 'medium'}`);
-        metaParts.push(`Status: ${statusLabels[gap.status] || gap.status}`);
-        detailHtml += metaParts.join(' &middot; ');
-        detailHtml += `</div>`;
+        metaParts.push(`Status: ${gap.status === 'written' ? 'Written' : 'Pending'}`);
 
-        if (gap.type === 'search' && gap.resultTitles?.length > 0) {
-            detailHtml += `<div class="dle-gap-detail-results">`;
-            detailHtml += `<span class="dle-gap-detail-results-label">Search results: ${gap.resultTitles.length} entries</span>`;
-            detailHtml += `<div class="dle-gap-detail-results-list">${gap.resultTitles.map(t => escapeHtml(t)).join(' &middot; ')}</div>`;
-            detailHtml += `</div>`;
-        } else if (gap.type === 'search') {
-            detailHtml += `<div class="dle-gap-detail-results"><span class="dle-gap-detail-results-label dle-text-warning">Missing from vault</span></div>`;
-        }
-
-        detailHtml += `<div class="dle-gap-detail-actions">`;
-        detailHtml += `<button class="menu_button_icon dle-gap-action" data-action="acknowledge" title="Note (a)"><i class="fa-solid fa-check"></i> Note</button>`;
-        detailHtml += `<button class="menu_button_icon dle-gap-action" data-action="open-editor" title="Open Editor (Enter)"><i class="fa-solid fa-pen-to-square"></i> Open Editor</button>`;
-        detailHtml += `<button class="menu_button_icon dle-gap-action" data-action="reject" title="Dismiss (x)"><i class="fa-solid fa-xmark"></i> Dismiss</button>`;
-        detailHtml += `</div>`;
-        detailHtml += '</div>';
-
+        let detailHtml = '<div class="dle-gap-detail">'
+            + `<div class="dle-gap-detail-reason">${escapeHtml(gap.reason || 'No reason provided')}</div>`
+            + `<div class="dle-gap-detail-meta">${metaParts.join(' &middot; ')}</div>`
+            + '</div>';
         $entry.append(detailHtml);
         $entry.addClass('dle-gap-expanded').attr('aria-expanded', 'true');
     });
 
-    // Keyboard shortcuts on focused gap entries
+    // Keyboard arrows on focused entry
     $drawer.on('keydown', '.dle-librarian-entry', function (e) {
-        const gapId = $(this).data('gap-id');
-        const gap = loreGaps.find(g => g.id === gapId);
-
-        if (e.key === 'a' && gap) {
-            e.preventDefault();
-            gap.status = 'acknowledged';
-            setLoreGaps([...loreGaps]);
-            announceToScreenReader(`${gap.query || 'Gap'} marked as Noted`);
-            scheduleRender(renderLibrarianTab);
-        } else if (e.key === 'x' && gap) {
-            e.preventDefault();
-            gap.status = 'rejected';
-            setLoreGaps([...loreGaps]);
-            announceToScreenReader(`${gap.query || 'Gap'} marked as Dismissed`);
-            scheduleRender(renderLibrarianTab);
-        } else if (e.key === 'Enter') {
-            // Enter always opens editor directly
-            e.preventDefault();
-            if (gapId) executeCommand(`/dle-librarian gap ${gapId}`);
-        } else if (e.key === ' ') {
-            // Space toggles expand/collapse
-            e.preventDefault();
-            $(this).trigger('click');
-        } else if (e.key === 'ArrowDown') {
+        if (e.key === 'ArrowDown') {
             e.preventDefault();
             const $next = $(this).next('.dle-librarian-entry');
             if ($next.length) $next[0].focus();
@@ -781,35 +701,40 @@ export function wireLibrarianTab($drawer) {
             e.preventDefault();
             const $prev = $(this).prev('.dle-librarian-entry');
             if ($prev.length) $prev[0].focus();
+        } else if (e.key === ' ') {
+            e.preventDefault();
+            $(this).trigger('click');
         }
     });
 
-    // Clear Written/Rejected button
-    $drawer.on('click', '.dle-librarian-clear-written', function () {
-        const remaining = loreGaps.filter(g => g.status !== 'written' && g.status !== 'rejected');
-        setLoreGaps(remaining);
-        scheduleRender(renderLibrarianTab);
-    });
-
-    // New Entry button (empty state and bottom toolbar)
+    // New Entry / Vault Review buttons (empty state and bottom toolbar)
     $drawer.on('click', '.dle-librarian-new-entry-btn', function () {
         executeCommand('/dle-librarian');
     });
-
-    // Vault Review button (empty state and bottom toolbar)
     $drawer.on('click', '.dle-librarian-vault-review-btn', function () {
         executeCommand('/dle-review');
     });
 
-    // Quick Create chips — open editor pre-populated with the query
-    $drawer.on('click', '.dle-quick-create-chip', function () {
-        const query = $(this).data('query');
-        if (query) executeCommand(`/dle-librarian new title="${query}"`);
+    // ─── Activity row: results meta link → context popup ─────────────────────
+    $drawer.on('click', '.dle-activity-results-link', async function (e) {
+        e.stopPropagation();
+        const query = $(this).attr('data-query') || '';
+        let titles = [];
+        try { titles = JSON.parse($(this).attr('data-results') || '[]'); } catch { titles = []; }
+        const { callGenericPopup, POPUP_TYPE } = await import('../../../../../popup.js');
+        const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const list = titles.length
+            ? '<ul style="margin:6px 0 0 18px;padding:0;">' + titles.map(t => `<li>${esc(t)}</li>`).join('') + '</ul>'
+            : '<em>No entries returned.</em>';
+        const html = `<div><strong>Query:</strong> ${esc(query)}</div>`
+            + `<div style="margin-top:8px;"><strong>Context returned to writing AI (${titles.length} ${titles.length === 1 ? 'entry' : 'entries'}):</strong></div>`
+            + list;
+        await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: false, allowVerticalScrolling: true });
     });
 
-    // ─── Bulk selection ───
+    // ─── Selection ───────────────────────────────────────────────────────────
 
-    // Checkbox click — toggle selection, shift+click for range
+    // Per-row checkbox (always visible)
     $drawer.on('click', '.dle-gap-check', function (e) {
         e.stopPropagation();
         const $entry = $(this).closest('.dle-librarian-entry');
@@ -817,73 +742,84 @@ export function wireLibrarianTab($drawer) {
         if (!gapId) return;
 
         if (e.shiftKey && ds.librarianLastClicked) {
-            // Range select: select all between last clicked and this one
             const $entries = $drawer.find('.dle-librarian-entry');
             const ids = $entries.map(function () { return $(this).data('gap-id'); }).get();
             const startIdx = ids.indexOf(ds.librarianLastClicked);
             const endIdx = ids.indexOf(gapId);
             if (startIdx >= 0 && endIdx >= 0) {
                 const [lo, hi] = startIdx < endIdx ? [startIdx, endIdx] : [endIdx, startIdx];
-                for (let i = lo; i <= hi; i++) {
-                    ds.librarianSelected.add(ids[i]);
-                }
+                for (let i = lo; i <= hi; i++) ds.librarianSelected.add(ids[i]);
             }
+        } else if (ds.librarianSelected.has(gapId)) {
+            ds.librarianSelected.delete(gapId);
         } else {
-            if (ds.librarianSelected.has(gapId)) {
-                ds.librarianSelected.delete(gapId);
-            } else {
-                ds.librarianSelected.add(gapId);
-            }
+            ds.librarianSelected.add(gapId);
         }
         ds.librarianLastClicked = gapId;
         scheduleRender(renderLibrarianTab);
     });
 
-    // Bulk action buttons
-    $drawer.on('click', '.dle-bulk-action', function (e) {
-        e.stopPropagation();
-        const action = $(this).data('bulk');
+    // Select-all checkbox in header strip
+    $drawer.on('click', '.dle-librarian-select-all', function () {
+        const checked = $(this).prop('checked');
+        const $entries = $drawer.find('.dle-librarian-list .dle-librarian-entry');
+        if (checked) {
+            $entries.each(function () { ds.librarianSelected.add($(this).data('gap-id')); });
+        } else {
+            $entries.each(function () { ds.librarianSelected.delete($(this).data('gap-id')); });
+            ds.librarianLastClicked = null;
+        }
+        scheduleRender(renderLibrarianTab);
+    });
 
-        if (action === 'deselect') {
+    // ─── Footer action row (Open / Mark Done / Remove) ──────────────────────
+
+    $drawer.on('click', '.dle-librarian-action', function (e) {
+        e.stopPropagation();
+        if ($(this).prop('disabled')) return;
+        const action = $(this).data('librarian-action');
+        const ids = [...ds.librarianSelected];
+        if (ids.length === 0) return;
+
+        if (action === 'open') {
+            // Open is single-selection only
+            if (ids.length !== 1) return;
+            executeCommand(`/dle-librarian gap ${ids[0]}`);
+            return;
+        }
+
+        if (action === 'done') {
+            for (const id of ids) {
+                const gap = loreGaps.find(g => g.id === id);
+                if (gap) gap.status = 'written';
+            }
+            setLoreGaps([...loreGaps]);
             ds.librarianSelected.clear();
             ds.librarianLastClicked = null;
+            announceToScreenReader(`${ids.length} item${ids.length !== 1 ? 's' : ''} marked as Written`);
             scheduleRender(renderLibrarianTab);
             return;
         }
 
-        if (action === 'note') {
-            const count = ds.librarianSelected.size;
-            for (const id of ds.librarianSelected) {
-                const gap = loreGaps.find(g => g.id === id);
-                if (gap) gap.status = 'acknowledged';
+        if (action === 'remove') {
+            // Two-tier remove: hide on first pass, dismiss-forever on already-hidden ids
+            const hidden = getHiddenGapIds();
+            let hideN = 0, dismissN = 0;
+            for (const id of ids) {
+                if (hidden.has(id)) {
+                    dismissGap(id);
+                    dismissN++;
+                } else {
+                    hideGap(id);
+                    hideN++;
+                }
             }
             ds.librarianSelected.clear();
             ds.librarianLastClicked = null;
-            setLoreGaps([...loreGaps]);
-            announceToScreenReader(`${count} item${count !== 1 ? 's' : ''} marked as Noted`);
-            scheduleRender(renderLibrarianTab);
-        }
-
-        if (action === 'dismiss') {
-            // Confirm before bulk dismiss
-            const count = ds.librarianSelected.size;
-            const btn = $(this);
-            if (!btn.data('confirming')) {
-                btn.data('confirming', true);
-                btn.html('<i class="fa-solid fa-xmark"></i> Confirm?');
-                announceToScreenReader(`Confirm dismiss ${count} item${count !== 1 ? 's' : ''}? Click again to confirm.`);
-                setTimeout(() => { btn.data('confirming', false); btn.html('<i class="fa-solid fa-xmark"></i> Dismiss All'); }, 3000);
-                return;
-            }
-            btn.data('confirming', false);
-            for (const id of ds.librarianSelected) {
-                const gap = loreGaps.find(g => g.id === id);
-                if (gap) gap.status = 'rejected';
-            }
-            ds.librarianSelected.clear();
-            ds.librarianLastClicked = null;
-            setLoreGaps([...loreGaps]);
-            announceToScreenReader(`${count} item${count !== 1 ? 's' : ''} dismissed`);
+            const parts = [];
+            if (hideN) parts.push(`${hideN} hidden`);
+            if (dismissN) parts.push(`${dismissN} dismissed forever`);
+            announceToScreenReader(parts.join(', '));
             scheduleRender(renderLibrarianTab);
         }
     });

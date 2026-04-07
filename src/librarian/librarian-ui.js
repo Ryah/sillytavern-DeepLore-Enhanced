@@ -72,6 +72,9 @@ export function injectLibrarianDropdown(messageId, toolCalls) {
     if (!toolCalls || toolCalls.length === 0) return;
 
     const settings = getSettings();
+    // Hard gate: if Librarian is disabled, never inject (belt-and-suspenders —
+    // upstream callers should already be gated, but visibility.js relies on this).
+    if (!settings.librarianEnabled) return;
     if (!settings.librarianShowToolCalls) return;
 
     const mesEl = document.querySelector(`#chat .mes[mesid="${messageId}"]`);

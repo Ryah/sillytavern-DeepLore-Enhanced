@@ -626,6 +626,23 @@ export function matchesPinBlock(pinBlock, entry) {
     return true;
 }
 
+// ── Lore Gap Normalization ──
+
+/**
+ * Normalize a persisted lore gap record. Legacy statuses
+ * (`acknowledged`, `in_progress`, `rejected`) collapse to `pending`
+ * — the v2 status set is `pending` ↔ `written` only. Soft removal
+ * is now tracked via sibling arrays in chat_metadata, not status.
+ * @param {object} gap
+ * @returns {object} new gap object with normalized status
+ */
+export function normalizeLoreGap(gap) {
+    if (!gap || typeof gap !== 'object') return gap;
+    const allowed = new Set(['pending', 'written']);
+    const status = allowed.has(gap.status) ? gap.status : 'pending';
+    return { ...gap, status };
+}
+
 // ── Force-Injection Predicate ──
 
 /**

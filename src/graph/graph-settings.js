@@ -29,12 +29,12 @@ export function initGraphSettings(gs, dbg) {
     // ── Normalized slider mapping ──
     // Each slider is -100..+100. 0 = default. Negative = below default, positive = above.
     const sliderMaps = {
-        'dle-gs-repulsion':   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 50,    round: 1, power: 1.5 },
-        'dle-gs-spring':      { key: 'graphSpringLength',    min: 30,    def: 80,   max: 600,   round: 0, power: 1 },
+        'dle-gs-repulsion':   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 5.0,   round: 2, power: 1.5 },
+        'dle-gs-spring':      { key: 'graphSpringLength',    min: 30,    def: 80,   max: 400,   round: 0, power: 1 },
         'dle-gs-gravity':     { key: 'graphGravity',         min: 0.1,   def: 11.0, max: 20,    round: 1, power: 1.5 },
-        'dle-gs-damping':     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1, invert: true },
-        'dle-gs-hover-dim':   { key: 'graphHoverDimDistance', min: 0,     def: 2,    max: 15,    round: 0, power: 1 },
-        'dle-gs-dim-opacity': { key: 'graphHoverDimOpacity',  min: 0,     def: 0.1,  max: 0.5,   round: 2, power: 1.5 },
+        'dle-gs-damping':     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1 },
+        'dle-gs-hover-dim':   { key: 'graphHoverDimDistance', min: 0,     def: 4,    max: 8,     round: 0, power: 1 },
+        'dle-gs-hover-falloff': { key: 'graphHoverFalloff',  min: 0.4,   def: 0.9,  max: 2.0,   round: 2, power: 1 },
         'dle-gs-tree-depth':  { key: 'graphFocusTreeDepth',  min: 1,     def: 2,    max: 15,    round: 0, power: 1 },
         'dle-gs-edge-filter': { key: 'graphEdgeFilterAlpha', min: 0.01,  def: 0.05, max: 0.5,   round: 2, power: 1.5 },
     };
@@ -191,7 +191,7 @@ export function initGraphSettings(gs, dbg) {
                     updateEdgeCount();
                 }
                 // Recompute hover distances live when interaction settings change
-                if ((map.key === 'graphHoverDimDistance' || map.key === 'graphHoverDimOpacity') && gs.hoverNode && gs.computeHoverDistances) {
+                if ((map.key === 'graphHoverDimDistance' || map.key === 'graphHoverFalloff') && gs.hoverNode && gs.computeHoverDistances) {
                     gs.hoverDistances = gs.computeHoverDistances(gs.hoverNode.id);
                 }
                 // Live-update focus tree depth when in focus mode

@@ -3,7 +3,12 @@
 
     <!-- Sidebar tabs -->
     <nav class="dle-settings-sidebar" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
-        <div class="dle-settings-tab dle-settings-tab--header active" id="dle-sp-tab-connection" data-settings-tab="connection"
+        <button class="dle-settings-tab active" id="dle-sp-tab-general" data-settings-tab="general" role="tab"
+                aria-selected="true" aria-controls="dle-sp-general">
+            <i class="fa-solid fa-toggle-on" aria-hidden="true"></i>
+            <span>General</span>
+        </button>
+        <div class="dle-settings-tab dle-settings-tab--header" id="dle-sp-tab-connection" data-settings-tab="connection"
              aria-expanded="true">
             <i class="fa-solid fa-plug" aria-hidden="true"></i>
             <span>Connection</span>
@@ -71,24 +76,32 @@
     <!-- Content area -->
     <div class="dle-settings-content">
         <!-- ═══════════════════════════════════════════════════════════════════
+             TAB: General
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="dle-settings-panel active" id="dle-sp-general" data-settings-panel="general"
+             role="tabpanel" aria-labelledby="dle-sp-tab-general">
+            <div class="dle-settings-section">
+                <h4>DeepLore Enhanced</h4>
+                <label class="checkbox_label" for="dle-sp-enabled" title="Enable or disable DeepLore Enhanced. When disabled, no entries are injected into prompts.">
+                    <input id="dle-sp-enabled" type="checkbox" class="checkbox">
+                    <span>Enable DeepLore Enhanced</span>
+                </label>
+                <p class="dle-section-desc">Master on/off switch for the entire extension. When off, no entries are matched, no AI calls are made, and no prompts are injected.</p>
+                <div style="margin-top: 8px;">
+                    <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki" target="_blank" rel="noopener noreferrer" class="dle-text-sm dle-muted">Documentation Wiki &rarr;</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
              TAB: Connection
              ═══════════════════════════════════════════════════════════════════ -->
-        <div class="dle-settings-panel active" id="dle-sp-connection" data-settings-panel="connection"
+        <div class="dle-settings-panel" id="dle-sp-connection" data-settings-panel="connection"
              role="tabpanel" aria-labelledby="dle-sp-tab-connection">
 
             <!-- Sub-panel: Obsidian -->
             <div class="dle-connection-subpanel active" id="dle-sp-conn-obsidian" data-connection-subpanel="obsidian"
                  role="tabpanel">
-
-            <div class="dle-settings-section">
-            <label class="checkbox_label" for="dle-sp-enabled" title="Enable or disable DeepLore Enhanced. When disabled, no entries are injected into prompts.">
-                <input id="dle-sp-enabled" type="checkbox" class="checkbox">
-                <span>Enable DeepLore Enhanced</span>
-            </label>
-            <div style="margin: 4px 0;">
-                <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki" target="_blank" rel="noopener noreferrer" class="dle-text-sm dle-muted">Documentation Wiki &rarr;</a>
-            </div>
-            </div>
 
             <div class="dle-settings-section">
             <h4>Vault Connections</h4>
@@ -917,8 +930,8 @@
                             <input id="dle-sp-graph-damping" type="number" class="text_pole" min="0.3" max="0.98" step="0.01" />
                         </div>
                         <div class="flex1" title="Opacity of dimmed nodes/edges on hover. Default: 0.1.">
-                            <label for="dle-sp-graph-hover-dim-opacity"><small>Dim Opacity</small></label>
-                            <input id="dle-sp-graph-hover-dim-opacity" type="number" class="text_pole" min="0" max="0.5" step="0.05" />
+                            <label for="dle-sp-graph-hover-falloff"><small>Hover Falloff</small></label>
+                            <input id="dle-sp-graph-hover-falloff" type="number" class="text_pole" min="0.4" max="2.0" step="0.1" />
                         </div>
                     </div>
                     <div class="flex-container">

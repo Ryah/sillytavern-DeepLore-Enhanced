@@ -1162,7 +1162,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-graph-repulsion').val(settings.graphRepulsion);
     $c('#dle-sp-graph-gravity').val(settings.graphGravity);
     $c('#dle-sp-graph-damping').val(settings.graphDamping);
-    $c('#dle-sp-graph-hover-dim-opacity').val(settings.graphHoverDimOpacity);
+    $c('#dle-sp-graph-hover-falloff').val(settings.graphHoverFalloff);
     $c('#dle-sp-graph-edge-filter-alpha').val(settings.graphEdgeFilterAlpha);
 
     // ── Features — Librarian ──
@@ -1601,7 +1601,7 @@ function bindPopupEvents($container) {
     $c('#dle-sp-graph-gravity').on('input', function () { const v = parseFloat($(this).val()); settings.graphGravity = isNaN(v) ? 11.0 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-damping').on('input', function () { const v = parseFloat($(this).val()); settings.graphDamping = isNaN(v) ? 0.50 : v; saveSettingsDebounced(); });
     // BUG-AUDIT-14: Use isNaN check instead of || fallback so 0 is a valid value
-    $c('#dle-sp-graph-hover-dim-opacity').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverDimOpacity = isNaN(v) ? 0.1 : v; saveSettingsDebounced(); });
+    $c('#dle-sp-graph-hover-falloff').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverFalloff = isNaN(v) ? 0.9 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-edge-filter-alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
 
     // ── Librarian settings ──
@@ -1808,7 +1808,7 @@ function bindPopupEvents($container) {
         'dle-sp-decay-boost-threshold': 'decayBoostThreshold', 'dle-sp-decay-penalty-threshold': 'decayPenaltyThreshold',
         'dle-sp-graph-repulsion': 'graphRepulsion',
         'dle-sp-graph-gravity': 'graphGravity', 'dle-sp-graph-damping': 'graphDamping',
-        'dle-sp-graph-hover-dim-distance': 'graphHoverDimDistance', 'dle-sp-graph-hover-dim-opacity': 'graphHoverDimOpacity',
+        'dle-sp-graph-hover-dim-distance': 'graphHoverDimDistance', 'dle-sp-graph-hover-falloff': 'graphHoverFalloff',
         'dle-sp-graph-focus-tree-depth': 'graphFocusTreeDepth', 'dle-sp-graph-edge-filter-alpha': 'graphEdgeFilterAlpha',
         'dle-sp-fuzzy-min-score': 'fuzzySearchMinScore', 'dle-sp-rebuild-gen-interval': 'indexRebuildGenerationInterval',
     };

@@ -354,11 +354,16 @@ export function buildConnectionGuidanceHtml(result) {
                     </ol>
                 </div>
                 <div class="dle-guidance-option">
-                    <h4><i class="fa-solid fa-shield-halved"></i> Option 2: Trust the certificate</h4>
+                    <h4><i class="fa-solid fa-shield-halved"></i> Option 2: Trust the certificate (OS trust store)</h4>
+                    <p><strong>Important:</strong> Just clicking "Accept" in the browser is <em>not enough</em>. SillyTavern's <code>fetch()</code> goes through the cross-origin code path and ignores per-site browser exceptions — the cert must be installed into your operating system's trust store.</p>
                     <ol>
-                        <li>Open <a href="${result.certUrl || '#'}" target="_blank" rel="noopener">${result.certUrl || 'the HTTPS URL'}</a> in your browser</li>
-                        <li>Accept the security warning / add exception</li>
-                        <li>See the <a href="https://github.com/coddingtonbear/obsidian-web/wiki/Troubleshooting%3A-Certificate-Trust-Issues" target="_blank" rel="noopener">certificate trust guide</a> for detailed steps per platform</li>
+                        <li>Download the cert from <a href="${result.certUrl || '#'}" target="_blank" rel="noopener">${result.certUrl || 'the HTTPS URL'}</a></li>
+                        <li><strong>Windows:</strong> double-click the .crt &rarr; Install Certificate &rarr; Local Machine &rarr; Place all certificates in &rarr; <em>Trusted Root Certification Authorities</em></li>
+                        <li><strong>macOS:</strong> Keychain Access &rarr; System keychain &rarr; drag cert in &rarr; double-click &rarr; Trust &rarr; <em>Always Trust</em></li>
+                        <li><strong>Linux:</strong> add to <code>/usr/local/share/ca-certificates/</code> then run <code>sudo update-ca-certificates</code> (also: <code>certutil -A -d sql:$HOME/.pki/nssdb</code> for Chromium)</li>
+                        <li><strong>Firefox:</strong> uses its own trust store — Settings &rarr; Privacy &amp; Security &rarr; View Certificates &rarr; Authorities &rarr; Import</li>
+                        <li>Restart your browser after installing</li>
+                        <li>See the <a href="https://github.com/coddingtonbear/obsidian-local-rest-api#quick-start" target="_blank" rel="noopener">Local REST API quick-start docs</a></li>
                     </ol>
                 </div>
             </div>`;

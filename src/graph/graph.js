@@ -378,9 +378,9 @@ export async function showGraphPopup() {
                         <span class="dle-gs-value" id="dle-gs-hover-dim-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
-                        <label title="How visible out-of-reach edges remain when hovering a node — lower makes distant edges nearly invisible">Background Fade</label>
-                        <input type="range" id="dle-gs-dim-opacity" min="-100" max="100" step="1" />
-                        <span class="dle-gs-value" id="dle-gs-dim-opacity-val"></span>
+                        <label title="Exponential alpha falloff per hop on hover — higher = sharper drop, lower = gentler reach">Hover Falloff</label>
+                        <input type="range" id="dle-gs-hover-falloff" min="-100" max="100" step="1" />
+                        <span class="dle-gs-value" id="dle-gs-hover-falloff-val"></span>
                     </div>
                     <div class="dle-graph-settings-row">
                         <label title="Number of hops shown in Focus Tree mode (double-click a node to enter)">Focus Tree Depth</label>

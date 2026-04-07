@@ -5,7 +5,7 @@
 import { saveSettingsDebounced } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { callGenericPopup, POPUP_TYPE, Popup } from '../../../../../popup.js';
 import { getSettings, getPrimaryVault, invalidateSettingsCache } from '../../settings.js';
 import { setIndexTimestamp } from '../state.js';
 import { testConnection, writeNote, writeFieldDefinitions, buildConnectionGuidanceHtml } from '../vault/obsidian-api.js';
@@ -170,10 +170,20 @@ function wireNavigation() {
             console.error('[DLE] Wizard finish error:', err);
             toastr.warning('Setup saved but index build failed — it will retry on first generation.', 'DeepLore Enhanced');
         }
-        // Close popup regardless — settings are saved before buildIndex()
-        const popup = $wizard.closest('.popup');
-        if (popup.length) {
-            popup.find('.popup_ok, .popup_close').trigger('click');
+        // Close popup regardless — settings are saved before buildIndex().
+        // The wizard is opened via callGenericPopup with okButton:false/cancelButton:false,
+        // so .popup_ok doesn't exist. Walk up to the popup DOM and ask Popup util to close it.
+        const $popup = $wizard.closest('dialog.popup, .popup');
+        const popupEl = $popup.get(0);
+        const popupInstance = popupEl && Popup && typeof Popup.util?.popups !== 'undefined'
+            ? Popup.util.popups.find(p => p.dlg === popupEl)
+            : null;
+        if (popupInstance && typeof popupInstance.completeCancelled === 'function') {
+            popupInstance.completeCancelled();
+        } else if (popupEl && typeof popupEl.close === 'function') {
+            popupEl.close();
+        } else {
+            $popup.find('.popup_cross, .popup_close').trigger('click');
         }
     });
 }

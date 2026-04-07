@@ -415,46 +415,26 @@ export function initRender(gs) {
                     ctx.globalAlpha = highlight ? 0.35 : 0.03;
                     ctx.lineWidth = highlight ? 3 : 1;
                 } else if (hoverDistances) {
-                    const hid = hoverNode ? hoverNode.id : -1;
-                    const touchesHover = (edge.from === hid || edge.to === hid);
-                    // Both endpoints within hover reach? Show connecting edges between neighbors
-                    const fromInReach = hoverDistances.has(edge.from);
-                    const toInReach = hoverDistances.has(edge.to);
-                    const neighborEdge = fromInReach && toInReach && !touchesHover;
-                    if (touchesHover) {
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        // Attenuate brightness when many edges fan out from hovered node
-                        const hoverEdgeCount = gs.edgeCountByNode.get(hid) || 1;
-                        const attenuation = hoverEdgeCount > 20 ? Math.max(0.35, 1.0 - (hoverEdgeCount - 20) * 0.015) : 1.0;
-                        ctx.globalAlpha = 0.85 * attenuation;
-                        ctx.lineWidth = hoverEdgeCount > 20 ? 2 : 3;
-                        ctx.shadowColor = edgeColors[type] || '#aac8ff';
-                        ctx.shadowBlur = 3;
-                    } else if (neighborEdge) {
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        ctx.globalAlpha = 0.35;
-                        ctx.lineWidth = 1.5;
-                        ctx.shadowBlur = 0;
-                    } else if (fromInReach || toInReach) {
-                        // One endpoint in reach, one outside — fringe edge
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        ctx.globalAlpha = 0.15;
-                        ctx.lineWidth = 1;
-                        ctx.shadowBlur = 0;
-                    } else {
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        ctx.globalAlpha = settings.graphHoverDimOpacity || 0.03;
-                        ctx.lineWidth = 1;
-                        ctx.shadowBlur = 0;
-                    }
+                    // Exponential falloff: alpha = exp(-k * (max(du, dv) - 1))
+                    // Edges with either endpoint outside hoverDistances are skipped entirely.
+                    const du = hoverDistances.get(edge.from);
+                    const dv = hoverDistances.get(edge.to);
+                    if (du === undefined || dv === undefined) continue;
+                    const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
+                    if (drawnDimPairs.has(pairKey)) continue;
+                    drawnDimPairs.add(pairKey);
+
+                    const k = settings.graphHoverFalloff ?? 0.9;
+                    const ringDepth = Math.max(du, dv);
+                    const sameRing = (du === dv && du > 0); // within-ring "scatter" edge
+                    let alpha = Math.exp(-k * Math.max(0, ringDepth - 1));
+                    if (sameRing) alpha *= 0.6;
+                    if (alpha < 0.02) continue;
+
+                    ctx.globalAlpha = alpha;
+                    if (ringDepth <= 1)      { ctx.lineWidth = 3; ctx.shadowColor = edgeColors[type] || '#aac8ff'; ctx.shadowBlur = 3; }
+                    else if (ringDepth === 2){ ctx.lineWidth = 1.5; ctx.shadowBlur = 0; }
+                    else                     { ctx.lineWidth = 1;   ctx.shadowBlur = 0; }
                 } else if (focusTreeRoot && focusTreeRoot._treeEdgeIdx) {
                     if (!focusTreeRoot._treeEdgeIdx.has(edge._idx)) continue;
                     const dm = focusTreeRoot._depthMap;
@@ -505,9 +485,11 @@ export function initRender(gs) {
                 ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.6;
             } else if (hoverDistances) {
                 const hopDist = hoverDistances.get(n.id);
-                if (hopDist === 0 || hopDist === 1) ctx.globalAlpha = 1.0;       // hovered + 1-hop: full
-                else if (hopDist === 2)              ctx.globalAlpha = 0.6;       // 2-hop: visible but faded
-                else                                 ctx.globalAlpha = 0.15;      // beyond: dim
+                if (hopDist === undefined) continue; // outside reach — skip draw entirely
+                const k = settings.graphHoverFalloff ?? 0.9;
+                const a = Math.exp(-k * Math.max(0, hopDist - 1));
+                if (a < 0.02) continue;
+                ctx.globalAlpha = a;
             } else if (focusTreeRoot && focusTreeRoot._depthMap) {
                 const nd = focusTreeRoot._depthMap.get(n.id) ?? 99;
                 ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.5;

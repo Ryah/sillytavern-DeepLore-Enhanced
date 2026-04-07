@@ -197,8 +197,9 @@ export const defaultSettings = {
     graphSpringLength: 80,             // Legacy — not used in FA2 LinLog
     graphGravity: 11.0,                // ForceAtlas2 strong gravity (0.1-20)
     graphDamping: 0.50,                // Velocity damping (0.3-0.98)
-    graphHoverDimDistance: 2,           // G2: BFS hops that stay vivid on hover (0-15)
-    graphHoverDimOpacity: 0.1,         // Opacity of dimmed nodes/edges (0-0.5)
+    graphHoverDimDistance: 4,           // BFS hops kept visible on hover (0-8)
+    graphHoverFalloff: 0.9,            // Exponential alpha falloff k (0.4-2.0, higher = sharper)
+    graphNodeSizeMode: 'centrality',   // centrality / priority / uniform
     graphFocusTreeDepth: 2,            // N-hop depth for focus tree mode (1-15)
     graphDefaultColorMode: 'type',     // type, priority, centrality, frequency
     graphShowLabels: true,             // Show node labels
@@ -377,12 +378,12 @@ export const settingsConstraints = {
     autoSuggestTimeout: { min: 5000, max: 120000 },
     optimizeKeysMaxTokens: { min: 256, max: 8192 },
     optimizeKeysTimeout: { min: 5000, max: 120000 },
-    graphRepulsion: { min: 0.1, max: 50 },
-    graphSpringLength: { min: 30, max: 600 },
+    graphRepulsion: { min: 0.1, max: 5.0 },
+    graphSpringLength: { min: 30, max: 400 },
     graphGravity: { min: 0.1, max: 20 },
     graphDamping: { min: 0.3, max: 0.98 },
-    graphHoverDimDistance: { min: 0, max: 15 },
-    graphHoverDimOpacity: { min: 0, max: 0.5 },
+    graphHoverDimDistance: { min: 0, max: 8 },
+    graphHoverFalloff: { min: 0.4, max: 2.0 },
     graphFocusTreeDepth: { min: 1, max: 15 },
     graphEdgeFilterAlpha: { min: 0.01, max: 0.5 },
     decayBoostThreshold: { min: 2, max: 20 },

@@ -98,22 +98,26 @@ export function runHealthCheck() {
         }
 
         // Orphaned requires (case-insensitive to match applyGating behavior)
-        for (const req of entry.requires) {
+        // Read from _originalRequires if present so dangling refs stripped at finalizeIndex are still surfaced.
+        const requiresForCheck = entry._originalRequires || entry.requires;
+        for (const req of requiresForCheck) {
             if (!allTitlesLower.has(req.toLowerCase())) {
                 issues.push({ type: 'Gating', severity: 'error', entry: entry.title, detail: `Requires "${req}" which doesn't exist in the vault` });
             }
         }
 
         // Orphaned excludes (case-insensitive to match applyGating behavior)
-        for (const exc of entry.excludes) {
+        const excludesForCheck = entry._originalExcludes || entry.excludes;
+        for (const exc of excludesForCheck) {
             if (!allTitlesLower.has(exc.toLowerCase())) {
                 issues.push({ type: 'Gating', severity: 'error', entry: entry.title, detail: `Excludes "${exc}" which doesn't exist in the vault` });
             }
         }
 
         // Orphaned cascade_links (case-insensitive to match pipeline behavior)
-        if (entry.cascadeLinks) {
-            for (const cl of entry.cascadeLinks) {
+        const cascadeForCheck = entry._originalCascadeLinks || entry.cascadeLinks;
+        if (cascadeForCheck) {
+            for (const cl of cascadeForCheck) {
                 if (!allTitlesLower.has(cl.toLowerCase()) && !allFilenamesLower.has(cl.toLowerCase())) {
                     issues.push({ type: 'Gating', severity: 'warning', entry: entry.title, detail: `Cascade link "${cl}" doesn't exist in the vault` });
                 }

@@ -112,6 +112,21 @@ export function captureStateSnapshot() {
     // Settings (full — scrubber redacts API keys by name)
     try { snap.settings = getSettings(); } catch (e) { snap.settings = { __error: String(e) }; }
 
+    // Derived UI cascade state — explains why specific controls are disabled/hidden
+    try {
+        const s = snap.settings || {};
+        snap.uiCascadeState = {
+            maxEntries: { disabled: !!s.unlimitedEntries, reason: 'unlimitedEntries' },
+            maxTokensBudget: { disabled: !!s.unlimitedBudget, reason: 'unlimitedBudget' },
+            aiNotepadConnection: { hidden: s.aiNotepadMode === 'tag', reason: 'aiNotepadMode=tag' },
+            keywordMatchingSettings: { disabled: s.aiSearchEnabled && s.aiSearchMode === 'ai-only', reason: 'aiSearchMode=ai-only' },
+            scanDepth: { hidden: s.aiSearchEnabled && s.aiSearchMode === 'ai-only', reason: 'aiSearchMode=ai-only' },
+            fuzzyMinScore: { hidden: !s.fuzzySearchEnabled, reason: 'fuzzySearchEnabled' },
+            maxRecursion: { disabled: !s.recursiveScan, reason: 'recursiveScan' },
+            stripLookback: { disabled: !s.stripDuplicateInjections, reason: 'stripDuplicateInjections' },
+        };
+    } catch (e) { snap.uiCascadeState = { __error: String(e) }; }
+
     // Manifest version
     try { snap.dleVersion = '1.0.0-beta'; /* TODO: read manifest dynamically if needed */ } catch {}
 

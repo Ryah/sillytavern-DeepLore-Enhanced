@@ -34,10 +34,12 @@ import {
     lastWarningRatio, decayTracker, chatEpoch,
     lastGenerationChatHash, lastGenerationInjectedKeys,
     setLastGenerationChatHash, setLastGenerationInjectedKeys,
+    lastGenerationTrackerSnapshot, setLastGenerationTrackerSnapshot,
+    setCooldownTracker, setDecayTracker, setConsecutiveInjections, setInjectionHistory,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock, setGenerationLockEpoch,
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch, setLastIndexGenerationCount,
-    setAiSearchCache, setAutoSuggestMessageCount, setLastPipelineTrace,
+    setAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources,
     notepadExtractInProgress, setNotepadExtractInProgress,
     notifyPipelineComplete, notifyGatingChanged,
@@ -51,6 +53,7 @@ import { resetAiThrottle, callAI } from './src/ai/ai.js';
 import { runPipeline } from './src/pipeline/pipeline.js';
 import { setupSyncPolling } from './src/vault/sync.js';
 import { runScribe } from './src/ai/scribe.js';
+import { runAutoSuggest, showSuggestionPopup } from './src/ai/auto-suggest.js';
 import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/ui/cartographer.js';
 import { loadSettingsUI, bindSettingsEvents } from './src/ui/settings-ui.js';
 import { registerSlashCommands } from './src/ui/commands.js';
@@ -227,6 +230,32 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // From here on, generation tracking must run even if no entries match
         pipelineRan = true;
+
+        // Swipe rollback: if this generation is a swipe of the previous one,
+        // restore the tracker snapshot taken at the start of that prior generation
+        // BEFORE we mutate cooldown/decay/consecutive/injectionHistory again.
+        // This prevents N swipes from polluting tracker state with N rejected futures.
+        {
+            const lastMsgEarly = chat.length > 0 ? (chat[chat.length - 1]?.mes || '') : '';
+            const earlyHash = simpleHash(lastMsgEarly + '|' + chat.length);
+            if (earlyHash === lastGenerationChatHash && lastGenerationTrackerSnapshot) {
+                const snap = lastGenerationTrackerSnapshot;
+                setCooldownTracker(new Map(snap.cooldown));
+                setDecayTracker(new Map(snap.decay));
+                setConsecutiveInjections(new Map(snap.consecutive));
+                setInjectionHistory(new Map(snap.injectionHistory));
+                setGenerationCount(snap.generationCount);
+                if (settings.debugMode) console.debug('[DLE] Swipe detected — restored tracker snapshot from previous gen');
+            }
+            // Take a fresh snapshot for THIS generation (so the next swipe can roll back to here)
+            setLastGenerationTrackerSnapshot({
+                cooldown: new Map(cooldownTracker),
+                decay: new Map(decayTracker),
+                consecutive: new Map(consecutiveInjections),
+                injectionHistory: new Map(injectionHistory),
+                generationCount: generationCount,
+            });
+        }
 
         // Contextual gating context: passed to both pipeline (pre-filter) and post-pipeline stages
         const ctx = chat_metadata.deeplore_context || {};
@@ -936,6 +965,21 @@ jQuery(async function () {
                     runScribe(); // fire-and-forget
                 }
             }
+
+            // --- Auto Lorebook: increment counter and auto-trigger every N messages ---
+            if (settings.enabled && settings.autoSuggestEnabled && settings.autoSuggestInterval > 0) {
+                setAutoSuggestMessageCount(autoSuggestMessageCount + 1);
+                if (autoSuggestMessageCount >= settings.autoSuggestInterval) {
+                    setAutoSuggestMessageCount(0);
+                    // Fire-and-forget: fetch suggestions then show popup (popup honors autoSuggestSkipReview)
+                    (async () => {
+                        try {
+                            const suggestions = await runAutoSuggest();
+                            if (suggestions && suggestions.length > 0) await showSuggestionPopup(suggestions);
+                        } catch (err) { console.warn('[DLE] Auto-suggest auto-trigger failed:', err?.message); }
+                    })();
+                }
+            }
         });
 
         // Swipe handler: clear stale tool call data and sources from the swiped message
@@ -994,6 +1038,7 @@ jQuery(async function () {
             setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
             setLastGenerationInjectedKeys(new Set());
             setLastGenerationChatHash('');
+            setLastGenerationTrackerSnapshot(null);
             setGenerationCount(0);
             setLastIndexGenerationCount(0);
             setLastInjectionEpoch(-1);

@@ -10,6 +10,7 @@ import {
 } from '../../../../../../script.js';
 import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../settings.js';
 import { writeNote } from '../vault/obsidian-api.js';
+import { buildIndex } from '../vault/vault.js';
 import { buildAiChatContext } from '../../core/utils.js';
 import { callAI } from './ai.js';
 import { stripObsidianSyntax } from '../helpers.js';
@@ -158,6 +159,8 @@ export async function runScribe(customPrompt) {
             chat_metadata.deeplore_lastScribeSummary = lastScribeSummary;
             saveChatDebounced();
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
+            // Reindex so the newly-written note is immediately retrievable
+            try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Scribe reindex after write failed:', reidxErr?.message); }
         } else {
             dedupError(`Failed to save session note: ${data.error}`, 'scribe');
         }

@@ -352,6 +352,8 @@ function updatePopupModeVisibility($container, settings) {
     const isAiOnly = aiEnabled && settings.aiSearchMode === 'ai-only';
     $container.find('#dle-sp-scan-depth').closest('.flex-container').toggle(!isAiOnly);
     $container.find('#dle-sp-optimize-keys-mode').closest('.flex-container').toggleClass('dle-disabled', isAiOnly);
+    // Grey out keyword-only matching settings when AI-only mode is active
+    $container.find('#dle-sp-case-sensitive, #dle-sp-match-whole-words, #dle-sp-recursive-scan').prop('disabled', isAiOnly);
     $container.find('#dle-sp-ai-claude-prefix').closest('.checkbox_label').toggle(aiEnabled && isProxy);
     // Blur/overlay AI tab content when AI search is off
     const $aiPanel = $container.find('#dle-sp-ai');
@@ -1222,6 +1224,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(aiNbMode === 'extract');
     $c('#dle-sp-ai-notepad-tag-options').toggle(aiNbMode === 'tag');
     $c('#dle-sp-ai-notepad-extract-options').toggle(aiNbMode === 'extract');
+    $c('.dle-conn-accordion[data-tool="aiNotepad"]').toggle(aiNbMode !== 'tag');
 
     // ── Features — Scribe ──
     $c('#dle-sp-scribe-enabled').prop('checked', settings.scribeEnabled);
@@ -1731,6 +1734,8 @@ function bindPopupEvents($container) {
         $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(!isTag);
         $c('#dle-sp-ai-notepad-tag-options').toggle(isTag);
         $c('#dle-sp-ai-notepad-extract-options').toggle(!isTag);
+        // Tag mode never calls AI — hide its connection accordion
+        $c('.dle-conn-accordion[data-tool="aiNotepad"]').toggle(!isTag);
     });
     $c('#dle-sp-open-ai-notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
 

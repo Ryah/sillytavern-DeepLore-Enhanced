@@ -16,7 +16,7 @@ import { callAI } from './ai.js';
 import { extractAiResponseClient } from '../helpers.js';
 import { vaultIndex, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
 import { stripObsidianSyntax } from '../helpers.js';
-import { ensureIndexFresh } from '../vault/vault.js';
+import { ensureIndexFresh, buildIndex } from '../vault/vault.js';
 
 export const DEFAULT_AUTO_SUGGEST_PROMPT = `You are a lore analyst for a roleplay session. Analyze the recent chat and identify characters, locations, items, concepts, or events that are mentioned but do NOT have an existing lorebook entry.
 
@@ -34,8 +34,8 @@ Example: [{"title": "The Silver Crown", "type": "lore", "keys": ["silver crown",
  * Route an Auto Suggest AI call based on connection mode (mirrors callScribe pattern).
  * BUG 1 FIX: st mode now uses object form of generateQuietPrompt.
  */
-export async function callAutoSuggest(systemPrompt, userMessage) {
-    const resolved = resolveConnectionConfig('autoSuggest');
+export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'autoSuggest') {
+    const resolved = resolveConnectionConfig(toolKey);
     const mode = resolved.mode;
     const timeout = resolved.timeout;
     const maxTokens = resolved.maxTokens;
@@ -222,6 +222,8 @@ ${safeContent}`;
                             this.disabled = true;
                             this.textContent = 'Accepted';
                             toastr.success(`Created: ${s.title}`, 'DeepLore Enhanced');
+                            // Reindex so the new entry is immediately retrievable
+                            try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Auto-suggest reindex after write failed:', reidxErr?.message); }
                         } else {
                             toastr.error(`Could not create entry: ${data.error}`, 'DeepLore Enhanced');
                         }

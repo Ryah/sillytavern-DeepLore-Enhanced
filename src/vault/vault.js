@@ -59,6 +59,37 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
     // Resolve wiki-links to confirmed entry titles
     resolveLinks(vaultIndex);
 
+    // Strip dangling requires/excludes/cascade_links references so the pipeline
+    // doesn't trip over them every generation. Originals are preserved on parallel
+    // _original* fields so the health check can still surface broken refs.
+    {
+        const validTitles = new Set(entries.map(e => e.title.toLowerCase()));
+        const filterValid = (arr) => arr.filter(ref => validTitles.has(String(ref).toLowerCase()));
+        for (const entry of entries) {
+            if (Array.isArray(entry.requires) && entry.requires.length) {
+                const cleaned = filterValid(entry.requires);
+                if (cleaned.length !== entry.requires.length) {
+                    entry._originalRequires = entry.requires.slice();
+                    entry.requires = cleaned;
+                }
+            }
+            if (Array.isArray(entry.excludes) && entry.excludes.length) {
+                const cleaned = filterValid(entry.excludes);
+                if (cleaned.length !== entry.excludes.length) {
+                    entry._originalExcludes = entry.excludes.slice();
+                    entry.excludes = cleaned;
+                }
+            }
+            if (Array.isArray(entry.cascadeLinks) && entry.cascadeLinks.length) {
+                const cleaned = filterValid(entry.cascadeLinks);
+                if (cleaned.length !== entry.cascadeLinks.length) {
+                    entry._originalCascadeLinks = entry.cascadeLinks.slice();
+                    entry.cascadeLinks = cleaned;
+                }
+            }
+        }
+    }
+
     // Build cross-entry mention weight table
     // Counts how many times each entry's content mentions another entry's title/keys.
     // Optimized: group names by target title and build one combined regex per target,

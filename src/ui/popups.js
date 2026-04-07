@@ -516,7 +516,7 @@ export async function optimizeEntryKeys(entry) {
     const systemPrompt = settings.optimizeKeysPrompt?.trim() || DEFAULT_OPTIMIZE_KEYS_PROMPT;
     const userMessage = `Mode: ${modeHint}\n\nTitle: ${entry.title}\nCurrent keywords: ${entry.keys.join(', ')}\nContent:\n${entry.content.substring(0, 1500)}\n\nSuggest optimized keywords as JSON.`;
 
-    const result = await callAutoSuggest(systemPrompt, userMessage);
+    const result = await callAutoSuggest(systemPrompt, userMessage, 'optimizeKeys');
     const parsed = extractAiResponseClient(result.text);
 
     if (parsed && parsed.suggested && Array.isArray(parsed.suggested)) {

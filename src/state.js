@@ -67,6 +67,11 @@ export let chatInjectionCounts = new Map();
 /** Last health check result for settings badge */
 export let lastHealthResult = null;
 
+/** Tracker snapshot for swipe rollback: pre-mutation state of cooldown/decay/consecutive/injectionHistory/generationCount.
+ * Captured at the start of each generation; restored at the start of the next generation if it's detected as a swipe. */
+export let lastGenerationTrackerSnapshot = null;
+export function setLastGenerationTrackerSnapshot(v) { lastGenerationTrackerSnapshot = v; }
+
 /** Vault fetch failure tracking: how many enabled vaults failed during the last index build */
 export let lastVaultFailureCount = 0;
 /** How many vaults were attempted during the last index build */
@@ -420,6 +425,7 @@ export function onGatingChanged(callback) {
 export function clearGatingCallbacks() { gatingChangedCallbacks.length = 0; }
 
 export function notifyGatingChanged() {
+    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
     for (const cb of [...gatingChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Gating changed callback error:', err.message); }
     }
@@ -438,6 +444,7 @@ export function onPinBlockChanged(callback) {
 export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.length = 0; }
 
 export function notifyPinBlockChanged() {
+    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
     for (const cb of [...pinBlockChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Pin/block changed callback error:', err.message); }
     }
@@ -472,6 +479,7 @@ export function onFieldDefinitionsUpdated(callback) {
 }
 
 function notifyFieldDefinitionsUpdated() {
+    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
     for (const cb of [...fieldDefinitionsCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Field definitions callback error:', err.message); }
     }

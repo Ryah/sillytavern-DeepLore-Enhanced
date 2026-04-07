@@ -49,6 +49,11 @@ import {
     entityNameSet, entityShortNameRegexes,
     setFieldDefinitions, setDecayTracker, setConsecutiveInjections,
     decayTracker, consecutiveInjections,
+    aiSearchCache, setAiSearchCache,
+    notifyPinBlockChanged, notifyGatingChanged,
+    lastGenerationTrackerSnapshot, setLastGenerationTrackerSnapshot,
+    setCooldownTracker, injectionHistory, setInjectionHistory,
+    generationCount, setGenerationCount,
 } from '../src/state.js';
 
 // normalizeResults is a test-only utility (inlined in aiSearch() in production)
@@ -5375,6 +5380,274 @@ test('buildCandidateManifest: BUG-047 forcedCount uses candidates.length', () =>
     assert(header.includes('1 (from 3 total)'), 'selectable=1 from total=3');
     assert(header.includes('2 entries are always included'), '2 forced');
     assert(header.includes('~50 tokens'), 'forced token sum');
+});
+
+// ============================================================================
+// v2.0-beta Coherence Pass — Item 4: AI search cache invalidation
+// ============================================================================
+
+function freshCache() {
+    return { hash: 'abc', manifestHash: 'def', chatLineCount: 5, results: [{ title: 'X' }], matchedEntrySet: new Set(['X']) };
+}
+function isClearedCache(c) {
+    return c.hash === '' && c.manifestHash === '' && c.chatLineCount === 0 &&
+        Array.isArray(c.results) && c.results.length === 0;
+}
+
+test('cache invalidation: notifyPinBlockChanged clears aiSearchCache', () => {
+    setAiSearchCache(freshCache());
+    notifyPinBlockChanged();
+    // Re-read live binding
+    const c = aiSearchCache;
+    assert(isClearedCache(c), 'pinBlockChanged clears cache');
+});
+
+test('cache invalidation: notifyGatingChanged clears aiSearchCache', () => {
+    setAiSearchCache(freshCache());
+    notifyGatingChanged();
+    const c = aiSearchCache;
+    assert(isClearedCache(c), 'gatingChanged clears cache');
+});
+
+test('cache invalidation: setFieldDefinitions clears aiSearchCache', () => {
+    setAiSearchCache(freshCache());
+    setFieldDefinitions([]);
+    const c = aiSearchCache;
+    assert(isClearedCache(c), 'fieldDefinitions update clears cache');
+});
+
+// ============================================================================
+// Item 7: Strip dangling requires/excludes/cascade_links — pure logic test
+// ============================================================================
+
+// Replicates the filterValid logic added to vault.js finalizeIndex.
+// (vault.js itself can't be imported here due to ST runtime deps.)
+function applyDanglingRefStrip(entries) {
+    const validTitles = new Set(entries.map(e => e.title.toLowerCase()));
+    const filterValid = (arr) => arr.filter(ref => validTitles.has(String(ref).toLowerCase()));
+    for (const entry of entries) {
+        if (Array.isArray(entry.requires) && entry.requires.length) {
+            const cleaned = filterValid(entry.requires);
+            if (cleaned.length !== entry.requires.length) {
+                entry._originalRequires = entry.requires.slice();
+                entry.requires = cleaned;
+            }
+        }
+        if (Array.isArray(entry.excludes) && entry.excludes.length) {
+            const cleaned = filterValid(entry.excludes);
+            if (cleaned.length !== entry.excludes.length) {
+                entry._originalExcludes = entry.excludes.slice();
+                entry.excludes = cleaned;
+            }
+        }
+        if (Array.isArray(entry.cascadeLinks) && entry.cascadeLinks.length) {
+            const cleaned = filterValid(entry.cascadeLinks);
+            if (cleaned.length !== entry.cascadeLinks.length) {
+                entry._originalCascadeLinks = entry.cascadeLinks.slice();
+                entry.cascadeLinks = cleaned;
+            }
+        }
+    }
+    return entries;
+}
+
+test('dangling-ref strip: removes nonexistent requires', () => {
+    const entries = [
+        { title: 'Real', requires: [], excludes: [], cascadeLinks: [] },
+        { title: 'Dependent', requires: ['Real', 'Ghost'], excludes: [], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[1].requires, ['Real'], 'dangling Ghost stripped');
+    assertEqual(entries[1]._originalRequires, ['Real', 'Ghost'], 'original preserved');
+});
+
+test('dangling-ref strip: case-insensitive matching', () => {
+    const entries = [
+        { title: 'Real', requires: [], excludes: [], cascadeLinks: [] },
+        { title: 'B', requires: ['REAL'], excludes: [], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[1].requires, ['REAL'], 'REAL kept (matches Real)');
+    assert(!entries[1]._originalRequires, 'no snapshot when nothing stripped');
+});
+
+test('dangling-ref strip: removes nonexistent excludes', () => {
+    const entries = [
+        { title: 'A', requires: [], excludes: ['Ghost', 'AlsoGhost'], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[0].excludes, [], 'all excludes stripped');
+    assertEqual(entries[0]._originalExcludes, ['Ghost', 'AlsoGhost'], 'originals preserved');
+});
+
+test('dangling-ref strip: removes nonexistent cascadeLinks', () => {
+    const entries = [
+        { title: 'A', requires: [], excludes: [], cascadeLinks: [] },
+        { title: 'B', requires: [], excludes: [], cascadeLinks: ['A', 'Ghost'] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[1].cascadeLinks, ['A'], 'cascade Ghost stripped');
+    assertEqual(entries[1]._originalCascadeLinks, ['A', 'Ghost'], 'cascade original preserved');
+});
+
+test('dangling-ref strip: empty arrays untouched', () => {
+    const entries = [
+        { title: 'A', requires: [], excludes: [], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assert(!entries[0]._originalRequires, 'no snapshot for empty requires');
+    assert(!entries[0]._originalExcludes, 'no snapshot for empty excludes');
+    assert(!entries[0]._originalCascadeLinks, 'no snapshot for empty cascade');
+});
+
+test('dangling-ref strip: no entries dropped, only filtered', () => {
+    const entries = [
+        { title: 'A', requires: ['Ghost1'], excludes: ['Ghost2'], cascadeLinks: ['Ghost3'] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries.length, 1, 'entry not dropped');
+    assertEqual(entries[0].requires, [], 'requires cleared');
+    assertEqual(entries[0].excludes, [], 'excludes cleared');
+    assertEqual(entries[0].cascadeLinks, [], 'cascade cleared');
+});
+
+test('dangling-ref strip: missing arrays do not crash', () => {
+    const entries = [{ title: 'A' }];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[0].title, 'A', 'undefined arrays handled');
+});
+
+// ============================================================================
+// Item 5: Swipe state pollution rollback — snapshot/restore logic
+// ============================================================================
+
+function takeSnapshot() {
+    return {
+        cooldown: new Map(cooldownTracker),
+        decay: new Map(decayTracker),
+        consecutive: new Map(consecutiveInjections),
+        injectionHistory: new Map(injectionHistory),
+        generationCount: generationCount,
+    };
+}
+
+function restoreSnapshot(snap) {
+    setCooldownTracker(new Map(snap.cooldown));
+    setDecayTracker(new Map(snap.decay));
+    setConsecutiveInjections(new Map(snap.consecutive));
+    setInjectionHistory(new Map(snap.injectionHistory));
+    setGenerationCount(snap.generationCount);
+}
+
+test('swipe rollback: snapshot is independent of source maps', () => {
+    setCooldownTracker(new Map([['A', 5]]));
+    const snap = takeSnapshot();
+    cooldownTracker.set('A', 99); // mutate live map
+    assertEqual(snap.cooldown.get('A'), 5, 'snapshot not affected by later mutation');
+});
+
+test('swipe rollback: restore restores cooldown values', () => {
+    setCooldownTracker(new Map([['A', 5], ['B', 3]]));
+    setDecayTracker(new Map());
+    setConsecutiveInjections(new Map());
+    setInjectionHistory(new Map());
+    setGenerationCount(10);
+    const snap = takeSnapshot();
+    // Simulate "swipe gen" mutation
+    setCooldownTracker(new Map([['A', 4], ['B', 2], ['C', 7]]));
+    setGenerationCount(11);
+    restoreSnapshot(snap);
+    const c = cooldownTracker;
+    assertEqual(c.get('A'), 5, 'A restored');
+    assertEqual(c.get('B'), 3, 'B restored');
+    assert(!c.has('C'), 'C (added on swipe) removed');
+    assertEqual(generationCount, 10, 'gen count restored');
+});
+
+test('swipe rollback: restore restores injectionHistory', () => {
+    setInjectionHistory(new Map([['A', 5]]));
+    const snap = takeSnapshot();
+    setInjectionHistory(new Map([['A', 6], ['B', 6]]));
+    restoreSnapshot(snap);
+    const h = injectionHistory;
+    assertEqual(h.get('A'), 5, 'A restored');
+    assert(!h.has('B'), 'B removed');
+});
+
+test('swipe rollback: multiple swipes do not accumulate pollution', () => {
+    setCooldownTracker(new Map([['A', 5]]));
+    setDecayTracker(new Map());
+    setConsecutiveInjections(new Map());
+    setInjectionHistory(new Map());
+    setGenerationCount(10);
+    const baseSnap = takeSnapshot();
+    // Simulate 3 swipes — each restores from baseSnap before mutating
+    for (let i = 0; i < 3; i++) {
+        restoreSnapshot(baseSnap);
+        cooldownTracker.set('A', cooldownTracker.get('A') - 1);
+    }
+    assertEqual(cooldownTracker.get('A'), 4, 'A always lands at 4 (5-1), not 2 (5-3)');
+});
+
+// ============================================================================
+// Item 6: uiCascadeState derivation — pure logic
+// ============================================================================
+
+// Replicates the derivation in src/diagnostics/state-snapshot.js.
+function deriveUiCascadeState(s) {
+    return {
+        maxEntries: { disabled: !!s.unlimitedEntries, reason: 'unlimitedEntries' },
+        maxTokensBudget: { disabled: !!s.unlimitedBudget, reason: 'unlimitedBudget' },
+        aiNotepadConnection: { hidden: s.aiNotepadMode === 'tag', reason: 'aiNotepadMode=tag' },
+        keywordMatchingSettings: { disabled: s.aiSearchEnabled && s.aiSearchMode === 'ai-only', reason: 'aiSearchMode=ai-only' },
+        scanDepth: { hidden: s.aiSearchEnabled && s.aiSearchMode === 'ai-only', reason: 'aiSearchMode=ai-only' },
+        fuzzyMinScore: { hidden: !s.fuzzySearchEnabled, reason: 'fuzzySearchEnabled' },
+        maxRecursion: { disabled: !s.recursiveScan, reason: 'recursiveScan' },
+        stripLookback: { disabled: !s.stripDuplicateInjections, reason: 'stripDuplicateInjections' },
+    };
+}
+
+test('uiCascadeState: maxEntries disabled when unlimitedEntries', () => {
+    const r = deriveUiCascadeState({ unlimitedEntries: true });
+    assertEqual(r.maxEntries.disabled, true, 'disabled');
+});
+
+test('uiCascadeState: aiNotepadConnection hidden in tag mode', () => {
+    const r = deriveUiCascadeState({ aiNotepadMode: 'tag' });
+    assertEqual(r.aiNotepadConnection.hidden, true, 'hidden in tag mode');
+    const r2 = deriveUiCascadeState({ aiNotepadMode: 'extract' });
+    assertEqual(r2.aiNotepadConnection.hidden, false, 'shown in extract mode');
+});
+
+test('uiCascadeState: keywordMatchingSettings disabled in ai-only mode', () => {
+    const r = deriveUiCascadeState({ aiSearchEnabled: true, aiSearchMode: 'ai-only' });
+    assertEqual(r.keywordMatchingSettings.disabled, true, 'disabled');
+    const r2 = deriveUiCascadeState({ aiSearchEnabled: true, aiSearchMode: 'two-stage' });
+    assertEqual(r2.keywordMatchingSettings.disabled, false, 'enabled in two-stage');
+    const r3 = deriveUiCascadeState({ aiSearchEnabled: false, aiSearchMode: 'ai-only' });
+    assertEqual(r3.keywordMatchingSettings.disabled, false, 'enabled when AI off');
+});
+
+test('uiCascadeState: fuzzyMinScore hidden when fuzzy disabled', () => {
+    assertEqual(deriveUiCascadeState({ fuzzySearchEnabled: false }).fuzzyMinScore.hidden, true, 'hidden');
+    assertEqual(deriveUiCascadeState({ fuzzySearchEnabled: true }).fuzzyMinScore.hidden, false, 'shown');
+});
+
+test('uiCascadeState: maxRecursion disabled when recursive off', () => {
+    assertEqual(deriveUiCascadeState({ recursiveScan: false }).maxRecursion.disabled, true, 'disabled');
+    assertEqual(deriveUiCascadeState({ recursiveScan: true }).maxRecursion.disabled, false, 'enabled');
+});
+
+test('uiCascadeState: stripLookback disabled when strip-dedup off', () => {
+    assertEqual(deriveUiCascadeState({ stripDuplicateInjections: false }).stripLookback.disabled, true, 'disabled');
+    assertEqual(deriveUiCascadeState({ stripDuplicateInjections: true }).stripLookback.disabled, false, 'enabled');
+});
+
+test('uiCascadeState: every entry has a reason field', () => {
+    const r = deriveUiCascadeState({});
+    for (const [key, val] of Object.entries(r)) {
+        assert(typeof val.reason === 'string' && val.reason.length > 0, `${key} has reason`);
+    }
 });
 
 // ============================================================================

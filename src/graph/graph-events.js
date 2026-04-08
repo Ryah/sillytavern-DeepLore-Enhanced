@@ -2,7 +2,6 @@
  * DeepLore Enhanced — Graph event handling module.
  * Mouse, keyboard, toolbar, legend, context menu, export.
  */
-import { vaultIndex } from '../state.js';
 import { getSettings, getVaultByName } from '../../settings.js';
 import { buildObsidianURI } from '../helpers.js';
 import { computeGapAnalysis } from './graph-analysis.js';
@@ -30,7 +29,7 @@ export function initEvents(gs, dbg) {
     function showContextMenu(node, screenX, screenY) {
         if (!contextMenuEl) return;
         gs.contextMenuNode = node;
-        const entry = vaultIndex[node.id];
+        const entry = gs._vaultIndex[node.id];
         const connections = edgeCountByNode.get(node.id) || 0;
         const isPermanentlyPinned = node.pinned && gs.tempPinnedNode !== node;
         const pinLabel = isPermanentlyPinned ? 'Unpin Node' : 'Pin Node';
@@ -88,7 +87,7 @@ export function initEvents(gs, dbg) {
     function handleContextAction(action, node) {
         if (!node) return;
         dbg(`Context action: ${action} on "${node.title}" (id=${node.id})`);
-        const entry = vaultIndex[node.id];
+        const entry = gs._vaultIndex[node.id];
         switch (action) {
             case 'pin':
                 if (gs.tempPinnedNode === node) {

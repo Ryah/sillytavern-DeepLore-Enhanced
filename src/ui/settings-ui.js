@@ -1099,6 +1099,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-never-insert-tag').val(settings.neverInsertTag);
     $c('#dle-sp-seed-tag').val(settings.seedTag);
     $c('#dle-sp-bootstrap-tag').val(settings.bootstrapTag);
+    $c('#dle-sp-librarian-guide-tag').val(settings.librarianGuideTag);
     $c('#dle-sp-new-chat-threshold').val(settings.newChatThreshold);
 
     // ── Matching ──
@@ -1542,6 +1543,7 @@ function bindPopupEvents($container) {
     $c('#dle-sp-never-insert-tag').on('input', function () { settings.neverInsertTag = String($(this).val()).trim() || 'lorebook-never'; saveSettingsDebounced(); debouncedRebuild(); });
     $c('#dle-sp-seed-tag').on('input', function () { settings.seedTag = String($(this).val()).trim() || 'lorebook-seed'; saveSettingsDebounced(); debouncedRebuild(); });
     $c('#dle-sp-bootstrap-tag').on('input', function () { settings.bootstrapTag = String($(this).val()).trim() || 'lorebook-bootstrap'; saveSettingsDebounced(); debouncedRebuild(); });
+    $c('#dle-sp-librarian-guide-tag').on('input', function () { settings.librarianGuideTag = String($(this).val()).trim() || 'lorebook-guide'; saveSettingsDebounced(); debouncedRebuild(); });
     $c('#dle-sp-new-chat-threshold').on('input', function () { settings.newChatThreshold = numVal($(this).val(), 3); saveSettingsDebounced(); });
 
     // ── Matching ──
@@ -1839,6 +1841,18 @@ function bindPopupEvents($container) {
             autoSuggestProfileId: settings.autoSuggestProfileId,
             autoSuggestProxyUrl: settings.autoSuggestProxyUrl,
             autoSuggestModel: settings.autoSuggestModel,
+            librarianConnectionMode: settings.librarianConnectionMode,
+            librarianProfileId: settings.librarianProfileId,
+            librarianProxyUrl: settings.librarianProxyUrl,
+            librarianModel: settings.librarianModel,
+            aiNotepadConnectionMode: settings.aiNotepadConnectionMode,
+            aiNotepadProfileId: settings.aiNotepadProfileId,
+            aiNotepadProxyUrl: settings.aiNotepadProxyUrl,
+            aiNotepadModel: settings.aiNotepadModel,
+            optimizeKeysConnectionMode: settings.optimizeKeysConnectionMode,
+            optimizeKeysProfileId: settings.optimizeKeysProfileId,
+            optimizeKeysProxyUrl: settings.optimizeKeysProxyUrl,
+            optimizeKeysModel: settings.optimizeKeysModel,
         };
 
         // Reset all settings to defaults

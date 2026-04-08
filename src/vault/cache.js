@@ -72,7 +72,7 @@ export async function saveIndexToCache(entries) {
         const cacheData = {
             schemaVersion: CACHE_SCHEMA_VERSION,
             timestamp: Date.now(),
-            entries: entries.map(e => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('_') || k === '_contentHash'))),
+            entries: entries.map(e => Object.fromEntries(Object.entries(e).filter(([k]) => !k.startsWith('_') || k === '_contentHash' || k === '_originalRequires' || k === '_originalExcludes' || k === '_originalCascadeLinks'))),
         };
 
         store.put(cacheData, getCacheKey());

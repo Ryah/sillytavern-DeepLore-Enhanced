@@ -282,7 +282,10 @@ export function wireBrowseTab($drawer) {
 
         if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
         const tl = title.toLowerCase();
-        const idx = chat_metadata.deeplore_pins.findIndex(p => normalizePinBlock(p).title.toLowerCase() === tl);
+        const idx = chat_metadata.deeplore_pins.findIndex(p => {
+            const n = normalizePinBlock(p);
+            return n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null);
+        });
 
         if (idx !== -1) {
             // Unpin
@@ -291,7 +294,10 @@ export function wireBrowseTab($drawer) {
             // Pin — also remove from blocks
             chat_metadata.deeplore_pins.push({ title, vaultSource });
             if (chat_metadata.deeplore_blocks) {
-                chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(b => normalizePinBlock(b).title.toLowerCase() !== tl);
+                chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(b => {
+                    const n = normalizePinBlock(b);
+                    return !(n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null));
+                });
             }
         }
         saveChatDebounced();
@@ -305,7 +311,10 @@ export function wireBrowseTab($drawer) {
 
         if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
         const tl = title.toLowerCase();
-        const idx = chat_metadata.deeplore_blocks.findIndex(b => normalizePinBlock(b).title.toLowerCase() === tl);
+        const idx = chat_metadata.deeplore_blocks.findIndex(b => {
+            const n = normalizePinBlock(b);
+            return n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null);
+        });
 
         if (idx !== -1) {
             // Unblock
@@ -314,7 +323,10 @@ export function wireBrowseTab($drawer) {
             // Block — also remove from pins
             chat_metadata.deeplore_blocks.push({ title, vaultSource });
             if (chat_metadata.deeplore_pins) {
-                chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => normalizePinBlock(p).title.toLowerCase() !== tl);
+                chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => {
+                    const n = normalizePinBlock(p);
+                    return !(n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null));
+                });
             }
         }
         saveChatDebounced();

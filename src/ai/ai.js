@@ -363,7 +363,7 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
         });
 
         // Always include force-injected entries
-        const forceInjected = candidates.filter(e => isForceInjected(e));
+        const forceInjected = candidates.filter(e => isForceInjected(e, { bootstrapActive }));
         const filteredResult = [...forceInjected, ...filtered];
 
         if (settings.debugMode) {
@@ -639,6 +639,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
                 console.warn(`[DLE] AI search: could not parse response as JSON array. Response preview: ${preview}`);
             }
             recordAiFailure(); // BUG-010: Parse failures should trip circuit breaker
+            dedupWarning('AI search returned an unparseable response — falling back to keywords.', 'aiSearch_parse_failure', { hint: 'extractAiResponseClient returned null; see debug log for response preview.' });
             return { results: [], error: true, errorMessage: 'Failed to parse AI response as JSON' };
         }
         const aiResults = normalizeResults(parsed)

@@ -17,7 +17,7 @@ import {
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
-    chatEpoch,
+    chatEpoch, buildEpoch,
     fieldDefinitions, setFieldDefinitions,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS, parseFieldDefinitionYaml } from '../fields.js';
@@ -240,9 +240,11 @@ export async function buildIndex() {
 
     setIndexing(true);
     const promise = (async () => {
+    const settings = getSettings();
+    const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     try {
-        const settings = getSettings();
-        const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
+        const capturedEpoch = buildEpoch;
+        const isZombie = () => buildEpoch !== capturedEpoch;
         if (enabledVaults.length === 0) {
             throw new Error('No enabled vaults configured');
         }
@@ -275,6 +277,7 @@ export async function buildIndex() {
             console.warn('[DLE] Error loading field definitions:', err.message, '— using defaults');
         }
         // Set state once, before any parsing begins
+        if (isZombie()) return;
         setFieldDefinitions(loadedFieldDefs);
 
         let entries = [];
@@ -337,6 +340,7 @@ export async function buildIndex() {
         // BUG-001: If ALL enabled vaults failed in multi-vault mode, preserve existing index
         // instead of replacing it with an empty array (which would destroy valid cached data)
         if (vaultFailCount > 0 && vaultFailCount === enabledVaults.length && enabledVaults.length > 1) {
+            if (isZombie()) return;
             dedupError(
                 'Couldn\'t reach any of your vaults — keeping the lore you already had.',
                 'obsidian_connect',
@@ -363,11 +367,13 @@ export async function buildIndex() {
         // E6: Multi-vault conflict resolution dedup pass (BUG-007: shared with buildIndexWithReuse)
         entries = deduplicateMultiVault(entries, settings.multiVaultConflictResolution);
 
+        if (isZombie()) return;
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
 
         if (settings.debugMode) console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
 
+        if (isZombie()) return;
         await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
 
         // Zero-entry warning when connection succeeded but no lorebook-tagged entries found
@@ -413,8 +419,10 @@ export async function buildIndex() {
         }
         dedupError(userMsg, 'obsidian_connect');
     } finally {
-        setIndexing(false);
-        setBuildPromise(null); // BUG-044: Clear stale buildPromise
+        if (buildEpoch === capturedEpoch) {
+            setIndexing(false);
+            setBuildPromise(null); // BUG-044: Clear stale buildPromise
+        }
     }
     })();
     setBuildPromise(promise);

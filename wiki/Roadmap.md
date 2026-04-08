@@ -155,4 +155,36 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 *Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23), 5-perspective review + fixes (2026-03-23), 6-agent graph popup audit (2026-03-24).*
 
-*Last updated: 2026-04-04*
+*Last updated: 2026-04-07*
+
+---
+
+## Architectural Refactor Round (deferred from 2026-04-07 FATAL pass)
+
+- **BUG-249 — `ai.js` backupTimer / CMRS abort architecture.** `ConnectionManagerRequestService.sendRequest` ignores `AbortSignal`, so there is no fetch handle to cancel when our `Promise.race` timeout fires. The Phase 1 fix only stamps a `settled` flag to suppress the fake-AbortError-after-success symptom; the underlying request still runs to completion in the background. Needs an architectural pass: either route through a fetch we control, or wrap CMRS in a cancelable shim. Source: `audit/bug-hunt-2026-04-07.md#BUG-249`.
+
+---
+
+## WI Parity Gaps (from 2026-04-07 audit)
+
+These are SillyTavern World Info features that DLE does not currently implement. They were filed as bugs in the 2026-04-07 audit but are missing features, not regressions, so they live here. Source: `audit/bug-hunt-2026-04-07.md`.
+
+| Item | Source | Summary |
+|------|--------|---------|
+| **Whole-word boundary regex parity** | BUG-044 | DLE smart-boundary differs from ST `(?:^|\W)(...)(?:$|\W)` for `_`-prefixed keys, multi-word keys, and NFC-normalized keys. Imported WI lorebooks silently match different sets. |
+| **Regex-key support** | BUG-045 | `/pattern/flags` keys silently treated as literal strings; WI imports lose all regex keys. |
+| **`selectiveLogic` modes (NOT_ALL/NOT_ANY/AND_ALL)** | BUG-046 | DLE hard-codes AND_ANY. WI books with NOT_ANY (negative gating, very common) silently inverted. |
+| **Sticky timed effect** | BUG-047 | WI sticky (force-active for N messages after activation) not implemented. DLE drops entries after one generation regardless of sticky frontmatter. |
+| **`delay` / `delayUntilRecursion` timed effects** | BUG-048 | Cannot express "only on recursion ≥ N" or "wait until chat length ≥ N." WI lorebooks designed around this break. |
+| **Untruncated recursion buffer** | BUG-049 | DLE truncates recursive scan budget to 50KB; ST never truncates. Substring may break mid-word. |
+| **`preventRecursion` flag** | BUG-050 | No way to express "match but don't seed further recursion." Only `excludeRecursion` (skip during recursive scan) exists. |
+| **Position constants ANTop/ANBottom/EMTop/EMBottom/atDepth** | BUG-051 | Missing position constants. `position: ANTop` etc. in vault frontmatter silently mis-injected at IN_PROMPT/IN_CHAT. |
+| **Inclusion-group / group-scoring support** | BUG-052 | Common WI pattern ("pick one of N region descriptions") completely absent. Includes `useGroupScoring`, `group_weight`, `group_override`. |
+| **Subscribe to WORLDINFO_FORCE_ACTIVATE** | BUG-081 | Cross-extension force-injection of lore broken; "DLE replaces WI" claim leaks for any third-party extension that uses the contract. |
+| **Subscribe to WORLDINFO_UPDATED** | BUG-082 | Hybrid vault+WI users drift silently. |
+| **Persona/character/scenario/depth-prompt/creator-notes scan surfaces** | BUG-095 | WI books triggering off persona description / scenario silently fail. |
+| **Per-entry `caseSensitive` / `matchWholeWords` override** | BUG-096 | Frontmatter `case_sensitive: true` ignored. Always reads global setting. |
+| **Min-activations / depth-skew loop** | BUG-097 | Sparse-keyword vaults can't request "advance scan depth until N activated." |
+| **`@@activate` / `@@dont_activate` decorators** | BUG-098 | Decorator strings end up in injected content as literals. |
+| **Probability scale parity (0-100)** | BUG-099 | WI entry imported with `probability: 50` evaluates as `50 > 1.0` and never enters random branch — always passes. No validation. |
+| **BM25 fuzzy results respect `refineKeys` gating** | BUG-100 | Fuzzy match cannot fail refine-key gating because primary+refine isn't re-checked on the BM25 path. |

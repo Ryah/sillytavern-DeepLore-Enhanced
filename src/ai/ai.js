@@ -107,17 +107,22 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
+    let onExternalAbort = null;
     // Wire external signal (user cancellation) to abort the internal controller
     if (externalSignal) {
         if (externalSignal.aborted) { clearTimeout(timer); const err = new Error('Request aborted'); err.name = 'AbortError'; throw err; }
-        externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+        onExternalAbort = () => controller.abort();
+        externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
 
     let backupTimer;
+    let settled = false;
     try {
         // BUG-028: Use Promise.race to enforce timeout even if CMRS ignores AbortSignal
         const timeoutPromise = new Promise((_, reject) => {
-            backupTimer = setTimeout(() => reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' })), timeout + 500);
+            backupTimer = setTimeout(() => {
+                if (!settled) reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' }));
+            }, timeout + 500);
         });
         const result = await Promise.race([
             ConnectionManagerRequestService.sendRequest(
@@ -136,6 +141,7 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
             ),
             timeoutPromise,
         ]);
+        settled = true;
 
         return {
             text: result.content || '',
@@ -167,15 +173,14 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         if (claudeAdaptiveDetail && /400|bad request|top_k|thinking|reasoning_effort/i.test(err.message || '')) {
             try {
                 const { buildClaudeAdaptiveMessage } = await import('./claude-adaptive-check.js');
-                if (!err.throttled) recordAiFailure();
                 throw new Error(buildClaudeAdaptiveMessage(claudeAdaptiveDetail, 'error') + profileLabel + modelLabel);
             } catch (rethrow) {
                 if (rethrow !== err) throw rethrow;
             }
         }
-        if (!err.throttled) recordAiFailure();
         throw new Error(`${err.message}${profileLabel}${modelLabel}`);
     } finally {
+        if (externalSignal && onExternalAbort) externalSignal.removeEventListener('abort', onExternalAbort);
         clearTimeout(timer);
         clearTimeout(backupTimer);
     }

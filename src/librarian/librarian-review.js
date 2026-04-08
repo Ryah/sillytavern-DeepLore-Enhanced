@@ -145,7 +145,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
     let isRestored = false;
     const saved = loadSessionState();
     const STALE_MS = 4 * 60 * 60 * 1000; // 4 hours
-    const isStale = saved?.timestamp && (Date.now() - saved.timestamp) > STALE_MS;
+    const isStale = saved?.savedAt && (Date.now() - saved.savedAt) > STALE_MS;
     // Guide mode always starts fresh — never resume into a different conversation.
     if (!isGuideMode && saved && saved.messages?.length > 0 && !isStale) {
         const resume = await callGenericPopup(

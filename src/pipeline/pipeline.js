@@ -195,9 +195,10 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
 
         // Hierarchical pre-filter for large keyword match sets
         // BUG-022: Use expandedMatched (includes wiki-linked candidates), not keywordResult.matched
+        // null means "skip, use all"; empty array means "AI selected zero categories" — treat as valid filter
         let twoStageCandidates = expandedMatched;
         const preFiltered = await hierarchicalPreFilter(expandedMatched, chat);
-        if (preFiltered) {
+        if (preFiltered != null) {
             twoStageCandidates = preFiltered;
             if (settings.debugMode) {
                 console.log(`[DLE] Two-stage hierarchical: ${keywordResult.matched.length} → ${twoStageCandidates.length} candidates`);

@@ -38,6 +38,12 @@ import {
 } from './drawer-events.js';
 
 // ════════════════════════════════════════════════════════════════════════════
+// Teardown registry (BUG-349 — drawer destroy/teardown to prevent listener leaks)
+// ════════════════════════════════════════════════════════════════════════════
+let drawerDestroyed = false;
+let drawerListeners = { eventSource: [], timers: [] };
+
+// ════════════════════════════════════════════════════════════════════════════
 // Public API (consumed by index.js)
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -115,6 +121,11 @@ function rebuildTagCache() {
  */
 export async function createDrawerPanel() {
     if ($(`#${DRAWER_ID}`).length) return;
+
+    // Reset destroy flag — extension reload re-creates the panel
+    drawerDestroyed = false;
+    drawerListeners.eventSource = [];
+    drawerListeners.timers = [];
 
     // Load ST internals (Moving UI, mobile detection)
     await loadSTInternals();
@@ -364,10 +375,13 @@ export async function createDrawerPanel() {
                     ds.contextTokens = ds.promptManagerRef.tokenUsage;
                     scheduleRender(renderFooter);
                 }
-                stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, () => {
+                const handleChatCompletionPromptReady = () => {
+                    if (drawerDestroyed) return;
                     ds.contextTokens = ds.promptManagerRef?.tokenUsage || 0;
                     scheduleRender(renderFooter);
-                });
+                };
+                stCtx.eventSource.on(stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, handleChatCompletionPromptReady);
+                drawerListeners.eventSource.push({ event: stCtx.eventTypes.CHAT_COMPLETION_PROMPT_READY, handler: handleChatCompletionPromptReady });
             }
         }
     } catch (err) {
@@ -380,25 +394,36 @@ export async function createDrawerPanel() {
     try {
         const stCtx2 = typeof SillyTavern !== 'undefined' ? SillyTavern.getContext() : null;
         if (stCtx2?.eventSource && stCtx2?.eventTypes?.GENERATION_STARTED) {
-            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STARTED, (_type, _opts, dryRun) => {
+            const handleGenerationStarted = (_type, _opts, dryRun) => {
+                if (drawerDestroyed) return;
                 if (dryRun) return; // Ignore dry runs (token counting) — they never end
                 ds.stGenerating = true;
                 scheduleRender(renderStatusZone);
-            });
-            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_ENDED, (...args) => {
+            };
+            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STARTED, handleGenerationStarted);
+            drawerListeners.eventSource.push({ event: stCtx2.eventTypes.GENERATION_STARTED, handler: handleGenerationStarted });
+
+            const handleGenerationEnded = (...args) => {
+                if (drawerDestroyed) return;
                 // GENERATION_ENDED may not pass dryRun, but skip if stGenerating is already false
                 // (avoids dry-run END clearing a real generation's state)
                 if (!ds.stGenerating) return;
                 ds.stGenerating = false;
                 scheduleRender(renderStatusZone);
-            });
+            };
+            stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_ENDED, handleGenerationEnded);
+            drawerListeners.eventSource.push({ event: stCtx2.eventTypes.GENERATION_ENDED, handler: handleGenerationEnded });
+
             // GENERATION_STOPPED fires when user clicks Stop — clear generating state
             // as a safety net (GENERATION_ENDED may or may not fire depending on timing)
             if (stCtx2.eventTypes.GENERATION_STOPPED) {
-                stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STOPPED, () => {
+                const handleGenerationStopped = () => {
+                    if (drawerDestroyed) return;
                     ds.stGenerating = false;
                     scheduleRender(renderStatusZone);
-                });
+                };
+                stCtx2.eventSource.on(stCtx2.eventTypes.GENERATION_STOPPED, handleGenerationStopped);
+                drawerListeners.eventSource.push({ event: stCtx2.eventTypes.GENERATION_STOPPED, handler: handleGenerationStopped });
             }
         }
     } catch (err) {
@@ -432,6 +457,7 @@ export async function createDrawerPanel() {
     // Observer subscriptions — live data updates
     // ═══════════════════════════════════════════════════════════════════════
     onIndexUpdated(() => {
+        if (drawerDestroyed) return;
         rebuildTagCache();
         scheduleRender(renderStatusZone);
         scheduleRender(renderBrowseTab);
@@ -441,20 +467,24 @@ export async function createDrawerPanel() {
     });
 
     onAiStatsUpdated(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderFooter);
     });
 
     onCircuitStateChanged(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderFooter);
     });
 
     onClaudeAutoEffortChanged(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
     });
 
     onPipelineComplete(() => {
+        if (drawerDestroyed) return;
         invalidateTemperatureCache();
         scheduleRender(renderStatusZone);
         scheduleRender(renderInjectionTab);
@@ -467,20 +497,24 @@ export async function createDrawerPanel() {
     });
 
     onGatingChanged(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderGatingTab);
     });
 
     onPinBlockChanged(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderBrowseTab);
     });
 
     onGenerationLockChanged(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderInjectionTab);
     });
 
     onIndexingChanged(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderBrowseTab);
     });
@@ -488,6 +522,7 @@ export async function createDrawerPanel() {
     let _gapAnnounceTimer = null;
     let _lastGapCount = loreGaps.length;
     onLoreGapsChanged(() => {
+        if (drawerDestroyed) return;
         scheduleRender(renderLibrarianTab);
         // Debounced screen reader announcement for new gaps (500ms during generation bursts)
         const newCount = loreGaps.length;
@@ -500,6 +535,7 @@ export async function createDrawerPanel() {
                     announceToScreenReader(`${added} new lore gap${added !== 1 ? 's' : ''} flagged. ${pendingFlags} pending.`);
                 }
             }, 500);
+            drawerListeners.timers.push(_gapAnnounceTimer);
         }
         _lastGapCount = newCount;
     });
@@ -535,4 +571,28 @@ export function navigateToBrowseEntry(title) {
 
     // Render
     renderBrowseTab();
+}
+
+// Call this from extension cleanup if/when one exists.
+export function destroyDrawerPanel() {
+    drawerDestroyed = true;
+    // Remove document-level jQuery handler
+    $(document).off('click.dle-drawer-dismiss');
+    // Remove eventSource listeners
+    const stCtxCleanup = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
+    const esCleanup = stCtxCleanup?.eventSource;
+    for (const { event, handler } of drawerListeners.eventSource) {
+        try { esCleanup?.removeListener?.(event, handler); } catch (e) { /* ignore */ }
+    }
+    drawerListeners.eventSource = [];
+    // Clear stored timers
+    for (const t of drawerListeners.timers) {
+        try { clearTimeout(t); } catch (e) { /* ignore */ }
+    }
+    drawerListeners.timers = [];
+    // Detach the drawer DOM if present
+    if (ds && ds.$drawer) {
+        try { ds.$drawer.remove(); } catch (e) { /* ignore */ }
+        ds.$drawer = null;
+    }
 }

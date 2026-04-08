@@ -66,13 +66,15 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
+    let onExternalAbort = null;
 
     // Wire external signal (user cancellation) to our internal controller
     if (externalSignal) {
         if (externalSignal.aborted) {
             controller.abort();
         } else {
-            externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+            onExternalAbort = () => controller.abort();
+            externalSignal.addEventListener('abort', onExternalAbort, { once: true });
         }
     }
 
@@ -146,6 +148,7 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
         }
         throw err;
     } finally {
+        if (externalSignal && onExternalAbort) externalSignal.removeEventListener('abort', onExternalAbort);
         clearTimeout(timer);
     }
 }

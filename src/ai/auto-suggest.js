@@ -59,7 +59,7 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
             recordAiSuccess();
             return { text: response, usage: null };
         } catch (err) {
-            recordAiFailure();
+            if (!err.throttled) recordAiFailure();
             throw err;
         }
     } else if (mode === 'profile' || mode === 'proxy') {
@@ -69,7 +69,7 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
             recordAiSuccess();
             return result;
         } catch (err) {
-            recordAiFailure();
+            if (!err.throttled) recordAiFailure();
             throw err;
         }
     }

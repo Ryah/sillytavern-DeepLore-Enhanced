@@ -160,6 +160,10 @@ export async function runScribe(customPrompt) {
             saveChatDebounced();
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
             // Reindex so the newly-written note is immediately retrievable
+            if (epoch !== chatEpoch) {
+                if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed before reindex, skipping buildIndex');
+                return;
+            }
             try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Scribe reindex after write failed:', reidxErr?.message); }
         } else {
             dedupError('Couldn\'t save the session note to your vault.', 'scribe', { hint: data && data.error });

@@ -151,16 +151,16 @@ export async function showGraphPopup() {
         pairEdgeCount.set(key, (pairEdgeCount.get(key) || 0) + 1);
     }
     const multiEdgePairs = [...pairEdgeCount.entries()].filter(([, c]) => c > 1);
-    console.warn(`[DLE Graph] Edge pairs: ${pairEdgeCount.size} unique pairs, ${multiEdgePairs.length} with multiple edge types`);
+    dbg(`Edge pairs: ${pairEdgeCount.size} unique pairs, ${multiEdgePairs.length} with multiple edge types`);
     if (multiEdgePairs.length > 0) {
-        console.warn(`[DLE Graph] Multi-edge pairs (top 10):`, multiEdgePairs.slice(0, 10).map(([k, c]) => {
+        dbg(`Multi-edge pairs (top 10):`, multiEdgePairs.slice(0, 10).map(([k, c]) => {
             const [a, b] = k.split(',').map(Number);
             return `${nodes[a].title} ↔ ${nodes[b].title}: ${c} edges`;
         }));
     }
     const edgeCountDist = new Map();
     for (const [, c] of pairEdgeCount) edgeCountDist.set(c, (edgeCountDist.get(c) || 0) + 1);
-    console.warn(`[DLE Graph] Edge count distribution:`, Object.fromEntries([...edgeCountDist.entries()].sort()));
+    dbg(`Edge count distribution:`, Object.fromEntries([...edgeCountDist.entries()].sort()));
 
     dbg(`Built ${edges.length} edges (${edgeSet.size} unique), ${circularPairs.length} circular pairs`);
     const edgeTypeCounts = { link: 0, requires: 0, excludes: 0, cascade: 0 };

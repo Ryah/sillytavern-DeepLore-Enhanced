@@ -21,12 +21,15 @@ export function dedupError(message, category, options = {}) {
     if (_isDuplicate(category)) return;
     const { hint, ...rest } = options;
     if (hint) console.warn('[DLE]', category, '-', hint);
-    const t = toastr.error(message, 'DeepLore Enhanced', {
-        preventDuplicates: true,
-        timeOut: 10000,
-        ...rest,
-    });
-    if (hint && t && t[0]) t[0].title = hint;
+    try {
+        const t = toastr.error(message, 'DeepLore Enhanced', {
+            timeOut: 10000,
+            ...rest,
+        });
+        if (hint && t && t[0]) t[0].title = hint;
+    } catch (e) {
+        console.error('[DLE] toastr unavailable:', category, message, e?.message);
+    }
 }
 
 /**
@@ -39,12 +42,15 @@ export function dedupWarning(message, category, options = {}) {
     if (_isDuplicate(category)) return;
     const { hint, ...rest } = options;
     if (hint) console.warn('[DLE]', category, '-', hint);
-    const t = toastr.warning(message, 'DeepLore Enhanced', {
-        preventDuplicates: true,
-        timeOut: 8000,
-        ...rest,
-    });
-    if (hint && t && t[0]) t[0].title = hint;
+    try {
+        const t = toastr.warning(message, 'DeepLore Enhanced', {
+            timeOut: 8000,
+            ...rest,
+        });
+        if (hint && t && t[0]) t[0].title = hint;
+    } catch (e) {
+        console.warn('[DLE] toastr unavailable:', category, message, e?.message);
+    }
 }
 
 /**
@@ -57,12 +63,15 @@ export function dedupInfo(message, category, options = {}) {
     if (_isDuplicate(category)) return;
     const { hint, ...rest } = options;
     if (hint) console.info('[DLE]', category, '-', hint);
-    const t = toastr.info(message, 'DeepLore Enhanced', {
-        preventDuplicates: true,
-        timeOut: 6000,
-        ...rest,
-    });
-    if (hint && t && t[0]) t[0].title = hint;
+    try {
+        const t = toastr.info(message, 'DeepLore Enhanced', {
+            timeOut: 6000,
+            ...rest,
+        });
+        if (hint && t && t[0]) t[0].title = hint;
+    } catch (e) {
+        console.info('[DLE] toastr unavailable:', category, message, e?.message);
+    }
 }
 
 /**

@@ -542,8 +542,9 @@ export async function buildIndexWithReuse() {
                 setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
             }
             // Other errors (5xx, network): keep existing field definitions to avoid clobbering user schema
-        } catch {
+        } catch (err) {
             // Keep existing field definitions on error
+            if (settings.debugMode) console.warn('[DLE] Failed to load field definitions during reuse-sync:', err?.message);
         }
 
         // Build lookup of existing entries by vault:filename → entry (with content hash)

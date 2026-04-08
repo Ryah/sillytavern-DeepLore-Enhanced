@@ -12,12 +12,13 @@ import {
     chat,
     chat_metadata,
     messageFormatting,
+    saveMetadata,
 } from '../../../../script.js';
 import { renderExtensionTemplateAsync, saveMetadataDebounced } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { promptManager } from '../../../openai.js';
 import { formatAndGroup } from './core/matching.js';
-import { simpleHash, classifyError } from './core/utils.js';
+import { classifyError } from './core/utils.js';
 import {
     buildExemptionPolicy, applyPinBlock, applyContextualGating,
     applyReinjectionCooldown, applyRequiresExcludesGating,
@@ -31,8 +32,7 @@ import {
     cooldownTracker, generationCount, injectionHistory, consecutiveInjections,
     chatInjectionCounts, setChatInjectionCounts, trackerKey,
     lastWarningRatio, decayTracker, chatEpoch,
-    lastGenerationChatHash, lastGenerationInjectedKeys,
-    setLastGenerationChatHash, setLastGenerationInjectedKeys,
+    perSwipeInjectedKeys, setPerSwipeInjectedKeys,
     lastGenerationTrackerSnapshot, setLastGenerationTrackerSnapshot,
     setCooldownTracker, setDecayTracker, setConsecutiveInjections, setInjectionHistory,
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock, setGenerationLockEpoch,
@@ -278,24 +278,25 @@ async function onGenerate(chat, contextSize, abort, type) {
         // From here on, generation tracking must run even if no entries match
         pipelineRan = true;
 
-        // Swipe rollback: if this generation is a swipe of the previous one,
-        // restore the tracker snapshot taken at the start of that prior generation
-        // BEFORE we mutate cooldown/decay/consecutive/injectionHistory again.
-        // This prevents N swipes from polluting tracker state with N rejected futures.
+        // BUG-291/292: Swipe rollback by slot+swipe_id, not content hash. Content-hashing missed
+        // alternate-swipe navigation (content changes → new hash → treated as fresh gen → drift)
+        // and collided with delete+regen. The `${msgIdx}|${swipe_id}` key is stable across those.
         {
-            const lastMsgEarly = chat.length > 0 ? (chat[chat.length - 1]?.mes || '') : '';
-            const earlyHash = simpleHash(lastMsgEarly + '|' + chat.length);
-            if (earlyHash === lastGenerationChatHash && lastGenerationTrackerSnapshot) {
+            const earlyIdx = chat.length - 1;
+            const earlySwipeId = earlyIdx >= 0 ? (chat[earlyIdx]?.swipe_id ?? 0) : 0;
+            const earlySwipeKey = `${earlyIdx}|${earlySwipeId}`;
+            if (lastGenerationTrackerSnapshot && lastGenerationTrackerSnapshot.swipeKey === earlySwipeKey) {
                 const snap = lastGenerationTrackerSnapshot;
                 setCooldownTracker(new Map(snap.cooldown));
                 setDecayTracker(new Map(snap.decay));
                 setConsecutiveInjections(new Map(snap.consecutive));
                 setInjectionHistory(new Map(snap.injectionHistory));
                 setGenerationCount(snap.generationCount);
-                if (settings.debugMode) console.debug('[DLE] Swipe detected — restored tracker snapshot from previous gen');
+                if (settings.debugMode) console.debug('[DLE] Swipe detected — restored tracker snapshot');
             }
-            // Take a fresh snapshot for THIS generation (so the next swipe can roll back to here)
+            // Take a fresh snapshot for THIS generation (tagged with the CURRENT swipe key).
             setLastGenerationTrackerSnapshot({
+                swipeKey: earlySwipeKey,
                 cooldown: new Map(cooldownTracker),
                 decay: new Map(decayTracker),
                 consecutive: new Map(consecutiveInjections),
@@ -611,19 +612,19 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         // Stage 9: Per-chat injection counts (epoch-guarded, lock-guarded, swipe-aware)
         //
-        // Swipe detection: When the user swipes (regenerates), SillyTavern replaces
-        // the last message and fires onGenerate again. Without dedup, the same entries
-        // would be double-counted (once for the original, once for the swipe).
-        //
-        // Solution: Hash the last message content + chat length. If the hash matches
-        // the previous generation, the last message was replaced (swipe), so we subtract
-        // the previous round's counts before adding the new round's counts. This gives
-        // an accurate injection count that survives swipes without inflating.
+        // BUG-291/292/293: Swipe dedup is now keyed by `${msgIdx}|${swipe_id}` with a
+        // per-swipe map of injected trackerKeys. This correctly handles:
+        //   - regen of the current swipe (key matches → decrement exactly the prior keys)
+        //   - alternate-swipe navigation (different swipe_id → different key → no false decrement)
+        //   - reload between generations (perSwipeInjectedKeys is persisted)
         if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
-            const lastMsg = chat.length > 0 ? (chat[chat.length - 1]?.mes || '') : '';
-            const chatHash = simpleHash(lastMsg + '|' + chat.length);
-            if (chatHash === lastGenerationChatHash && lastGenerationInjectedKeys.size > 0) {
-                for (const key of lastGenerationInjectedKeys) {
+            const lastIdx = chat.length - 1;
+            const swipeId = lastIdx >= 0 ? (chat[lastIdx]?.swipe_id ?? 0) : 0;
+            const swipeKey = `${lastIdx}|${swipeId}`;
+
+            const priorKeys = perSwipeInjectedKeys.get(swipeKey);
+            if (priorKeys && priorKeys.size > 0) {
+                for (const key of priorKeys) {
                     const cur = chatInjectionCounts.get(key) || 0;
                     if (cur > 0) chatInjectionCounts.set(key, cur - 1);
                 }
@@ -636,12 +637,24 @@ async function onGenerate(chat, contextSize, abort, type) {
                 chatInjectionCounts.set(key, (chatInjectionCounts.get(key) || 0) + 1);
                 thisRoundKeys.add(key);
             }
-            setLastGenerationChatHash(chatHash);
-            setLastGenerationInjectedKeys(thisRoundKeys);
+            perSwipeInjectedKeys.set(swipeKey, thisRoundKeys);
+
+            // Prune: keep only recent message slots (bounded memory + metadata size).
+            const keepFromIdx = Math.max(0, chat.length - 10);
+            for (const k of [...perSwipeInjectedKeys.keys()]) {
+                const mi = parseInt(k.split('|')[0], 10);
+                if (!Number.isFinite(mi) || mi < keepFromIdx) perSwipeInjectedKeys.delete(k);
+            }
 
             // Persist to chat_metadata every generation (counts are lost on chat switch otherwise)
             chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
-            saveMetadataDebounced();
+            chat_metadata.deeplore_swipe_injected_keys = Object.fromEntries(
+                [...perSwipeInjectedKeys.entries()].map(([k, v]) => [k, [...v]])
+            );
+            // BUG-306: Prefer immediate save over debounced — the debounce can lose the race
+            // with CHAT_CHANGED and never flush this chat's counts. Fire-and-forget; fall back
+            // to debounced if saveMetadata throws synchronously (shouldn't, but belt-and-braces).
+            try { saveMetadata(); } catch { saveMetadataDebounced(); }
         }
 
         if (groups.length > 0) {
@@ -1116,13 +1129,22 @@ jQuery(async function () {
             removeLibrarianDropdown(messageId);
             clearPendingToolCalls();
 
-            // Clear stale AI Notepad notes from accumulator so swipe doesn't double-append
+            // BUG-290: AI Notepad swipe rollback — remove only the LAST occurrence, anchored on
+            // '\n' + notes (matching the append pattern in CHARACTER_MESSAGE_RENDERED). The old
+            // `String.replace` removed the first match and broke on duplicate-note collisions.
             if (message.extra?.deeplore_ai_notes) {
                 const notes = message.extra.deeplore_ai_notes;
                 const acc = chat_metadata.deeplore_ai_notepad || '';
-                if (acc.includes(notes)) {
-                    chat_metadata.deeplore_ai_notepad = acc.replace(notes, '').replace(/\n{3,}/g, '\n\n').trim();
+                const anchored = '\n' + notes;
+                let updated = acc;
+                const aIdx = acc.lastIndexOf(anchored);
+                if (aIdx !== -1) {
+                    updated = acc.slice(0, aIdx) + acc.slice(aIdx + anchored.length);
+                } else {
+                    const nIdx = acc.lastIndexOf(notes);
+                    if (nIdx !== -1) updated = acc.slice(0, nIdx) + acc.slice(nIdx + notes.length);
                 }
+                chat_metadata.deeplore_ai_notepad = updated.replace(/\n{3,}/g, '\n\n').trim();
                 delete message.extra.deeplore_ai_notes;
             }
 
@@ -1149,8 +1171,18 @@ jQuery(async function () {
             if (alsoAiNotes && message.extra?.deeplore_ai_notes) {
                 const notes = message.extra.deeplore_ai_notes;
                 const acc = chat_metadata?.deeplore_ai_notepad || '';
-                if (acc.includes(notes)) {
-                    chat_metadata.deeplore_ai_notepad = acc.replace(notes, '').replace(/\n{3,}/g, '\n\n').trim();
+                // BUG-290: last-occurrence, anchored — see MESSAGE_SWIPED handler above.
+                const anchored = '\n' + notes;
+                let updated = acc;
+                const aIdx = acc.lastIndexOf(anchored);
+                if (aIdx !== -1) {
+                    updated = acc.slice(0, aIdx) + acc.slice(aIdx + anchored.length);
+                } else {
+                    const nIdx = acc.lastIndexOf(notes);
+                    if (nIdx !== -1) updated = acc.slice(0, nIdx) + acc.slice(nIdx + notes.length);
+                }
+                if (updated !== acc && chat_metadata) {
+                    chat_metadata.deeplore_ai_notepad = updated.replace(/\n{3,}/g, '\n\n').trim();
                     dirty = true;
                 }
                 delete message.extra.deeplore_ai_notes;
@@ -1316,8 +1348,18 @@ jQuery(async function () {
                     saveMetadataDebounced();
                 }
             }
-            setLastGenerationInjectedKeys(new Set());
-            setLastGenerationChatHash('');
+            // BUG-293: Hydrate per-swipe injected-keys map from metadata so rollback works
+            // across reloads. Shape on disk: { [swipeKey]: string[] of trackerKeys }.
+            const savedSwipeKeys = chat_metadata?.deeplore_swipe_injected_keys;
+            if (savedSwipeKeys && typeof savedSwipeKeys === 'object') {
+                const m = new Map();
+                for (const [k, arr] of Object.entries(savedSwipeKeys)) {
+                    if (Array.isArray(arr)) m.set(k, new Set(arr));
+                }
+                setPerSwipeInjectedKeys(m);
+            } else {
+                setPerSwipeInjectedKeys(new Map());
+            }
             setLastGenerationTrackerSnapshot(null);
             setGenerationCount(0);
             setLastIndexGenerationCount(0);

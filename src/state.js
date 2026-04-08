@@ -159,13 +159,15 @@ export function setPreviousSources(v) { previousSources = v; }
 export function setVaultAvgTokens(v) { vaultAvgTokens = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
 
-/** Swipe detection: hash of last message at last generation (to detect swipe/regen = same hash) */
-export let lastGenerationChatHash = '';
-export function setLastGenerationChatHash(v) { lastGenerationChatHash = v; }
-
-/** Swipe detection: keys injected in last generation (to undo on swipe) */
-export let lastGenerationInjectedKeys = new Set();
-export function setLastGenerationInjectedKeys(v) { lastGenerationInjectedKeys = v; }
+/** BUG-291/292/293: Per-swipe injected keys, identified by `${msgIdx}|${swipe_id}`.
+ * Replaces the old content-hash + single-Set approach which:
+ *   - missed alternate-swipe navigation (content changes → thought it was a new gen)
+ *   - collided with delete-then-regenerate
+ *   - decremented the wrong keys (last gen's, not the swipe actually being replaced)
+ * Persisted to chat_metadata.deeplore_swipe_injected_keys so rollback survives reload.
+ * Pruned on write to keep only recent message slots. */
+export let perSwipeInjectedKeys = new Map();
+export function setPerSwipeInjectedKeys(v) { perSwipeInjectedKeys = v; }
 
 /** E9: Generation count at last index rebuild (for generation-based rebuild trigger) */
 export let lastIndexGenerationCount = 0;

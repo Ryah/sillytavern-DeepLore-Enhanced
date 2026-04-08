@@ -867,10 +867,16 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 appendMessage('user', text);
                 showLoading(true, 'Preparing...');
                 const opts = buildSendOptions();
+                // BUG-240/243: capture this send's controller identity. If the user stops
+                // this call and starts a new one before the old promise resolves, the late
+                // handler must NOT clobber the new request's sending/UI state.
+                const myController = abortController;
+                const isStillMine = () => abortController === myController;
 
                 try {
                     updateLoadingStage('Calling AI...');
                     const response = await sendMessage(session, finalText, opts);
+                    if (!isStillMine()) { showLoading(false); return; }
                     if (!sending) {
                         showLoading(false);
                         return;
@@ -879,11 +885,13 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     showLoading(false);
                     processAIResponse(response);
                 } catch (err) {
+                    if (!isStillMine()) return;
                     showLoading(false);
                     if (err.name !== 'AbortError') {
                         appendMessage('ai', `Error: ${classifyError(err)}`);
                     }
                 }
+                if (!isStillMine()) return;
                 sending = false;
                 setSendingUI(false);
                 chatInput.focus();

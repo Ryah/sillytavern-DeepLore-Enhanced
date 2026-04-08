@@ -48,11 +48,21 @@ export async function scanVaults(opts = {}) {
     // Avoid duplicate "found" entries when both HTTPS and HTTP succeed on same port
     const sawAuthByPort = new Map(); // port -> {scheme, info}
 
+    // BUG-235: external abort wiring. Caller can pass opts.signal to bail probes early
+    // when the scan popup is dismissed.
+    const externalSignal = o.signal;
+
     async function probe(task) {
         const { port, scheme } = task;
         const url = `${scheme}://${host}:${port}/`;
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), o.perRequestTimeout);
+        let onExternalAbort = null;
+        if (externalSignal) {
+            if (externalSignal.aborted) { clearTimeout(t); return null; }
+            onExternalAbort = () => ctrl.abort();
+            externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+        }
         try {
             const headers = {};
             if (o.apiKey) headers['Authorization'] = `Bearer ${o.apiKey}`;
@@ -78,6 +88,7 @@ export async function scanVaults(opts = {}) {
             return null;
         } finally {
             clearTimeout(t);
+            if (externalSignal && onExternalAbort) externalSignal.removeEventListener('abort', onExternalAbort);
             scanned++;
             if (o.onProgress) {
                 try { o.onProgress({ scanned, total, found: vaults.length }); } catch {}
@@ -89,6 +100,8 @@ export async function scanVaults(opts = {}) {
     let idx = 0;
     async function worker() {
         while (idx < tasks.length) {
+            // BUG-235: short-circuit if caller aborted the scan
+            if (externalSignal?.aborted) return;
             const i = idx++;
             const result = await probe(tasks[i]);
             if (result) {

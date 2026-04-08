@@ -135,6 +135,12 @@ export async function showSuggestionPopup(suggestions) {
         return;
     }
 
+    // BUG-272: capture epoch at popup open. Suggestions were generated against this chat's
+    // context — if the user switches chats before clicking Accept, we must NOT write them
+    // (they'd be tagged as belonging to the new chat's character/context). Vault writes are
+    // global but the conceptual ownership is chat-scoped for auto-suggest.
+    const popupEpoch = chatEpoch;
+
     const settings = getSettings();
     const container = document.createElement('div');
     container.classList.add('dle-popup');
@@ -192,6 +198,12 @@ export async function showSuggestionPopup(suggestions) {
             container.querySelectorAll('.dle-accept-suggest').forEach(btn => {
                 btn.addEventListener('click', async function () {
                     if (this.disabled) return; // Double-click guard
+                    // BUG-272: chat switched since suggestions were generated — refuse to write.
+                    if (popupEpoch !== chatEpoch) {
+                        toastr.warning('Chat changed — these suggestions are no longer valid.', 'DeepLore Enhanced');
+                        this.disabled = true;
+                        return;
+                    }
                     this.disabled = true;
                     const idx = Number(this.dataset.index);
                     const s = suggestions[idx];

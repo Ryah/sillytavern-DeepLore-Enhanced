@@ -964,6 +964,18 @@ jQuery(async function () {
         // AI Notebook: GENERATION_ENDED handler for both tag and extract modes.
         // Tag mode: extract <dle-notes> from AI response before rendering.
         // Extract mode: strip visible notes, then fire async API call to extract session notes.
+        // BUG-242: defensive top-level GENERATION_STOPPED listener. Per-onGenerate invocations
+        // already install their own onStop (see runInjection ~L231), but this catches edge cases
+        // where an await resolves between the pipeline's abort check and its commit phase — the
+        // epoch bump invalidates any late writes the in-flight pipeline is about to do. Safe even
+        // when no pipeline is running; cheap no-op.
+        _registerEs(event_types.GENERATION_STOPPED, () => {
+            try {
+                setGenerationLockEpoch(generationLockEpoch + 1);
+                if (generationLock) setGenerationLock(false);
+            } catch (err) { console.warn('[DLE] GENERATION_STOPPED cleanup failed:', err?.message); }
+        });
+
         _registerEs(event_types.GENERATION_ENDED, () => {
             const settings = getSettings();
             if (!settings.aiNotepadEnabled) return;

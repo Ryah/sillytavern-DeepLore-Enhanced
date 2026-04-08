@@ -761,6 +761,13 @@ export async function sendMessage(session, userMessage, options = {}) {
                 toolCallCount++;
             }
 
+            // BUG-253: Check abort AFTER tool execution but BEFORE appending tool_result.
+            // Without this, a Stop pressed during tool execution still mutates history with
+            // an orphan tool_result and can re-enter callAI on the next iteration.
+            if (signal?.aborted) {
+                return abortReturn();
+            }
+
             // Append tool results to message history
             session.messages.push({ role: 'tool_result', content: results.join('\n\n---\n\n') });
 

@@ -95,12 +95,17 @@ export async function openVaultScanPopup(opts = {}) {
         });
     }
 
+    // BUG-235: real cancel support — popup dismissal aborts in-flight probes so the
+    // follow-up `await scanPromise` no longer blocks for the full scan duration.
+    const scanAbort = new AbortController();
+
     // Run scan in parallel with the popup awaiting cancel
     const scanPromise = scanVaults({
         host: opts.host || '127.0.0.1',
         apiKey: opts.apiKey,
         portCenter: opts.portCenter || 27124,
         radius: opts.radius || 25,
+        signal: scanAbort.signal,
         onProgress: ({ scanned, total, found }) => {
             if (fill) fill.style.width = `${Math.round((scanned / total) * 100)}%`;
             if (text) text.textContent = `Scanned ${scanned} / ${total} probes — ${found} vault${found === 1 ? '' : 's'} found`;
@@ -113,6 +118,9 @@ export async function openVaultScanPopup(opts = {}) {
     });
 
     await popupPromise;
+    // BUG-235: popup dismissed (Cancel or row pick) — abort any in-flight probes
+    // so the await below returns immediately instead of blocking on stragglers.
+    try { scanAbort.abort(); } catch { /* noop */ }
     await scanPromise; // make sure scan task finishes/cleans up
     return selected;
 }

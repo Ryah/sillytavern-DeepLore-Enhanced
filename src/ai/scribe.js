@@ -6,6 +6,8 @@ import {
     chat,
     chat_metadata,
     name2,
+    eventSource,
+    event_types,
 } from '../../../../../../script.js';
 import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../settings.js';
@@ -58,19 +60,37 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     }
 
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
-    // Note: generateQuietPrompt cannot be aborted — the timed-out generation will complete in background
+    // Note: generateQuietPrompt cannot be aborted — the background generation will complete
+    // regardless, but BUG-241 wires GENERATION_STOPPED so our await resolves early and the
+    // scribeInProgress lock releases promptly instead of waiting out the full timeout.
     const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
     // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
     const timeout = resolved.timeout || 60000;
     const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: resolved.maxTokens });
     let scribeTimer;
-    return await Promise.race([
-        quietPromise.finally(() => clearTimeout(scribeTimer)),
-        new Promise((_, reject) => { scribeTimer = setTimeout(() => {
-            console.warn('[DLE] Scribe quiet prompt timed out — orphaned generation may still complete in background');
-            reject(new Error(`Scribe quiet prompt timed out (${Math.round(timeout / 1000)}s)`));
-        }, timeout); }),
-    ]);
+    let onStop;
+    try {
+        return await Promise.race([
+            quietPromise.finally(() => clearTimeout(scribeTimer)),
+            new Promise((_, reject) => { scribeTimer = setTimeout(() => {
+                console.warn('[DLE] Scribe quiet prompt timed out — orphaned generation may still complete in background');
+                const err = new Error(`Scribe quiet prompt timed out (${Math.round(timeout / 1000)}s)`);
+                err.timedOut = true;
+                reject(err);
+            }, timeout); }),
+            new Promise((_, reject) => {
+                onStop = () => {
+                    const err = new Error('Scribe aborted by user (GENERATION_STOPPED)');
+                    err.name = 'AbortError';
+                    err.userAborted = true;
+                    reject(err);
+                };
+                try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
+            }),
+        ]);
+    } finally {
+        if (onStop) { try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ } }
+    }
 }
 
 /**

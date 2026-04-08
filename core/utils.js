@@ -381,8 +381,21 @@ export const NO_ENTRIES_MSG = 'No entries found. Check your Obsidian vault conne
  * @returns {string} A user-friendly error description
  */
 export function classifyError(err) {
+    // BUG-246: discriminate user-abort from timeout using flags set by callViaProfile/callViaProxy
+    // (err.userAborted vs err.timedOut). Fall back to regex only for raw strings / foreign errors,
+    // and do NOT treat bare "AbortError" as a timeout — an AbortError with no flag is most likely
+    // a user cancel, not a timed-out request.
+    if (typeof err === 'object' && err !== null) {
+        if (err.userAborted) return 'Cancelled.';
+        if (err.timedOut) return 'The request timed out. Try increasing the timeout in settings.';
+        if (err.throttled) return 'Slow down — too many AI calls in quick succession.';
+    }
     const raw = typeof err === 'string' ? err : String(err.message || err);
-    if (/timeout|timed out|AbortError/i.test(raw)) {
+    if (err && err.name === 'AbortError') {
+        // Unflagged AbortError — assume user cancel (timeouts are flagged by our own code).
+        return 'Cancelled.';
+    }
+    if (/timeout|timed out/i.test(raw)) {
         return 'The request timed out. Try increasing the timeout in settings.';
     }
     if (/\b401\b|\b403\b|\bauth\b|unauthorized|forbidden/i.test(raw)) {

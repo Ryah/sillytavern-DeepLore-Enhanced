@@ -431,20 +431,25 @@ async function onGenerate(chat, contextSize, abort, type) {
             }));
             trace.totalTokens = totalTokens;
             trace.budgetLimit = settings.maxTokensBudget;
-            setLastPipelineTrace(trace);
+            // BUG-278/279: Guard trace publish + activity feed against stale pipelines.
+            // Both write to session-global state that the drawer reads; a stale pipeline
+            // landing here would overwrite the new chat's trace / push a stale activity row.
+            if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
+                setLastPipelineTrace(trace);
 
-            // Activity feed: record pipeline run summary for drawer footer
-            const aiUsed = trace.aiSelected?.length > 0;
-            const modeLabel = trace.mode === 'keywords-only' ? 'Keywords'
-                : aiUsed ? (trace.aiFallback ? 'Fallback' : 'AI')
-                : 'Keywords';
-            pushActivity({
-                ts: Date.now(),
-                injected: trace.injected?.length || 0,
-                mode: modeLabel,
-                tokens: trace.totalTokens || 0,
-                folderFilter: trace.folderFilter?.folders || null,
-            });
+                // Activity feed: record pipeline run summary for drawer footer
+                const aiUsed = trace.aiSelected?.length > 0;
+                const modeLabel = trace.mode === 'keywords-only' ? 'Keywords'
+                    : aiUsed ? (trace.aiFallback ? 'Fallback' : 'AI')
+                    : 'Keywords';
+                pushActivity({
+                    ts: Date.now(),
+                    injected: trace.injected?.length || 0,
+                    mode: modeLabel,
+                    tokens: trace.totalTokens || 0,
+                    folderFilter: trace.folderFilter?.folders || null,
+                });
+            }
         }
 
         // BUG-AUDIT-5: Epoch guard on commit phase — prevent stale force-released pipelines
@@ -724,8 +729,12 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (lockEpoch === generationLockEpoch) {
             setGenerationLock(false);
         }
-        // Notify drawer that pipeline is done (regardless of success/failure)
-        notifyPipelineComplete();
+        // BUG-277: Only notify drawer if WE are still the active pipeline. A stale
+        // force-released pipeline finishing here must not fire complete-notifications
+        // at the new chat's drawer — which is now rendering a different generation.
+        if (lockEpoch === generationLockEpoch && epoch === chatEpoch) {
+            notifyPipelineComplete();
+        }
     }
 }
 
@@ -1429,13 +1438,18 @@ jQuery(async function () {
             // deeplore_sources stuck on empty intermediate messages (from before the intermediate guard).
             // Similarly, tool_invocations need migrating to deeplore_tool_calls on the correct reply.
             // A single setTimeout + rAF block handles everything in the right order.
+            // BUG-287: Tag the retry chain with the current chatEpoch so a second
+            // CHAT_CHANGED (e.g. rapid chat switching) cancels a pending retry from
+            // the previous chat instead of injecting UI into the wrong messages.
+            const injectEpoch = chatEpoch;
             const injectAllChatLoadUI = (attempt = 0) => {
+                if (injectEpoch !== chatEpoch) return;
                 const chatEl = document.getElementById('chat');
                 if (!chatEl?.children.length && attempt < 5) {
                     setTimeout(() => injectAllChatLoadUI(attempt + 1), 200 * (attempt + 1));
                     return;
                 }
-                requestAnimationFrame(() => { try {
+                requestAnimationFrame(() => { if (injectEpoch !== chatEpoch) return; try {
                     const settings = getSettings();
                     const start = Math.max(0, chat.length - 50);
                     let needsSave = false;
@@ -1524,7 +1538,7 @@ jQuery(async function () {
                 } catch (err) { console.error('[DLE] Chat load UI injection error:', err); }
                 });
             };
-            setTimeout(injectAllChatLoadUI, 100);
+            setTimeout(() => { if (injectEpoch === chatEpoch) injectAllChatLoadUI(); }, 100);
         });
 
         // BUG-063: Wire page-unload teardown so tracked listeners + drawer DOM

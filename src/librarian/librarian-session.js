@@ -194,6 +194,9 @@ export function saveSessionState(session) {
             chatContext: session.chatContext,
             relatedEntries: session.relatedEntries,
             workQueue: session.workQueue,
+            // BUG-326: persist lastOptions so a reopened session doesn't lose an in-progress
+            // options picker the user hasn't yet applied.
+            lastOptions: session.lastOptions || null,
             mode: session.mode || null,
             guideBootstrap: session.guideBootstrap || '',
             savedAt: Date.now(),
@@ -262,6 +265,8 @@ export function restoreSession(saved) {
         chatContext: saved.chatContext || '',
         relatedEntries: saved.relatedEntries || '',
         workQueue: saved.workQueue || null,
+        // BUG-326: restore lastOptions so a pending options picker survives reload.
+        lastOptions: saved.lastOptions || null,
         mode: saved.mode || null,
         guideBootstrap: saved.guideBootstrap || '',
     };
@@ -714,10 +719,19 @@ export async function sendMessage(session, userMessage, options = {}) {
 
             const parsed = parseSessionResponse(result.text);
 
+            // BUG-320: echo the model's prior bad output back into the correction prompt so
+            // it can see what it wrote. Without this the AI just keeps re-reading the same
+            // history + a corrections header and never learns what tripped the gate.
+            // Cap the quoted output so a runaway response can't blow the retry prompt.
+            const priorQuote = (result.text || '').slice(0, 2000);
+            const priorBlock = priorQuote
+                ? `\n[YOUR PRIOR RESPONSE (rejected)]\n${priorQuote}${result.text.length > 2000 ? '\n[...truncated]' : ''}\n\n`
+                : '\n';
+
             if (!parsed) {
                 const correction = `[SYSTEM: Your previous response could not be parsed as JSON. `
                     + `Respond with a valid JSON object matching the format in the system prompt. `
-                    + `Do not include any text outside the JSON object.]\n\n`;
+                    + `Do not include any text outside the JSON object.]${priorBlock}`;
                 messageToSend = correction + buildUserPromptFromHistory(session.messages);
                 lastErrors = [...lastErrors, 'Response could not be parsed as JSON'];
                 continue;
@@ -732,7 +746,7 @@ export async function sendMessage(session, userMessage, options = {}) {
             lastErrors = [...lastErrors, ...errors];
             const rejection = `[SYSTEM: Your response was rejected due to ${errors.length} validation error(s):\n`
                 + errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
-                + `\nPlease fix these issues and resend your response in the correct format.]\n\n`;
+                + `\nPlease fix these issues and resend your response in the correct format.]${priorBlock}`;
             messageToSend = rejection + buildUserPromptFromHistory(session.messages);
         }
 
@@ -773,10 +787,14 @@ export async function sendMessage(session, userMessage, options = {}) {
 
             // Check tool call budget
             if (toolCallCount >= MAX_TOOL_CALLS_PER_TURN) {
-                // Force the AI to give a final response
+                // BUG-319: Force-finalize nudge. Flagged `synthetic:true` so regenerateResponse
+                // can't mistake it for the user's real prompt when walking the history backwards.
+                // Role kept as 'user' for buildUserPromptFromHistory rendering (ST chat format has
+                // no 'system' role in-turn), but `synthetic` is the source of truth.
                 session.messages.push({
                     role: 'user',
                     content: '[SYSTEM: Tool call limit reached. Provide your final response now — no more tool calls.]',
+                    synthetic: true,
                 });
             }
 
@@ -786,8 +804,11 @@ export async function sendMessage(session, userMessage, options = {}) {
 
         // ── Normal response (not tool_call) — apply and return ──
         if (validParsed.draft) {
+            // BUG-321: keep explicit `null` so the AI can clear a field it previously set.
+            // Only filter `undefined` (absent keys), since JSON parse never yields undefined
+            // at the top level — this is a defensive guard for hand-rolled callers.
             const filtered = Object.fromEntries(
-                Object.entries(validParsed.draft).filter(([, v]) => v != null),
+                Object.entries(validParsed.draft).filter(([, v]) => v !== undefined),
             );
             session.draftState = { ...session.draftState, ...filtered };
         }
@@ -875,9 +896,16 @@ export async function regenerateResponse(session, options = {}) {
         }
     }
     // Find the last user message to re-send
+    // BUG-319: skip synthetic budget-nudge messages — those are not real user input and
+    // re-sending them would corrupt regenerate. Also strip any trailing synthetic nudges
+    // left in history so they don't poison the next sendMessage call.
+    while (session.messages.length && session.messages[session.messages.length - 1].synthetic) {
+        session.messages.pop();
+    }
     for (let i = session.messages.length - 1; i >= 0; i--) {
-        if (session.messages[i].role === 'user') {
-            lastUserMsg = session.messages[i].content;
+        const m = session.messages[i];
+        if (m.role === 'user' && !m.synthetic) {
+            lastUserMsg = m.content;
             session.messages.splice(i, 1); // remove it, sendMessage will re-add it
             break;
         }

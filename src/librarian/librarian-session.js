@@ -133,9 +133,14 @@ export function createSession(entryPoint, options = {}) {
         seededGreeting = mode === 'guide-firstrun' ? EMMA_FIRSTRUN_GREETING : EMMA_ADHOC_GREETING;
     }
 
+    // BUG-332: seed greeting as plain text. The restore path (librarian-review.js
+    // replay loop) passes msg.content straight to appendMessage without JSON-parsing,
+    // so a JSON-wrapped seed would render as raw `{"message":"...","action":null}`
+    // on reopen. Assistant messages pushed by sendMessage are already plain text
+    // (validParsed.message), so this keeps the shape consistent.
     const session = {
         messages: seededGreeting
-            ? [{ role: 'assistant', content: JSON.stringify({ message: seededGreeting, action: null }) }]
+            ? [{ role: 'assistant', content: seededGreeting }]
             : [],
         draftState: isGuideMode ? {
             title: '',
@@ -867,6 +872,16 @@ export async function editMessage(session, messageIndex, newText, options = {}) 
     // BUG-237/253: snapshot before truncation so an aborted edit restores the full history
     // rather than leaving the session permanently truncated.
     const snapshot = session.messages.map(m => ({ ...m }));
+    // BUG-328: validate messageIndex before slicing. A stale/negative/NaN index
+    // from the UI (e.g. a pending edit after regen truncated history) would
+    // otherwise silently lop off the tail (slice(0,-2)) or the wrong range.
+    // Require a non-negative in-range index pointing at a real user message.
+    if (!Number.isInteger(messageIndex)
+        || messageIndex < 0
+        || messageIndex >= session.messages.length
+        || session.messages[messageIndex]?.role !== 'user') {
+        return { parsed: null, valid: false, exhausted: true, lastErrors: ['Invalid messageIndex for edit'] };
+    }
     // Truncate history: keep everything before the edited message
     session.messages = session.messages.slice(0, messageIndex);
     // sendMessage will append the new user message and call AI
@@ -894,6 +909,16 @@ export async function regenerateResponse(session, options = {}) {
             session.messages.splice(i, 1);
             break;
         }
+    }
+    // BUG-329: if the removed turn was a tool-call chain (assistant tool_call →
+    // tool_result → final assistant), the previous loop only removed the final
+    // assistant. Strip any trailing tool_result / intermediate assistant(tool_call)
+    // pairs too, otherwise buildUserPromptFromHistory sends orphan tool results on
+    // regen and the model hallucinates tool calls it never made.
+    while (session.messages.length
+        && (session.messages[session.messages.length - 1].role === 'tool_result'
+            || session.messages[session.messages.length - 1].role === 'assistant')) {
+        session.messages.pop();
     }
     // Find the last user message to re-send
     // BUG-319: skip synthetic budget-nudge messages — those are not real user input and

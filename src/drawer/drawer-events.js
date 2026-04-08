@@ -2,7 +2,8 @@
  * DeepLore Enhanced — Drawer Event Wiring
  * All event handlers and interaction wiring for the drawer panel.
  */
-import { chat_metadata, saveChatDebounced, saveSettingsDebounced } from '../../../../../../script.js';
+import { chat_metadata, saveSettingsDebounced } from '../../../../../../script.js';
+import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings, invalidateSettingsCache } from '../../settings.js';
 import {
@@ -300,7 +301,7 @@ export function wireBrowseTab($drawer) {
                 });
             }
         }
-        saveChatDebounced();
+        saveMetadataDebounced();
         notifyPinBlockChanged();
     });
 
@@ -329,7 +330,7 @@ export function wireBrowseTab($drawer) {
                 });
             }
         }
-        saveChatDebounced();
+        saveMetadataDebounced();
         notifyPinBlockChanged();
     });
 
@@ -449,7 +450,7 @@ export function wireGatingTab($drawer) {
                     ctx[ctxKey] = null;
                 }
             }
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
         };
 
@@ -495,7 +496,7 @@ export function wireGatingTab($drawer) {
             toastr.info('No active gating filters to clear.', 'DeepLore Enhanced', { timeOut: 2000 });
             return;
         }
-        saveChatDebounced();
+        saveMetadataDebounced();
         notifyGatingChanged();
         toastr.success(`Cleared ${cleared} gating filter${cleared !== 1 ? 's' : ''}.`, 'DeepLore Enhanced', { timeOut: 2000 });
     });
@@ -520,7 +521,7 @@ export function wireGatingTab($drawer) {
             fired = true;
             chat_metadata.deeplore_folder_filter = chat_metadata.deeplore_folder_filter.filter(f => f !== folder);
             if (chat_metadata.deeplore_folder_filter.length === 0) chat_metadata.deeplore_folder_filter = null;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
         };
         $chip.one('transitionend', apply);
@@ -562,7 +563,7 @@ export function wireGatingTab($drawer) {
                         if (!selected) {
                             // Clear all
                             chat_metadata.deeplore_folder_filter = null;
-                            saveChatDebounced();
+                            saveMetadataDebounced();
                             notifyGatingChanged();
                             toastr.success('Folder filter cleared — all folders active.', 'DeepLore Enhanced');
                             document.querySelector('.popup-button-ok')?.click();
@@ -583,7 +584,7 @@ export function wireGatingTab($drawer) {
                         const pEl = document.querySelector('.dle-popup p.dle-mb-2');
                         const cf = chat_metadata.deeplore_folder_filter || [];
                         if (pEl) pEl.innerHTML = cf.length ? `Active: <strong>${escapeHtml(cf.join(', '))}</strong>` : '';
-                        saveChatDebounced();
+                        saveMetadataDebounced();
                         notifyGatingChanged();
                     });
                 }

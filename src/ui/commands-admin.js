@@ -78,9 +78,10 @@ export function registerAdminCommands() {
         callback: async (_args, value) => {
             const subcommand = (value || '').trim().toLowerCase();
             if (subcommand === 'clear') {
-                const { chat_metadata, saveChatDebounced } = await import('../../../../../../script.js');
+                const { chat_metadata } = await import('../../../../../../script.js');
+                const { saveMetadataDebounced } = await import('../../../../../extensions.js');
                 chat_metadata.deeplore_ai_notepad = '';
-                saveChatDebounced();
+                saveMetadataDebounced();
                 toastr.success('AI Notebook cleared for this chat.', 'DeepLore Enhanced');
                 return '';
             }

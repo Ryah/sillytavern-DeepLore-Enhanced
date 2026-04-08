@@ -9,12 +9,11 @@ import {
     setExtensionPrompt,
     extension_prompts,
     saveSettingsDebounced,
-    saveChatDebounced,
     chat,
     chat_metadata,
     messageFormatting,
 } from '../../../../script.js';
-import { renderExtensionTemplateAsync } from '../../../extensions.js';
+import { renderExtensionTemplateAsync, saveMetadataDebounced } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
 import { promptManager } from '../../../openai.js';
 import { formatAndGroup } from './core/matching.js';
@@ -44,6 +43,7 @@ import {
     notepadExtractInProgress, setNotepadExtractInProgress,
     notifyPipelineComplete, notifyGatingChanged,
     fieldDefinitions,
+    folderList,
     setLoreGaps, setLoreGapSearchCount, setLibrarianChatStats,
     librarianToolsRegistered,
 } from './src/state.js';
@@ -63,7 +63,8 @@ import { pushActivity } from './src/drawer/drawer-state.js';
 import { extractAiNotes, normalizeLoreGap } from './src/helpers.js';
 import { clearSessionActivityLog, consumePendingToolCalls, clearPendingToolCalls } from './src/librarian/librarian-tools.js';
 import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
-import { registerLibrarianTools } from './src/librarian/librarian.js';
+import { registerLibrarianTools, ensureFunctionCallingEnabled } from './src/librarian/librarian.js';
+import { clearSessionState as clearLibrarianSessionState } from './src/librarian/librarian-session.js';
 
 /** Default instruction prompt for the AI Notebook feature. */
 const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
@@ -301,9 +302,12 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (settings.debugMode) {
                 console.debug('[DLE] No entries matched');
             }
-            // BUG-AUDIT-4: Clear stale prompts when pipeline ran but nothing matched.
-            // This prevents stale lore from the previous generation persisting when
-            // the context has changed such that nothing matches anymore.
+            // BUG-231: Guard clearPrompts against stale pipelines completing after chat-switch.
+            // Without this, a slow pipeline for chat A can wipe chat B's freshly-committed prompts.
+            if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
+                console.warn('[DLE] Stale pipeline reached no-match branch — skipping clearPrompts');
+                return;
+            }
             clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
             return;
         }
@@ -318,6 +322,11 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         if (finalEntries.length === 0) {
             if (settings.debugMode) console.debug('[DLE] All entries removed by re-injection cooldown');
+            // BUG-271: Same guard as BUG-231 — stale pipeline must not wipe the new chat's prompts.
+            if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
+                console.warn('[DLE] Stale pipeline reached cooldown-empty branch — skipping clearPrompts');
+                return;
+            }
             clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
             return;
         }
@@ -327,6 +336,11 @@ async function onGenerate(chat, contextSize, abort, type) {
 
         if (gated.length === 0) {
             if (settings.debugMode) console.debug('[DLE] All entries removed by gating rules');
+            // BUG-271: Same guard as BUG-231 — stale pipeline must not wipe the new chat's prompts.
+            if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
+                console.warn('[DLE] Stale pipeline reached gating-empty branch — skipping clearPrompts');
+                return;
+            }
             clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
             return;
         }
@@ -510,7 +524,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Clear stale injection log when dedup is toggled off (epoch-guarded)
         if (!settings.stripDuplicateInjections && epoch === chatEpoch && chat_metadata.deeplore_injection_log?.length > 0) {
             chat_metadata.deeplore_injection_log = [];
-            saveChatDebounced();
+            saveMetadataDebounced();
         }
 
         // Record injection for deduplication (epoch-guarded to avoid writing to wrong chat)
@@ -532,7 +546,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (chat_metadata.deeplore_injection_log.length > maxHistory) {
                 chat_metadata.deeplore_injection_log = chat_metadata.deeplore_injection_log.slice(-maxHistory);
             }
-            saveChatDebounced();
+            saveMetadataDebounced();
         }
 
         // Stage 8: Analytics (use postDedup — entries that passed all gating — as "matched")
@@ -578,7 +592,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
             // Persist to chat_metadata every generation (counts are lost on chat switch otherwise)
             chat_metadata.deeplore_chat_counts = Object.fromEntries(chatInjectionCounts);
-            saveChatDebounced();
+            saveMetadataDebounced();
         }
 
         if (groups.length > 0) {
@@ -874,7 +888,7 @@ jQuery(async function () {
                     lastMessage.extra.deeplore_ai_notes = notes;
                     const existing = chat_metadata.deeplore_ai_notepad || '';
                     chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
-                    saveChatDebounced();
+                    saveMetadataDebounced();
                 }
             } else if (mode === 'extract') {
                 // Extract mode: strip visible note-taking prose, then async API extraction
@@ -885,7 +899,7 @@ jQuery(async function () {
                 cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trimEnd();
                 if (cleaned !== lastMessage.mes) {
                     lastMessage.mes = cleaned;
-                    saveChatDebounced();
+                    saveMetadataDebounced();
                 }
 
                 // BUG-AUDIT-7: Fire-and-forget async extraction with epoch guard
@@ -914,7 +928,7 @@ jQuery(async function () {
                             lastMessage.extra.deeplore_ai_notes = responseText;
                             const existing = chat_metadata.deeplore_ai_notepad || '';
                             chat_metadata.deeplore_ai_notepad = (existing + '\n' + responseText).trim();
-                            saveChatDebounced();
+                            saveMetadataDebounced();
                         }
                     } catch (err) {
                         console.warn('[DLE] AI Notebook extract error:', err.message);
@@ -955,7 +969,7 @@ jQuery(async function () {
                         message.extra = message.extra || {};
                         message.extra.deeplore_sources = lastInjectionSources;
                         lastInjectionSources._consumedByMesId = messageId;
-                        saveChatDebounced();
+                        saveMetadataDebounced();
                     }
                 }
             }
@@ -976,7 +990,7 @@ jQuery(async function () {
                             const existing = chat_metadata.deeplore_ai_notepad || '';
                             chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
                         }
-                        saveChatDebounced();
+                        saveMetadataDebounced();
                         const mesBlock = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
                         if (mesBlock) mesBlock.innerHTML = messageFormatting(cleanedMessage, message.name, message.is_system, message.is_user, messageId);
                     }
@@ -993,7 +1007,7 @@ jQuery(async function () {
                     if (message && !message.is_user) {
                         message.extra = message.extra || {};
                         message.extra.deeplore_tool_calls = pendingCalls;
-                        saveChatDebounced();
+                        saveMetadataDebounced();
                     }
                     injectLibrarianDropdown(messageId, pendingCalls);
                 }
@@ -1031,7 +1045,7 @@ jQuery(async function () {
             // Clear tool call dropdown data and DOM
             if (message.extra?.deeplore_tool_calls) {
                 delete message.extra.deeplore_tool_calls;
-                saveChatDebounced();
+                saveMetadataDebounced();
             }
             removeLibrarianDropdown(messageId);
             clearPendingToolCalls();
@@ -1049,8 +1063,132 @@ jQuery(async function () {
             // Clear stale Cartographer sources (new generation will set fresh ones)
             if (message.extra?.deeplore_sources) {
                 delete message.extra.deeplore_sources;
-                saveChatDebounced();
+                saveMetadataDebounced();
             }
+        });
+
+        // BUG-037: Subscribe to message lifecycle events that were previously ignored.
+        // Without these, per-message stored extras (deeplore_sources, deeplore_ai_notes,
+        // deeplore_tool_calls) and the AI Notepad accumulator drift permanently when users
+        // delete/edit messages or dismiss alternate swipes.
+        const _cleanupMessageExtras = (messageId, { alsoAiNotes = true } = {}) => {
+            const message = chat?.[messageId];
+            if (!message) return;
+            let dirty = false;
+            if (message.extra?.deeplore_tool_calls) {
+                delete message.extra.deeplore_tool_calls;
+                dirty = true;
+            }
+            removeLibrarianDropdown(messageId);
+            if (alsoAiNotes && message.extra?.deeplore_ai_notes) {
+                const notes = message.extra.deeplore_ai_notes;
+                const acc = chat_metadata?.deeplore_ai_notepad || '';
+                if (acc.includes(notes)) {
+                    chat_metadata.deeplore_ai_notepad = acc.replace(notes, '').replace(/\n{3,}/g, '\n\n').trim();
+                    dirty = true;
+                }
+                delete message.extra.deeplore_ai_notes;
+                dirty = true;
+            }
+            if (message.extra?.deeplore_sources) {
+                delete message.extra.deeplore_sources;
+                dirty = true;
+            }
+            if (dirty) saveMetadataDebounced();
+        };
+
+        eventSource.on(event_types.MESSAGE_DELETED, (messageId) => {
+            try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_DELETED cleanup failed:', err.message); }
+        });
+
+        eventSource.on(event_types.MESSAGE_SWIPE_DELETED, (messageId) => {
+            // The swiped-away alternate is gone — its extras no longer apply.
+            try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_SWIPE_DELETED cleanup failed:', err.message); }
+        });
+
+        // BUG-038: Subscribe to chat deletion events. ST wipes chat_metadata itself, but
+        // the Librarian session draft is stored in localStorage (see librarian-session.js
+        // SESSION_STORAGE_KEY) and would otherwise linger as an orphan pointing at a
+        // now-deleted chat. Clear it when the chat is deleted.
+        const _onChatDeleted = () => {
+            try { clearLibrarianSessionState(); } catch (err) { console.warn('[DLE] CHAT_DELETED cleanup failed:', err.message); }
+        };
+        if (event_types.CHAT_DELETED) eventSource.on(event_types.CHAT_DELETED, _onChatDeleted);
+        if (event_types.GROUP_CHAT_DELETED) eventSource.on(event_types.GROUP_CHAT_DELETED, _onChatDeleted);
+
+        // BUG-039: Subscribe to connection profile lifecycle events. If a profile wired
+        // into one of DLE's six profile fields (aiSearch, scribe, autoSuggest, aiNotepad,
+        // librarian, optimizeKeys) gets deleted or renamed, the stored profileId becomes
+        // a dangling reference. On delete, null any profileId that no longer resolves;
+        // on update, invalidate the settings cache so fresh names are picked up. On both,
+        // surface a user-visible toast so they know to rebind.
+        const _profileIdFields = [
+            'aiSearchProfileId', 'scribeProfileId', 'autoSuggestProfileId',
+            'aiNotepadProfileId', 'librarianProfileId', 'optimizeKeysProfileId',
+        ];
+        const _onProfileDeleted = async (deleted) => {
+            try {
+                const s = getSettings();
+                const deletedId = deleted?.id || deleted?.profileId || deleted;
+                if (!deletedId) return;
+                let cleared = 0;
+                for (const field of _profileIdFields) {
+                    if (s[field] === deletedId) {
+                        s[field] = '';
+                        cleared++;
+                    }
+                }
+                if (cleared > 0) {
+                    invalidateSettingsCache();
+                    try { saveSettingsDebounced(); } catch { /* no-op */ }
+                    dedupWarning(
+                        `A connection profile wired into ${cleared} DLE feature${cleared === 1 ? '' : 's'} was deleted. Re-bind in DLE settings.`,
+                        'profile_deleted',
+                    );
+                }
+            } catch (err) { console.warn('[DLE] CONNECTION_PROFILE_DELETED cleanup failed:', err.message); }
+        };
+        const _onProfileUpdated = () => {
+            try { invalidateSettingsCache(); } catch { /* no-op */ }
+        };
+        if (event_types.CONNECTION_PROFILE_DELETED) eventSource.on(event_types.CONNECTION_PROFILE_DELETED, _onProfileDeleted);
+        if (event_types.CONNECTION_PROFILE_UPDATED) eventSource.on(event_types.CONNECTION_PROFILE_UPDATED, _onProfileUpdated);
+
+        // BUG-083: ST resets oai_settings.function_calling when the chat completion
+        // source or model changes. Re-assert it so Librarian tools aren't silently
+        // dropped from outbound requests after the user switches providers.
+        const _onSourceOrModelChanged = () => {
+            try {
+                if (getSettings().librarianEnabled) ensureFunctionCallingEnabled();
+            } catch (err) { console.warn('[DLE] source/model change re-assert failed:', err.message); }
+        };
+        if (event_types.CHATCOMPLETION_SOURCE_CHANGED) eventSource.on(event_types.CHATCOMPLETION_SOURCE_CHANGED, _onSourceOrModelChanged);
+        if (event_types.MAIN_API_CHANGED) eventSource.on(event_types.MAIN_API_CHANGED, _onSourceOrModelChanged);
+
+        // BUG-084: External mutations to extension_settings + saveSettingsDebounced() are
+        // not observed by DLE's cache. Invalidate on every SETTINGS_UPDATED so the next
+        // getSettings() call re-validates against the fresh store.
+        if (event_types.SETTINGS_UPDATED) {
+            eventSource.on(event_types.SETTINGS_UPDATED, () => {
+                try { invalidateSettingsCache(); } catch { /* no-op */ }
+            });
+        }
+
+        eventSource.on(event_types.MESSAGE_EDITED, (messageId) => {
+            // Edit preserves structural extras (sources, tool_calls) because the edit
+            // is about the visible prose, not what was consulted. Only invalidate the
+            // AI Notepad extraction since the visible prose is what it was extracted from.
+            try {
+                const message = chat?.[messageId];
+                if (!message?.extra?.deeplore_ai_notes) return;
+                const notes = message.extra.deeplore_ai_notes;
+                const acc = chat_metadata?.deeplore_ai_notepad || '';
+                if (acc.includes(notes)) {
+                    chat_metadata.deeplore_ai_notepad = acc.replace(notes, '').replace(/\n{3,}/g, '\n\n').trim();
+                }
+                delete message.extra.deeplore_ai_notes;
+                saveMetadataDebounced();
+            } catch (err) { console.warn('[DLE] MESSAGE_EDITED cleanup failed:', err.message); }
         });
 
         // Context Cartographer: re-inject buttons on chat load
@@ -1068,6 +1206,11 @@ jQuery(async function () {
             setLastScribeChatLength(chat ? chat.length : 0);
             setLastScribeSummary(chat_metadata?.deeplore_lastScribeSummary || '');
             setScribeInProgress(false); // Reset scribe lock so auto-scribe works in new chat
+            // BUG-061: Reset notepad extract lock so new chat's extraction isn't blocked
+            // by a stale in-flight extract from the previous chat. The in-flight extract's
+            // epoch guard (at the post-await check) will still prevent it from writing to
+            // the new chat's metadata.
+            setNotepadExtractInProgress(false);
             // Reset per-chat tracking on chat change
             // Note: aiSearchStats is intentionally NOT reset — it tracks session-level cumulative stats
             injectionHistory.clear();
@@ -1075,8 +1218,40 @@ jQuery(async function () {
             decayTracker.clear();
             consecutiveInjections.clear();
             // Hydrate per-chat injection counts from saved metadata (survives page reload)
+            // BUG-072: Prune orphaned keys — entries deleted/renamed in the vault would
+            // otherwise accumulate unbounded in chat_metadata across the chat's lifetime.
+            // Only prune when vaultIndex is populated; during cold start CHAT_CHANGED may
+            // fire before the index is built, and pruning against an empty index would wipe
+            // all legitimate counts.
             const savedCounts = chat_metadata?.deeplore_chat_counts;
-            setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
+            if (savedCounts && vaultIndex.length > 0) {
+                const validKeys = new Set(vaultIndex.map(e => trackerKey(e)));
+                const filtered = new Map();
+                for (const [k, v] of Object.entries(savedCounts)) {
+                    if (validKeys.has(k)) filtered.set(k, v);
+                }
+                setChatInjectionCounts(filtered);
+                // Persist pruned map so orphans don't keep hydrating next reload
+                if (filtered.size !== Object.keys(savedCounts).length) {
+                    chat_metadata.deeplore_chat_counts = Object.fromEntries(filtered);
+                    saveMetadataDebounced();
+                }
+            } else {
+                setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
+            }
+
+            // BUG-074: Validate deeplore_folder_filter against current folderList.
+            // Stale folder names (after a rename/delete in the vault) would otherwise
+            // silently filter out every entry. Only prune when folderList is populated;
+            // during cold start CHAT_CHANGED may fire before the index is built.
+            if (Array.isArray(chat_metadata?.deeplore_folder_filter) && folderList.length > 0) {
+                const validFolders = new Set(folderList.map(f => f.path));
+                const pruned = chat_metadata.deeplore_folder_filter.filter(f => validFolders.has(f));
+                if (pruned.length !== chat_metadata.deeplore_folder_filter.length) {
+                    chat_metadata.deeplore_folder_filter = pruned.length > 0 ? pruned : null;
+                    saveMetadataDebounced();
+                }
+            }
             setLastGenerationInjectedKeys(new Set());
             setLastGenerationChatHash('');
             setLastGenerationTrackerSnapshot(null);
@@ -1232,7 +1407,7 @@ jQuery(async function () {
                         }
                     }
 
-                    if (needsSave) saveChatDebounced();
+                    if (needsSave) saveMetadataDebounced();
                 } catch (err) { console.error('[DLE] Chat load UI injection error:', err); }
                 });
             };

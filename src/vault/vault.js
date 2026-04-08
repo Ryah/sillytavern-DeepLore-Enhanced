@@ -238,12 +238,20 @@ export async function buildIndex() {
         return buildPromise;
     }
 
+    // BUG-010: Atomically set buildPromise BEFORE setIndexing(true) so any synchronous
+    // observer that reads `indexing===true` always finds a populated `buildPromise`
+    // (never the stale/null previous value). Use a deferred promise pattern: the outer
+    // promise is created and installed synchronously, then the IIFE resolves/rejects it.
+    let _buildResolve, _buildReject;
+    const promise = new Promise((res, rej) => { _buildResolve = res; _buildReject = rej; });
+    setBuildPromise(promise);
     setIndexing(true);
-    const promise = (async () => {
+    let capturedEpoch = buildEpoch;
+    (async () => {
     const settings = getSettings();
     const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     try {
-        const capturedEpoch = buildEpoch;
+        capturedEpoch = buildEpoch;
         const isZombie = () => buildEpoch !== capturedEpoch;
         if (enabledVaults.length === 0) {
             throw new Error('No enabled vaults configured');
@@ -423,9 +431,11 @@ export async function buildIndex() {
             setIndexing(false);
             setBuildPromise(null); // BUG-044: Clear stale buildPromise
         }
+        _buildResolve();
     }
-    })();
-    setBuildPromise(promise);
+    })().catch(err => { _buildReject(err); });
+    // Note: the IIFE catches its own errors and resolves the deferred in finally.
+    // The outer .catch is a safety net for any truly unexpected sync throw.
     return promise;
 }
 
@@ -507,7 +517,11 @@ export async function buildIndexWithReuse() {
     const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     if (enabledVaults.length === 0) return false;
 
-    // Set indexing flag BEFORE any async work to prevent concurrent reuse sync calls
+    // BUG-010: Atomically install buildPromise before setIndexing(true) so sync observers
+    // that see indexing===true always find a populated buildPromise.
+    let _reuseResolve, _reuseReject;
+    const promise = new Promise((res, rej) => { _reuseResolve = res; _reuseReject = rej; });
+    setBuildPromise(promise);
     setIndexing(true);
 
     const tagConfig = {
@@ -522,10 +536,17 @@ export async function buildIndexWithReuse() {
     // Snapshot vaultIndex to avoid races with concurrent builds
     const indexSnapshot = [...vaultIndex];
 
-    const promise = (async () => {
+    (async () => {
+    let _reuseResult = false;
     try {
         // BUG-F3: Reload field definitions during incremental sync (was only loaded in full buildIndex)
+        // BUG-008: Resolve into a local variable first. Do NOT mutate shared `fieldDefinitions`
+        // state mid-parse — doing so creates a half-stale window where reused entries still
+        // carry customFields parsed under the old schema while newly-parsed entries use the new
+        // schema, and concurrent readers of state see inconsistent definitions. Commit to state
+        // once after parsing is complete (below, just before finalizeIndex).
         const oldFieldDefsHash = simpleHash(JSON.stringify(fieldDefinitions.map(f => f.name + f.type + (f.multi || ''))));
+        let newFieldDefs = fieldDefinitions; // default: keep existing (for non-404 fetch errors)
         const primaryVault = enabledVaults[0];
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
         try {
@@ -533,13 +554,13 @@ export async function buildIndexWithReuse() {
             if (fdResult.ok && fdResult.content) {
                 const { definitions } = parseFieldDefinitionYaml(fdResult.content);
                 if (definitions.length > 0) {
-                    setFieldDefinitions(definitions);
+                    newFieldDefs = definitions;
                 } else {
-                    setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+                    newFieldDefs = [...DEFAULT_FIELD_DEFINITIONS];
                 }
             } else if (fdResult.error === 'not_found') {
                 // 404 — file genuinely missing, fall back to defaults
-                setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+                newFieldDefs = [...DEFAULT_FIELD_DEFINITIONS];
             }
             // Other errors (5xx, network): keep existing field definitions to avoid clobbering user schema
         } catch (err) {
@@ -554,7 +575,7 @@ export async function buildIndexWithReuse() {
         }
 
         // If field definitions changed, force all entries to re-parse so customFields update
-        const newFieldDefsHash = simpleHash(JSON.stringify(fieldDefinitions.map(f => f.name + f.type + (f.multi || ''))));
+        const newFieldDefsHash = simpleHash(JSON.stringify(newFieldDefs.map(f => f.name + f.type + (f.multi || ''))));
         const fieldDefsChanged = oldFieldDefsHash !== newFieldDefsHash;
         let hasChanges = fieldDefsChanged;
         let anyVaultFailed = false;
@@ -602,7 +623,7 @@ export async function buildIndexWithReuse() {
                     } else {
                         // New or modified — re-parse
                         hasChanges = true;
-                        const entry = parseVaultFile(file, tagConfig, fieldDefinitions);
+                        const entry = parseVaultFile(file, tagConfig, newFieldDefs);
                         if (entry) {
                             entry.vaultSource = vault.name;
                             entry._contentHash = fileHash;
@@ -646,7 +667,8 @@ export async function buildIndexWithReuse() {
             if (settings.debugMode) {
                 console.debug(`[DLE] Reuse sync: no changes detected${anyVaultFailed ? ' (some vaults failed)' : ''}`);
             }
-            return true;
+            _reuseResult = true;
+            return;
         }
 
         if (settings.debugMode) {
@@ -655,6 +677,13 @@ export async function buildIndexWithReuse() {
 
         // BUG-007: Apply multi-vault dedup (was missing from reuse path)
         const dedupedEntries = deduplicateMultiVault(allEntries, settings.multiVaultConflictResolution);
+
+        // BUG-008: Commit new field definitions to shared state ONCE, after parsing is complete.
+        // This closes the half-stale window that existed when setFieldDefinitions was called
+        // before the parse loop.
+        if (fieldDefsChanged) {
+            setFieldDefinitions(newFieldDefs);
+        }
 
         // Apply changes
         setVaultIndex(dedupedEntries);
@@ -666,16 +695,16 @@ export async function buildIndexWithReuse() {
             console.log(`[DLE] Reuse sync: ${allEntries.length} entries after reuse rebuild`);
         }
 
-        return true;
+        _reuseResult = true;
     } catch (err) {
         console.warn('[DLE] Reuse sync error:', err.message);
-        return false;
+        _reuseResult = false;
     } finally {
         setIndexing(false);
         setBuildPromise(null); // BUG-044: Clear stale buildPromise
+        _reuseResolve(_reuseResult);
     }
-    })();
-    setBuildPromise(promise);
+    })().catch(err => { _reuseReject(err); });
     return promise;
 }
 

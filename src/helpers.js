@@ -827,9 +827,15 @@ export function validateSessionResponse(parsed) {
         if (typeof parsed.draft !== 'object' || Array.isArray(parsed.draft)) {
             errors.push("'draft' must be an object or null");
         } else {
+            // BUG-025: Partial drafts are legitimate during iterative `update_draft` turns —
+            // Emma may emit just the fields she's currently refining. Only validate fields
+            // that are PRESENT; do not require title/content/keys to exist. Empty-string
+            // checks still apply to fields that *are* provided, so we reject obvious garbage.
             const d = parsed.draft;
-            if (!d.title || (typeof d.title === 'string' && !d.title.trim())) {
-                errors.push('draft.title is required and cannot be empty');
+            if (d.title !== undefined && d.title !== null) {
+                if (typeof d.title !== 'string' || !d.title.trim()) {
+                    errors.push('draft.title cannot be empty when provided');
+                }
             }
             if (d.type !== undefined && !VALID_ENTRY_TYPES.includes(d.type)) {
                 errors.push(`draft.type must be one of: ${VALID_ENTRY_TYPES.join(', ')}. Got: '${d.type}'`);
@@ -839,12 +845,11 @@ export function validateSessionResponse(parsed) {
                     errors.push(`draft.priority must be a number between 1 and 100. Got: '${d.priority}'`);
                 }
             }
-            if (d.keys !== undefined) {
+            if (d.keys !== undefined && d.keys !== null) {
                 if (!Array.isArray(d.keys)) {
                     errors.push('draft.keys must be an array');
-                } else if (d.keys.length === 0) {
-                    errors.push('draft.keys must contain at least one keyword');
-                } else {
+                } else if (d.keys.length > 0) {
+                    // Allow empty array during partial drafts (Emma may not have proposed keys yet).
                     const emptyIndices = d.keys.reduce((acc, k, i) => {
                         if (typeof k !== 'string' || !k.trim()) acc.push(i);
                         return acc;
@@ -857,9 +862,10 @@ export function validateSessionResponse(parsed) {
             if (d.summary !== undefined && typeof d.summary === 'string' && d.summary.length > 600) {
                 errors.push(`draft.summary exceeds 600 character limit (${d.summary.length} chars)`);
             }
-            if (d.content !== undefined) {
-                if (typeof d.content !== 'string' || d.content.length < 50) {
-                    errors.push('draft.content is required and must be at least 50 characters');
+            if (d.content !== undefined && d.content !== null) {
+                // Allow short partial content during iteration; only reject non-string types.
+                if (typeof d.content !== 'string') {
+                    errors.push('draft.content must be a string when provided');
                 }
             }
         }

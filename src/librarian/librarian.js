@@ -114,7 +114,7 @@ export function registerLibrarianTools() {
  * Ensure ST's chat-completion profile has Function Calling enabled.
  * Librarian is opt-in, so the user has already consented to tool use by enabling it.
  */
-function ensureFunctionCallingEnabled() {
+export function ensureFunctionCallingEnabled() {
     try {
         // Lazy import — openai.js is heavy and only needed once at registration
         import('../../../../../openai.js').then(({ oai_settings, saveSettingsDebounced }) => {

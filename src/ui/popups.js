@@ -5,10 +5,10 @@
  * (showGraphPopup moved to src/graph.js)
  */
 import {
-    saveChatDebounced,
     chat_metadata,
     chat,
 } from '../../../../../../script.js';
+import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { getTokenCountAsync } from '../../../../../tokenizers.js';
@@ -126,7 +126,7 @@ export async function showNotebookPopup() {
 
     if (result) {
         chat_metadata.deeplore_notebook = capturedValue;
-        saveChatDebounced();
+        saveMetadataDebounced();
     }
 }
 
@@ -172,7 +172,7 @@ export async function showAiNotepadPopup() {
 
     if (result) {
         chat_metadata.deeplore_ai_notepad = capturedValue;
-        saveChatDebounced();
+        saveMetadataDebounced();
     }
 }
 

@@ -14,7 +14,7 @@ import {
     isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe,
     fieldDefinitions,
 } from '../state.js';
-import { dedupWarning } from '../toast-dedup.js';
+import { dedupWarning, dedupError } from '../toast-dedup.js';
 // Re-export pure functions from helpers.js for consumers that import from ai.js
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
 // buildCandidateManifest extracted to manifest.js for testability
@@ -730,12 +730,23 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     } catch (err) {
         // BUG-005: Detect timeouts from both profile mode (AbortError) and proxy mode (message-based)
         const isTimeout = err.name === 'AbortError' || /timed?\s*out|abort/i.test(err.message);
-        // Don't trip circuit breaker for throttle or timeout (both are transient, not systematic)
-        if (!err.throttled && !isTimeout) recordAiFailure();
+        // BUG-020: Classify HTTP errors — surface auth failures immediately (no circuit trip),
+        // treat 429 as rate-limit (no circuit trip, transient), let 5xx/network trip the circuit.
+        const status = Number(err.status) || Number((err.message || '').match(/\b(4\d\d|5\d\d)\b/)?.[1]) || 0;
+        const isRateLimit = status === 429 || /rate.?limit|too many requests/i.test(err.message || '');
+        const isAuthError = status === 401 || status === 403 || /unauthoriz|forbidden|invalid api key|auth/i.test(err.message || '');
+        // Don't trip circuit breaker for throttle, timeout, rate-limit, or auth errors
+        if (!err.throttled && !isTimeout && !isRateLimit && !isAuthError) recordAiFailure();
         if (isTimeout) {
             console.warn('[DLE] AI search timed out');
         } else if (err.throttled) {
             if (settings.debugMode) console.debug('[DLE] AI search throttled — using cache/keywords');
+        } else if (isAuthError) {
+            console.error('[DLE] AI search auth error:', err);
+            dedupError(`AI search authentication failed (${status || 'check API key'}). Verify your profile credentials.`, 'aiSearch_auth_error', { hint: err.message || String(err), timeOut: 15000 });
+        } else if (isRateLimit) {
+            console.warn('[DLE] AI search rate-limited:', err.message);
+            dedupWarning('AI search rate-limited by provider — falling back to keywords.', 'aiSearch_rate_limit', { hint: err.message || String(err) });
         } else {
             console.error('[DLE] AI search error:', err);
         }

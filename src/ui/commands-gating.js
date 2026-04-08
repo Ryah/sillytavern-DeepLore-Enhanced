@@ -3,7 +3,8 @@
  * /dle-pin, /dle-unpin, /dle-block, /dle-unblock, /dle-pins,
  * /dle-set-era, /dle-set-location, /dle-set-scene, /dle-set-characters, /dle-context-state
  */
-import { chat_metadata, saveChatDebounced } from '../../../../../../script.js';
+import { chat_metadata } from '../../../../../../script.js';
+import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
@@ -40,7 +41,7 @@ export function registerGatingCommands() {
                 chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(b => !matchesPinBlock(b, entry));
             }
             chat_metadata.deeplore_pins.push({ title: entry.title, vaultSource: entry.vaultSource || null });
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyPinBlockChanged();
             toastr.success(`Pinned "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
@@ -61,7 +62,7 @@ export function registerGatingCommands() {
             if (idx === -1) { toastr.info(`"${name}" is not pinned.`, 'DeepLore Enhanced'); return ''; }
             const removedItem = chat_metadata.deeplore_pins.splice(idx, 1)[0];
             const removed = normalizePinBlock(removedItem).title;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyPinBlockChanged();
             toastr.success(`Unpinned "${removed}".`, 'DeepLore Enhanced');
             return '';
@@ -91,7 +92,7 @@ export function registerGatingCommands() {
                 chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => !matchesPinBlock(p, entry));
             }
             chat_metadata.deeplore_blocks.push({ title: entry.title, vaultSource: entry.vaultSource || null });
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyPinBlockChanged();
             toastr.success(`Blocked "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
@@ -112,7 +113,7 @@ export function registerGatingCommands() {
             if (idx === -1) { toastr.info(`"${name}" is not blocked.`, 'DeepLore Enhanced'); return ''; }
             const removedItem = chat_metadata.deeplore_blocks.splice(idx, 1)[0];
             const removed = normalizePinBlock(removedItem).title;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyPinBlockChanged();
             toastr.success(`Unblocked "${removed}".`, 'DeepLore Enhanced');
             return '';
@@ -250,7 +251,7 @@ export function registerGatingCommands() {
                     btn.addEventListener('click', () => {
                         const selected = btn.getAttribute('data-value');
                         ctx[ctxField] = selected;
-                        saveChatDebounced();
+                        saveMetadataDebounced();
                         notifyGatingChanged();
                         if (selected) {
                             toastr.success(`${label} set to "${selected}" for this chat.`, 'DeepLore Enhanced');
@@ -280,7 +281,7 @@ export function registerGatingCommands() {
             // With argument — set directly with match feedback
             const ctx = ensureCtx();
             ctx.era = v;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
 
             const matchCount = countFieldMatches('era', v);
@@ -314,7 +315,7 @@ export function registerGatingCommands() {
 
             const ctx = ensureCtx();
             ctx.location = v;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
 
             const matchCount = countFieldMatches('location', v);
@@ -347,7 +348,7 @@ export function registerGatingCommands() {
 
             const ctx = ensureCtx();
             ctx.scene_type = v;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
 
             const matchCount = countFieldMatches('scene_type', v);
@@ -436,7 +437,7 @@ export function registerGatingCommands() {
                     },
                     onClose: () => {
                         ctx.character_present = [...selected];
-                        saveChatDebounced();
+                        saveMetadataDebounced();
                         notifyGatingChanged();
                         if (selected.size > 0) {
                             toastr.success(`Characters present: ${[...selected].join(', ')}`, 'DeepLore Enhanced');
@@ -450,7 +451,7 @@ export function registerGatingCommands() {
 
             // With argument — set directly
             ctx.character_present = v.split(',').map(c => c.trim()).filter(Boolean);
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
             toastr.success(`Characters present: ${ctx.character_present.join(', ')}`, 'DeepLore Enhanced');
             return '';
@@ -513,7 +514,7 @@ export function registerGatingCommands() {
             } else {
                 ctx[fd.contextKey] = value;
             }
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
 
             const matchCount = countFieldMatches(fd.name, value);
@@ -556,7 +557,7 @@ export function registerGatingCommands() {
             } else {
                 ctx[fd.contextKey] = null;
             }
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
             toastr.success(`${fd.label} cleared.`, 'DeepLore Enhanced');
             return '';
@@ -591,7 +592,7 @@ export function registerGatingCommands() {
                 toastr.info('No active gating filters to clear.', 'DeepLore Enhanced');
                 return '';
             }
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
             toastr.success(`Cleared ${cleared} gating filter${cleared !== 1 ? 's' : ''}.`, 'DeepLore Enhanced');
             return `Cleared ${cleared} fields`;
@@ -636,7 +637,7 @@ export function registerGatingCommands() {
                                 const selected = btn.getAttribute('data-value');
                                 if (!selected) {
                                     chat_metadata.deeplore_folder_filter = null;
-                                    saveChatDebounced();
+                                    saveMetadataDebounced();
                                     notifyGatingChanged();
                                     toastr.success('Folder filter cleared — all folders active.', 'DeepLore Enhanced');
                                     document.querySelector('.popup-button-ok')?.click();
@@ -652,7 +653,7 @@ export function registerGatingCommands() {
                                     chat_metadata.deeplore_folder_filter.push(selected);
                                     btn.classList.add('dle-field-select--active');
                                 }
-                                saveChatDebounced();
+                                saveMetadataDebounced();
                                 notifyGatingChanged();
                             });
                         }
@@ -681,7 +682,7 @@ export function registerGatingCommands() {
             }
 
             chat_metadata.deeplore_folder_filter = valid;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
 
             // Count matching entries
@@ -708,7 +709,7 @@ export function registerGatingCommands() {
                 return '';
             }
             chat_metadata.deeplore_folder_filter = null;
-            saveChatDebounced();
+            saveMetadataDebounced();
             notifyGatingChanged();
             toastr.success('Folder filter cleared — all folders active.', 'DeepLore Enhanced');
             return '';

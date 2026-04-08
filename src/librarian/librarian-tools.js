@@ -2,8 +2,7 @@
  * DeepLore Enhanced — Librarian Tool Action Implementations
  * search_lore and flag_lore tool actions called by ToolManager during generation.
  */
-import { saveChatDebounced } from '../../../../../../script.js';
-import { getContext } from '../../../../../extensions.js';
+import { getContext, saveMetadataDebounced } from '../../../../../extensions.js';
 import { truncateToSentence, escapeXml } from '../../core/utils.js';
 import { queryBM25, tokenize } from '../vault/bm25.js';
 import { getSettings } from '../../settings.js';
@@ -107,7 +106,7 @@ function persistGaps(updatedGaps) {
     const meta = ctx?.chatMetadata;
     if (meta) {
         meta.deeplore_lore_gaps = updatedGaps;
-        saveChatDebounced();
+        saveMetadataDebounced();
     }
 }
 
@@ -125,7 +124,7 @@ function writeGapIdArray(key, ids) {
     const meta = getContext()?.chatMetadata;
     if (!meta) return;
     meta[key] = ids;
-    saveChatDebounced();
+    saveMetadataDebounced();
 }
 
 /** Get the set of hidden gap ids for the current chat. */

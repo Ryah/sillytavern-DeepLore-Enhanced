@@ -420,9 +420,25 @@ export function getSettings() {
         extension_settings[MODULE_NAME] = {};
     }
 
-    // Fast path: return cached reference if already validated
+    // BUG-071: Numeric coercion MUST run on every call, not just the cache-miss path.
+    // Direct writes from UI/slash commands/migrations that skip invalidateSettingsCache()
+    // would otherwise leave string values masquerading as numbers for the rest of the
+    // session. The coercion loop is ~60 typeof checks — cheap enough to run unconditionally.
+    const s = extension_settings[MODULE_NAME];
+    for (const key of Object.keys(settingsConstraints)) {
+        if (s[key] !== undefined && typeof s[key] !== 'number') {
+            const num = Number(s[key]);
+            if (!Number.isNaN(num)) {
+                s[key] = num;
+            } else {
+                s[key] = defaultSettings[key];
+            }
+        }
+    }
+
+    // Fast path: return cached reference if defaults/migrations already filled in
     if (_cacheValid) {
-        return extension_settings[MODULE_NAME];
+        return s;
     }
 
     // Fill in any missing defaults
@@ -433,21 +449,9 @@ export function getSettings() {
                 : value;
         }
     }
-    // Coerce numeric settings that might have been stored as strings
-    for (const key of Object.keys(settingsConstraints)) {
-        if (extension_settings[MODULE_NAME][key] !== undefined && typeof extension_settings[MODULE_NAME][key] !== 'number') {
-            const num = Number(extension_settings[MODULE_NAME][key]);
-            if (!Number.isNaN(num)) {
-                extension_settings[MODULE_NAME][key] = num;
-            } else {
-                // Reset to default if non-numeric garbage
-                extension_settings[MODULE_NAME][key] = defaultSettings[key];
-            }
-        }
-    }
     validateSettings(extension_settings[MODULE_NAME], settingsConstraints);
 
-    const s = extension_settings[MODULE_NAME];
+    // (s already declared above in the numeric-coercion block)
 
     // Run migrations if settings version is behind
     const currentVersion = defaultSettings.settingsVersion;
@@ -484,6 +488,22 @@ export function getSettings() {
     }
     if (_migrationDirty) {
         try { saveSettingsDebounced(); } catch { /* may not be available pre-init */ }
+    }
+
+    // BUG-075: Establish vaults[primary] as the single source of truth for obsidianPort
+    // and obsidianApiKey. Run on every getSettings() call so any code path that mutates
+    // vaults[0] without touching the legacy fields (or vice versa) can't cause drift.
+    // vaults[] wins over the legacy scalars.
+    if (Array.isArray(s.vaults) && s.vaults.length > 0) {
+        const primary = s.vaults.find(v => v.enabled) || s.vaults[0];
+        if (primary) {
+            if (typeof primary.port === 'number' && s.obsidianPort !== primary.port) {
+                s.obsidianPort = primary.port;
+            }
+            if (typeof primary.apiKey === 'string' && s.obsidianApiKey !== primary.apiKey) {
+                s.obsidianApiKey = primary.apiKey;
+            }
+        }
     }
 
     _cacheValid = true;

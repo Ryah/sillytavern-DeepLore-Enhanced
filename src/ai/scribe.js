@@ -3,11 +3,11 @@
  */
 import {
     generateQuietPrompt,
-    saveChatDebounced,
     chat,
     chat_metadata,
     name2,
 } from '../../../../../../script.js';
+import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../settings.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildIndex } from '../vault/vault.js';
@@ -157,7 +157,7 @@ export async function runScribe(customPrompt) {
             setLastScribeSummary(sanitizedSummary.trim());
             setLastScribeChatLength(chat?.length || 0); // Use current length, not stale start value
             chat_metadata.deeplore_lastScribeSummary = lastScribeSummary;
-            saveChatDebounced();
+            saveMetadataDebounced();
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
             // Reindex so the newly-written note is immediately retrievable
             if (epoch !== chatEpoch) {

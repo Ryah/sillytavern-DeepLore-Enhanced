@@ -3,8 +3,7 @@
  * Manages multi-turn conversations with the librarian AI for entry creation/editing.
  * Includes response validation gate with auto-retry.
  */
-import { saveChatDebounced } from '../../../../../../script.js';
-import { getContext } from '../../../../../extensions.js';
+import { getContext, saveMetadataDebounced } from '../../../../../extensions.js';
 import { buildAiChatContext } from '../../core/utils.js';
 import { callAI, buildCandidateManifest } from '../ai/ai.js';
 import { queryBM25 } from '../vault/bm25.js';
@@ -642,8 +641,13 @@ export async function sendMessage(session, userMessage, options = {}) {
                 if (err.name === 'AbortError' || signal?.aborted) {
                     return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
                 }
-                lastErrors = [`AI call failed: ${err.message || err}`];
-                if (attempt < MAX_VALIDATION_RETRIES - 1) continue;
+                // BUG-019: Do NOT retry on AI transport errors — callViaProfile/callViaProxy
+                // already called recordAiFailure(), so looping here amplifies circuit trips
+                // (3 validation retries = 3 circuit failures = breaker opens after 2).
+                // Validation retries are only for parse/validation failures below, where the
+                // AI did respond successfully. Accumulate rather than overwrite so earlier
+                // parse/validation errors from prior attempts aren't lost.
+                lastErrors = [...lastErrors, `AI call failed: ${err.message || err}`];
                 return { parsed: null, valid: false, exhausted: true, lastErrors };
             }
 
@@ -654,7 +658,7 @@ export async function sendMessage(session, userMessage, options = {}) {
                     + `Respond with a valid JSON object matching the format in the system prompt. `
                     + `Do not include any text outside the JSON object.]\n\n`;
                 messageToSend = correction + buildUserPromptFromHistory(session.messages);
-                lastErrors = ['Response could not be parsed as JSON'];
+                lastErrors = [...lastErrors, 'Response could not be parsed as JSON'];
                 continue;
             }
 
@@ -664,7 +668,7 @@ export async function sendMessage(session, userMessage, options = {}) {
                 break;
             }
 
-            lastErrors = errors;
+            lastErrors = [...lastErrors, ...errors];
             const rejection = `[SYSTEM: Your response was rejected due to ${errors.length} validation error(s):\n`
                 + errors.map((e, i) => `${i + 1}. ${e}`).join('\n')
                 + `\nPlease fix these issues and resend your response in the correct format.]\n\n`;
@@ -823,6 +827,6 @@ export function updateGapStatus(gapId, newStatus) {
     const meta = ctx?.chatMetadata;
     if (meta) {
         meta.deeplore_lore_gaps = updated;
-        saveChatDebounced();
+        saveMetadataDebounced();
     }
 }

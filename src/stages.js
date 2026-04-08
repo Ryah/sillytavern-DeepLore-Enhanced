@@ -330,6 +330,13 @@ export function applyRequiresExcludesGating(entries, policy, debugMode) {
             removed.map(e => ({ title: e.title, requires: e.requires, excludes: e.excludes })));
     }
 
+    // BUG-012: Re-sort ascending by priority (lower number = higher priority) before
+    // returning. The descending order used during iteration is an internal detail
+    // of the excludes resolution loop; downstream consumers (formatAndGroup budget
+    // cap) expect priority-ascending order so the most important entries survive
+    // budget truncation.
+    result.sort((a, b) => (a.priority || 50) - (b.priority || 50) || a.title.localeCompare(b.title));
+
     return { result, removed };
 }
 

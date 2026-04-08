@@ -106,6 +106,10 @@ export async function runAutoSuggest() {
     const userMessage = `## Existing lorebook entries (do NOT suggest these):\n${existingTitles}\n\n## Recent Chat:\n${chatContext}\n\nSuggest new lorebook entries as a JSON array.`;
 
     const result = await callAutoSuggest(systemPrompt, userMessage);
+    // BUG-023: Post-AI-call epoch guard. If the user switched chats during the AI call,
+    // suggestions were generated against chat A's context — surfacing them in chat B would
+    // tag the wrong chat/characters, and with skipReview on they'd be written silently.
+    if (epoch !== chatEpoch) return [];
     const parsed = extractAiResponseClient(result.text);
 
     if (!Array.isArray(parsed)) return [];

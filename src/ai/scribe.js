@@ -173,9 +173,9 @@ export async function runScribe(customPrompt) {
         console.error('[DLE] Session Scribe error:', err);
         dedupError('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe_runtime_error', { hint: err && err.message });
     } finally {
-        // Only reset if we're still the active scribe (CHAT_CHANGED may have already reset it)
-        if (epoch === chatEpoch) {
-            setScribeInProgress(false);
-        }
+        // BUG-275: Always release the flag — this scribe invocation owns it from
+        // acquisition (L82) to release here. CHAT_CHANGED no longer touches it, so
+        // the prior epoch-guarded reset would have leaked the flag forever.
+        setScribeInProgress(false);
     }
 }

@@ -199,6 +199,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         if (lockAge > 30_000) {
             console.warn(`[DLE] Previous lore selection took too long (${Math.round(lockAge / 1000)}s) — releasing lock`);
             dedupWarning('Lore from the last message is taking a while — check your AI timeout setting.', 'pipeline_lock_stale', { hint: 'Pipeline lock held past 30s.' });
+            // BUG-274: Bump lockEpoch so the stuck pipeline (if it ever unsticks) can't win
+            // commit order against this new pipeline. Releasing without the epoch bump would
+            // let its late writes pass every `lockEpoch === generationLockEpoch` guard.
+            setGenerationLockEpoch(generationLockEpoch + 1);
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
@@ -1301,7 +1305,10 @@ jQuery(async function () {
 
             setLastScribeChatLength(chat ? chat.length : 0);
             setLastScribeSummary(chat_metadata?.deeplore_lastScribeSummary || '');
-            setScribeInProgress(false); // Reset scribe lock so auto-scribe works in new chat
+            // BUG-275: Do NOT reset scribeInProgress here. The in-flight scribe owns its
+            // own flag and will release it in its own finally (see scribe.js). Resetting
+            // here races with scribe A still mid-await and lets scribe B start concurrently
+            // on re-entry to chat A → two writeNotes + two reindexes racing.
             // BUG-061: Reset notepad extract lock so new chat's extraction isn't blocked
             // by a stale in-flight extract from the previous chat. The in-flight extract's
             // epoch guard (at the post-await check) will still prevent it from writing to

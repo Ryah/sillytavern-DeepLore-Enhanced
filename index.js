@@ -262,6 +262,14 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
+        // BUG-299: CHAT_CHANGED may have fired during the (up to 60s) ensureIndexFresh await.
+        // Bail before touching the swipe tracker snapshot so we don't tag a stale snapshot with
+        // the new chat's swipe keys or pollute the new chat's cooldown/decay/injection maps.
+        if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
+            if (settings.debugMode) console.debug('[DLE] Chat changed during index refresh — discarding pipeline');
+            return;
+        }
+
         // Snapshot vaultIndex at pipeline start to avoid races with background rebuilds
         // Filter out lorebook-guide entries — they are Librarian-only and must never reach the writing AI.
         const vaultSnapshot = getWriterVisibleEntries();
@@ -1069,9 +1077,13 @@ jQuery(async function () {
             // Instead, track which message consumed them to prevent re-consumption on subsequent renders.
             if (settings.showLoreSources && lastInjectionSources && lastInjectionSources.length > 0) {
                 if (lastInjectionEpoch === chatEpoch && lastInjectionSources._consumedByMesId !== messageId) {
+                    // BUG-301: re-validate message identity before writing sources. Also stamp
+                    // the owning swipe_id so downstream reads/cleanups can detect stale data
+                    // after swipe navigation instead of blindly trusting the array.
                     if (message && !message.is_user) {
                         message.extra = message.extra || {};
                         message.extra.deeplore_sources = lastInjectionSources;
+                        message.extra.deeplore_sources_swipe_id = message.swipe_id ?? 0;
                         lastInjectionSources._consumedByMesId = messageId;
                         saveMetadataDebounced();
                     }
@@ -1143,7 +1155,11 @@ jQuery(async function () {
 
         // Swipe handler: clear stale tool call data and sources from the swiped message
         _registerEs(event_types.MESSAGE_SWIPED, (messageId) => {
-            const message = chat[messageId];
+            // BUG-296: bounds check — ST can fire MESSAGE_SWIPED with a stale index after a
+            // delete that coincided with a swipe navigation. Don't trust the index blindly.
+            const idx = Number(messageId);
+            if (!Number.isInteger(idx) || idx < 0 || idx >= (chat?.length || 0)) return;
+            const message = chat[idx];
             if (!message || message.is_user) return;
 
             // Clear tool call dropdown data and DOM
@@ -1178,6 +1194,27 @@ jQuery(async function () {
                 delete message.extra.deeplore_sources;
                 saveMetadataDebounced();
             }
+
+            // BUG-294/300: rebuild chatInjectionCounts from the authoritative per-swipe map.
+            // The prior swipe's injected keys are still tracked in perSwipeInjectedKeys; swiping
+            // to a new (possibly un-generated) alternate must not leave those counts elevated.
+            // Summing across each message slot's CURRENT swipe_id yields the correct live state
+            // regardless of swipe direction, regen, or interleaving with in-flight pipelines.
+            try {
+                const rebuilt = new Map();
+                for (let i = 0; i < chat.length; i++) {
+                    const m = chat[i];
+                    if (!m || m.is_user) continue;
+                    const sKey = `${i}|${m.swipe_id ?? 0}`;
+                    const keys = perSwipeInjectedKeys.get(sKey);
+                    if (keys) {
+                        for (const k of keys) rebuilt.set(k, (rebuilt.get(k) || 0) + 1);
+                    }
+                }
+                setChatInjectionCounts(rebuilt);
+                chat_metadata.deeplore_chat_counts = Object.fromEntries(rebuilt);
+                saveMetadataDebounced();
+            } catch (err) { console.warn('[DLE] MESSAGE_SWIPED count rebuild failed:', err?.message); }
         });
 
         // BUG-037: Subscribe to message lifecycle events that were previously ignored.

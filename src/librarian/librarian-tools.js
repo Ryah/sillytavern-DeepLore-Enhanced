@@ -311,6 +311,10 @@ function resolveLinkedEntries(entry, excludeTitles, max = 10) {
 export async function searchLoreAction(args) {
     const settings = getSettings();
     const epoch = chatEpoch;
+    // BUG-295: snapshot the generation counter at call-start so a swipe that clears
+    // pendingToolCalls while this action is mid-await can't get its activity row pushed
+    // back into the fresh swipe's buffer.
+    const genAtStart = generationCount;
 
     // Accept both { queries: [...] } and legacy { query: "..." }
     let queries = args?.queries;
@@ -432,7 +436,12 @@ export async function searchLoreAction(args) {
         generation: generationCount,
     };
     sessionActivityLog.push(logEntry);
-    pendingToolCalls.push(logEntry);
+    // BUG-295: only push into the pending-tool-calls buffer if we're still in the same
+    // generation we started in — otherwise a swipe since call-start already flushed the
+    // buffer, and this late push would land in the next swipe's dropdown.
+    if (genAtStart === generationCount && epoch === chatEpoch) {
+        pendingToolCalls.push(logEntry);
+    }
     notifyLoreGapsChanged(); // Re-render Activity sub-tab even when persistGaps wasn't called
 
     // Analytics
@@ -452,6 +461,8 @@ export async function searchLoreAction(args) {
  */
 export async function flagLoreAction(args) {
     const epoch = chatEpoch; // Snapshot for stale-guard
+    // BUG-295: same generation-gen guard as searchLoreAction for the pendingToolCalls push.
+    const genAtStart = generationCount;
     const title = args?.title?.trim();
     const reason = args?.reason?.trim();
     if (!title) return 'No title provided.';
@@ -510,7 +521,10 @@ export async function flagLoreAction(args) {
         urgency,
     };
     sessionActivityLog.push(logEntry);
-    pendingToolCalls.push(logEntry);
+    // BUG-295: generation / chat gate — see searchLoreAction for rationale.
+    if (genAtStart === generationCount && epoch === chatEpoch) {
+        pendingToolCalls.push(logEntry);
+    }
     notifyLoreGapsChanged();
 
     // Analytics + stats (flags have minimal token overhead)

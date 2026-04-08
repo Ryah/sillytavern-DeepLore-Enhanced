@@ -251,8 +251,10 @@ export function setAiCircuitOpenedAt(v) { aiCircuitOpenedAt = v; }
 
 export function recordAiFailure() {
     const wasClosed = !aiCircuitOpen;
-    aiCircuitHalfOpenProbe = false;
-    aiCircuitProbeTimestamp = 0;
+    if (aiCircuitHalfOpenProbe) {
+        aiCircuitHalfOpenProbe = false;
+        aiCircuitProbeTimestamp = 0;
+    }
     aiCircuitFailures++;
     if (aiCircuitFailures >= AI_CIRCUIT_THRESHOLD) {
         aiCircuitOpen = true;

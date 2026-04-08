@@ -453,7 +453,7 @@ export async function showGraphPopup() {
     // ========================================================================
     // Initial node positions (Weighted BFS + progressive reveal)
     // ========================================================================
-    const springLen = settings.graphSpringLength || 80;
+    const springLen = settings.graphSpringLength || 200;
 
     const disconnected = nodes.filter(n => (edgeCountByNode.get(n.id) || 0) === 0);
     const orphanCols = Math.ceil(Math.sqrt(disconnected.length));

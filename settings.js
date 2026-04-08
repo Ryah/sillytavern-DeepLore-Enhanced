@@ -195,7 +195,7 @@ export const defaultSettings = {
     // Prompt Presets
     promptPresets: {},                     // { [toolKey]: { [presetName]: promptText } }
     // Graph
-    graphRepulsion: 0.3,               // ForceAtlas2 repulsion coefficient (0.1-50)
+    graphRepulsion: 0.3,               // ForceAtlas2 repulsion coefficient (0.1-5.0)
     graphSpringLength: 80,             // Legacy — not used in FA2 LinLog
     graphGravity: 11.0,                // ForceAtlas2 strong gravity (0.1-20)
     graphDamping: 0.50,                // Velocity damping (0.3-0.98)
@@ -346,6 +346,7 @@ function runMigrations(settings, fromVersion, toVersion) {
         if (settings.librarianSessionModel) {
             settings.librarianModel = settings.librarianSessionModel;
         }
+        delete settings.librarianSessionModel;
         // Do NOT auto-migrate other tools' connectionMode to 'inherit' — existing users keep explicit settings
     }
 }
@@ -460,6 +461,7 @@ export function getSettings() {
 
     // Multi-vault migration: if vaults[] was never migrated and legacy obsidianPort+apiKey exist, migrate once.
     // Require apiKey to avoid creating phantom vaults for brand-new users (default port is always set).
+    let _migrationDirty = false;
     if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort && s.obsidianApiKey) {
         // Legacy vaults were HTTP — preserve that to avoid breaking existing setups
         s.vaults = [{
@@ -471,13 +473,17 @@ export function getSettings() {
             enabled: true,
         }];
         s._vaultsMigrated = true;
+        _migrationDirty = true;
     }
 
     // Migrate existing vaults missing the host field (added for remote Obsidian support)
     if (Array.isArray(s.vaults)) {
         for (const v of s.vaults) {
-            if (!v.host) v.host = '127.0.0.1';
+            if (!v.host) { v.host = '127.0.0.1'; _migrationDirty = true; }
         }
+    }
+    if (_migrationDirty) {
+        try { saveSettingsDebounced(); } catch { /* may not be available pre-init */ }
     }
 
     _cacheValid = true;

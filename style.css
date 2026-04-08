@@ -255,6 +255,7 @@
     .dle-status-dot.dle-status-active {
         animation: none !important;
     }
+    .dle-shimmer { animation: none; opacity: 0.6; }
 }
 
 /* --- Section spacing between settings groups --- */
@@ -337,10 +338,6 @@
     100% { opacity: 0.4; }
 }
 .dle-shimmer { animation: dle-shimmer 1.5s ease-in-out infinite; color: var(--dle-text-muted); }
-
-@media (prefers-reduced-motion: reduce) {
-    .dle-shimmer { animation: none; opacity: 0.6; }
-}
 
 /* --- Semantic color classes --- */
 .dle-success { color: var(--dle-success); }
@@ -653,7 +650,7 @@ dle-notes { display: none !important; }
 }
 .dle-browse-table-row {
     cursor: pointer;
-    transition: background 120ms;
+    transition: background-color 120ms;
 }
 .dle-browse-table-row:hover {
     background: var(--dle-bg-hover);
@@ -1216,7 +1213,7 @@ button.dle-chip-x:hover {
     cursor: pointer;
     padding: 1px 8px;
     font-size: var(--dle-text-xs);
-    transition: all 120ms ease;
+    transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 .dle-why-filter-btn.active {
     background: color-mix(in srgb, var(--dle-accent) 20%, transparent);
@@ -1240,7 +1237,7 @@ button.dle-chip-x:hover {
     align-items: center;
     padding: 3px var(--dle-space-2);
     border-radius: var(--dle-radius-sm);
-    transition: background 120ms;
+    transition: background-color 120ms;
     animation: dle-entry-in 200ms ease-out both;
     animation-delay: calc(var(--i, 0) * 30ms);
     will-change: opacity, transform;
@@ -3196,7 +3193,7 @@ button.dle-browse-block.dle-block-active {
     transition: background-color 120ms ease, border-color 120ms ease;
 }
 .dle-rb-select:hover { border-color: var(--dle-accent); }
-.dle-rb-select:focus { outline: 1px solid var(--dle-accent); outline-offset: -1px; }
+.dle-rb-select:focus-visible { outline: 2px solid var(--dle-accent); outline-offset: -2px; }
 .dle-rb-tolerance { max-width: 280px; }
 .dle-rb-ctx { max-width: 200px; font-size: var(--dle-text-sm); }
 .dle-rb-field input[type="text"],
@@ -3325,7 +3322,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     font-size: var(--dle-text-base);
     font-weight: 700;
     border: 2px solid var(--dle-border);
-    transition: all 200ms ease;
+    transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease, box-shadow 200ms ease;
     color: var(--dle-text-muted);
 }
 .dle-wizard-step.active .dle-wizard-step-dot {
@@ -3894,7 +3891,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     border-radius: 4px;
     cursor: pointer;
     font-size: var(--dle-text-sm);
-    transition: background 0.15s;
+    transition: background-color 0.15s;
     border-left: 3px solid transparent;
     animation: dle-entry-in 200ms ease-out both;
 }
@@ -3924,7 +3921,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     grid-row: 1;
 }
 /* Checkbox and status share column 1; type=2, title=3, time=4 */
-.dle-gap-status { grid-column: 1; }
+/* (.dle-gap-status grid placement set in the full rule below at ~L3938) */
 .dle-gap-type { grid-column: 2; }
 .dle-gap-title { grid-column: 3; }
 .dle-gap-time { grid-column: 4; }
@@ -4364,7 +4361,6 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     font-size: var(--dle-text-sm);
     min-width: 100px;
     flex: 1;
-    outline: none;
 }
 .dle-key-input:focus-visible {
     outline: 2px solid var(--SmartThemeQuoteColor);
@@ -4448,9 +4444,6 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     gap: 4px;
     margin-bottom: 6px;
 }
-.dle-librarian-chat-title {
-    flex: 1;
-}
 .dle-librarian-chat-header .menu_button_icon {
     background: transparent;
     border: none;
@@ -4485,6 +4478,7 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     padding: 0 3px;
 }
 .dle-librarian-chat-title {
+    flex: 1;
     margin: 0;
     font-size: var(--dle-text-base);
     font-weight: 700;
@@ -4814,7 +4808,7 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     padding: 6px 8px;
     font-size: var(--dle-text-base);
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background-color 0.15s;
 }
 .dle-lib-queue-item:hover {
     background: color-mix(in srgb, var(--SmartThemeBodyColor) 8%, transparent);
@@ -5022,7 +5016,7 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     padding: var(--dle-space-2) var(--dle-space-3); cursor: pointer;
     border-radius: var(--dle-radius-md);
 }
-.dle-palette-item:hover, .dle-palette-item:focus {
+.dle-palette-item:hover, .dle-palette-item:focus-visible {
     background: var(--dle-bg-2);
 }
 .dle-palette-cmd { min-width: 180px; flex-shrink: 0; font-family: monospace; color: var(--dle-text-muted); font-size: var(--dle-text-sm); }

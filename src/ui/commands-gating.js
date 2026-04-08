@@ -3,8 +3,7 @@
  * /dle-pin, /dle-unpin, /dle-block, /dle-unblock, /dle-pins,
  * /dle-set-era, /dle-set-location, /dle-set-scene, /dle-set-characters, /dle-context-state
  */
-import { chat_metadata } from '../../../../../../script.js';
-import { saveChatDebounced } from '../../../../../../script.js';
+import { chat_metadata, saveChatDebounced } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';

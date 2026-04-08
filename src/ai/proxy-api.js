@@ -142,9 +142,13 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
             if (externalSignal?.aborted) {
                 const abortErr = new Error('Request aborted by user');
                 abortErr.name = 'AbortError';
+                abortErr.userAborted = true;
                 throw abortErr;
             }
-            throw new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`);
+            const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`);
+            timeoutErr.name = 'AbortError';
+            timeoutErr.timedOut = true;
+            throw timeoutErr;
         }
         throw err;
     } finally {

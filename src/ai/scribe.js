@@ -51,7 +51,8 @@ export async function callScribe(systemPrompt, userMessage, settings) {
             recordAiSuccess();
             return result.text || '';
         } catch (err) {
-            if (!err.throttled) recordAiFailure();
+            // BUG-252: user aborts and timeouts must not trip the circuit breaker.
+            if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
             throw err;
         }
     }

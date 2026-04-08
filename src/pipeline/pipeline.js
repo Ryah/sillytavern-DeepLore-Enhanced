@@ -37,7 +37,7 @@ export function matchEntries(chat, snapshot = null, opts = {}) {
  * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
-export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null } = {}) {
+export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null, signal = null } = {}) {
     // Snapshot settings and vault index so async stages (AI search) see a consistent view
     const rawSettings = getSettings();
     const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
@@ -74,7 +74,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
     if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
         // Hierarchical pre-filter: for large vaults, narrow candidates by category first
         let aiOnlyCandidates = vaultSnapshot;
-        const preFiltered = await hierarchicalPreFilter(vaultSnapshot, chat);
+        const preFiltered = await hierarchicalPreFilter(vaultSnapshot, chat, signal);
+        if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
         // BUG-FIX: Was `if (preFiltered)` which treats [] as falsy, discarding valid empty results
         if (preFiltered != null) {
             aiOnlyCandidates = preFiltered;
@@ -112,7 +113,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
         if (candidateManifest) {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates);
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates, signal);
+            if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
                 trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details
@@ -199,7 +201,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         // BUG-022: Use expandedMatched (includes wiki-linked candidates), not keywordResult.matched
         // null means "skip, use all"; empty array means "AI selected zero categories" — treat as valid filter
         let twoStageCandidates = expandedMatched;
-        const preFiltered = await hierarchicalPreFilter(expandedMatched, chat);
+        const preFiltered = await hierarchicalPreFilter(expandedMatched, chat, signal);
+        if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
         if (preFiltered != null) {
             twoStageCandidates = preFiltered;
             if (settings.debugMode) {
@@ -227,7 +230,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         if (!candidateManifest) {
             finalEntries = keywordResult.matched;
         } else {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates);
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates, signal);
+            if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
                 trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details

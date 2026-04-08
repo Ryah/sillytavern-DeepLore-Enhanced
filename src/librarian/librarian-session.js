@@ -646,6 +646,16 @@ function getConnectionConfig() {
 export async function sendMessage(session, userMessage, options = {}) {
     const { signal, onToolCall, onToolResult } = options;
 
+    // BUG-237/253/303: Snapshot history BEFORE any mutation. On abort, restore so
+    // the session isn't left with a one-sided user turn, orphan tool_results, or a
+    // truncated history the user never sees reflected in UI state.
+    const historySnapshot = session.messages.map(m => ({ ...m }));
+    let committed = false;
+    const abortReturn = () => {
+        if (!committed) session.messages = historySnapshot.map(m => ({ ...m }));
+        return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+    };
+
     // Append user message to history
     session.messages.push({ role: 'user', content: userMessage });
 
@@ -660,7 +670,7 @@ export async function sendMessage(session, userMessage, options = {}) {
     // eslint-disable-next-line no-constant-condition
     while (true) {
         if (signal?.aborted) {
-            return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+            return abortReturn();
         }
 
         // BUG-232: Hard iteration cap — prevents unbounded loop when AI ignores
@@ -682,7 +692,7 @@ export async function sendMessage(session, userMessage, options = {}) {
         // Inner loop: validation retries for this AI call
         for (let attempt = 0; attempt < MAX_VALIDATION_RETRIES; attempt++) {
             if (signal?.aborted) {
-                return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+                return abortReturn();
             }
 
             let result;
@@ -690,7 +700,7 @@ export async function sendMessage(session, userMessage, options = {}) {
                 result = await callAI(systemPrompt, messageToSend, connectionConfig);
             } catch (err) {
                 if (err.name === 'AbortError' || signal?.aborted) {
-                    return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+                    return abortReturn();
                 }
                 // BUG-019: Do NOT retry on AI transport errors — callViaProfile/callViaProxy
                 // already called recordAiFailure(), so looping here amplifies circuit trips
@@ -742,7 +752,7 @@ export async function sendMessage(session, userMessage, options = {}) {
             const results = [];
             for (const tc of validParsed.tool_calls) {
                 if (signal?.aborted) {
-                    return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+                    return abortReturn();
                 }
                 onToolCall?.(tc.name, tc.args);
                 const toolResult = executeToolCall(tc.name, tc.args || {});
@@ -781,6 +791,7 @@ export async function sendMessage(session, userMessage, options = {}) {
             session.lastOptions = validParsed.options;
         }
         session.messages.push({ role: 'assistant', content: validParsed.message || '' });
+        committed = true;
         return { parsed: validParsed, valid: true, exhausted: false, lastErrors: [] };
     }
 }
@@ -825,10 +836,17 @@ function buildUserPromptFromHistory(messages) {
  * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
  */
 export async function editMessage(session, messageIndex, newText, options = {}) {
+    // BUG-237/253: snapshot before truncation so an aborted edit restores the full history
+    // rather than leaving the session permanently truncated.
+    const snapshot = session.messages.map(m => ({ ...m }));
     // Truncate history: keep everything before the edited message
     session.messages = session.messages.slice(0, messageIndex);
     // sendMessage will append the new user message and call AI
-    return sendMessage(session, newText, options);
+    const result = await sendMessage(session, newText, options);
+    if (!result.valid && result.lastErrors?.[0] === 'Aborted by user') {
+        session.messages = snapshot;
+    }
+    return result;
 }
 
 /**
@@ -839,6 +857,8 @@ export async function editMessage(session, messageIndex, newText, options = {}) 
  * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
  */
 export async function regenerateResponse(session, options = {}) {
+    // BUG-237/253: snapshot before mutation so an aborted regen restores the full history.
+    const snapshot = session.messages.map(m => ({ ...m }));
     // Find and remove the last assistant message
     let lastUserMsg = '';
     for (let i = session.messages.length - 1; i >= 0; i--) {
@@ -856,9 +876,14 @@ export async function regenerateResponse(session, options = {}) {
         }
     }
     if (!lastUserMsg) {
+        session.messages = snapshot;
         return { parsed: null, valid: false, exhausted: true, lastErrors: ['No message to regenerate'] };
     }
-    return sendMessage(session, lastUserMsg, options);
+    const result = await sendMessage(session, lastUserMsg, options);
+    if (!result.valid && result.lastErrors?.[0] === 'Aborted by user') {
+        session.messages = snapshot;
+    }
+    return result;
 }
 
 // ════════════════════════════════════════════════════════════════════════════

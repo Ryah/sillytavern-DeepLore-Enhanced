@@ -154,8 +154,20 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         // Enhance error with profile context for diagnosability
         const profileLabel = resolvedProfileId ? ` [profile: ${resolvedProfileId}]` : '';
         const modelLabel = resolvedModel ? ` [model: ${resolvedModel}]` : '';
+        // BUG-234/251/252: Distinguish user-abort from timeout. Preserve err.name='AbortError'
+        // on both so downstream checks work without regex fallback. Only rewrite message as
+        // "Request timed out" when the cause was actually our timeout timer, not a user Stop.
         if (err.name === 'AbortError') {
-            throw new Error(`Request timed out (${Math.round(timeout / 1000)}s)${profileLabel}${modelLabel}`);
+            if (externalSignal?.aborted) {
+                const abortErr = new Error(`Request aborted by user${profileLabel}${modelLabel}`);
+                abortErr.name = 'AbortError';
+                abortErr.userAborted = true;
+                throw abortErr;
+            }
+            const timeoutErr = new Error(`Request timed out (${Math.round(timeout / 1000)}s)${profileLabel}${modelLabel}`);
+            timeoutErr.name = 'AbortError';
+            timeoutErr.timedOut = true;
+            throw timeoutErr;
         }
         // Detect role-related failures and surface targeted guidance
         const msg = (err.message || '').toLowerCase();
@@ -177,7 +189,11 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
                 if (rethrow !== err) throw rethrow;
             }
         }
-        throw new Error(`${err.message}${profileLabel}${modelLabel}`);
+        // Preserve err.name on generic rethrow so AbortError/etc. classification survives.
+        const rethrow = new Error(`${err.message}${profileLabel}${modelLabel}`);
+        if (err.name && err.name !== 'Error') rethrow.name = err.name;
+        if (err.status) rethrow.status = err.status;
+        throw rethrow;
     } finally {
         if (externalSignal && onExternalAbort) externalSignal.removeEventListener('abort', onExternalAbort);
         clearTimeout(timer);
@@ -274,7 +290,7 @@ const HIERARCHICAL_THRESHOLD = 40;
  * @param {object[]} chat - Chat messages array
  * @returns {Promise<VaultEntry[]|null>} Filtered candidates, or null to skip (use all)
  */
-export async function hierarchicalPreFilter(candidates, chat) {
+export async function hierarchicalPreFilter(candidates, chat, signal) {
     const settings = getSettings();
     const bootstrapActive = chat.length <= settings.newChatThreshold;
     const selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive }));
@@ -316,6 +332,7 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
             maxTokens: AI_PREFILTER_MAX_TOKENS,
             timeout: settings.aiSearchTimeout,
             skipThrottle: true, // BUG-006: Don't throttle hierarchical pre-filter (it chains with aiSearch)
+            signal, // BUG-233: propagate user-abort signal
         });
         const responseText = result.text;
         const usage = result.usage;
@@ -411,7 +428,7 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
  * @param {VaultEntry[]} [snapshot] - Vault index snapshot (avoids stale global reads after await)
  * @returns {Promise<{ results: AiSearchMatch[], error: boolean }>}
  */
-export async function aiSearch(chat, candidateManifest, candidateHeader, snapshot, candidateEntries) {
+export async function aiSearch(chat, candidateManifest, candidateHeader, snapshot, candidateEntries, signal) {
     const settings = getSettings();
 
     if (!settings.aiSearchEnabled || !candidateManifest) {
@@ -622,6 +639,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             maxTokens: settings.aiSearchMaxTokens,
             timeout: settings.aiSearchTimeout,
             cacheHints,
+            signal, // BUG-233: propagate user-abort signal
         });
 
         aiSearchStats.calls++;
@@ -729,15 +747,20 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         return { results: filteredResults, error: false };
     } catch (err) {
         // BUG-005: Detect timeouts from both profile mode (AbortError) and proxy mode (message-based)
-        const isTimeout = err.name === 'AbortError' || /timed?\s*out|abort/i.test(err.message);
+        // BUG-252: user aborts are distinct from timeouts — both skip circuit-break, but user
+        // aborts should not log as "timed out".
+        const isUserAbort = err.userAborted === true || err.name === 'AbortError' && /aborted by user/i.test(err.message || '');
+        const isTimeout = !isUserAbort && (err.timedOut === true || err.name === 'AbortError' || /timed?\s*out/i.test(err.message));
         // BUG-020: Classify HTTP errors — surface auth failures immediately (no circuit trip),
         // treat 429 as rate-limit (no circuit trip, transient), let 5xx/network trip the circuit.
         const status = Number(err.status) || Number((err.message || '').match(/\b(4\d\d|5\d\d)\b/)?.[1]) || 0;
         const isRateLimit = status === 429 || /rate.?limit|too many requests/i.test(err.message || '');
         const isAuthError = status === 401 || status === 403 || /unauthoriz|forbidden|invalid api key|auth/i.test(err.message || '');
         // Don't trip circuit breaker for throttle, timeout, rate-limit, or auth errors
-        if (!err.throttled && !isTimeout && !isRateLimit && !isAuthError) recordAiFailure();
-        if (isTimeout) {
+        if (!err.throttled && !isTimeout && !isUserAbort && !isRateLimit && !isAuthError) recordAiFailure();
+        if (isUserAbort) {
+            if (settings.debugMode) console.debug('[DLE] AI search aborted by user');
+        } else if (isTimeout) {
             console.warn('[DLE] AI search timed out');
         } else if (err.throttled) {
             if (settings.debugMode) console.debug('[DLE] AI search throttled — using cache/keywords');

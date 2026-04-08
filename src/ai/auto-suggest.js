@@ -59,7 +59,8 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
             recordAiSuccess();
             return { text: response, usage: null };
         } catch (err) {
-            if (!err.throttled) recordAiFailure();
+            // BUG-252: user aborts and timeouts must not trip the circuit breaker.
+            if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
             throw err;
         }
     } else if (mode === 'profile' || mode === 'proxy') {
@@ -69,7 +70,7 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
             recordAiSuccess();
             return result;
         } catch (err) {
-            if (!err.throttled) recordAiFailure();
+            if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
             throw err;
         }
     }

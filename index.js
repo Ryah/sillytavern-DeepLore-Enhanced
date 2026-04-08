@@ -220,6 +220,13 @@ async function onGenerate(chat, contextSize, abort, type) {
     let pipelineRan = false;
     let injectedEntries = [];
 
+    // BUG-233: Per-generation AbortController so ST's Stop button can cancel the pipeline.
+    // Wired to GENERATION_STOPPED + CHAT_CHANGED; torn down in finally to avoid leaks.
+    const pipelineAbort = new AbortController();
+    const onStop = () => { try { pipelineAbort.abort(); } catch { /* noop */ } };
+    try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
+    try { eventSource.on(event_types.CHAT_CHANGED, onStop); } catch { /* noop */ }
+
     try {
         // Tag sources with this generation's epoch so CHARACTER_MESSAGE_RENDERED
         // only consumes sources from the correct generation (race condition fix).
@@ -304,7 +311,11 @@ async function onGenerate(chat, contextSize, abort, type) {
         const blocks = chat_metadata.deeplore_blocks || [];
         const folderFilter = chat_metadata.deeplore_folder_filter || null;
 
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx, { pins, blocks, folderFilter });
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal });
+        if (pipelineAbort.signal.aborted) {
+            if (settings.debugMode) console.debug('[DLE] Pipeline aborted by user before commit');
+            return;
+        }
         const policy = buildExemptionPolicy(vaultSnapshot, pins, blocks);
 
         // Stage 1: Pin/Block overrides
@@ -669,9 +680,17 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
     } catch (err) {
-        console.error('[DLE] Error during generation:', err);
-        dedupError('Couldn\'t load your lore. Try /dle-refresh, or /dle-health for diagnostics.', 'pipeline', { hint: classifyError(err) });
+        // BUG-233: User aborts are not errors — no toast, no log spam.
+        if (err?.userAborted || err?.name === 'AbortError' || pipelineAbort.signal.aborted) {
+            if (settings.debugMode) console.debug('[DLE] Pipeline aborted:', err?.message || 'user stop');
+        } else {
+            console.error('[DLE] Error during generation:', err);
+            dedupError('Couldn\'t load your lore. Try /dle-refresh, or /dle-health for diagnostics.', 'pipeline', { hint: classifyError(err) });
+        }
     } finally {
+        // BUG-233: Always tear down the abort listeners to avoid accumulation across generations.
+        try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
+        try { eventSource.removeListener(event_types.CHAT_CHANGED, onStop); } catch { /* noop */ }
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
         // Wrapped in try/catch to prevent tracking errors from blocking ST generation.

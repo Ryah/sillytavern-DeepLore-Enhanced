@@ -181,6 +181,12 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
     let dirtySinceLastWrite = false;
     let hasWrittenOnce = false;
 
+    // BUG-236/254/255: Lifted to outer scope so onClosing can abort in-flight calls
+    // when the popup is dismissed (X / Escape / Close), and so buildSendOptions can
+    // abort the previous controller before creating a new one (kills the rapid-resend
+    // race where the first call became un-stoppable).
+    let abortController = null;
+
     const result = await callGenericPopup(container, POPUP_TYPE.TEXT, '', {
         wider: true,
         large: true,
@@ -422,7 +428,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             const chatInput = container.querySelector('#dle-lib-chat-input');
             const sendBtn = container.querySelector('#dle-lib-send');
             const stopBtn = container.querySelector('#dle-lib-stop');
-            let abortController = null;
+            // abortController lifted to outer openLibrarianPopup scope for onClosing access.
 
             /** Track message index for edit/regenerate mapping */
             let msgCounter = 0;
@@ -721,6 +727,10 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
 
             /** Build sendMessage options with signal and tool callbacks */
             function buildSendOptions() {
+                // BUG-254/255: Abort any prior in-flight controller before replacing it,
+                // otherwise the prior call's listener still references the stale controller
+                // and the user can't stop it.
+                if (abortController) { try { abortController.abort(); } catch { /* noop */ } }
                 abortController = new AbortController();
                 turnToolDivs = [];
                 let currentToolDiv = null;
@@ -1092,6 +1102,11 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             }
         },
         onClosing: async () => {
+            // BUG-236: Abort any in-flight Librarian AI call when the popup is dismissed
+            // (X button / Escape / Close). Without this, the call keeps burning tokens
+            // until the provider returns, and any resulting history mutation becomes
+            // a ghost write against a closed session.
+            if (abortController) { try { abortController.abort(); } catch { /* noop */ } }
             // Clear auto-send timer to prevent wasted API call
             if (session._autoSendTimer) clearTimeout(session._autoSendTimer);
             clearTimeout(_saveTimer);

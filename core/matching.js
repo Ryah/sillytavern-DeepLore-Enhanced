@@ -305,13 +305,20 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                 // paragraph. Below this threshold, the truncated entry would be too
                 // short to provide useful context, so it's better to skip it entirely.
                 // Truncate entry to fit remaining budget (shallow copy — never mutate original)
-                // BUG-032: Use chars/4.0 ratio (more conservative, better alignment with actual tokenizer)
-                const maxChars = Math.floor(remainingTokens * 4.0);
+                // BUG-053: Derive per-entry chars/token ratio from the real index-time
+                // tokenEstimate (computed by getTokenCountAsync in vault.js). Falls back
+                // to 4.0 only if the entry lacks valid content/tokenEstimate. This keeps
+                // core/matching.js pure (no async, no ST imports) while using the real
+                // tokenizer's measurement of this specific entry.
+                const charsPerToken = (entry.tokenEstimate > 0 && entry.content && entry.content.length > 0)
+                    ? (entry.content.length / entry.tokenEstimate)
+                    : 4.0;
+                const maxChars = Math.floor(remainingTokens * charsPerToken);
                 const truncatedContent = truncateToSentence(entry.content, maxChars);
                 const truncatedEntry = {
                     ...entry,
                     content: truncatedContent,
-                    tokenEstimate: Math.ceil(truncatedContent.length / 4.0),
+                    tokenEstimate: Math.ceil(truncatedContent.length / charsPerToken),
                     _truncated: true,
                     _originalTokens: entry.tokenEstimate,
                     // Recompute content hash so strip-dedup doesn't use the pre-truncation hash

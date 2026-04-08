@@ -318,7 +318,7 @@ export async function showGraphPopup() {
             <div id="dle-graph-settings-panel" class="dle-graph-settings-panel dle-hidden">
                 <div class="dle-graph-settings-titlebar" id="dle-graph-settings-titlebar">
                     <span><i class="fa-solid fa-gear"></i> Graph Settings</span>
-                    <span class="dle-graph-settings-close" id="dle-graph-settings-panel-close">&times;</span>
+                    <span class="dle-graph-settings-close" id="dle-graph-settings-panel-close" role="button" tabindex="0" aria-label="Close graph settings">&times;</span>
                 </div>
                 <div class="dle-graph-settings-body">
                     <div class="dle-graph-settings-row dle-gap-1">

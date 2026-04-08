@@ -58,8 +58,13 @@ export function pickFlavorIntro() {
 }
 
 const MAX_VALIDATION_RETRIES = 3;
-const MAX_TOOL_CALLS_PER_TURN = 15;
+const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_HISTORY_MESSAGES = 10; // Keep last N messages to bound prompt growth
+// BUG-232: Hard cap on outer agentic-loop iterations (each iteration = one AI call).
+// Prevents unbounded loop when AI ignores the "tool call budget reached" nudge and
+// keeps returning tool_call actions. Slack covers worst case: MAX_TOOL_CALLS_PER_TURN
+// tool-call iterations + budget nudge iteration + final response + buffer.
+const MAX_AGENTIC_ITERATIONS = MAX_TOOL_CALLS_PER_TURN + 5;
 // Caps are now configurable via settings — these are fallback defaults
 function getManifestMaxChars() { return getSettings().librarianManifestMaxChars || 8000; }
 function getRelatedMaxChars() { return getSettings().librarianRelatedEntriesMaxChars || 4000; }
@@ -155,20 +160,32 @@ export function createSession(entryPoint, options = {}) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Session Persistence (survives page refresh via localStorage)
+// Session Persistence (BUG-043: now in chat_metadata so session is per-chat,
+// not browser-global. Legacy localStorage key is migrated once on load.)
 // ════════════════════════════════════════════════════════════════════════════
 
-const SESSION_STORAGE_KEY = 'deeplore_librarian_session';
+const SESSION_METADATA_KEY = 'deeplore_librarian_session';
+const LEGACY_STORAGE_KEY = 'deeplore_librarian_session';
+
+function getChatMetadata() {
+    try {
+        const ctx = getContext();
+        return ctx?.chatMetadata || null;
+    } catch {
+        return null;
+    }
+}
 
 /**
- * Save session state to localStorage for persistence across page refreshes.
- * Uses localStorage instead of chat_metadata so the session survives
- * regardless of whether a chat is selected.
+ * Save session state to chat_metadata so it's scoped to the current chat
+ * and survives page refreshes. If no chat is active, silently no-ops.
  * @param {LibrarianSession} session
  */
 export function saveSessionState(session) {
     try {
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({
+        const md = getChatMetadata();
+        if (!md) return; // No active chat — nothing to persist into
+        md[SESSION_METADATA_KEY] = {
             messages: session.messages,
             draftState: session.draftState,
             entryPoint: session.entryPoint,
@@ -180,31 +197,52 @@ export function saveSessionState(session) {
             mode: session.mode || null,
             guideBootstrap: session.guideBootstrap || '',
             savedAt: Date.now(),
-        }));
+        };
+        saveMetadataDebounced();
     } catch (e) {
         console.warn('[DLE] Failed to save librarian session:', e.message);
     }
 }
 
 /**
- * Load saved session state from localStorage.
+ * Load saved session state from chat_metadata, falling back to (and migrating)
+ * a legacy localStorage key one time so existing users don't lose their draft.
  * @returns {object|null} Saved session state, or null if none exists
  */
 export function loadSessionState() {
     try {
-        const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-        return raw ? JSON.parse(raw) : null;
+        const md = getChatMetadata();
+        if (md && md[SESSION_METADATA_KEY]) {
+            return md[SESSION_METADATA_KEY];
+        }
+        // Legacy migration: move browser-global draft into the current chat once
+        const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (md) {
+                md[SESSION_METADATA_KEY] = parsed;
+                saveMetadataDebounced();
+            }
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+            return parsed;
+        }
+        return null;
     } catch {
         return null;
     }
 }
 
 /**
- * Clear saved session state from localStorage.
+ * Clear saved session state from chat_metadata (and any lingering legacy localStorage key).
  */
 export function clearSessionState() {
     try {
-        localStorage.removeItem(SESSION_STORAGE_KEY);
+        const md = getChatMetadata();
+        if (md && SESSION_METADATA_KEY in md) {
+            delete md[SESSION_METADATA_KEY];
+            saveMetadataDebounced();
+        }
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {}
 }
 
@@ -615,6 +653,7 @@ export async function sendMessage(session, userMessage, options = {}) {
     const connectionConfig = { ...getConnectionConfig(), signal };
 
     let toolCallCount = 0;
+    let outerIterations = 0;
 
     // Outer loop: handles tool_call → re-enter AI cycle
     // Each iteration gets its own validation retry gate
@@ -622,6 +661,18 @@ export async function sendMessage(session, userMessage, options = {}) {
     while (true) {
         if (signal?.aborted) {
             return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+        }
+
+        // BUG-232: Hard iteration cap — prevents unbounded loop when AI ignores
+        // the tool-call budget nudge and keeps returning tool_call responses.
+        outerIterations++;
+        if (outerIterations > MAX_AGENTIC_ITERATIONS) {
+            return {
+                parsed: null,
+                valid: false,
+                exhausted: true,
+                lastErrors: [`Agentic loop iteration cap reached (${MAX_AGENTIC_ITERATIONS}) — AI kept requesting tool calls after budget exhausted`],
+            };
         }
 
         let messageToSend = buildUserPromptFromHistory(session.messages);
@@ -741,12 +792,17 @@ export async function sendMessage(session, userMessage, options = {}) {
  * @returns {string}
  */
 function buildUserPromptFromHistory(messages) {
-    // Keep last N messages to bound prompt growth
-    const recent = messages.length > MAX_HISTORY_MESSAGES
-        ? messages.slice(-MAX_HISTORY_MESSAGES)
-        : messages;
-    const prefix = messages.length > MAX_HISTORY_MESSAGES
-        ? `[...${messages.length - MAX_HISTORY_MESSAGES} earlier messages omitted]\n\n`
+    // Keep last N messages to bound prompt growth.
+    // BUG-317: Slice cannot start on a tool_result — that would orphan it from
+    // its triggering assistant tool_call and let the model hallucinate calls it
+    // never made. Bump the cut forward past any leading tool_result(s).
+    let start = Math.max(0, messages.length - MAX_HISTORY_MESSAGES);
+    while (start < messages.length && messages[start].role === 'tool_result') {
+        start++;
+    }
+    const recent = messages.slice(start);
+    const prefix = start > 0
+        ? `[...${start} earlier messages omitted]\n\n`
         : '';
     return prefix + recent.map(m => {
         if (m.role === 'tool_result') return `Tool Results:\n${m.content}`;

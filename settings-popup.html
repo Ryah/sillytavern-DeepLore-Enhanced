@@ -218,7 +218,7 @@
                     <div class="flex1" title="How DeepLore matches entries to inject.">
                         <label for="dle-sp-search-mode"><small>Mode</small></label>
                         <select id="dle-sp-search-mode" class="text_pole">
-                            <option value="keyword-only">Keyword Only</option>
+                            <option value="keywords-only">Keyword Only</option>
                             <option value="two-stage">Two-Stage (Keywords &rarr; AI)</option>
                             <option value="ai-only">AI Only</option>
                         </select>
@@ -562,7 +562,7 @@
             <div class="dle-sp-field-row">
                 <label for="dle-sp-ai-search-mode-mirror">Search Mode</label>
                 <select id="dle-sp-ai-search-mode-mirror" class="text_pole">
-                    <option value="keyword-only">Keyword Only</option>
+                    <option value="keywords-only">Keyword Only</option>
                     <option value="two-stage">Two-Stage (Keywords &rarr; AI)</option>
                     <option value="ai-only">AI Only</option>
                 </select>
@@ -991,22 +991,22 @@
                 </div>
                 <div class="dle-advanced-content" data-section="sp_librarian_advanced" style="display: none;">
                     <div class="flex-container">
-                        <div class="flex1" title="Maximum chars for vault manifest in session prompt. Larger = more context but higher token cost. Default: 8000.">
-                            <label for="dle-sp-librarian-manifest-max"><small>Manifest Budget (chars)</small></label>
+                        <div class="flex1" title="Maximum characters for the vault manifest section of the Librarian session prompt. Truncation is char-based (fast, sync). For natural-language content, divide by ~3.5 to estimate tokens (8000 chars ≈ 2300 tokens). Default: 8000.">
+                            <label for="dle-sp-librarian-manifest-max"><small>Manifest Budget (chars, ÷3.5 ≈ tokens)</small></label>
                             <input id="dle-sp-librarian-manifest-max" type="number" class="text_pole" min="2000" max="30000" step="500" />
                         </div>
-                        <div class="flex1" title="Maximum chars for related entries context. Default: 4000.">
-                            <label for="dle-sp-librarian-related-max"><small>Related Entries Budget</small></label>
+                        <div class="flex1" title="Maximum characters for related-entries context. Char-based truncation — divide by ~3.5 for a token estimate (4000 chars ≈ 1150 tokens). Default: 4000.">
+                            <label for="dle-sp-librarian-related-max"><small>Related Entries Budget (chars, ÷3.5 ≈ tokens)</small></label>
                             <input id="dle-sp-librarian-related-max" type="number" class="text_pole" min="1000" max="10000" step="500" />
                         </div>
                     </div>
                     <div class="flex-container">
-                        <div class="flex1" title="Maximum chars for chat context in session prompt. Default: 4000.">
-                            <label for="dle-sp-librarian-chat-context-max"><small>Chat Context Budget</small></label>
+                        <div class="flex1" title="Maximum characters for chat context in the Librarian session prompt. Char-based truncation — divide by ~3.5 for a token estimate (4000 chars ≈ 1150 tokens). Default: 4000.">
+                            <label for="dle-sp-librarian-chat-context-max"><small>Chat Context Budget (chars, ÷3.5 ≈ tokens)</small></label>
                             <input id="dle-sp-librarian-chat-context-max" type="number" class="text_pole" min="1000" max="10000" step="500" />
                         </div>
-                        <div class="flex1" title="Maximum chars for draft JSON in session prompt. Default: 4000.">
-                            <label for="dle-sp-librarian-draft-max"><small>Draft Budget</small></label>
+                        <div class="flex1" title="Maximum characters for the serialized draft JSON in the Librarian session prompt. Char-based truncation — divide by ~3.5 for a token estimate (4000 chars ≈ 1150 tokens). Default: 4000.">
+                            <label for="dle-sp-librarian-draft-max"><small>Draft Budget (chars, ÷3.5 ≈ tokens)</small></label>
                             <input id="dle-sp-librarian-draft-max" type="number" class="text_pole" min="2000" max="10000" step="500" />
                         </div>
                     </div>

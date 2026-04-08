@@ -36,17 +36,19 @@ export function initEvents(gs, dbg) {
 
         const vault = getVaultByName(settings, entry.vaultSource || '');
         const obsidianUri = vault ? buildObsidianURI(vault.name, entry.filename) : null;
+        // BUG-190: role + tabindex so items are keyboard-navigable
         const obsidianItem = obsidianUri
-            ? `<div class="dle-graph-ctx-item" data-action="obsidian">Open in Obsidian</div>`
+            ? `<div class="dle-graph-ctx-item" role="menuitem" tabindex="-1" data-action="obsidian">Open in Obsidian</div>`
             : '';
 
+        contextMenuEl.setAttribute('role', 'menu');
         contextMenuEl.innerHTML = `
             <div class="dle-graph-ctx-header">${escapeHtml(node.title)}</div>
-            <div class="dle-graph-ctx-item" data-action="pin">${pinLabel}</div>
+            <div class="dle-graph-ctx-item" role="menuitem" tabindex="-1" data-action="pin">${pinLabel}</div>
             ${obsidianItem}
-            <div class="dle-graph-ctx-item" data-action="focus-tree">Focus Tree</div>
-            <div class="dle-graph-ctx-item" data-action="details">Show Details</div>
-            <div class="dle-graph-ctx-item" data-action="copy-title">Copy Title</div>
+            <div class="dle-graph-ctx-item" role="menuitem" tabindex="-1" data-action="focus-tree">Focus Tree</div>
+            <div class="dle-graph-ctx-item" role="menuitem" tabindex="-1" data-action="details">Show Details</div>
+            <div class="dle-graph-ctx-item" role="menuitem" tabindex="-1" data-action="copy-title">Copy Title</div>
             <div class="dle-graph-ctx-sep"></div>
             <div class="dle-graph-ctx-item dle-dimmed">${connections} connection(s) · ~${node.tokens} tokens</div>
         `;
@@ -63,14 +65,38 @@ export function initEvents(gs, dbg) {
         contextMenuEl.style.top = `${ty}px`;
         contextMenuEl.style.display = 'block';
 
-        contextMenuEl.querySelectorAll('.dle-graph-ctx-item[data-action]').forEach(el => {
+        const items = Array.from(contextMenuEl.querySelectorAll('.dle-graph-ctx-item[data-action]'));
+        items.forEach((el, i) => {
             el.addEventListener('click', () => {
                 const action = el.dataset.action;
                 dbg(`Context menu click: action="${action}", contextMenuNode="${gs.contextMenuNode?.title}", tempPinned="${gs.tempPinnedNode?.title || 'none'}"`);
                 handleContextAction(action, gs.contextMenuNode);
                 hideContextMenu();
             }, { once: true });
+            // BUG-190: arrow-key nav + Enter/Space activation
+            el.addEventListener('keydown', (ev) => {
+                if (ev.key === 'ArrowDown') {
+                    ev.preventDefault();
+                    items[(i + 1) % items.length].focus();
+                } else if (ev.key === 'ArrowUp') {
+                    ev.preventDefault();
+                    items[(i - 1 + items.length) % items.length].focus();
+                } else if (ev.key === 'Home') {
+                    ev.preventDefault();
+                    items[0].focus();
+                } else if (ev.key === 'End') {
+                    ev.preventDefault();
+                    items[items.length - 1].focus();
+                } else if (ev.key === 'Escape') {
+                    ev.preventDefault();
+                    hideContextMenu();
+                } else if (ev.key === 'Enter' || ev.key === ' ') {
+                    ev.preventDefault();
+                    el.click();
+                }
+            });
         });
+        if (items[0]) items[0].focus();
     }
 
     function hideContextMenu() {

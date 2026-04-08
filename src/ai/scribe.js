@@ -86,14 +86,14 @@ export async function runScribe(customPrompt) {
     try {
         const settings = getSettings();
         if (!chat || chat.length === 0) {
-            dedupWarning('No active chat to summarize.', 'scribe');
+            dedupWarning('No active chat to summarize.', 'scribe_no_chat');
             return;
         }
 
         // Build context using shared utility with configurable depth
         const context = buildAiChatContext(chat, settings.scribeScanDepth);
         if (!context.trim()) {
-            dedupWarning('No messages to summarize.', 'scribe');
+            dedupWarning('No messages to summarize.', 'scribe_no_messages');
             return;
         }
 
@@ -115,7 +115,7 @@ export async function runScribe(customPrompt) {
         const summary = await callScribe(systemPrompt, userMessage, settings);
 
         if (!summary || !summary.trim()) {
-            dedupWarning('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe', { hint: 'Scribe returned empty summary.' });
+            dedupWarning('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe_empty_summary', { hint: 'Scribe returned empty summary.' });
             return;
         }
 
@@ -166,11 +166,11 @@ export async function runScribe(customPrompt) {
             }
             try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Scribe reindex after write failed:', reidxErr?.message); }
         } else {
-            dedupError('Couldn\'t save the session note to your vault.', 'scribe', { hint: data && data.error });
+            dedupError('Couldn\'t save the session note to your vault.', 'scribe_write_fail', { hint: data && data.error });
         }
     } catch (err) {
         console.error('[DLE] Session Scribe error:', err);
-        dedupError('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe', { hint: err && err.message });
+        dedupError('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe_runtime_error', { hint: err && err.message });
     } finally {
         // Only reset if we're still the active scribe (CHAT_CHANGED may have already reset it)
         if (epoch === chatEpoch) {

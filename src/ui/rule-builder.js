@@ -3,7 +3,6 @@
  * Zapier-style field definition editor for custom frontmatter gating fields.
  * Opens via "Manage Fields" button in the Gating tab.
  */
-import { saveSettingsDebounced } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../popup.js';
 import { getSettings, getPrimaryVault, invalidateSettingsCache } from '../../settings.js';
@@ -89,7 +88,7 @@ function buildFieldRowHtml(field, index) {
             <div class="dle-rb-row">
                 <label class="dle-rb-lbl">Context Key</label>
                 <input class="dle-rb-ctx text_pole" data-prop="contextKey" value="${contextKeyVal}" placeholder="chat_metadata key" title="Key used in chat_metadata.deeplore_context" />
-                <span class="dle-rb-link-icon" title="Linked to field name — click to unlink"><i class="fa-solid fa-link"></i></span>
+                <span class="dle-rb-link-icon" role="button" tabindex="0" aria-label="Toggle link between context key and field name" title="Linked to field name — click to unlink"><i class="fa-solid fa-link"></i></span>
             </div>
             <div class="dle-rb-row">
                 <label class="dle-rb-lbl">Allowed Values</label>
@@ -265,6 +264,14 @@ export async function openRuleBuilder() {
         $icon.css('opacity', '0.4');
     });
 
+    // ── Link icon keyboard activation (BUG-189) ──
+    $container.on('keydown', '.dle-rb-link-icon', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).trigger('click');
+        }
+    });
+
     // ── Link icon click: toggle sync ──
     $container.on('click', '.dle-rb-link-icon', function () {
         const $row = $(this).closest('.dle-rb-field');
@@ -383,8 +390,10 @@ export async function openRuleBuilder() {
                 return;
             }
 
-            // Update state
+            // Update state (BUG-134: explicitly invalidate settings cache since
+            // field definitions feed into settings-derived state downstream)
             setFieldDefinitions(newDefs);
+            invalidateSettingsCache();
             saved = true;
             dirty = false;
 

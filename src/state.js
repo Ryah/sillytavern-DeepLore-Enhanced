@@ -357,16 +357,20 @@ export function tryAcquireHalfOpenProbe() {
 // Registered by the UI layer so the data layer (vault.js) can notify without importing UI modules.
 // This breaks the vault.js → settings-ui.js inverted dependency.
 
-/** @type {Array<() => void>} */
-const indexUpdatedCallbacks = [];
+// BUG-026: All observer registries use Set + return-unsubscribe. This mirrors
+// the canonical claudeAutoEffortObservers pattern (line 134 above) and makes
+// callers responsible for releasing their subscriptions on teardown. Existing
+// clear*Callbacks exports are retained for CHAT_CHANGED flushes and test setup.
 
-/** Register a callback to run after the vault index is updated (built, delta-synced, or hydrated). */
+/** @type {Set<() => void>} */
+const indexUpdatedCallbacks = new Set();
+
+/** Register a callback; returns an unsubscribe function. */
 export function onIndexUpdated(callback) {
-    indexUpdatedCallbacks.push(callback);
+    indexUpdatedCallbacks.add(callback);
+    return () => indexUpdatedCallbacks.delete(callback);
 }
 
-
-/** Invoke all registered index-updated callbacks. Called by vault.js after index changes. */
 export function notifyIndexUpdated() {
     for (const cb of [...indexUpdatedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Index update callback error:', err.message); }
@@ -374,18 +378,15 @@ export function notifyIndexUpdated() {
 }
 
 // ── AI stats lifecycle callbacks ──
-// Same observer pattern: breaks the ai.js → settings-ui.js circular dependency.
 
-/** @type {Array<() => void>} */
-const aiStatsCallbacks = [];
+/** @type {Set<() => void>} */
+const aiStatsCallbacks = new Set();
 
-/** Register a callback to run when AI search stats are updated. */
 export function onAiStatsUpdated(callback) {
-    aiStatsCallbacks.push(callback);
+    aiStatsCallbacks.add(callback);
+    return () => aiStatsCallbacks.delete(callback);
 }
 
-
-/** Invoke all registered AI stats callbacks. Called by ai.js after stats change. */
 export function notifyAiStatsUpdated() {
     for (const cb of [...aiStatsCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] AI stats callback error:', err.message); }
@@ -393,18 +394,15 @@ export function notifyAiStatsUpdated() {
 }
 
 // ── AI circuit breaker state callbacks ──
-// Same observer pattern: notifies UI when the circuit breaker opens or closes.
 
-/** @type {Array<() => void>} */
-const circuitStateCallbacks = [];
+/** @type {Set<() => void>} */
+const circuitStateCallbacks = new Set();
 
-/** Register a callback to run when the AI circuit breaker state changes. */
 export function onCircuitStateChanged(callback) {
-    circuitStateCallbacks.push(callback);
+    circuitStateCallbacks.add(callback);
+    return () => circuitStateCallbacks.delete(callback);
 }
 
-
-/** Invoke all registered circuit state callbacks. Called by recordAiFailure/recordAiSuccess on state transitions. */
 export function notifyCircuitStateChanged() {
     for (const cb of [...circuitStateCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Circuit state callback error:', err.message); }
@@ -412,16 +410,16 @@ export function notifyCircuitStateChanged() {
 }
 
 // ── Pipeline complete callbacks ──
-// Fired after onGenerate completes (success or failure). Drawer uses this to update injection tab, status zone.
 
-/** @type {Array<() => void>} */
-const pipelineCompleteCallbacks = [];
+/** @type {Set<() => void>} */
+const pipelineCompleteCallbacks = new Set();
 
 export function onPipelineComplete(callback) {
-    pipelineCompleteCallbacks.push(callback);
+    pipelineCompleteCallbacks.add(callback);
+    return () => pipelineCompleteCallbacks.delete(callback);
 }
 
-export function clearPipelineCompleteCallbacks() { pipelineCompleteCallbacks.length = 0; }
+export function clearPipelineCompleteCallbacks() { pipelineCompleteCallbacks.clear(); }
 
 export function notifyPipelineComplete() {
     for (const cb of [...pipelineCompleteCallbacks]) {
@@ -430,16 +428,16 @@ export function notifyPipelineComplete() {
 }
 
 // ── Gating changed callbacks ──
-// Fired after gating commands modify chat_metadata.deeplore_context.
 
-/** @type {Array<() => void>} */
-const gatingChangedCallbacks = [];
+/** @type {Set<() => void>} */
+const gatingChangedCallbacks = new Set();
 
 export function onGatingChanged(callback) {
-    gatingChangedCallbacks.push(callback);
+    gatingChangedCallbacks.add(callback);
+    return () => gatingChangedCallbacks.delete(callback);
 }
 
-export function clearGatingCallbacks() { gatingChangedCallbacks.length = 0; }
+export function clearGatingCallbacks() { gatingChangedCallbacks.clear(); }
 
 export function notifyGatingChanged() {
     setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
@@ -449,16 +447,16 @@ export function notifyGatingChanged() {
 }
 
 // ── Pin/block changed callbacks ──
-// Fired after pin/block commands modify chat_metadata.deeplore_pins/blocks.
 
-/** @type {Array<() => void>} */
-const pinBlockChangedCallbacks = [];
+/** @type {Set<() => void>} */
+const pinBlockChangedCallbacks = new Set();
 
 export function onPinBlockChanged(callback) {
-    pinBlockChangedCallbacks.push(callback);
+    pinBlockChangedCallbacks.add(callback);
+    return () => pinBlockChangedCallbacks.delete(callback);
 }
 
-export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.length = 0; }
+export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.clear(); }
 
 export function notifyPinBlockChanged() {
     setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
@@ -468,16 +466,16 @@ export function notifyPinBlockChanged() {
 }
 
 // ── Generation lock changed callbacks ──
-// Fired when generationLock toggles (pipeline start/end). Drawer uses this for the "Choosing Lore..." label.
 
-/** @type {Array<() => void>} */
-const generationLockCallbacks = [];
+/** @type {Set<() => void>} */
+const generationLockCallbacks = new Set();
 
 export function onGenerationLockChanged(callback) {
-    generationLockCallbacks.push(callback);
+    generationLockCallbacks.add(callback);
+    return () => generationLockCallbacks.delete(callback);
 }
 
-export function clearGenerationLockCallbacks() { generationLockCallbacks.length = 0; }
+export function clearGenerationLockCallbacks() { generationLockCallbacks.clear(); }
 
 function notifyGenerationLockChanged() {
     for (const cb of [...generationLockCallbacks]) {
@@ -486,13 +484,13 @@ function notifyGenerationLockChanged() {
 }
 
 // ── Field definitions changed callbacks ──
-// Fired when setFieldDefinitions() is called (e.g., after loading from Obsidian or rule builder save).
 
-/** @type {Array<() => void>} */
-const fieldDefinitionsCallbacks = [];
+/** @type {Set<() => void>} */
+const fieldDefinitionsCallbacks = new Set();
 
 export function onFieldDefinitionsUpdated(callback) {
-    fieldDefinitionsCallbacks.push(callback);
+    fieldDefinitionsCallbacks.add(callback);
+    return () => fieldDefinitionsCallbacks.delete(callback);
 }
 
 function notifyFieldDefinitionsUpdated() {
@@ -503,13 +501,13 @@ function notifyFieldDefinitionsUpdated() {
 }
 
 // ── Indexing state changed callbacks ──
-// Fired when setIndexing() toggles. Drawer uses this for loading indicators.
 
-/** @type {Array<() => void>} */
-const indexingChangedCallbacks = [];
+/** @type {Set<() => void>} */
+const indexingChangedCallbacks = new Set();
 
 export function onIndexingChanged(callback) {
-    indexingChangedCallbacks.push(callback);
+    indexingChangedCallbacks.add(callback);
+    return () => indexingChangedCallbacks.delete(callback);
 }
 
 function notifyIndexingChanged() {
@@ -519,16 +517,16 @@ function notifyIndexingChanged() {
 }
 
 // ── Lore gaps changed callbacks ──
-// Fired when lore gap records are added/updated (librarian tools, review popup).
 
-/** @type {Array<() => void>} */
-const loreGapsChangedCallbacks = [];
+/** @type {Set<() => void>} */
+const loreGapsChangedCallbacks = new Set();
 
 export function onLoreGapsChanged(callback) {
-    loreGapsChangedCallbacks.push(callback);
+    loreGapsChangedCallbacks.add(callback);
+    return () => loreGapsChangedCallbacks.delete(callback);
 }
 
-export function clearLoreGapsCallbacks() { loreGapsChangedCallbacks.length = 0; }
+export function clearLoreGapsCallbacks() { loreGapsChangedCallbacks.clear(); }
 
 export function notifyLoreGapsChanged() {
     for (const cb of [...loreGapsChangedCallbacks]) {

@@ -9,7 +9,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
-import { SlashCommandArgument } from '../../../../../slash-commands/SlashCommandArgument.js';
+import { SlashCommandArgument, ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
 import { SlashCommandEnumValue } from '../../../../../slash-commands/SlashCommandEnumValue.js';
 import { vaultIndex, fieldDefinitions, folderList, notifyGatingChanged, notifyPinBlockChanged } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
@@ -46,6 +46,12 @@ export function registerGatingCommands() {
             toastr.success(`Pinned "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'entry title to pin',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: true,
+            enumProvider: () => vaultIndex.map(e => new SlashCommandEnumValue(e.title)),
+        })],
         helpString: 'Pin an entry so it always injects in this chat. Usage: /dle-pin <entry name>.',
         returns: 'Status message',
     }));
@@ -67,6 +73,12 @@ export function registerGatingCommands() {
             toastr.success(`Unpinned "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'pinned entry title to unpin',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: true,
+            enumProvider: () => (chat_metadata.deeplore_pins || []).map(p => new SlashCommandEnumValue(normalizePinBlock(p).title)),
+        })],
         helpString: 'Remove a per-chat pin. Usage: /dle-unpin <entry name>.',
         returns: 'Status message',
     }));
@@ -97,6 +109,12 @@ export function registerGatingCommands() {
             toastr.success(`Blocked "${entry.title}" for this chat.`, 'DeepLore Enhanced');
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'entry title to block',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: true,
+            enumProvider: () => vaultIndex.map(e => new SlashCommandEnumValue(e.title)),
+        })],
         helpString: 'Block an entry so it never injects in this chat. Usage: /dle-block <entry name>.',
         returns: 'Status message',
     }));
@@ -118,6 +136,12 @@ export function registerGatingCommands() {
             toastr.success(`Unblocked "${removed}".`, 'DeepLore Enhanced');
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'blocked entry title to unblock',
+            typeList: [ARGUMENT_TYPE.STRING],
+            isRequired: true,
+            enumProvider: () => (chat_metadata.deeplore_blocks || []).map(b => new SlashCommandEnumValue(normalizePinBlock(b).title)),
+        })],
         helpString: 'Remove a per-chat block. Usage: /dle-unblock <entry name>.',
         returns: 'Status message',
     }));
@@ -298,6 +322,11 @@ export function registerGatingCommands() {
             }
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'era value (e.g. Modern, Medieval)',
+            typeList: [ARGUMENT_TYPE.STRING],
+            enumProvider: () => [...collectFieldValues('era').values()].map(v => new SlashCommandEnumValue(v.display)),
+        })],
         helpString: 'Set the current era for contextual gating. Usage: /dle-set-era <era>. Run without args to browse available values.',
         returns: 'Status message',
     }));
@@ -332,6 +361,11 @@ export function registerGatingCommands() {
             }
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'location value',
+            typeList: [ARGUMENT_TYPE.STRING],
+            enumProvider: () => [...collectFieldValues('location').values()].map(v => new SlashCommandEnumValue(v.display)),
+        })],
         helpString: 'Set the current location for contextual gating. Usage: /dle-set-location <location>. Run without args to browse available values.',
         returns: 'Status message',
     }));
@@ -365,6 +399,11 @@ export function registerGatingCommands() {
             }
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'scene type value',
+            typeList: [ARGUMENT_TYPE.STRING],
+            enumProvider: () => [...collectFieldValues('scene_type').values()].map(v => new SlashCommandEnumValue(v.display)),
+        })],
         helpString: 'Set the current scene type for contextual gating. Usage: /dle-set-scene <type>. Run without args to browse available values.',
         returns: 'Status message',
     }));
@@ -456,6 +495,11 @@ export function registerGatingCommands() {
             toastr.success(`Characters present: ${ctx.character_present.join(', ')}`, 'DeepLore Enhanced');
             return '';
         },
+        unnamedArgumentList: [SlashCommandArgument.fromProps({
+            description: 'comma-separated character names',
+            typeList: [ARGUMENT_TYPE.STRING],
+            enumProvider: () => [...collectFieldValues('character_present').values()].map(v => new SlashCommandEnumValue(v.display)),
+        })],
         helpString: 'Set which characters are present for contextual gating. Usage: /dle-set-characters <name1, name2>. Run without args to browse and toggle.',
         returns: 'Status message',
     }));

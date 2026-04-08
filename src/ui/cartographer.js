@@ -123,7 +123,7 @@ export function showSourcesPopup(sources, opts = {}) {
             const rawPreview = src.entry ? src.entry.content.substring(0, 300) + (src.entry.content.length > 300 ? '...' : '') : '';
 
             html += `<div class="dle-card">`;
-            html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle-ctx-${entryId}" aria-expanded="false">`;
+            html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle-ctx-${entryId}" aria-expanded="false" role="button" tabindex="0">`;
             html += `<span><strong>${titleHtml}</strong> <span class="dle-text-xs dle-faint">pri ${src.priority}</span>`;
             html += ` <button class="dle-carto-browse-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
             html += `<span class="dle-text-xs" style="color: ${barColor};">~${src.tokens} tok</span>`;
@@ -204,7 +204,7 @@ export function showSourcesPopup(sources, opts = {}) {
             for (const group of rejectedGroups) {
                 const groupId = simpleHash(`rejected_${group.label}`);
                 html += `<div class="dle-card dle-carto-rejected">`;
-                html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle-rej-${groupId}" aria-expanded="false">`;
+                html += `<div class="dle-ctx-toggle dle-card-header" data-target="dle-rej-${groupId}" aria-expanded="false" role="button" tabindex="0">`;
                 html += `<span><i class="fa-solid ${group.icon} dle-text-muted" style="margin-right: 6px;"></i><strong>${escapeHtml(group.label)}</strong> <span class="dle-text-xs dle-faint">(${group.entries.length})</span></span>`;
                 html += `<span class="dle-text-xs dle-faint">click to expand</span>`;
                 html += `</div>`;
@@ -252,16 +252,26 @@ export function showSourcesPopup(sources, opts = {}) {
     const container = document.createElement('div');
     container.innerHTML = html;
 
-    // Event delegation for entry detail expansion
-    container.addEventListener('click', (e) => {
-        const toggle = e.target.closest('.dle-ctx-toggle');
-        if (!toggle) return;
+    // Event delegation for entry detail expansion (mouse + keyboard, BUG-186)
+    const _toggleCard = (toggle) => {
         const targetId = toggle.dataset.target;
         const targetEl = document.getElementById(targetId);
         if (targetEl) {
             targetEl.classList.toggle('dle-ctx-expanded');
             toggle.setAttribute('aria-expanded', targetEl.classList.contains('dle-ctx-expanded'));
         }
+    };
+    container.addEventListener('click', (e) => {
+        const toggle = e.target.closest('.dle-ctx-toggle');
+        if (!toggle) return;
+        _toggleCard(toggle);
+    });
+    container.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const toggle = e.target.closest('.dle-ctx-toggle');
+        if (!toggle) return;
+        e.preventDefault();
+        _toggleCard(toggle);
     });
 
     // Event delegation for "Why?" diagnostic buttons in rejected entries

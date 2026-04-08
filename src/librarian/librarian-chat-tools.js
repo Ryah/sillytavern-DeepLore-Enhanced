@@ -388,7 +388,7 @@ You can query the vault during our conversation using tools. To use tools, respo
 }
 \`\`\`
 
-You will receive tool results, then respond with your final answer. Max 5 tool calls per turn.
+You will receive tool results, then respond with your final answer. Max 10 tool calls per turn.
 You may call multiple tools in a single response.
 
 ### Tools:

@@ -216,15 +216,48 @@ export function extractTitle(body, filename) {
  * @param {number} maxLen
  * @returns {string}
  */
+// BUG-054: was ASCII-only (`.!?`) and produced mid-sentence cuts on CJK/emoji
+// and dangling brackets on markdown. Now mirrors ST's `trimToEndSentence`
+// (public/scripts/utils.js:883) — full Unicode punctuation set + emoji
+// sentence-enders — but keeps the original maxLen-aware API by pre-slicing,
+// so core/ stays free of ST imports.
+const _SENTENCE_PUNCT = new Set([
+    '.', '!', '?', '*', '"', ')', '}', '`', ']', '$',
+    '。', '！', '？', '”', '）', '】', '’', '」', '_',
+]);
+const _EMOJI_RE = /(\p{Emoji_Presentation}|\p{Extended_Pictographic})/gu;
+
+// Returns the string trimmed to the last sentence-ending punctuation / emoji,
+// or null if no boundary was found. Unlike ST's trimToEndSentence, this signals
+// "no boundary" explicitly so the caller can fall back to an ellipsis.
+function _trimToSentenceEnd(input) {
+    if (!input) return null;
+    let last = -1;
+    const characters = Array.from(input);
+    for (let i = characters.length - 1; i >= 0; i--) {
+        const char = characters[i];
+        const emoji = _EMOJI_RE.test(char);
+        _EMOJI_RE.lastIndex = 0; // reset sticky state from /g
+        if (_SENTENCE_PUNCT.has(char) || emoji) {
+            if (!emoji && i > 0 && /[\s\n]/.test(characters[i - 1])) {
+                last = i - 1;
+            } else {
+                last = i;
+            }
+            break;
+        }
+    }
+    if (last === -1) return null;
+    return characters.slice(0, last + 1).join('').trimEnd();
+}
+
 export function truncateToSentence(text, maxLen) {
     if (text.length <= maxLen) return text;
     const truncated = text.substring(0, maxLen);
-    // Find the last sentence boundary (., !, ?) before the limit
-    const lastSentence = truncated.search(/[.!?][^.!?]*$/);
-    if (lastSentence > maxLen * 0.4) {
-        return truncated.substring(0, lastSentence + 1);
-    }
-    // No good sentence boundary found; fall back to hard cut with ellipsis
+    const trimmed = _trimToSentenceEnd(truncated);
+    // Only accept the sentence-boundary cut if it kept enough of the budget;
+    // otherwise fall back to hard cut + ellipsis.
+    if (trimmed && trimmed.length > maxLen * 0.4) return trimmed;
     return truncated.trimEnd() + '...';
 }
 

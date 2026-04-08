@@ -58,13 +58,51 @@ import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/
 import { loadSettingsUI, bindSettingsEvents } from './src/ui/settings-ui.js';
 import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
-import { createDrawerPanel, resetDrawerState } from './src/drawer/drawer.js';
+import { createDrawerPanel, resetDrawerState, destroyDrawerPanel } from './src/drawer/drawer.js';
 import { pushActivity } from './src/drawer/drawer-state.js';
 import { extractAiNotes, normalizeLoreGap } from './src/helpers.js';
 import { clearSessionActivityLog, consumePendingToolCalls, clearPendingToolCalls } from './src/librarian/librarian-tools.js';
 import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
 import { registerLibrarianTools, ensureFunctionCallingEnabled } from './src/librarian/librarian.js';
 import { clearSessionState as clearLibrarianSessionState } from './src/librarian/librarian-session.js';
+
+// ============================================================================
+// BUG-063: Lifecycle / teardown infrastructure
+// ----------------------------------------------------------------------------
+// Tracks every eventSource listener registered during init so they can be
+// removed on extension teardown (beforeunload, or re-init if the module ever
+// gets re-evaluated). Prevents duplicate handlers on reload and leaked
+// closures on page unload. _registerEs is a thin wrapper: push + subscribe.
+// _teardownDleExtension removes every tracked listener and tears down the
+// drawer. _dleInitialized is the re-init guard — if init somehow runs twice,
+// we tear down first before re-registering.
+// ============================================================================
+const _dleListeners = { eventSource: [] };
+let _dleInitialized = false;
+let _dleBeforeUnloadHandler = null;
+
+function _registerEs(event, handler, { once = false } = {}) {
+    if (!event) return; // feature-detect guard: skip if event type doesn't exist in this ST version
+    _dleListeners.eventSource.push({ event, handler, once });
+    if (once) eventSource.once(event, handler);
+    else eventSource.on(event, handler);
+}
+
+function _teardownDleExtension() {
+    // Remove every tracked eventSource listener
+    for (const { event, handler } of _dleListeners.eventSource) {
+        try { eventSource.removeListener?.(event, handler); } catch { /* ignore */ }
+    }
+    _dleListeners.eventSource = [];
+    // Tear down the drawer (removes its own listeners + DOM)
+    try { destroyDrawerPanel(); } catch (err) { console.warn('[DLE] destroyDrawerPanel failed:', err?.message); }
+    // Remove the beforeunload handler itself so it doesn't accumulate on re-init
+    if (_dleBeforeUnloadHandler) {
+        try { window.removeEventListener('beforeunload', _dleBeforeUnloadHandler); } catch { /* ignore */ }
+        _dleBeforeUnloadHandler = null;
+    }
+    _dleInitialized = false;
+}
 
 /** Default instruction prompt for the AI Notebook feature. */
 const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
@@ -208,7 +246,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (timeoutErr) {
             console.warn(`[DLE] ${timeoutErr.message} — proceeding with stale data`);
             if (vaultIndex.length === 0) {
-                dedupWarning('Couldn\'t reach your vault and no cache to fall back on.', 'obsidian_connect', { hint: 'Obsidian connection timed out; check the Local REST API plugin.' });
+                dedupWarning('Couldn\'t reach your vault and no cache to fall back on.', 'obsidian_no_cache_fallback', { hint: 'Obsidian connection timed out; check the Local REST API plugin.' });
                 return;
             }
         }
@@ -221,7 +259,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (!indexEverLoaded) {
                 dedupWarning(
                     'No lorebook entries found. Run /dle-health to check your Obsidian connection and vault settings.',
-                    'obsidian_connect', { timeOut: 10000 },
+                    'obsidian_empty_vault', { timeOut: 10000 },
                 );
             }
             if (settings.debugMode) {
@@ -669,6 +707,15 @@ globalThis.deepLoreEnhanced_matchText = matchTextForExternal;
 
 jQuery(async function () {
     try {
+        // BUG-063: Re-init guard. If the module somehow gets re-evaluated (hot
+        // reload, duplicate load, etc.), tear down prior listeners/DOM before
+        // registering fresh ones — otherwise every handler doubles.
+        if (_dleInitialized) {
+            console.warn('[DLE] init() called twice — tearing down prior instance before re-initializing');
+            _teardownDleExtension();
+        }
+        _dleInitialized = true;
+
         const settingsHtml = await renderExtensionTemplateAsync(
             'third-party/sillytavern-DeepLore-Enhanced',
             'settings',
@@ -775,7 +822,7 @@ jQuery(async function () {
                 }
             };
             // APP_READY fires after ST's getSettings() and its awaited doOnboarding() popup.
-            eventSource.once(event_types.APP_READY, () => setTimeout(launchWizard, 500));
+            _registerEs(event_types.APP_READY, () => setTimeout(launchWizard, 500), { once: true });
         }
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.
@@ -842,7 +889,7 @@ jQuery(async function () {
         }
         if (initSettings.enabled) {
             // Try instant hydration from IndexedDB, then validate against Obsidian in background
-            eventSource.once(event_types.APP_READY, async () => {
+            _registerEs(event_types.APP_READY, async () => {
                 // Skip if a build was already triggered (e.g. by early user generation)
                 if (indexEverLoaded || indexing) return;
                 try {
@@ -855,7 +902,7 @@ jQuery(async function () {
                 } catch (err) {
                     console.warn('[DLE] Auto-connect:', err.message);
                 }
-            });
+            }, { once: true });
         }
 
         // Context Cartographer: click + keyboard handler (event delegation — registered once)
@@ -872,7 +919,7 @@ jQuery(async function () {
         // AI Notebook: GENERATION_ENDED handler for both tag and extract modes.
         // Tag mode: extract <dle-notes> from AI response before rendering.
         // Extract mode: strip visible notes, then fire async API call to extract session notes.
-        eventSource.on(event_types.GENERATION_ENDED, () => {
+        _registerEs(event_types.GENERATION_ENDED, () => {
             const settings = getSettings();
             if (!settings.aiNotepadEnabled) return;
             const mode = settings.aiNotepadMode || 'tag';
@@ -940,7 +987,7 @@ jQuery(async function () {
         });
 
         // Context Cartographer + Session Scribe: post-render handler
-        eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
+        _registerEs(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
             const settings = getSettings();
             const message = chat[messageId];
 
@@ -1038,7 +1085,7 @@ jQuery(async function () {
         });
 
         // Swipe handler: clear stale tool call data and sources from the swiped message
-        eventSource.on(event_types.MESSAGE_SWIPED, (messageId) => {
+        _registerEs(event_types.MESSAGE_SWIPED, (messageId) => {
             const message = chat[messageId];
             if (!message || message.is_user) return;
 
@@ -1097,11 +1144,11 @@ jQuery(async function () {
             if (dirty) saveMetadataDebounced();
         };
 
-        eventSource.on(event_types.MESSAGE_DELETED, (messageId) => {
+        _registerEs(event_types.MESSAGE_DELETED, (messageId) => {
             try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_DELETED cleanup failed:', err.message); }
         });
 
-        eventSource.on(event_types.MESSAGE_SWIPE_DELETED, (messageId) => {
+        _registerEs(event_types.MESSAGE_SWIPE_DELETED, (messageId) => {
             // The swiped-away alternate is gone — its extras no longer apply.
             try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_SWIPE_DELETED cleanup failed:', err.message); }
         });
@@ -1113,8 +1160,8 @@ jQuery(async function () {
         const _onChatDeleted = () => {
             try { clearLibrarianSessionState(); } catch (err) { console.warn('[DLE] CHAT_DELETED cleanup failed:', err.message); }
         };
-        if (event_types.CHAT_DELETED) eventSource.on(event_types.CHAT_DELETED, _onChatDeleted);
-        if (event_types.GROUP_CHAT_DELETED) eventSource.on(event_types.GROUP_CHAT_DELETED, _onChatDeleted);
+        _registerEs(event_types.CHAT_DELETED, _onChatDeleted);
+        _registerEs(event_types.GROUP_CHAT_DELETED, _onChatDeleted);
 
         // BUG-039: Subscribe to connection profile lifecycle events. If a profile wired
         // into one of DLE's six profile fields (aiSearch, scribe, autoSuggest, aiNotepad,
@@ -1151,8 +1198,8 @@ jQuery(async function () {
         const _onProfileUpdated = () => {
             try { invalidateSettingsCache(); } catch { /* no-op */ }
         };
-        if (event_types.CONNECTION_PROFILE_DELETED) eventSource.on(event_types.CONNECTION_PROFILE_DELETED, _onProfileDeleted);
-        if (event_types.CONNECTION_PROFILE_UPDATED) eventSource.on(event_types.CONNECTION_PROFILE_UPDATED, _onProfileUpdated);
+        _registerEs(event_types.CONNECTION_PROFILE_DELETED, _onProfileDeleted);
+        _registerEs(event_types.CONNECTION_PROFILE_UPDATED, _onProfileUpdated);
 
         // BUG-083: ST resets oai_settings.function_calling when the chat completion
         // source or model changes. Re-assert it so Librarian tools aren't silently
@@ -1162,19 +1209,17 @@ jQuery(async function () {
                 if (getSettings().librarianEnabled) ensureFunctionCallingEnabled();
             } catch (err) { console.warn('[DLE] source/model change re-assert failed:', err.message); }
         };
-        if (event_types.CHATCOMPLETION_SOURCE_CHANGED) eventSource.on(event_types.CHATCOMPLETION_SOURCE_CHANGED, _onSourceOrModelChanged);
-        if (event_types.MAIN_API_CHANGED) eventSource.on(event_types.MAIN_API_CHANGED, _onSourceOrModelChanged);
+        _registerEs(event_types.CHATCOMPLETION_SOURCE_CHANGED, _onSourceOrModelChanged);
+        _registerEs(event_types.MAIN_API_CHANGED, _onSourceOrModelChanged);
 
         // BUG-084: External mutations to extension_settings + saveSettingsDebounced() are
         // not observed by DLE's cache. Invalidate on every SETTINGS_UPDATED so the next
         // getSettings() call re-validates against the fresh store.
-        if (event_types.SETTINGS_UPDATED) {
-            eventSource.on(event_types.SETTINGS_UPDATED, () => {
-                try { invalidateSettingsCache(); } catch { /* no-op */ }
-            });
-        }
+        _registerEs(event_types.SETTINGS_UPDATED, () => {
+            try { invalidateSettingsCache(); } catch { /* no-op */ }
+        });
 
-        eventSource.on(event_types.MESSAGE_EDITED, (messageId) => {
+        _registerEs(event_types.MESSAGE_EDITED, (messageId) => {
             // Edit preserves structural extras (sources, tool_calls) because the edit
             // is about the visible prose, not what was consulted. Only invalidate the
             // AI Notepad extraction since the visible prose is what it was extracted from.
@@ -1192,7 +1237,7 @@ jQuery(async function () {
         });
 
         // Context Cartographer: re-inject buttons on chat load
-        eventSource.on(event_types.CHAT_CHANGED, () => {
+        _registerEs(event_types.CHAT_CHANGED, () => {
             // Increment epoch first so any in-flight onGenerate sees the mismatch
             setChatEpoch(chatEpoch + 1);
 
@@ -1413,6 +1458,12 @@ jQuery(async function () {
             };
             setTimeout(injectAllChatLoadUI, 100);
         });
+
+        // BUG-063: Wire page-unload teardown so tracked listeners + drawer DOM
+        // are released cleanly on reload. No-op in environments where
+        // beforeunload never fires (it always does in browsers).
+        _dleBeforeUnloadHandler = () => { try { _teardownDleExtension(); } catch { /* ignore */ } };
+        window.addEventListener('beforeunload', _dleBeforeUnloadHandler);
 
         if (getSettings().debugMode) console.log('[DLE] DeepLore Enhanced client extension initialized');
     } catch (err) {

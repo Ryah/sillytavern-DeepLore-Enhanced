@@ -59,7 +59,10 @@ export const DLE_COMMANDS = [
     { cmd: '/dle-set-location', desc: 'Set location filter (alias: /dle-loc)' },
     { cmd: '/dle-set-scene', desc: 'Set scene type filter' },
     { cmd: '/dle-set-characters', desc: 'Set present characters' },
+    { cmd: '/dle-set-folder', desc: 'Filter by Obsidian folder path' },
     { cmd: '/dle-context-state', desc: 'Show current gating state (alias: /dle-ctx)' },
+    { sep: true, label: 'Diagnostics' },
+    { cmd: '/dle-diagnostics', desc: 'Export a diagnostics markdown report' },
 ];
 
 export function registerAdminCommands() {
@@ -172,7 +175,7 @@ export function registerAdminCommands() {
                     const noteId = simpleHash(note.filename);
 
                     html += `<div class="dle-card dle-popup-section">`;
-                    html += `<div class="dle-note-toggle dle-card-header" data-target="dle-note-${noteId}" aria-expanded="false">`;
+                    html += `<div class="dle-note-toggle dle-card-header" data-target="dle-note-${noteId}" aria-expanded="false" role="button" tabindex="0">`;
                     html += `<strong>${escapeHtml(note.character || 'Unknown')}</strong>`;
                     html += `<span class="dle-text-xs dle-muted">${escapeHtml(dateDisplay)}</span>`;
                     html += `</div>`;
@@ -184,15 +187,25 @@ export function registerAdminCommands() {
 
                 const container = document.createElement('div');
                 container.innerHTML = html;
-                container.addEventListener('click', (e) => {
-                    const toggle = e.target.closest('.dle-note-toggle');
-                    if (!toggle) return;
+                // BUG-186: mouse + keyboard activation
+                const _togNote = (toggle) => {
                     const targetId = toggle.dataset.target;
                     const targetEl = document.getElementById(targetId);
                     if (targetEl) {
                         targetEl.classList.toggle('dle-open');
                         toggle.setAttribute('aria-expanded', targetEl.classList.contains('dle-open'));
                     }
+                };
+                container.addEventListener('click', (e) => {
+                    const toggle = e.target.closest('.dle-note-toggle');
+                    if (toggle) _togNote(toggle);
+                });
+                container.addEventListener('keydown', (e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    const toggle = e.target.closest('.dle-note-toggle');
+                    if (!toggle) return;
+                    e.preventDefault();
+                    _togNote(toggle);
                 });
 
                 await callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });

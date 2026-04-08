@@ -403,15 +403,22 @@ export const settingsConstraints = {
     indexRebuildGenerationInterval: { min: 1, max: 100 },
 };
 
-// Settings cache — avoids re-validating/coercing ~60 keys on every getSettings() call
-let _cacheValid = false;
+// BUG-088: No settings cache. ST's native pattern is to read `extension_settings[MODULE_NAME]`
+// directly; layering a cache flag on top required brittle invalidation discipline (every
+// mutator had to remember to call invalidateSettingsCache()). All passes below are
+// idempotent — numeric coercion, default-fill (checks === undefined), validateSettings
+// (clamps in place), migrations (self-gate via settingsVersion), vaults SSOT (idempotent
+// mirror), and the vaults[] migration (guarded by _vaultsMigrated) — so running them on
+// every getSettings() call is safe and cheap (~60 key scan). invalidateSettingsCache is
+// retained as a no-op for call-site compatibility.
 
 /**
- * Invalidate the settings cache, forcing the next getSettings() call to re-validate.
- * Call this whenever settings are mutated (UI changes, slash commands, etc.).
+ * No-op retained for call-site compatibility. The settings cache was removed (BUG-088)
+ * because its invalidation discipline was brittle. All getSettings() passes are now
+ * idempotent and run on every call.
  */
 export function invalidateSettingsCache() {
-    _cacheValid = false;
+    /* no-op — see BUG-088 comment above */
 }
 
 /** @returns {typeof defaultSettings} */
@@ -419,12 +426,9 @@ export function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = {};
     }
-
-    // BUG-071: Numeric coercion MUST run on every call, not just the cache-miss path.
-    // Direct writes from UI/slash commands/migrations that skip invalidateSettingsCache()
-    // would otherwise leave string values masquerading as numbers for the rest of the
-    // session. The coercion loop is ~60 typeof checks — cheap enough to run unconditionally.
     const s = extension_settings[MODULE_NAME];
+
+    // Numeric coercion (BUG-071) — strings masquerading as numbers get coerced or reset.
     for (const key of Object.keys(settingsConstraints)) {
         if (s[key] !== undefined && typeof s[key] !== 'number') {
             const num = Number(s[key]);
@@ -436,24 +440,17 @@ export function getSettings() {
         }
     }
 
-    // Fast path: return cached reference if defaults/migrations already filled in
-    if (_cacheValid) {
-        return s;
-    }
-
-    // Fill in any missing defaults
+    // Fill in any missing defaults (idempotent — only touches undefined keys)
     for (const [key, value] of Object.entries(defaultSettings)) {
-        if (extension_settings[MODULE_NAME][key] === undefined) {
-            extension_settings[MODULE_NAME][key] = (typeof value === 'object' && value !== null)
+        if (s[key] === undefined) {
+            s[key] = (typeof value === 'object' && value !== null)
                 ? JSON.parse(JSON.stringify(value))
                 : value;
         }
     }
-    validateSettings(extension_settings[MODULE_NAME], settingsConstraints);
+    validateSettings(s, settingsConstraints);
 
-    // (s already declared above in the numeric-coercion block)
-
-    // Run migrations if settings version is behind
+    // Run migrations if settings version is behind (self-gating via stored version)
     const currentVersion = defaultSettings.settingsVersion;
     const storedVersion = s.settingsVersion || 0;
     if (storedVersion < currentVersion) {
@@ -506,7 +503,6 @@ export function getSettings() {
         }
     }
 
-    _cacheValid = true;
     return s;
 }
 

@@ -129,6 +129,13 @@ export function initGraphSettings(gs, dbg) {
             settingsCloseBtn.addEventListener('click', () => {
                 settingsPanel.style.display = 'none';
             }, lOpt);
+            // BUG-191: keyboard activation
+            settingsCloseBtn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    settingsPanel.style.display = 'none';
+                }
+            }, lOpt);
         }
 
         // Draggable titlebar

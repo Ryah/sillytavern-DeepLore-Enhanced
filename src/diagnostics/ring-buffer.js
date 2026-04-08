@@ -54,7 +54,9 @@ export function safeStringify(args, maxLen = 2000) {
                 continue;
             }
             try {
-                parts.push(JSON.stringify(a, jsonReplacer));
+                // BUG-035: fresh per-call WeakSet so cycle detection doesn't leak
+                // references between unrelated serialize calls.
+                parts.push(JSON.stringify(a, makeJsonReplacer()));
             } catch {
                 parts.push('[unserializable]');
             }
@@ -67,13 +69,17 @@ export function safeStringify(args, maxLen = 2000) {
     }
 }
 
-const seen = new WeakSet();
-function jsonReplacer(key, value) {
-    if (typeof value === 'object' && value !== null) {
-        if (seen.has(value)) return '[circular]';
-        seen.add(value);
-    }
-    if (typeof value === 'function') return `[fn ${value.name || 'anon'}]`;
-    if (typeof value === 'bigint') return value.toString() + 'n';
-    return value;
+// BUG-035: factory returns a fresh replacer + private WeakSet per call so the
+// cycle-detection set never outlives a single JSON.stringify invocation.
+function makeJsonReplacer() {
+    const seen = new WeakSet();
+    return function jsonReplacer(key, value) {
+        if (typeof value === 'object' && value !== null) {
+            if (seen.has(value)) return '[circular]';
+            seen.add(value);
+        }
+        if (typeof value === 'function') return `[fn ${value.name || 'anon'}]`;
+        if (typeof value === 'bigint') return value.toString() + 'n';
+        return value;
+    };
 }

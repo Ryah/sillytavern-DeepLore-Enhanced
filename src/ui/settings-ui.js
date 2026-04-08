@@ -9,6 +9,7 @@ import { ConnectionManagerRequestService } from '../../../../shared.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
+import { accountStorage } from '../../../../../util/AccountStorage.js';
 import { buildAiChatContext } from '../../core/utils.js';
 import { getSettings, getPrimaryVault, DEFAULT_AI_SYSTEM_PROMPT, PROMPT_TAG_PREFIX, settingsConstraints, invalidateSettingsCache, defaultSettings, resolveConnectionConfig } from '../../settings.js';
 import { promptManager } from '../../../../../openai.js';
@@ -359,12 +360,17 @@ function updatePopupModeVisibility($container, settings) {
     // Blur/overlay AI tab content when AI search is off
     const $aiPanel = $container.find('#dle-sp-ai');
     $container.find('#dle-sp-ai-disabled-notice').toggle(!aiEnabled);
-    $aiPanel.find('.dle-ai-content-wrap').toggleClass('dle-blurred', !aiEnabled);
+    $aiPanel.find('.dle-ai-content-wrap')
+        .toggleClass('dle-blurred', !aiEnabled)
+        // BUG-198: `inert` removes the blurred region from tab order and accessibility tree.
+        // `aria-hidden` is redundant but helps older AT. Disabled inputs already block typing.
+        .attr('inert', !aiEnabled ? '' : null)
+        .attr('aria-hidden', !aiEnabled ? 'true' : null);
     $aiPanel.find('.dle-ai-content-wrap input, .dle-ai-content-wrap select, .dle-ai-content-wrap textarea, .dle-ai-content-wrap .menu_button').prop('disabled', !aiEnabled);
     // Keep the mirror dropdown always functional (it's above the blurred wrap, but re-enable just in case)
     $container.find('#dle-sp-ai-search-mode-mirror').prop('disabled', false);
     // Sync mirror dropdown value
-    const modeVal = !aiEnabled ? 'keyword-only' : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
+    const modeVal = !aiEnabled ? 'keywords-only' : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
     $container.find('#dle-sp-ai-search-mode-mirror').val(modeVal);
     $container.find('#dle-sp-search-mode').val(modeVal);
 }
@@ -880,11 +886,20 @@ export async function openSettingsPopup() {
         if (tab !== 'connection') {
             $container.find('.dle-connection-subtab').removeClass('active');
         }
-        localStorage.setItem('dle-last-settings-tab', tab);
+        // BUG-042: accountStorage for cross-browser sync
+        accountStorage.setItem('dle-last-settings-tab', tab);
     }
 
-    // Restore last viewed tab
-    const lastTab = localStorage.getItem('dle-last-settings-tab');
+    // Restore last viewed tab (BUG-042: migrate legacy localStorage once)
+    let lastTab = accountStorage.getItem('dle-last-settings-tab');
+    if (!lastTab) {
+        const legacy = localStorage.getItem('dle-last-settings-tab');
+        if (legacy) {
+            accountStorage.setItem('dle-last-settings-tab', legacy);
+            localStorage.removeItem('dle-last-settings-tab');
+            lastTab = legacy;
+        }
+    }
     if (lastTab) {
         const $lastTab = $container.find(`.dle-settings-tab[data-settings-tab="${lastTab}"]`);
         if ($lastTab.length) switchSettingsTab($lastTab);
@@ -904,7 +919,7 @@ export async function openSettingsPopup() {
         $subtab.addClass('active');
         $container.find('.dle-features-subpanel').removeClass('active').attr('hidden', '');
         $container.find(`[data-features-subpanel="${subtab}"]`).addClass('active').removeAttr('hidden');
-        localStorage.setItem('dle-last-features-subtab', subtab);
+        accountStorage.setItem('dle-last-features-subtab', subtab);
         // Ensure features main panel is active
         if (!$featuresTab.hasClass('active')) {
             switchSettingsTab($featuresTab);
@@ -925,7 +940,7 @@ export async function openSettingsPopup() {
         $subtab.addClass('active');
         $container.find('.dle-connection-subpanel').removeClass('active').attr('hidden', '');
         $container.find(`[data-connection-subpanel="${subtab}"]`).addClass('active').removeAttr('hidden');
-        localStorage.setItem('dle-last-connection-subtab', subtab);
+        accountStorage.setItem('dle-last-connection-subtab', subtab);
         // Ensure connection main panel is active
         if (!$connectionTab.hasClass('active')) {
             switchSettingsTab($connectionTab);
@@ -1008,15 +1023,31 @@ export async function openSettingsPopup() {
     $container.find('.dle-features-subpanel').not('.active').attr('hidden', '');
     $container.find('.dle-connection-subpanel').not('.active').attr('hidden', '');
 
-    // Restore last viewed features sub-tab on init
-    const lastSubtab = localStorage.getItem('dle-last-features-subtab');
+    // Restore last viewed features sub-tab on init (BUG-042: migrate legacy)
+    let lastSubtab = accountStorage.getItem('dle-last-features-subtab');
+    if (!lastSubtab) {
+        const legacy = localStorage.getItem('dle-last-features-subtab');
+        if (legacy) {
+            accountStorage.setItem('dle-last-features-subtab', legacy);
+            localStorage.removeItem('dle-last-features-subtab');
+            lastSubtab = legacy;
+        }
+    }
     if (lastSubtab && lastTab === 'features') {
         const $lastSubtab = $container.find(`.dle-features-subtab[data-features-subtab="${lastSubtab}"]`);
         if ($lastSubtab.length) switchFeaturesSubtab($lastSubtab);
     }
 
-    // Restore last viewed connection sub-tab on init
-    const lastConnSubtab = localStorage.getItem('dle-last-connection-subtab');
+    // Restore last viewed connection sub-tab on init (BUG-042: migrate legacy)
+    let lastConnSubtab = accountStorage.getItem('dle-last-connection-subtab');
+    if (!lastConnSubtab) {
+        const legacy = localStorage.getItem('dle-last-connection-subtab');
+        if (legacy) {
+            accountStorage.setItem('dle-last-connection-subtab', legacy);
+            localStorage.removeItem('dle-last-connection-subtab');
+            lastConnSubtab = legacy;
+        }
+    }
     if (lastConnSubtab && lastTab === 'connection') {
         const $lastConnSubtab = $container.find(`.dle-connection-subtab[data-connection-subtab="${lastConnSubtab}"]`);
         if ($lastConnSubtab.length) switchConnectionSubtab($lastConnSubtab);
@@ -1103,7 +1134,8 @@ function loadPopupSettings($container) {
     $c('#dle-sp-new-chat-threshold').val(settings.newChatThreshold);
 
     // ── Matching ──
-    const searchMode = !settings.aiSearchEnabled ? 'keyword-only'
+    // BUG-127: canonical runtime value is `keywords-only` (plural); UI dropdowns now match.
+    const searchMode = !settings.aiSearchEnabled ? 'keywords-only'
         : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
     $c('#dle-sp-search-mode').val(searchMode);
     $c('#dle-sp-ai-search-mode-mirror').val(searchMode);
@@ -1424,8 +1456,9 @@ function bindPopupEvents($container) {
     $c('#dle-sp-multi-vault-conflict').on('change', function () { settings.multiVaultConflictResolution = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle-sp-field-definitions-path').on('change', function () { settings.fieldDefinitionsPath = String($(this).val()).trim() || 'DeepLore/field-definitions.yaml'; saveSettingsDebounced(); });
     $c('#dle-sp-edit-fields-btn').on('click', async () => {
+        // BUG-138: await so any errors thrown after the first await surface to the catch
         const { openRuleBuilder } = await import('./rule-builder.js');
-        openRuleBuilder();
+        await openRuleBuilder();
     });
 
     $c('#dle-sp-export-diagnostics').on('click', async function () {
@@ -1552,7 +1585,7 @@ function bindPopupEvents($container) {
         if (_syncingSearchMode) return;
         _syncingSearchMode = true;
         const mode = $(this).val();
-        settings.aiSearchEnabled = mode !== 'keyword-only';
+        settings.aiSearchEnabled = mode !== 'keywords-only';
         settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage';
         $c('#dle-sp-ai-search-mode-mirror').val(mode);
         saveSettingsDebounced();
@@ -1563,7 +1596,7 @@ function bindPopupEvents($container) {
         if (_syncingSearchMode) return;
         _syncingSearchMode = true;
         const mode = $(this).val();
-        settings.aiSearchEnabled = mode !== 'keyword-only';
+        settings.aiSearchEnabled = mode !== 'keywords-only';
         settings.aiSearchMode = mode === 'ai-only' ? 'ai-only' : 'two-stage';
         $c('#dle-sp-search-mode').val(mode);
         saveSettingsDebounced();

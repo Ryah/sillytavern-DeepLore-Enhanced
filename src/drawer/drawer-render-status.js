@@ -185,7 +185,7 @@ export function renderStatusZone() {
     const activeFolders = chat_metadata?.deeplore_folder_filter || [];
     if (activeFolders.length > 0) {
         const folderLabel = activeFolders.length === 1 ? activeFolders[0] : `${activeFolders.length} folders`;
-        chips.push(`<span class="dle-chip dle-chip-sm dle-folder-badge-chip" title="Folder filter active: ${escapeHtml(activeFolders.join(', '))}" data-action="goto-gating"><i class="fa-solid fa-folder" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>${escapeHtml(folderLabel)}</span>`);
+        chips.push(`<span class="dle-chip dle-chip-sm dle-folder-badge-chip" role="button" tabindex="0" title="Folder filter active: ${escapeHtml(activeFolders.join(', '))}" data-action="goto-gating"><i class="fa-solid fa-folder" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>${escapeHtml(folderLabel)}</span>`);
     }
     if (ctx) {
         for (const [key, val] of Object.entries(ctx)) {

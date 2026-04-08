@@ -10,6 +10,7 @@
  */
 import { doNavbarIconClick, saveSettingsDebounced } from '../../../../../../script.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
+import { accountStorage } from '../../../../../util/AccountStorage.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
 import {
@@ -41,7 +42,7 @@ import {
 // Teardown registry (BUG-349 — drawer destroy/teardown to prevent listener leaks)
 // ════════════════════════════════════════════════════════════════════════════
 let drawerDestroyed = false;
-let drawerListeners = { eventSource: [], timers: [] };
+let drawerListeners = { eventSource: [], timers: [], stateObservers: [] };
 
 // ════════════════════════════════════════════════════════════════════════════
 // Public API (consumed by index.js)
@@ -126,6 +127,7 @@ export async function createDrawerPanel() {
     drawerDestroyed = false;
     drawerListeners.eventSource = [];
     drawerListeners.timers = [];
+    drawerListeners.stateObservers = [];
 
     // Load ST internals (Moving UI, mobile detection)
     await loadSTInternals();
@@ -434,7 +436,16 @@ export async function createDrawerPanel() {
     // E10: Restore last viewed drawer tab
     // ═══════════════════════════════════════════════════════════════════════
     try {
-        const lastTab = localStorage.getItem('dle-last-drawer-tab');
+        // BUG-042: accountStorage first, fall back to legacy localStorage for migration
+        let lastTab = accountStorage.getItem('dle-last-drawer-tab');
+        if (!lastTab) {
+            const legacy = localStorage.getItem('dle-last-drawer-tab');
+            if (legacy) {
+                accountStorage.setItem('dle-last-drawer-tab', legacy);
+                localStorage.removeItem('dle-last-drawer-tab');
+                lastTab = legacy;
+            }
+        }
         if (lastTab) switchTab($drawer, lastTab);
     } catch { /* noop */ }
 
@@ -456,7 +467,7 @@ export async function createDrawerPanel() {
     // ═══════════════════════════════════════════════════════════════════════
     // Observer subscriptions — live data updates
     // ═══════════════════════════════════════════════════════════════════════
-    onIndexUpdated(() => {
+    drawerListeners.stateObservers.push(onIndexUpdated(() => {
         if (drawerDestroyed) return;
         rebuildTagCache();
         scheduleRender(renderStatusZone);
@@ -464,26 +475,26 @@ export async function createDrawerPanel() {
         scheduleRender(renderTimers);
         scheduleRender(renderFooter);
         announceToScreenReader(`Vault index refreshed: ${vaultIndex.length} entries loaded.`);
-    });
+    }));
 
-    onAiStatsUpdated(() => {
+    drawerListeners.stateObservers.push(onAiStatsUpdated(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderFooter);
-    });
+    }));
 
-    onCircuitStateChanged(() => {
+    drawerListeners.stateObservers.push(onCircuitStateChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderFooter);
-    });
+    }));
 
-    onClaudeAutoEffortChanged(() => {
+    drawerListeners.stateObservers.push(onClaudeAutoEffortChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
-    });
+    }));
 
-    onPipelineComplete(() => {
+    drawerListeners.stateObservers.push(onPipelineComplete(() => {
         if (drawerDestroyed) return;
         invalidateTemperatureCache();
         scheduleRender(renderStatusZone);
@@ -494,34 +505,34 @@ export async function createDrawerPanel() {
         if (lastInjectionSources !== null) {
             announceToScreenReader(`Pipeline complete: ${lastInjectionSources.length} entries injected.`);
         }
-    });
+    }));
 
-    onGatingChanged(() => {
+    drawerListeners.stateObservers.push(onGatingChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderGatingTab);
-    });
+    }));
 
-    onPinBlockChanged(() => {
+    drawerListeners.stateObservers.push(onPinBlockChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderBrowseTab);
-    });
+    }));
 
-    onGenerationLockChanged(() => {
+    drawerListeners.stateObservers.push(onGenerationLockChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderInjectionTab);
-    });
+    }));
 
-    onIndexingChanged(() => {
+    drawerListeners.stateObservers.push(onIndexingChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
         scheduleRender(renderBrowseTab);
-    });
+    }));
 
     let _gapAnnounceTimer = null;
     let _lastGapCount = loreGaps.length;
-    onLoreGapsChanged(() => {
+    drawerListeners.stateObservers.push(onLoreGapsChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderLibrarianTab);
         // Debounced screen reader announcement for new gaps (500ms during generation bursts)
@@ -538,7 +549,7 @@ export async function createDrawerPanel() {
             drawerListeners.timers.push(_gapAnnounceTimer);
         }
         _lastGapCount = newCount;
-    });
+    }));
 }
 
 /**
@@ -585,6 +596,11 @@ export function destroyDrawerPanel() {
         try { esCleanup?.removeListener?.(event, handler); } catch (e) { /* ignore */ }
     }
     drawerListeners.eventSource = [];
+    // Release state observer subscriptions (BUG-026)
+    for (const unsub of drawerListeners.stateObservers) {
+        try { if (typeof unsub === 'function') unsub(); } catch (e) { /* ignore */ }
+    }
+    drawerListeners.stateObservers = [];
     // Clear stored timers
     for (const t of drawerListeners.timers) {
         try { clearTimeout(t); } catch (e) { /* ignore */ }

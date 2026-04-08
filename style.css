@@ -16,9 +16,12 @@
     --dle-bg-hover: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 8%, transparent);
     --dle-text-muted: var(--SmartThemeEmColor, #aaa);
 
-    /* Type scale (minor third 1.2 ratio) */
-    --dle-text-xs: 0.7em;
-    --dle-text-sm: 0.82em;
+    /* Type scale (minor third 1.2 ratio)
+       BUG-213: bumped `--dle-text-xs` from 0.7em to 0.78em so at ST's default 14px
+       base it renders ~10.9px → ~11px, above the old 9.8px floor. Still compact but
+       closer to WCAG 1.4.4 practical minimum. */
+    --dle-text-xs: 0.78em;
+    --dle-text-sm: 0.85em;
     --dle-text-base: 1em;
     --dle-text-lg: 1.1em;
     --dle-text-xl: 1.25em;
@@ -149,12 +152,9 @@
     content: '\2717 ';
 }
 
-/* --- AI stats --- */
-.dle-settings .dle-ai-stats {
-    font-size: 0.85em;
-    color: var(--dle-text-muted);
-    margin-top: 4px;
-}
+/* BUG-161: `.dle-settings .dle-ai-stats` removed — dead rule, `.dle-ai-stats`
+   only exists in drawer.html, never rendered inside `.dle-settings`. Drawer
+   definition at the bottom of this file is now the sole source. */
 
 /* --- Advanced toggle --- */
 .dle-settings .dle-advanced-toggle {
@@ -198,7 +198,8 @@
 
 /* --- Disabled button class (for div-based buttons) --- */
 .dle-settings .menu_button.disabled {
-    opacity: var(--dle-opacity-disabled);
+    /* BUG-173: was 0.4 via --dle-opacity-disabled; ST uses 0.5. Match ST for visual consistency. */
+    opacity: 0.5;
     pointer-events: none;
 }
 
@@ -256,6 +257,10 @@
         animation: none !important;
     }
     .dle-shimmer { animation: none; opacity: 0.6; }
+    /* BUG-202: drop backdrop-filter when user requested reduced motion */
+    #deeplore-panel.dle-overlay-mode {
+        backdrop-filter: none !important;
+    }
 }
 
 /* --- Section spacing between settings groups --- */
@@ -309,7 +314,10 @@
 
 /* Browse tab: active filter indicator */
 .dle-filter-active {
-    border-color: var(--SmartThemeQuoteColor) !important;
+    /* BUG-175: dropped !important — was stomping the green injected-entry left border
+       on rows that were both filter-active and injected. Box-shadow ring is enough
+       signal on its own for filter-active state. */
+    border-color: var(--SmartThemeQuoteColor);
     box-shadow: 0 0 0 1px var(--SmartThemeQuoteColor);
 }
 
@@ -325,6 +333,12 @@
     padding: var(--dle-space-1) var(--dle-space-2);
 }
 .dle-why-timers-toggle i { margin-right: var(--dle-space-1); }
+/* BUG-193: `<summary>` is natively keyboard-focusable — just add a focus ring. */
+.dle-why-timers-toggle:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    border-radius: var(--dle-radius-sm);
+}
 
 /* Status dot accessibility icon */
 .dle-status-dot i { font-size: 0.55em; }
@@ -383,6 +397,11 @@
     justify-content: space-between;
     align-items: center;
     cursor: pointer;
+}
+/* BUG-186: focus ring for keyboard users */
+.dle-card-header:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
 }
 
 /* --- Content preview block --- */
@@ -524,7 +543,8 @@ dle-notes { display: none !important; }
     color: var(--SmartThemeBodyColor, #ddd);
     font-size: 0.95em;
     line-height: 1.5;
-    backdrop-filter: blur(4px);
+    /* BUG-204: dropped backdrop-filter — parent already has filter: blur(3px)
+       so the backdrop is already blurred. Double-blur was compounding GPU cost. */
     box-shadow: var(--dle-shadow-lg);
 }
 
@@ -556,8 +576,8 @@ dle-notes { display: none !important; }
     animation: dle-pulse-glow 0.6s ease-in-out 3;
 }
 
-/* --- Screen reader only (global scope for popups) --- */
-.sr-only {
+/* --- Screen reader only (DLE-scoped to avoid FA `.sr-only` collision, BUG-171) --- */
+.dle-sr-only {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -612,10 +632,9 @@ dle-notes { display: none !important; }
  * Transitions (Item 23)
  * ============================================================================ */
 
-/* Button hover micro-feedback */
-.dle-settings .menu_button {
-    transition: background-color 120ms ease;
-}
+/* BUG-172: removed `.dle-settings .menu_button { transition: background-color 120ms ease }`.
+   It was clobbering ST's shorthand `transition: var(--animation-duration-2x)` which animates
+   `filter: grayscale()` on hover. Inherit ST's default instead. */
 
 /* Advanced section expand/collapse */
 .dle-settings .dle-advanced-section {
@@ -1028,7 +1047,10 @@ dle-notes { display: none !important; }
     height: 100%;
     background: linear-gradient(90deg, var(--dle-success), color-mix(in srgb, var(--dle-success) 70%, white));
     border-radius: var(--dle-radius-sm);
-    transition: width 300ms ease, background 300ms ease, box-shadow 300ms ease;
+    /* BUG-168: width transition dropped — was forcing layout recalc + paint every
+       frame for 300ms on every pipeline run. Background/shadow still transition
+       since they don't reflow. */
+    transition: background 300ms ease, box-shadow 300ms ease;
     margin: 0;
 }
 
@@ -1040,11 +1062,9 @@ dle-notes { display: none !important; }
 .dle-token-bar-container.dle-budget-critical .dle-token-bar {
     background: var(--dle-error);
     box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
-    animation: dle-bar-pulse 2s ease-in-out infinite;
-}
-@keyframes dle-bar-pulse {
-    0%, 100% { box-shadow: 0 0 6px color-mix(in srgb, var(--dle-error) 30%, transparent); }
-    50% { box-shadow: 0 0 12px color-mix(in srgb, var(--dle-error) 60%, transparent); }
+    /* BUG-170: infinite box-shadow keyframe removed — caused per-frame repaint storm
+       while budget-critical state was active. Solid red background + static glow
+       still signals the critical state without animating a paint property. */
 }
 
 .dle-token-bar-label {
@@ -1074,7 +1094,8 @@ dle-notes { display: none !important; }
     height: 100%;
     background: linear-gradient(90deg, var(--dle-info), color-mix(in srgb, var(--dle-info) 70%, white));
     border-radius: var(--dle-radius-sm);
-    transition: width 300ms ease, background 300ms ease, box-shadow 300ms ease;
+    /* BUG-168: see token-bar rule — width transition dropped to avoid reflow storm. */
+    transition: background 300ms ease, box-shadow 300ms ease;
     margin: 0;
 }
 .dle-entries-bar-container.dle-budget-high .dle-entries-bar {
@@ -1084,7 +1105,7 @@ dle-notes { display: none !important; }
 .dle-entries-bar-container.dle-budget-critical .dle-entries-bar {
     background: var(--dle-error);
     box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
-    animation: dle-bar-pulse 2s ease-in-out infinite;
+    /* BUG-170: see token-bar rule above. Same repaint-storm fix. */
 }
 
 .dle-entries-bar-label {
@@ -1173,6 +1194,13 @@ button.dle-chip-x:hover {
 .dle-section-header:hover {
     color: var(--SmartThemeBodyColor, #eee);
 }
+/* BUG-185: defensive focus ring for any future use; class is not currently
+   emitted by any HTML/JS but the selector is reserved. */
+.dle-section-header:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    border-radius: var(--dle-radius-sm);
+}
 
 .dle-section-chevron {
     font-size: var(--dle-text-xs);
@@ -1240,7 +1268,9 @@ button.dle-chip-x:hover {
     transition: background-color 120ms;
     animation: dle-entry-in 200ms ease-out both;
     animation-delay: calc(var(--i, 0) * 30ms);
-    will-change: opacity, transform;
+    /* BUG-200: `will-change` removed — browser auto-promotes composited animations.
+       Keeping it permanently was creating hundreds of persistent compositor layers
+       in large vaults. */
 }
 
 .dle-why-entry:hover {
@@ -1400,7 +1430,12 @@ button.dle-chip-x:hover {
 
 .dle-browse-list {
     position: relative; /* virtual scroll container — children use absolute positioning */
-    flex: 1;
+    flex: 1 1 0;
+    /* BUG-181: explicit overflow + min-height to keep virtualization bounded even
+       when the flex chain changes shape. Without min-height: 0, a flex item defaults
+       to min-content and the container can grow unbounded. */
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .dle-browse-entry {
@@ -1590,7 +1625,8 @@ button.dle-browse-block.dle-block-active {
     flex-direction: column;
     gap: var(--dle-space-1);
     padding: var(--dle-space-2) 0;
-    max-height: 320px;
+    /* BUG-210: viewport-relative cap so container fits on short drawers */
+    max-height: min(320px, 40dvh);
     overflow-y: auto;
     overscroll-behavior: contain;
 }
@@ -1618,12 +1654,13 @@ button.dle-browse-block.dle-block-active {
 .dle-gating-label {
     font-size: var(--dle-text-sm);
     font-weight: 500;
-    min-width: 70px;
+    /* BUG-179: was min-width 70px + flex-shrink: 0; overflowed rows below ~250px drawer width. */
+    min-width: 0;
+    flex: 0 1 120px;
     max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex-shrink: 0;
 }
 
 .dle-gating-value {
@@ -1696,6 +1733,11 @@ button.dle-browse-block.dle-block-active {
 .dle-folder-badge-chip:hover {
     opacity: 0.8;
 }
+/* BUG-188: focus ring for keyboard users */
+.dle-folder-badge-chip:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
 
 /* --- Entry Timers (cooldown / decay / warmup) --- */
 .dle-gating-divider {
@@ -1717,7 +1759,7 @@ button.dle-browse-block.dle-block-active {
     font-size: var(--dle-text-xs);
     animation: dle-entry-in 200ms ease-out both;
     animation-delay: calc(var(--i, 0) * 30ms);
-    will-change: opacity, transform;
+    /* BUG-200: see .dle-why-entry rule — persistent will-change removed. */
 }
 
 .dle-timer-name {
@@ -1789,7 +1831,8 @@ button.dle-browse-block.dle-block-active {
 
 .dle-tools-group-label {
     display: block;
-    font-size: 0.7rem;
+    /* BUG-214: was 0.7rem (fixed), ignoring theme font size. Switch to the theme-scaled var. */
+    font-size: var(--dle-text-xs);
     color: var(--dle-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.4px;
@@ -1859,6 +1902,9 @@ button.dle-browse-block.dle-block-active {
     position: fixed !important;
     right: 0 !important;
     left: auto !important;
+    /* BUG-177: explicit top/height so overlay can't drift into ST's top bar. */
+    top: var(--topBarBlockSize, 42px) !important;
+    height: calc(100dvh - var(--topBarBlockSize, 42px)) !important;
     z-index: 3001;
     border-left: 1px solid var(--SmartThemeBorderColor);
     backdrop-filter: blur(calc(var(--SmartThemeBlurStrength, 10px) * 2));
@@ -1966,7 +2012,7 @@ button.dle-browse-block.dle-block-active {
     width: 0;
     background: var(--SmartThemeQuoteColor, #4caf50);
     border-radius: var(--dle-radius-sm) 0 0 var(--dle-radius-sm);
-    transition: width 300ms ease;
+    /* BUG-168: width transition dropped. */
 }
 
 .dle-context-bar-response {
@@ -1976,7 +2022,7 @@ button.dle-browse-block.dle-block-active {
     left: 0;
     width: 0;
     background: color-mix(in srgb, var(--SmartThemeBodyColor, #e0e0e0) 40%, transparent);
-    transition: width 300ms ease, left 300ms ease;
+    /* BUG-168: width/left transitions dropped — reflow/repaint per frame. Bar snaps instead. */
 }
 
 .dle-context-bar-label {
@@ -2099,10 +2145,17 @@ button.dle-browse-block.dle-block-active {
 
 .dle-settings-popup {
     display: grid;
-    grid-template-columns: 190px 1fr;
+    grid-template-columns: 190px minmax(0, 1fr);
     /* Fill the ST popup container — popup-content is flex-grow:1 inside the 90vh dialog */
     height: 100%;
     min-height: 400px;
+}
+
+/* BUG-162: collapse sidebar to a compact rail on narrow popups so content column keeps room */
+@media (max-width: 600px) {
+    .dle-settings-popup {
+        grid-template-columns: 140px minmax(0, 1fr);
+    }
 }
 
 .dle-settings-popup input:disabled,
@@ -2126,6 +2179,8 @@ button.dle-browse-block.dle-block-active {
     padding: 8px 0;
     gap: 2px;
     overflow-y: auto;
+    overflow-x: hidden;
+    min-width: 0;
 }
 
 .dle-settings-tab {
@@ -2143,6 +2198,9 @@ button.dle-browse-block.dle-block-active {
     transition: background 150ms ease, border-color 150ms ease;
     border-left: 3px solid transparent;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .dle-settings-tab:hover {
@@ -2206,6 +2264,9 @@ button.dle-browse-block.dle-block-active {
     transition: background 150ms ease, border-color 150ms ease;
     border-left: 3px solid transparent;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
 }
 
 .dle-connection-subtab:hover { background: var(--dle-bg-hover); }
@@ -2351,6 +2412,12 @@ button.dle-browse-block.dle-block-active {
     user-select: none;
 }
 .dle-conn-accordion-header:hover { background: var(--dle-bg-hover); }
+/* BUG-187: explicit focus ring in accent blue so focus is distinguishable from
+   the green `.dle-status-ok` / connected state used elsewhere. */
+.dle-conn-accordion-header:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: -2px;
+}
 .dle-conn-tool-icon { width: 16px; text-align: center; flex-shrink: 0; opacity: var(--dle-opacity-muted); }
 .dle-conn-tool-name { font-weight: 600; font-size: var(--dle-text-sm); }
 .dle-conn-badge { margin-left: auto; font-size: var(--dle-text-xs); opacity: 0.7; white-space: nowrap; }
@@ -2384,12 +2451,19 @@ button.dle-browse-block.dle-block-active {
     display: flex;
     align-items: center;
     gap: 6px;
-    min-width: 140px;
+    /* BUG-183: shrinkable min-width, row stacks on narrow popups via breakpoint below */
+    min-width: 0;
+    flex: 0 1 140px;
     font-size: var(--dle-text-base);
     font-weight: 600;
-    flex-shrink: 0;
 }
 .dle-injection-type i { width: 14px; text-align: center; opacity: 0.7; }
+/* BUG-183: stack injection row controls below the label on narrow popups */
+@media (max-width: 500px) {
+    .dle-injection-row { flex-direction: column; align-items: stretch; }
+    .dle-injection-type { flex: 0 0 auto; }
+    .dle-injection-status { text-align: left; }
+}
 .dle-injection-controls {
     flex: 1;
     display: flex;
@@ -2752,8 +2826,15 @@ button.dle-browse-block.dle-block-active {
     white-space: nowrap;
 }
 
-.dle-graph-ctx-item:hover {
+.dle-graph-ctx-item:hover,
+.dle-graph-ctx-item:focus-visible {
     background: var(--dle-bg-hover, rgba(255,255,255,0.1));
+    outline: none;
+}
+/* BUG-190: explicit focus ring for menu items (focus-visible overrides hover) */
+.dle-graph-ctx-item[role="menuitem"]:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: -2px;
 }
 
 .dle-graph-ctx-item.dle-dimmed {
@@ -2818,8 +2899,15 @@ button.dle-browse-block.dle-block-active {
     transition: color 100ms;
 }
 
-.dle-graph-settings-close:hover {
+.dle-graph-settings-close:hover,
+.dle-graph-settings-close:focus-visible {
     color: var(--SmartThemeBodyColor, #fff);
+}
+/* BUG-191: explicit focus ring */
+.dle-graph-settings-close:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    border-radius: 3px;
 }
 
 .dle-graph-settings-body {
@@ -2827,7 +2915,9 @@ button.dle-browse-block.dle-block-active {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    max-height: 400px;
+    /* BUG-180: viewport-relative instead of fixed 400px so the panel body stays
+       reachable on short viewports. */
+    max-height: min(400px, calc(100dvh - 160px));
     overflow-y: auto;
 }
 
@@ -2948,8 +3038,8 @@ button.dle-browse-block.dle-block-active {
 /* Copy button */
 .dle-copy-btn { padding: 4px 12px; margin-bottom: var(--dle-space-2); }
 
-/* Browse popup controls */
-.dle-browse-controls { display: flex; gap: var(--dle-space-2); margin-bottom: 10px; flex-wrap: wrap; }
+/* Browse popup controls (scoped to popup to avoid collision with drawer .dle-browse-controls) */
+.dle-popup .dle-browse-controls { display: flex; gap: var(--dle-space-2); margin-bottom: 10px; flex-wrap: wrap; align-items: initial; flex-shrink: initial; }
 .dle-browse-search { flex: 2; min-width: 200px; }
 .dle-browse-filter { flex: 1; min-width: 120px; }
 .dle-browse-sort { flex: 1; min-width: 140px; }
@@ -3104,7 +3194,8 @@ button.dle-browse-block.dle-block-active {
 .dle-sp-command-table td { padding: 2px 4px; }
 
 /* Compact slash command reference grid (About tab) */
-.dle-cmd-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 14px; font-size: 0.78em; }
+/* BUG-211: auto-fit columns so narrow settings popups don't overflow */
+.dle-cmd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px 14px; font-size: 0.78em; }
 .dle-cmd-grid-col { display: flex; flex-direction: column; gap: 1px; }
 .dle-cmd-grid-header { font-weight: 600; padding: 2px 0 4px; border-bottom: 1px solid var(--SmartThemeBorderColor); margin-bottom: 3px; opacity: 0.85; }
 .dle-cmd-row { display: flex; align-items: baseline; gap: 6px; line-height: 1.3; }
@@ -3210,6 +3301,8 @@ button.dle-browse-block.dle-block-active {
 .dle-rb-dupe.menu_button { padding: 4px 8px; min-height: 28px; }
 .dle-rb-gating-disabled { opacity: 0.4; pointer-events: none; }
 .dle-rb-link-icon { cursor: pointer; font-size: var(--dle-text-sm); color: var(--dle-accent); padding: 0 4px; }
+/* BUG-189: focus ring */
+.dle-rb-link-icon:focus-visible { outline: 2px solid var(--dle-accent); outline-offset: 2px; border-radius: 2px; }
 @keyframes dle-rb-field-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
 .dle-rb-new { animation: dle-rb-field-in 200ms ease-out; }
 .dle-rb-actions {
@@ -3311,6 +3404,14 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-wizard-step.completed:hover {
     opacity: 1;
 }
+/* BUG-192: self-contained focus rule so the back-nav button is reachable
+   regardless of which popup container the wizard renders inside. */
+.dle-wizard-step.completed:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    border-radius: var(--dle-radius-sm);
+}
 
 .dle-wizard-step-dot {
     width: 28px;
@@ -3328,8 +3429,9 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-wizard-step.active .dle-wizard-step-dot {
     border-color: var(--dle-info);
     color: var(--dle-info);
-    box-shadow: 0 0 8px color-mix(in srgb, var(--dle-info) 40%, transparent);
-    animation: dle-wizard-dot-pulse 2s ease-in-out infinite;
+    /* BUG-195: infinite box-shadow keyframe removed — per-frame repaint storm.
+       Static glow still distinguishes the active step. */
+    box-shadow: 0 0 10px color-mix(in srgb, var(--dle-info) 50%, transparent);
 }
 .dle-wizard-step.completed .dle-wizard-step-dot {
     border-color: var(--dle-success);
@@ -3351,10 +3453,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     margin-top: -12px;
 }
 
-@keyframes dle-wizard-dot-pulse {
-    0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--dle-info) 20%, transparent); }
-    50% { box-shadow: 0 0 12px color-mix(in srgb, var(--dle-info) 50%, transparent); }
-}
+/* BUG-195: @keyframes dle-wizard-dot-pulse removed with the animation. */
 
 /* --- Page Body --- */
 .dle-wizard-body {
@@ -3749,6 +3848,10 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     .dle-wizard-preset-group { flex-direction: column; }
     .dle-wizard-actions-grid { grid-template-columns: 1fr; }
     .dle-wizard-step-label { display: none; }
+    /* BUG-182: shrink dots + padding so 9 steps fit under 540px without scroll */
+    .dle-wizard-step { min-width: 36px; padding: 4px 2px; }
+    .dle-wizard-step-dot { width: 22px; height: 22px; font-size: var(--dle-text-sm); }
+    .dle-wizard-step-line { min-width: 4px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -4178,7 +4281,11 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 
 .dle-librarian-review {
     max-width: 95vw !important;
-    min-width: min(1200px, 95vw) !important;
+    /* BUG-164: don't force 1200px min-width at narrow widths — editor panel
+       was getting squeezed below ~400px between the stack breakpoint and the
+       two-col grid's minmax(320px, 380px) chat column. Let the popup size
+       naturally inside ST's dialog. */
+    min-width: min(900px, 95vw) !important;
 }
 .dle-librarian-popup {
     display: grid;
@@ -4712,6 +4819,13 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     75%  { content: '...'; }
     100% { content: ''; }
 }
+/* BUG-196: explicit reduced-motion override so content-flashing steps don't fire. */
+@media (prefers-reduced-motion: reduce) {
+    .dle-lib-status-thinking::after {
+        animation: none !important;
+        content: '...';
+    }
+}
 
 /* --- Stop button --- */
 .dle-lib-stop-btn {
@@ -4742,6 +4856,12 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     user-select: none;
 }
 .dle-lib-tool-header:hover {
+    opacity: 1;
+}
+/* BUG-184: focus ring for keyboard users */
+.dle-lib-tool-header:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
     opacity: 1;
 }
 .dle-lib-tool-header i.fa-wrench {
@@ -4857,8 +4977,10 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     opacity: 1;
 }
 
-/* Responsive: stack panels on small screens */
-@media (max-width: 800px) {
+/* Responsive: stack panels on small screens.
+   BUG-164: bumped from 800px to 1100px so the editor panel never drops below
+   ~520px — between 800 and 1100 the two-col layout was producing a squashed editor. */
+@media (max-width: 1100px) {
     .dle-librarian-popup {
         grid-template-columns: 1fr;
         grid-template-rows: 1fr 1fr;

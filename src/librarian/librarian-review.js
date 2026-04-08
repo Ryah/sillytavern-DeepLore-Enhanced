@@ -10,6 +10,7 @@ import { stripObsidianSyntax, sanitizeFilename } from '../helpers.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { getContext } from '../../../../../extensions.js';
+import { accountStorage } from '../../../../../util/AccountStorage.js';
 import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession, pickFlavorIntro } from './librarian-session.js';
@@ -627,14 +628,21 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 div.className = 'dle-lib-msg dle-lib-msg-tool';
                 div.dataset.toolName = name;
                 const argsStr = Object.entries(args || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
-                div.innerHTML = `<div class="dle-lib-tool-header">`
+                div.innerHTML = `<div class="dle-lib-tool-header" role="button" tabindex="0" aria-expanded="false">`
                     + `<i class="fa-solid fa-wrench"></i> ${escapeHtml(name)}(${escapeHtml(argsStr)})`
                     + ` <i class="fa-solid fa-spinner fa-spin dle-lib-tool-spinner"></i>`
                     + `</div>`
                     + `<div class="dle-lib-tool-result" hidden></div>`;
-                div.querySelector('.dle-lib-tool-header').addEventListener('click', () => {
+                // BUG-184: mouse + keyboard toggle
+                const _toolHdr = div.querySelector('.dle-lib-tool-header');
+                const _toggleTool = () => {
                     const resultDiv = div.querySelector('.dle-lib-tool-result');
                     resultDiv.hidden = !resultDiv.hidden;
+                    _toolHdr.setAttribute('aria-expanded', String(!resultDiv.hidden));
+                };
+                _toolHdr.addEventListener('click', _toggleTool);
+                _toolHdr.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _toggleTool(); }
                 });
                 // Insert before the loading spinner so it stays at the bottom
                 const loadingEl = messagesDiv.querySelector('#dle-lib-loading');
@@ -671,7 +679,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 // Create collapsed summary node
                 const wrap = document.createElement('div');
                 wrap.className = 'dle-lib-msg dle-lib-msg-tool dle-lib-tool-collapsed';
-                wrap.innerHTML = `<div class="dle-lib-tool-header">`
+                wrap.innerHTML = `<div class="dle-lib-tool-header" role="button" tabindex="0" aria-expanded="false">`
                     + `<i class="fa-solid fa-wrench"></i> ${escapeHtml(summary)}`
                     + ` <i class="fa-solid fa-chevron-down dle-lib-tool-expand-icon"></i>`
                     + `</div>`
@@ -684,13 +692,20 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     expandArea.appendChild(div);
                 }
 
-                wrap.querySelector('.dle-lib-tool-header').addEventListener('click', () => {
+                // BUG-184: mouse + keyboard toggle
+                const _collHdr = wrap.querySelector('.dle-lib-tool-header');
+                const _toggleCollapsed = () => {
                     const expanded = expandArea.hidden;
                     expandArea.hidden = !expanded;
+                    _collHdr.setAttribute('aria-expanded', String(expanded));
                     const icon = wrap.querySelector('.dle-lib-tool-expand-icon');
                     if (icon) icon.className = expanded
                         ? 'fa-solid fa-chevron-up dle-lib-tool-expand-icon'
                         : 'fa-solid fa-chevron-down dle-lib-tool-expand-icon';
+                };
+                _collHdr.addEventListener('click', _toggleCollapsed);
+                _collHdr.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _toggleCollapsed(); }
                 });
 
                 // Insert before the last AI message (or append)
@@ -996,14 +1011,22 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     ? 'fa-solid fa-chevron-left'
                     : 'fa-solid fa-chevron-right';
                 if (!collapsed) { _chatUnreadCount = 0; updateUnreadBadge(); }
-                try { localStorage.setItem('dle-librarian-panel-state', collapsed ? 'collapsed' : 'both'); } catch {}
+                // BUG-042: accountStorage for cross-browser sync
+                try { accountStorage.setItem('dle-librarian-panel-state', collapsed ? 'collapsed' : 'both'); } catch {}
             }
 
-            // Restore saved state
+            // Restore saved state (BUG-042: migrate legacy localStorage)
             try {
-                if (localStorage.getItem('dle-librarian-panel-state') === 'collapsed') {
-                    setChatCollapsed(true);
+                let state = accountStorage.getItem('dle-librarian-panel-state');
+                if (!state) {
+                    const legacy = localStorage.getItem('dle-librarian-panel-state');
+                    if (legacy) {
+                        accountStorage.setItem('dle-librarian-panel-state', legacy);
+                        localStorage.removeItem('dle-librarian-panel-state');
+                        state = legacy;
+                    }
                 }
+                if (state === 'collapsed') setChatCollapsed(true);
             } catch {}
 
             collapseBtn.addEventListener('click', () => {
@@ -1025,14 +1048,21 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                         // Render tool results as collapsed tool nodes
                         const div = document.createElement('div');
                         div.className = 'dle-lib-msg dle-lib-msg-tool';
-                        div.innerHTML = `<div class="dle-lib-tool-header">`
+                        div.innerHTML = `<div class="dle-lib-tool-header" role="button" tabindex="0" aria-expanded="false">`
                             + `<i class="fa-solid fa-wrench"></i> Tool Results`
                             + `</div>`
                             + `<div class="dle-lib-tool-result" hidden></div>`;
                         const resultDiv = div.querySelector('.dle-lib-tool-result');
                         resultDiv.textContent = msg.content.length > 500 ? msg.content.slice(0, 497) + '...' : msg.content;
-                        div.querySelector('.dle-lib-tool-header').addEventListener('click', () => {
+                        // BUG-184: mouse + keyboard
+                        const _hdr = div.querySelector('.dle-lib-tool-header');
+                        const _tog = () => {
                             resultDiv.hidden = !resultDiv.hidden;
+                            _hdr.setAttribute('aria-expanded', String(!resultDiv.hidden));
+                        };
+                        _hdr.addEventListener('click', _tog);
+                        _hdr.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _tog(); }
                         });
                         messagesDiv.appendChild(div);
                     } else {

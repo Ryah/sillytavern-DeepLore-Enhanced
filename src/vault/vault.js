@@ -425,7 +425,7 @@ export async function buildIndex() {
                 userMsg = `Obsidian connection timed out. Check that the REST API plugin is running. Run /dle-health for diagnostics. (${raw})`;
             }
         }
-        dedupError(userMsg, 'obsidian_connect');
+        dedupError(userMsg, 'obsidian_build_fail');
     } finally {
         if (buildEpoch === capturedEpoch) {
             setIndexing(false);
@@ -487,7 +487,7 @@ export async function hydrateFromCache() {
                 // (not Date.now() which would prevent retries until TTL expires)
                 const s = getSettings();
                 setIndexTimestamp(Date.now() - (s.cacheTTL * 1000) + 30_000); // retry in ~30s
-                dedupWarning('Couldn\'t reach your vault — using your saved cache for now.', 'obsidian_connect', { timeOut: CACHE_FALLBACK_TOAST_TIMEOUT, hint: 'Check that Obsidian is running, then /dle-refresh.' });
+                dedupWarning('Couldn\'t reach your vault — using your saved cache for now.', 'obsidian_cache_fallback', { timeOut: CACHE_FALLBACK_TOAST_TIMEOUT, hint: 'Check that Obsidian is running, then /dle-refresh.' });
             }
         });
 

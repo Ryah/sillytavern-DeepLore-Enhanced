@@ -4,6 +4,7 @@
  */
 import { chat_metadata, saveSettingsDebounced } from '../../../../../../script.js';
 import { saveMetadataDebounced } from '../../../../../extensions.js';
+import { accountStorage } from '../../../../../util/AccountStorage.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings, invalidateSettingsCache } from '../../settings.js';
 import {
@@ -107,7 +108,8 @@ export function switchTab($drawer, tabName) {
     }
 
     // E10: Persist last viewed tab
-    try { localStorage.setItem('dle-last-drawer-tab', tabName); } catch { /* noop */ }
+    // BUG-042: accountStorage syncs across browsers; localStorage fallback for migration grace period
+    try { accountStorage.setItem('dle-last-drawer-tab', tabName); } catch { /* noop */ }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -592,9 +594,15 @@ export function wireGatingTab($drawer) {
         });
     });
 
-    // Folder badge in status zone → switch to gating tab
+    // Folder badge in status zone → switch to gating tab (BUG-188: keyboard)
     $drawer.on('click', '.dle-folder-badge-chip', function () {
         switchTab($drawer, 'gating');
+    });
+    $drawer.on('keydown', '.dle-folder-badge-chip', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            switchTab($drawer, 'gating');
+        }
     });
 }
 

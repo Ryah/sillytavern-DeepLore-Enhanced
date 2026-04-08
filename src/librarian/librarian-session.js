@@ -8,7 +8,7 @@ import { buildAiChatContext } from '../../core/utils.js';
 import { callAI, buildCandidateManifest } from '../ai/ai.js';
 import { queryBM25 } from '../vault/bm25.js';
 import { getSettings, resolveConnectionConfig } from '../../settings.js';
-import { vaultIndex, fuzzySearchIndex, loreGaps, setLoreGaps } from '../state.js';
+import { vaultIndex, fuzzySearchIndex, loreGaps, setLoreGaps, chatEpoch } from '../state.js';
 import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
 import { executeToolCall, buildToolsPromptSection } from './librarian-chat-tools.js';
 import {
@@ -656,6 +656,10 @@ function getConnectionConfig() {
 export async function sendMessage(session, userMessage, options = {}) {
     const { signal, onToolCall, onToolResult } = options;
 
+    // BUG-273: Capture epoch at entry. Re-checked after every await so a chat switch
+    // mid-flight bails out rather than writing stale results into the new chat's session.
+    const epoch = chatEpoch;
+
     // BUG-237/253/303: Snapshot history BEFORE any mutation. On abort, restore so
     // the session isn't left with a one-sided user turn, orphan tool_results, or a
     // truncated history the user never sees reflected in UI state.
@@ -664,6 +668,11 @@ export async function sendMessage(session, userMessage, options = {}) {
     const abortReturn = () => {
         if (!committed) session.messages = historySnapshot.map(m => ({ ...m }));
         return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
+    };
+    // BUG-273: Reuse the same snapshot-restore path for epoch mismatch — no second snapshot needed.
+    const epochReturn = () => {
+        if (!committed) session.messages = historySnapshot.map(m => ({ ...m }));
+        return { parsed: null, valid: false, exhausted: false, lastErrors: ['Chat changed during librarian send'] };
     };
 
     // Append user message to history
@@ -681,6 +690,11 @@ export async function sendMessage(session, userMessage, options = {}) {
     while (true) {
         if (signal?.aborted) {
             return abortReturn();
+        }
+        // BUG-273: Epoch check at top of outer loop catches chat switches that happen
+        // between tool-call iterations (the continuation path after executeToolCall).
+        if (epoch !== chatEpoch) {
+            return epochReturn();
         }
 
         // BUG-232: Hard iteration cap — prevents unbounded loop when AI ignores
@@ -704,6 +718,11 @@ export async function sendMessage(session, userMessage, options = {}) {
             if (signal?.aborted) {
                 return abortReturn();
             }
+            // BUG-273: Epoch check at top of inner retry loop — a chat switch between
+            // validation retries should not issue another callAI for the old chat.
+            if (epoch !== chatEpoch) {
+                return epochReturn();
+            }
 
             let result;
             try {
@@ -711,6 +730,11 @@ export async function sendMessage(session, userMessage, options = {}) {
             } catch (err) {
                 if (err.name === 'AbortError' || signal?.aborted) {
                     return abortReturn();
+                }
+                // BUG-273: Check epoch after callAI throws — the chat may have changed
+                // while the request was in flight even if the error isn't an AbortError.
+                if (epoch !== chatEpoch) {
+                    return epochReturn();
                 }
                 // BUG-019: Do NOT retry on AI transport errors — callViaProfile/callViaProxy
                 // already called recordAiFailure(), so looping here amplifies circuit trips
@@ -720,6 +744,12 @@ export async function sendMessage(session, userMessage, options = {}) {
                 // parse/validation errors from prior attempts aren't lost.
                 lastErrors = [...lastErrors, `AI call failed: ${err.message || err}`];
                 return { parsed: null, valid: false, exhausted: true, lastErrors };
+            }
+
+            // BUG-273: Check epoch after successful callAI return — chat may have switched
+            // while the HTTP request was in flight (normal path, no exception thrown).
+            if (epoch !== chatEpoch) {
+                return epochReturn();
             }
 
             const parsed = parseSessionResponse(result.text);

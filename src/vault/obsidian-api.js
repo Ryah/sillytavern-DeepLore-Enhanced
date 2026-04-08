@@ -154,7 +154,7 @@ export function validateVaultPath(filename) {
  * @param {number} [options.timeout=30000] - Timeout in ms
  * @returns {Promise<{status: number, data: string}>}
  */
-export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, https: useHttps = false, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT }) {
+export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, https: useHttps = false, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT, signal = null }) {
     // Circuit breaker key: host:port for multi-vault isolation
     const circuitKey = `${host}:${port}`;
     // Circuit breaker: reject immediately if circuit is open
@@ -173,6 +173,20 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
+    // BUG-256: wire external signal (caller-supplied user-cancel) to this controller
+    // so vault sync/scan/import are actually cancellable. Bail early if already aborted.
+    let onExternalAbort = null;
+    if (signal) {
+        if (signal.aborted) {
+            clearTimeout(timer);
+            const err = new Error('Request aborted');
+            err.name = 'AbortError';
+            err.userAborted = true;
+            throw err;
+        }
+        onExternalAbort = () => controller.abort();
+        signal.addEventListener('abort', onExternalAbort, { once: true });
+    }
 
     try {
         const protocol = useHttps ? 'https' : 'http';
@@ -195,15 +209,24 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
     } catch (err) {
         if (err.name === 'AbortError') {
             // Don't count aborts (timeout / page teardown / cancelled scans) as circuit failures.
-            // Preserve AbortError name so downstream timeout detection (err.name === 'AbortError') works.
+            // BUG-256: if the external signal fired, tag as user-abort; otherwise it's our timeout.
+            if (signal?.aborted) {
+                const abortErr = new Error('Request aborted by user');
+                abortErr.name = 'AbortError';
+                abortErr.userAborted = true;
+                throw abortErr;
+            }
             const timeoutErr = new Error('Request timed out');
             timeoutErr.name = 'AbortError';
+            timeoutErr.timedOut = true;
             throw timeoutErr;
         }
         recordFailure(circuitKey);
         throw err;
     } finally {
         clearTimeout(timer);
+        // BUG-256/248: detach external signal listener to prevent leaks on long-lived signals.
+        if (signal && onExternalAbort) signal.removeEventListener('abort', onExternalAbort);
     }
 }
 

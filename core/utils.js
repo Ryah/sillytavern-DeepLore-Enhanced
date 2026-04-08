@@ -380,6 +380,22 @@ export const NO_ENTRIES_MSG = 'No entries found. Check your Obsidian vault conne
  * @param {Error|string} err - The error to classify
  * @returns {string} A user-friendly error description
  */
+/**
+ * BUG-260: Central AbortError detector. Catches classic err.name === 'AbortError',
+ * our flag-tagged variants (userAborted/timedOut), and DOMException abort variants
+ * (DOMException with name 'AbortError', which some fetch implementations throw).
+ * Use instead of bare `err.name === 'AbortError'` comparisons.
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isAbortError(err) {
+    if (!err || typeof err !== 'object') return false;
+    if (err.userAborted || err.timedOut) return true;
+    if (err.name === 'AbortError') return true;
+    if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') return true;
+    return false;
+}
+
 export function classifyError(err) {
     // BUG-246: discriminate user-abort from timeout using flags set by callViaProfile/callViaProxy
     // (err.userAborted vs err.timedOut). Fall back to regex only for raw strings / foreign errors,

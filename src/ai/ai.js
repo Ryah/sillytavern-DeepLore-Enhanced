@@ -161,12 +161,11 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         const msg = (err.message || '').toLowerCase();
         if (/incorrect.?role|invalid.?role|system.*not.?supported|unsupported.*role|role.*not.?allow/i.test(msg)) {
             console.warn('[DLE] Role-related API error detected:', err.message);
-            if (typeof toastr !== 'undefined') {
-                toastr.warning(
-                    'AI search couldn\'t talk to your provider. Try switching Prompt Post-Processing to Semi or Strict in your Connection profile.',
-                    'DeepLore Enhanced', { timeOut: 10000 },
-                );
-            }
+            dedupWarning(
+                'AI search couldn\'t talk to your provider. Try switching Prompt Post-Processing to Semi or Strict in your Connection profile.',
+                'callViaProfile_role_error',
+                { timeOut: 10000 },
+            );
         }
         // Claude adaptive-thinking error rewrite — only if pre-flight flagged it AND
         // the error looks like the 400/top_k/thinking signature.

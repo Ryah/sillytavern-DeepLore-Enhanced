@@ -123,7 +123,13 @@ export function executeToolCall(name, args = {}) {
         case 'get_backlinks': return toolGetBacklinks(args);
         case 'list_entries': return toolListEntries(args);
         case 'get_writing_guide': return toolGetWritingGuide(args);
-        default: return `Unknown tool: "${name}". Available tools: ${LIBRARIAN_TOOLS.map(t => t.name).join(', ')}`;
+        // BUG-325: default error message must include get_writing_guide — it is handled above but
+        // not in LIBRARIAN_TOOLS (it is dynamic/conditional and built separately in buildToolsPromptSection).
+        default: {
+            const staticTools = LIBRARIAN_TOOLS.map(t => t.name);
+            const dynamicTools = getGuideEntries().length > 0 ? ['get_writing_guide'] : [];
+            return `Unknown tool: "${name}". Available tools: ${[...staticTools, ...dynamicTools].join(', ')}`;
+        }
     }
 }
 

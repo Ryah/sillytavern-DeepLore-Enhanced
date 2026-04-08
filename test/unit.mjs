@@ -669,10 +669,12 @@ test('formatAndGroup: multiple groups with different positions', () => {
 });
 
 test('formatAndGroup: budget applied globally across groups', () => {
+    // Content sized ~4 chars/token so truncation math is realistic
+    const body = 'The quick brown fox jumped over the lazy dog. '.repeat(45); // ~2100 chars ≈ 500 tokens
     const entries = [
-        makeEntry('A', { content: 'Content A', tokenEstimate: 500, injectionPosition: 2 }),
-        makeEntry('B', { content: 'Content B', tokenEstimate: 500 }),
-        makeEntry('C', { content: 'Content C', tokenEstimate: 500 }),
+        makeEntry('A', { content: body, tokenEstimate: 500, injectionPosition: 2 }),
+        makeEntry('B', { content: body, tokenEstimate: 500 }),
+        makeEntry('C', { content: body, tokenEstimate: 500 }),
     ];
     const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 1200 };
     const result = formatAndGroup(entries, settings, 'deeplore_');
@@ -2344,11 +2346,13 @@ test('integration: analytics accuracy post-gating — gated entries matched but 
 
 test('integration: full 4-stage chain with budget truncation', () => {
     // Constant + pinned + regular entries, budget forces truncation
+    // Content sized ~4 chars/token so truncation stays within budget
+    const body = (n) => 'The quick brown fox jumped over the lazy dog. '.repeat(Math.ceil(n * 4 / 46));
     const vault = [
-        makeEntry('Const', { constant: true, tokenEstimate: 300, priority: 10, content: 'Constant content' }),
-        makeEntry('Pinned', { tokenEstimate: 250, priority: 50, content: 'Pinned content' }),
-        makeEntry('Regular', { tokenEstimate: 200, priority: 30, requires: [], content: 'Regular content' }),
-        makeEntry('Overflow', { tokenEstimate: 400, priority: 60, content: 'Overflow content' }),
+        makeEntry('Const', { constant: true, tokenEstimate: 300, priority: 10, content: body(300) }),
+        makeEntry('Pinned', { tokenEstimate: 250, priority: 50, content: body(250) }),
+        makeEntry('Regular', { tokenEstimate: 200, priority: 30, requires: [], content: body(200) }),
+        makeEntry('Overflow', { tokenEstimate: 400, priority: 60, content: body(400) }),
     ];
     const policy = buildExemptionPolicy(vault, ['Pinned'], []);
     const matchedKeys = new Map();
@@ -4269,13 +4273,14 @@ test('validateSessionResponse: rejects draft with out-of-range priority', () => 
     assert(r.errors.some(e => e.includes('priority')), 'error about priority');
 });
 
-test('validateSessionResponse: rejects draft with empty keys array', () => {
+test('validateSessionResponse: allows partial draft with empty keys array (BUG-025)', () => {
+    // BUG-025: partial drafts are legitimate during iterative update_draft turns;
+    // empty keys array is allowed — Emma may not have proposed keys yet.
     const r = validateSessionResponse({
         message: 'Draft',
         draft: { title: 'Test', keys: [], content: 'x'.repeat(50) },
     });
-    assert(!r.valid, 'should be invalid');
-    assert(r.errors.some(e => e.includes('keys')), 'error about keys');
+    assert(r.valid, 'empty keys array should be valid in partial draft');
 });
 
 test('validateSessionResponse: rejects draft with empty string in keys', () => {
@@ -4287,13 +4292,14 @@ test('validateSessionResponse: rejects draft with empty string in keys', () => {
     assert(r.errors.some(e => e.includes('empty strings')), 'error about empty key strings');
 });
 
-test('validateSessionResponse: rejects draft with short content', () => {
+test('validateSessionResponse: allows partial draft with short content (BUG-025)', () => {
+    // BUG-025: short content is allowed during iterative drafting; only non-string
+    // types are rejected. Emma may refine content across multiple turns.
     const r = validateSessionResponse({
         message: 'Draft',
         draft: { title: 'Test', keys: ['a'], content: 'too short' },
     });
-    assert(!r.valid, 'should be invalid');
-    assert(r.errors.some(e => e.includes('content')), 'error about content');
+    assert(r.valid, 'short content should be valid in partial draft');
 });
 
 test('validateSessionResponse: rejects draft with long summary', () => {

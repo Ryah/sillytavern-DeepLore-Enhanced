@@ -6,6 +6,8 @@ import {
     generateQuietPrompt,
     chat,
     saveSettingsDebounced,
+    eventSource,
+    event_types,
 } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
@@ -42,19 +44,33 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
 
     if (mode === 'st') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
+        // BUG-244: generateQuietPrompt cannot be aborted mid-flight. Mirror scribe's GENERATION_STOPPED
+        // race pattern so our await resolves early on user stop (lock releases promptly) rather than
+        // blocking until the orphaned background generation completes or times out.
+        const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
+        // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
+        const effectiveTimeout = timeout || 60000;
+        const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
+        let suggestTimer;
+        let onStop;
         try {
-            // Note: generateQuietPrompt cannot be aborted — timed-out generation completes in background
-            const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-            // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
-            const effectiveTimeout = timeout || 60000;
-            const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
-            let suggestTimer;
             const response = await Promise.race([
                 quietPromise.finally(() => clearTimeout(suggestTimer)),
                 new Promise((_, reject) => { suggestTimer = setTimeout(() => {
                     console.warn('[DLE] Auto-suggest quiet prompt timed out — orphaned generation may still complete in background');
-                    reject(new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`));
+                    const err = new Error(`Auto-suggest quiet prompt timed out (${Math.round(effectiveTimeout / 1000)}s)`);
+                    err.timedOut = true;
+                    reject(err);
                 }, effectiveTimeout); }),
+                new Promise((_, reject) => {
+                    onStop = () => {
+                        const err = new Error('Auto-suggest aborted by user (GENERATION_STOPPED)');
+                        err.name = 'AbortError';
+                        err.userAborted = true;
+                        reject(err);
+                    };
+                    try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
+                }),
             ]);
             recordAiSuccess();
             return { text: response, usage: null };
@@ -62,6 +78,8 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
             // BUG-252: user aborts and timeouts must not trip the circuit breaker.
             if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
             throw err;
+        } finally {
+            if (onStop) { try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ } }
         }
     } else if (mode === 'profile' || mode === 'proxy') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');

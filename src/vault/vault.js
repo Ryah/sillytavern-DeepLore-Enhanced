@@ -284,9 +284,13 @@ export async function buildIndex() {
         } catch (err) {
             console.warn('[DLE] Error loading field definitions:', err.message, '— using defaults');
         }
-        // Set state once, before any parsing begins
+        // BUG-305: Defer publishing loadedFieldDefs into state until we know we're going
+        // to commit a new vaultIndex. Publishing here meant that if all vaults failed in
+        // multi-vault mode (early-return at L350) the new fieldDefinitions would be live
+        // against the OLD preserved vaultIndex — a mismatched combination where the index
+        // was parsed with the old defs but gating runs against the new ones. Parse with
+        // loadedFieldDefs locally, then publish atomically alongside setVaultIndex below.
         if (isZombie()) return;
-        setFieldDefinitions(loadedFieldDefs);
 
         let entries = [];
         const tagConfig = {
@@ -324,7 +328,8 @@ export async function buildIndex() {
                 }
 
                 for (const file of data.files) {
-                    const entry = parseVaultFile(file, tagConfig, fieldDefinitions);
+                    // BUG-305: parse with the locally-loaded defs, not the (possibly stale) global.
+                    const entry = parseVaultFile(file, tagConfig, loadedFieldDefs);
                     if (entry) {
                         entry.vaultSource = vault.name;
                         entry._contentHash = simpleHash(file.content);
@@ -376,6 +381,10 @@ export async function buildIndex() {
         entries = deduplicateMultiVault(entries, settings.multiVaultConflictResolution);
 
         if (isZombie()) return;
+        // BUG-305: atomically publish fieldDefinitions together with the new vaultIndex.
+        // Both are committed together so no intermediate state can observe new defs with
+        // old entries or vice versa.
+        setFieldDefinitions(loadedFieldDefs);
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
 

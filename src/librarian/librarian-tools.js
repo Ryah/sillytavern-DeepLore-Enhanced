@@ -100,14 +100,15 @@ function findSimilarGap(gaps, newQuery, type) {
 
 /** Persist lore gaps to chat_metadata and save */
 function persistGaps(updatedGaps) {
-    setLoreGaps(updatedGaps);
+    // BUG-304: check metadata availability BEFORE mutating in-memory state. Otherwise a
+    // missing chat_metadata (cold start, between chats) leaves setLoreGaps committed but
+    // the drawer-visible gap never persists — next reload silently loses it.
     const ctx = getContext();
-    // getContext() exposes chatMetadata (camelCase), not chat_metadata
     const meta = ctx?.chatMetadata;
-    if (meta) {
-        meta.deeplore_lore_gaps = updatedGaps;
-        saveMetadataDebounced();
-    }
+    if (!meta) return;
+    setLoreGaps(updatedGaps);
+    meta.deeplore_lore_gaps = updatedGaps;
+    saveMetadataDebounced();
 }
 
 // ── Soft-remove sibling-array helpers (mirrors deeplore_pins/blocks pattern) ──

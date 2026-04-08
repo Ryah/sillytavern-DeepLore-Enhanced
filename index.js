@@ -1361,7 +1361,14 @@ jQuery(async function () {
                 setGenerationLock(false);
             }
 
-            setLastScribeChatLength(chat ? chat.length : 0);
+            // BUG-308: hydrate from chat_metadata if present so the "already scribed at N"
+            // guard survives chat switches. Fall back to current chat length on first visit.
+            {
+                const persistedLen = chat_metadata?.deeplore_lastScribeChatLength;
+                setLastScribeChatLength(
+                    Number.isFinite(persistedLen) ? persistedLen : (chat ? chat.length : 0),
+                );
+            }
             setLastScribeSummary(chat_metadata?.deeplore_lastScribeSummary || '');
             // BUG-275: Do NOT reset scribeInProgress here. The in-flight scribe owns its
             // own flag and will release it in its own finally (see scribe.js). Resetting

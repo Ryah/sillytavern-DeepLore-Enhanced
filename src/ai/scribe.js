@@ -176,8 +176,14 @@ export async function runScribe(customPrompt) {
                 return;
             }
             setLastScribeSummary(sanitizedSummary.trim());
-            setLastScribeChatLength(chat?.length || 0); // Use current length, not stale start value
+            const chatLenAtWrite = chat?.length || 0;
+            setLastScribeChatLength(chatLenAtWrite); // Use current length, not stale start value
             chat_metadata.deeplore_lastScribeSummary = lastScribeSummary;
+            // BUG-308: persist the "we already scribed at length N" guard to chat_metadata so
+            // CHAT_CHANGED / reload can hydrate it. Previously the guard was in-memory only,
+            // so on returning to a chat the next rendered message could re-trigger scribe
+            // immediately even though the chat hadn't grown since the last successful scribe.
+            chat_metadata.deeplore_lastScribeChatLength = chatLenAtWrite;
             saveMetadataDebounced();
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
             // Reindex so the newly-written note is immediately retrievable

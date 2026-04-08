@@ -77,14 +77,20 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
 }
 
 let autoSuggestInProgress = false;
+let autoSuggestInProgressEpoch = -1;
 
 /**
  * Run auto-suggest: analyze chat for entities not in lorebook, return suggestions.
  * BUG 3 FIX: Uses aiSearchScanDepth instead of autoSuggestInterval for chat context depth.
  */
 export async function runAutoSuggest() {
+    // If a previous run was abandoned by a chat switch, the flag would be stuck — reset.
+    if (autoSuggestInProgress && autoSuggestInProgressEpoch !== chatEpoch) {
+        autoSuggestInProgress = false;
+    }
     if (autoSuggestInProgress) return [];
     autoSuggestInProgress = true;
+    autoSuggestInProgressEpoch = chatEpoch;
     const epoch = chatEpoch;
     try {
     const settings = getSettings();

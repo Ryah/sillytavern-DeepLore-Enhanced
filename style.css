@@ -448,13 +448,8 @@ dle-notes { display: none !important; }
     border-bottom: 1px solid var(--dle-border);
 }
 
-/* --- Token bar --- */
-.dle-token-bar {
-    background: var(--dle-border);
-    border-radius: var(--dle-radius-sm);
-    height: 6px;
-    margin: var(--dle-space-1) 0;
-}
+/* --- Token bar fill --- */
+/* Note: .dle-token-bar itself is defined under .dle-token-bar-container scope (~L1035) */
 .dle-token-bar-fill {
     height: 100%;
     border-radius: var(--dle-radius-sm);
@@ -3045,6 +3040,7 @@ button.dle-browse-block.dle-block-active {
 
 /* Graph canvas and wrapper */
 .dle-graph-canvas { border: 1px solid var(--dle-border); border-radius: var(--dle-radius-sm); cursor: grab; width: 100%; height: 100%; min-height: 200px; background: var(--dle-bg-surface); outline: none; }
+.dle-graph-canvas:focus-visible { outline: 2px solid var(--SmartThemeUnderlineColor); outline-offset: -2px; }
 .dle-graph-canvas-wrap { position: relative; flex: 1; min-height: 0; }
 
 /* Graph settings panel compact controls */
@@ -4431,6 +4427,11 @@ textarea.dle-librarian-frontmatter-code:focus {
     outline: none;
     border-color: var(--SmartThemeQuoteColor);
 }
+textarea.dle-librarian-frontmatter-code:focus-visible {
+    outline: 2px solid var(--SmartThemeUnderlineColor);
+    outline-offset: -2px;
+    border-color: var(--SmartThemeQuoteColor);
+}
 
 /* --- Chat panel (right) --- */
 .dle-librarian-chat {
@@ -5050,5 +5051,5 @@ textarea.dle-librarian-frontmatter-code:focus {
     background: var(--dle-bg-2); border-radius: 12px;
     font-size: var(--dle-text-xs); cursor: pointer;
 }
-.dle-browse-related-chip:hover { background: var(--dle-bg-3); }
+.dle-browse-related-chip:hover { background: var(--dle-bg-3, var(--dle-border)); }
 

@@ -383,7 +383,7 @@ const PROMPT_PRESET_TOOLS = {
     autoSuggest:  { settingsKey: 'autoSuggestPrompt', textareaId: 'dle-sp-autosuggest-prompt' },
     optimizeKeys: { settingsKey: 'optimizeKeysPrompt', textareaId: 'dle-sp-optimize-keys-prompt' },
     librarian:    { settingsKey: 'librarianCustomSystemPrompt', textareaId: 'dle-sp-librarian-custom-prompt' },
-    aiNotepad:    { settingsKey: 'aiNotepadPrompt', textareaId: 'dle-sp-notepad-prompt' },
+    aiNotepad:    { settingsKey: 'aiNotepadPrompt', textareaId: 'dle-sp-ai-notepad-prompt' },
 };
 
 /**

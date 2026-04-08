@@ -25,7 +25,7 @@ function getCacheKey() {
         const settings = getSettings();
         const fp = (settings.vaults || [])
             .filter(v => v.enabled)
-            .map(v => `${v.name}:${v.host || '127.0.0.1'}:${v.port}:${simpleHash(v.apiKey || '')}`)
+            .map(v => `${v.name}:${v.host || '127.0.0.1'}:${v.port}:${v.https ? 'https' : 'http'}:${simpleHash(v.apiKey || '')}`)
             .sort()
             .join('|');
         return fp ? `index_${fp}` : 'primaryIndex';

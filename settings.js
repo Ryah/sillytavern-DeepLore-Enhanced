@@ -5,6 +5,7 @@
 import {
     extension_settings,
 } from '../../../extensions.js';
+import { saveSettingsDebounced } from '../../../../script.js';
 import { validateSettings } from './core/utils.js';
 
 export const MODULE_NAME = 'deeplore_enhanced';
@@ -453,6 +454,8 @@ export function getSettings() {
     if (storedVersion < currentVersion) {
         runMigrations(s, storedVersion, currentVersion);
         s.settingsVersion = currentVersion;
+        // Persist migration result so it doesn't re-run on next load
+        try { saveSettingsDebounced(); } catch { /* may not be available pre-init */ }
     }
 
     // Multi-vault migration: if vaults[] was never migrated and legacy obsidianPort+apiKey exist, migrate once.

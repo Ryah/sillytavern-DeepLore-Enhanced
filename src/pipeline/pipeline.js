@@ -133,16 +133,18 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                         dedupWarning('AI search hit a snag — only your always-send lore is active.', 'ai_fallback', { hint: 'Check AI connection in DeepLore settings.' });
                     }
                 } else if (fallback === 'constants_only') {
-                    finalEntries = alwaysInject;
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (fallback === 'bootstrap_only') {
-                    finalEntries = alwaysInject.filter(e => bootstrapActive && e.bootstrap);
+                    finalEntries = vaultSnapshot.filter(e => bootstrapActive && e.bootstrap);
                 } else { // 'none'
                     finalEntries = [];
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
                 dedupWarning('AI didn\'t pick any lore for this scene — using your fallback.', 'ai_empty_fallback', { hint: `Empty fallback mode: ${emptyFallback}` });
-                if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
+                if (emptyFallback === 'constants') {
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
+                } else if (emptyFallback === 'constants_bootstrap') {
                     finalEntries = alwaysInject;
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = matchEntries(chat, vaultSnapshot).matched;
@@ -233,9 +235,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 if (fallback === 'keyword') {
                     finalEntries = keywordResult.matched;
                 } else if (fallback === 'constants_only') {
-                    finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (fallback === 'bootstrap_only') {
-                    finalEntries = keywordResult.matched.filter(e => bootstrapActive && e.bootstrap);
+                    finalEntries = vaultSnapshot.filter(e => bootstrapActive && e.bootstrap);
                 } else { // 'none'
                     finalEntries = [];
                 }
@@ -243,10 +245,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
                 dedupWarning('AI didn\'t pick any lore for this scene — using your fallback.', 'ai_empty_fallback', { hint: `Empty fallback mode: ${emptyFallback}` });
                 if (emptyFallback === 'constants') {
-                    // AI found nothing relevant — fall back to force-injected entries only (constants + active bootstrap)
-                    finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (emptyFallback === 'constants_bootstrap') {
-                    finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));
+                    finalEntries = vaultSnapshot.filter(e => e.constant || (bootstrapActive && e.bootstrap));
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = keywordResult.matched;
                 } else { // 'none'

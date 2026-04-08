@@ -352,25 +352,25 @@ export function classifyError(err) {
     if (/timeout|timed out|AbortError/i.test(raw)) {
         return 'The request timed out. Try increasing the timeout in settings.';
     }
-    if (/401|403|auth/i.test(raw)) {
+    if (/\b401\b|\b403\b|\bauth\b|unauthorized|forbidden/i.test(raw)) {
         return 'Authentication failed. Check your API key or connection profile.';
     }
     if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch failed/i.test(raw)) {
         return 'Could not connect. Check that the service is running.';
     }
-    if (/404|Not Found/i.test(raw)) {
+    if (/\b404\b|Not Found/i.test(raw)) {
         return 'Endpoint not found (404). Check that the URL is correct.';
     }
-    if (/429|Too Many Requests|rate.?limit/i.test(raw)) {
+    if (/\b429\b|Too Many Requests|rate.?limit/i.test(raw)) {
         return 'Rate limited (429). Wait a moment before retrying.';
     }
     if (/\b5\d{2}\b|Internal Server Error|Bad Gateway|Service Unavailable/i.test(raw)) {
         return 'The server returned an error. Try again in a moment.';
     }
-    let safe = raw.length > 120 ? raw.slice(0, 120) + '...' : raw;
-    // Scrub potential API keys/tokens from error messages before display
-    safe = safe.replace(/Bearer\s+[A-Za-z0-9_\-./]{10,}/g, 'Bearer ***');
+    // Scrub potential API keys/tokens from error messages BEFORE truncation so secrets after char 120 are still removed
+    let safe = raw.replace(/Bearer\s+[A-Za-z0-9_\-./]{10,}/g, 'Bearer ***');
     safe = safe.replace(/[?&](key|apiKey|api_key|token|secret)=[^&\s]{8,}/gi, '$1=***');
+    if (safe.length > 120) safe = safe.slice(0, 120) + '...';
     return safe;
 }
 

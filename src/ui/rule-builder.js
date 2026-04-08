@@ -377,7 +377,7 @@ export async function openRuleBuilder() {
             }
             const yaml = serializeFieldDefinitions(newDefs);
             const path = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
-            const result = await writeFieldDefinitions(vault.host || '127.0.0.1', vault.port, vault.apiKey, path, yaml, vault.useHttps || false);
+            const result = await writeFieldDefinitions(vault.host || '127.0.0.1', vault.port, vault.apiKey, path, yaml, vault.https || false);
             if (!result?.ok) {
                 $errBox.html('<i class="fa-solid fa-triangle-exclamation"></i> Failed to write field definitions to Obsidian. Check your connection and try again.').show();
                 return;

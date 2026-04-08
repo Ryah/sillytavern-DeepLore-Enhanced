@@ -516,6 +516,7 @@ export async function buildIndexWithReuse() {
         neverInsertTag: settings.neverInsertTag,
         seedTag: settings.seedTag,
         bootstrapTag: settings.bootstrapTag,
+        guideTag: settings.librarianGuideTag,
     };
 
     // Snapshot vaultIndex to avoid races with concurrent builds
@@ -536,9 +537,11 @@ export async function buildIndexWithReuse() {
                 } else {
                     setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
                 }
-            } else {
+            } else if (fdResult.error === 'not_found') {
+                // 404 — file genuinely missing, fall back to defaults
                 setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
             }
+            // Other errors (5xx, network): keep existing field definitions to avoid clobbering user schema
         } catch {
             // Keep existing field definitions on error
         }

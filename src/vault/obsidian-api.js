@@ -193,8 +193,14 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
         }
         return { status: response.status, data };
     } catch (err) {
+        if (err.name === 'AbortError') {
+            // Don't count aborts (timeout / page teardown / cancelled scans) as circuit failures.
+            // Preserve AbortError name so downstream timeout detection (err.name === 'AbortError') works.
+            const timeoutErr = new Error('Request timed out');
+            timeoutErr.name = 'AbortError';
+            throw timeoutErr;
+        }
         recordFailure(circuitKey);
-        if (err.name === 'AbortError') throw new Error('Request timed out');
         throw err;
     } finally {
         clearTimeout(timer);

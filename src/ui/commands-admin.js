@@ -435,24 +435,7 @@ export function registerAdminCommands() {
         returns: 'Setup wizard',
     }));
 
-    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'dle-help',
-        callback: async () => {
-            let html = '<div class="dle-popup"><h3>DeepLore Enhanced Commands</h3>';
-            for (const c of DLE_COMMANDS) {
-                if (c.sep) {
-                    html += `<h4 class="dle-muted dle-health-section-heading">${escapeHtml(c.label)}</h4>`;
-                    continue;
-                }
-                html += `<div class="dle-mb-1"><code class="dle-muted">${escapeHtml(c.cmd)}</code> — ${escapeHtml(c.desc)}</div>`;
-            }
-            html += '</div>';
-            await callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, allowVerticalScrolling: true });
-            return '';
-        },
-        helpString: 'Show all DeepLore Enhanced slash commands with descriptions.',
-        returns: 'Help popup',
-    }));
+    // /dle-help removed — ST's /help auto-discovers commands via their helpString fields.
 
     // ── Command Palette (/dle) ──
 

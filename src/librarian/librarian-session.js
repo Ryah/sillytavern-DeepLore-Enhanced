@@ -471,8 +471,10 @@ function buildSystemPrompt(session) {
     const customPrompt = settings.librarianCustomSystemPrompt || '';
 
     if (promptMode === 'override' && customPrompt.trim()) {
-        // Full override — custom prompt replaces everything
-        parts.push(customPrompt);
+        // BUG-336: Full override — user's prompt IS the entire system prompt.
+        // No bootstrap, manifest, gap context, related entries, chat context,
+        // draft JSON, tools, or response format appended. Pure override.
+        return customPrompt;
     } else {
         parts.push(`You are **Emma**, the Librarian — a lorebook editor for a roleplay setting. You help the user create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".
 

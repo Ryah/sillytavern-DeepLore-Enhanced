@@ -35,6 +35,25 @@ import { showNotebookPopup, showBrowsePopup, showAiNotepadPopup } from './popups
 import { runHealthCheck } from './diagnostics.js';
 
 // ============================================================================
+// BUG-341: Drain pending prompt_list PM cleanup when PromptManager becomes
+// available. Called on any settings popup open (a reliable PM-available path
+// since the popup itself interacts with PM prompts).
+// ============================================================================
+function drainPendingPromptListCleanup() {
+    if (!promptManager) return;
+    const settings = getSettings();
+    if (!settings._pendingPromptListCleanup) return;
+    try {
+        for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
+            const pmEntry = promptManager.getPromptById(id);
+            if (pmEntry) pmEntry.content = '';
+        }
+    } catch (e) { /* best-effort */ }
+    settings._pendingPromptListCleanup = false;
+    saveSettingsDebounced();
+}
+
+// ============================================================================
 // Vault List UI
 // ============================================================================
 
@@ -865,6 +884,9 @@ function updatePopupIndexStats() {
  * Open the settings popup with tabbed layout and live data binding.
  */
 export async function openSettingsPopup() {
+    // BUG-341: opportunistic drain of any queued prompt_list PM cleanup now
+    // that PromptManager is (likely) available.
+    drainPendingPromptListCleanup();
     const html = await renderExtensionTemplateAsync(
         'third-party/sillytavern-DeepLore-Enhanced',
         'settings-popup',
@@ -1316,14 +1338,19 @@ function loadPopupSettings($container) {
     $c('#dle-sp-debug').prop('checked', settings.debugMode);
 
     // Migrate renamed data-section keys (D4 consistency fix)
-    if (settings.advancedVisible) {
+    // BUG-338: Gate on persistent flag so migration runs once, and persist the result.
+    if (settings.advancedVisible && !settings._advancedVisibleMigratedD4) {
         const renames = { sp_vaultTags: 'sp_vault_tags', sp_aiSearch: 'sp_ai_search' };
+        let mutated = false;
         for (const [old, nw] of Object.entries(renames)) {
             if (old in settings.advancedVisible) {
                 settings.advancedVisible[nw] = settings.advancedVisible[old];
                 delete settings.advancedVisible[old];
+                mutated = true;
             }
         }
+        settings._advancedVisibleMigratedD4 = true;
+        if (mutated) saveSettingsDebounced();
     }
 
     // Restore advanced toggles
@@ -1633,10 +1660,13 @@ function bindPopupEvents($container) {
         const oldMode = settings.injectionMode;
         settings.injectionMode = String($(this).val());
         // H16: Clean up stale PM entries when switching away from prompt_list mode
-        if (oldMode === 'prompt_list' && settings.injectionMode !== 'prompt_list' && promptManager) {
-            for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
-                const pmEntry = promptManager.getPromptById(id);
-                if (pmEntry) pmEntry.content = '';
+        if (oldMode === 'prompt_list' && settings.injectionMode !== 'prompt_list') {
+            if (promptManager) {
+                drainPendingPromptListCleanup();
+            } else {
+                // BUG-341: PM not ready — queue cleanup so phantom registrations
+                // can be drained next time PM becomes available.
+                settings._pendingPromptListCleanup = true;
             }
         }
         updatePopupInjectionModeVisibility($container, settings);
@@ -1720,7 +1750,22 @@ function bindPopupEvents($container) {
         // Toggle drawer tab/panel visibility + strip per-message dropdowns
         import('../librarian/visibility.js').then(m => m.applyLibrarianVisibility(enabled)).catch(err => console.warn('[DLE] Librarian visibility error:', err));
     });
-    $c('#dle-sp-librarian-search').on('change', function () { settings.librarianSearchEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-search').on('change', async function () {
+        const wasEnabled = !!settings.librarianSearchEnabled;
+        const nowEnabled = $(this).prop('checked');
+        settings.librarianSearchEnabled = nowEnabled;
+        saveSettingsDebounced();
+        // BUG-373: rebuild BM25 index on false→true flip (cleared to null when disabled)
+        if (!wasEnabled && nowEnabled) {
+            try {
+                const state = await import('../state.js');
+                const { buildBM25Index } = await import('../vault/bm25.js');
+                if (state.vaultIndex && state.vaultIndex.length) {
+                    state.setFuzzySearchIndex(buildBM25Index(state.vaultIndex));
+                }
+            } catch (err) { console.warn('[DLE] BM25 rebuild on enable failed:', err); }
+        }
+    });
     $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-show-tool-calls').on('change', function () { settings.librarianShowToolCalls = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-max-searches').on('input', function () { settings.librarianMaxSearches = numVal($(this).val(), 2); saveSettingsDebounced(); });

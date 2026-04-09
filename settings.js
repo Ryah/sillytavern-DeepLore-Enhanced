@@ -119,7 +119,7 @@ export const defaultSettings = {
     aiSearchScanDepth: 4,
     aiSearchSystemPrompt: '',
     aiSearchManifestSummaryLength: 600,
-    aiSearchClaudeCodePrefix: true,
+    aiSearchClaudeCodePrefix: false,
     aiForceUserRole: false, // Merge system prompt into user message for incompatible providers
     scribeInformedRetrieval: false, // Feed Scribe session summary into AI search context
     // Context Cartographer settings
@@ -196,7 +196,6 @@ export const defaultSettings = {
     promptPresets: {},                     // { [toolKey]: { [presetName]: promptText } }
     // Graph
     graphRepulsion: 0.3,               // ForceAtlas2 repulsion coefficient (0.1-5.0)
-    graphSpringLength: 80,             // Legacy — not used in FA2 LinLog
     graphGravity: 11.0,                // ForceAtlas2 strong gravity (0.1-20)
     graphDamping: 0.50,                // Velocity damping (0.3-0.98)
     graphHoverDimDistance: 3,           // BFS hops kept visible on hover (0-8)
@@ -227,7 +226,7 @@ export const defaultSettings = {
     librarianResultTokenBudget: 1500,   // token budget for search results
     librarianAutoSendOnGap: true,       // auto-send draft prompt when opening a gap
     librarianWriteFolder: '',           // destination folder for written entries
-    librarianConnectionMode: 'inherit',  // 'inherit' | 'profile' | 'proxy'
+    librarianConnectionMode: 'profile',  // 'inherit' | 'profile' | 'proxy' (default 'profile' — Librarian must NOT share channel with retrieval AI)
     librarianProfileId: '',
     librarianProxyUrl: 'http://localhost:42069',
     librarianModel: '',                  // override model (blank = inherit from AI Search)
@@ -383,10 +382,9 @@ export const settingsConstraints = {
     optimizeKeysMaxTokens: { min: 256, max: 8192 },
     optimizeKeysTimeout: { min: 5000, max: 120000 },
     graphRepulsion: { min: 0.1, max: 5.0 },
-    graphSpringLength: { min: 30, max: 400 },
     graphGravity: { min: 0.1, max: 20 },
     graphDamping: { min: 0.3, max: 0.98 },
-    graphHoverDimDistance: { min: 0, max: 8 },
+    graphHoverDimDistance: { min: 0, max: 15 },
     graphHoverFalloff: { min: 0.3, max: 0.85 },
     graphHoverAmbient: { min: 0.0, max: 0.2 },
     graphFocusTreeDepth: { min: 1, max: 15 },
@@ -398,9 +396,17 @@ export const settingsConstraints = {
     librarianResultTokenBudget: { min: 500, max: 5000 },
     librarianSessionMaxTokens: { min: 1024, max: 16384 },
     librarianSessionTimeout: { min: 10000, max: 120000 },
+    // BUG-335: librarian *MaxChars had no constraints — strings like "4000" became NaN.
+    librarianManifestMaxChars: { min: 0, max: 200000 },
+    librarianRelatedEntriesMaxChars: { min: 0, max: 200000 },
+    librarianDraftMaxChars: { min: 0, max: 200000 },
+    librarianChatContextMaxChars: { min: 0, max: 200000 },
     fuzzySearchMinScore: { min: 0.1, max: 2.0 },
     hierarchicalAggressiveness: { min: 0.0, max: 0.8 },
     indexRebuildGenerationInterval: { min: 1, max: 100 },
+    // BUG-344: string-enum whitelist — validateSettings resets to defaults on mismatch.
+    injectionMode: { enum: ['extension', 'prompt_list'] },
+    librarianConnectionMode: { enum: ['inherit', 'profile', 'proxy'] },
 };
 
 // BUG-088: No settings cache. ST's native pattern is to read `extension_settings[MODULE_NAME]`
@@ -430,6 +436,8 @@ export function getSettings() {
 
     // Numeric coercion (BUG-071) — strings masquerading as numbers get coerced or reset.
     for (const key of Object.keys(settingsConstraints)) {
+        // Skip enum constraints — those are validated by validateSettings().
+        if (Array.isArray(settingsConstraints[key].enum)) continue;
         if (s[key] !== undefined && typeof s[key] !== 'number') {
             const num = Number(s[key]);
             if (!Number.isNaN(num)) {
@@ -448,7 +456,7 @@ export function getSettings() {
                 : value;
         }
     }
-    validateSettings(s, settingsConstraints);
+    validateSettings(s, settingsConstraints, defaultSettings);
 
     // Run migrations if settings version is behind (self-gating via stored version)
     const currentVersion = defaultSettings.settingsVersion;
@@ -464,13 +472,14 @@ export function getSettings() {
     // Require apiKey to avoid creating phantom vaults for brand-new users (default port is always set).
     let _migrationDirty = false;
     if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort && s.obsidianApiKey) {
-        // Legacy vaults were HTTP — preserve that to avoid breaking existing setups
+        // BUG-339: port 27124 is Obsidian Local REST API HTTPS default — use https:true to match getPrimaryVault() fallback.
+        // Other ports default to HTTP.
         s.vaults = [{
             name: 'Primary',
             host: '127.0.0.1',
             port: s.obsidianPort,
             apiKey: s.obsidianApiKey || '',
-            https: false,
+            https: s.obsidianPort === 27124,
             enabled: true,
         }];
         s._vaultsMigrated = true;
@@ -514,6 +523,7 @@ export function getSettings() {
 export function getPrimaryVault(settings) {
     const s = settings || getSettings();
     return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', host: '127.0.0.1', port: 27124, apiKey: '', https: true, enabled: false };
+    // BUG-339: port 27124 is the Obsidian Local REST API HTTPS default — legacy migration below matches.
 }
 
 /**

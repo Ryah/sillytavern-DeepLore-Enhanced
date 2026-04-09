@@ -62,6 +62,7 @@ export async function showSetupWizard(startPage = 1) {
             $wizard = $('.dle-wizard');
             if (!$wizard.length) return;
             librarianToggleWired = false;
+            resetWizardState(); // BUG-340: fresh state per open
 
             prefillFromSettings();
             wireNavigation();
@@ -592,8 +593,13 @@ function wireVaultStructure() {
     // Handled on page entry via runVaultStructureCreation
 }
 
-// wizardState lives at module scope; track helper outcome for summary page
-const wizardState = (typeof globalThis.__dleWizardState === 'object' && globalThis.__dleWizardState) || (globalThis.__dleWizardState = {});
+// wizardState lives at module scope; track helper outcome for summary page.
+// BUG-340: Reset each time the wizard opens (see resetWizardState() called from onOpen)
+// so prior-session state cannot leak across opens.
+let wizardState = (globalThis.__dleWizardState = {});
+function resetWizardState() {
+    wizardState = (globalThis.__dleWizardState = {});
+}
 
 function wireVaultStructurePage() {
     // Check connection state — if not verified, show warning card and bail out of wiring

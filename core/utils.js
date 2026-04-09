@@ -436,8 +436,18 @@ export function classifyError(err) {
     return safe;
 }
 
-export function validateSettings(settings, constraints) {
-    for (const [key, { min, max, label }] of Object.entries(constraints)) {
+export function validateSettings(settings, constraints, defaults) {
+    for (const [key, constraint] of Object.entries(constraints)) {
+        const { min, max, label, enum: enumValues } = constraint;
+        if (Array.isArray(enumValues)) {
+            // BUG-344: string-enum whitelist. Reset typo'd enum values to default.
+            if (settings[key] !== undefined && !enumValues.includes(settings[key])) {
+                const fallback = defaults ? defaults[key] : enumValues[0];
+                console.info(`[DLE] ${label || key} invalid enum value ${JSON.stringify(settings[key])} reset to ${JSON.stringify(fallback)} (allowed: ${enumValues.join(', ')})`);
+                settings[key] = fallback;
+            }
+            continue;
+        }
         if (typeof settings[key] === 'number') {
             clampWithLog(settings, key, min, max, label || key);
         }

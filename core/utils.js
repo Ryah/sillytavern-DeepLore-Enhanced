@@ -298,6 +298,25 @@ export function escapeXml(str) {
 }
 
 /**
+ * BUG-145: Centralized "is this message scannable?" predicate so DLE's scan/context
+ * builders can't drift apart from each other or from openai.js's prompt builder.
+ * Mirrors openai.js's exclusion set: tool invocations, system messages, hidden
+ * narrator/thoughts entries, and the modern is_thoughts/extra.type === 'narrator' flags.
+ */
+function _isScannableMessage(m) {
+    if (m == null) return false;
+    if (m.is_system) return false;
+    if (m.is_thoughts) return false;
+    const ex = m.extra;
+    if (ex) {
+        if (ex.tool_invocations) return false;
+        if (ex.type === 'narrator') return false;
+        if (ex.isSmallSys) return false;
+    }
+    return true;
+}
+
+/**
  * Build scan text from chat messages.
  * @param {object[]} chat - Chat messages array
  * @param {number} depth - Number of recent messages to scan
@@ -307,7 +326,7 @@ export function buildScanText(chat, depth) {
     if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
-        .filter(m => m != null && !m.extra?.tool_invocations && !m.is_system)
+        .filter(_isScannableMessage)
         .map(m => `${m.name || ''}: ${typeof m.mes === 'string' ? m.mes : ''}`)
         .join('\n');
 }
@@ -323,7 +342,7 @@ export function buildAiChatContext(chat, depth) {
     if (depth <= 0) return '';
     const recentMessages = chat.slice(-Math.min(depth, chat.length));
     return recentMessages
-        .filter(m => m != null && !m.extra?.tool_invocations && !m.is_system)
+        .filter(_isScannableMessage)
         .map(m => {
             const speaker = m.name || 'Unknown';
             const role = m.is_user ? '(user)' : '(character)';

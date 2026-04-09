@@ -559,7 +559,9 @@ async function loadAiProfiles() {
             options += `<option value="${p.id}"${selected}>${esc(label)}</option>`;
         }
         $select.html(options);
-    } catch {
+    } catch (err) {
+        // BUG-112: Log so profile load failures are diagnosable
+        console.debug('[DLE] Wizard profile dropdown load failed:', err?.message);
         $select.html('<option value="">Failed to load profiles</option>');
     }
 }
@@ -602,11 +604,9 @@ function resetWizardState() {
 }
 
 function wireVaultStructurePage() {
-    // Check connection state — if not verified, show warning card and bail out of wiring
-    // Heuristic: if host + API key are present, assume connection was verified on page 2
-    const host = $wizard.find('#dle-wiz-host').val()?.trim();
-    const apiKey = $wizard.find('#dle-wiz-api-key').val()?.trim();
-    const connVerified = !!(host && apiKey);
+    // BUG-137: Use the actual connectionVerified flag from page 2's test instead of
+    // the heuristic (host && apiKey), which lets users proceed without testing.
+    const connVerified = connectionVerified;
     if (!connVerified) {
         $wizard.find('#dle-wiz-vault-conn-warning').show();
         $wizard.find('#dle-wiz-vault-helpers-wrap').hide();
@@ -726,6 +726,9 @@ async function runVaultStructureCreation() {
         .show();
 
     wizardState.vaultHelpers = anyFailed ? 'partial' : (anyDone ? 'done' : 'skipped');
+    // BUG-139: Track individual outcomes so summary doesn't conflate them
+    wizardState.fieldsOutcome = outcome.fields;
+    wizardState.sessionsOutcome = outcome.sessions;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -856,7 +859,9 @@ async function loadImportLorebooks() {
             options += `<option value="${esc(name)}">${esc(name)}</option>`;
         }
         $select.html(options);
-    } catch {
+    } catch (err) {
+        // BUG-112: Log so lorebook load failures are diagnosable
+        console.debug('[DLE] Wizard lorebook dropdown load failed:', err?.message);
         $select.html('<option value="">Failed to load lorebooks</option>');
     }
 }
@@ -887,9 +892,9 @@ function buildSummary() {
         }
     }
 
-    const helperState = wizardState.vaultHelpers; // 'done' | 'partial' | 'skipped' | undefined
-    const fieldsCreated = helperState === 'done' || helperState === 'partial';
-    const sessionsCreated = helperState === 'done';
+    // BUG-139: Use per-feature outcomes instead of the conflated compound state
+    const fieldsCreated = wizardState.fieldsOutcome === 'created' || wizardState.fieldsOutcome === 'exists';
+    const sessionsCreated = wizardState.sessionsOutcome === 'created' || wizardState.sessionsOutcome === 'exists';
 
     const items = [
         `<i class="fa-solid fa-circle-check"></i> Vault connected: <strong>${esc(vaultName)}</strong> on ${esc(host)}:${esc(port)}`,
@@ -954,7 +959,14 @@ async function applyWizardSettings() {
     const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
     settings.enabled = true;
-    settings.vaults = [{ name: vaultName, host, port, apiKey, https: useHttps, enabled: true }];
+    // BUG-106: Update primary vault (index 0) instead of overwriting the entire array,
+    // which would silently destroy existing multi-vault configurations.
+    const newVault = { name: vaultName, host, port, apiKey, https: useHttps, enabled: true };
+    if (!settings.vaults || settings.vaults.length === 0) {
+        settings.vaults = [newVault];
+    } else {
+        Object.assign(settings.vaults[0], newVault);
+    }
 
     // Tags
     settings.lorebookTag = $wizard.find('#dle-wiz-lorebook-tag').val().trim() || 'lorebook';
@@ -992,7 +1004,10 @@ async function applyWizardSettings() {
     settings.librarianFlagEnabled = $wizard.find('#dle-wiz-librarian-flag').is(':checked');
 
     // Mark wizard completed
+    // BUG-125: Also persist a localStorage sentinel so the wizard doesn't re-trigger
+    // if saveSettingsDebounced crashes before flushing.
     settings._wizardCompleted = true;
+    try { localStorage.setItem('dle-wizard-completed', '1'); } catch { /* noop */ }
 
     invalidateSettingsCache();
     saveSettingsDebounced();

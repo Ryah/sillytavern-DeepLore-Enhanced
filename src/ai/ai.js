@@ -183,11 +183,17 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         // Claude adaptive-thinking error rewrite — only if pre-flight flagged it AND
         // the error looks like the 400/top_k/thinking signature.
         if (claudeAdaptiveDetail && /400|bad request|top_k|thinking|reasoning_effort/i.test(err.message || '')) {
+            // BUG-069: Import wrapped separately so a module-load failure doesn't mask the
+            // original AI error. If the dynamic import fails, we log and fall through to the
+            // generic rethrow below which preserves the original error context.
+            let buildClaudeAdaptiveMessage;
             try {
-                const { buildClaudeAdaptiveMessage } = await import('./claude-adaptive-check.js');
+                ({ buildClaudeAdaptiveMessage } = await import('./claude-adaptive-check.js'));
+            } catch (importErr) {
+                console.warn('[DLE] Could not load claude-adaptive-check.js:', importErr.message);
+            }
+            if (buildClaudeAdaptiveMessage) {
                 throw new Error(buildClaudeAdaptiveMessage(claudeAdaptiveDetail, 'error') + profileLabel + modelLabel);
-            } catch (rethrow) {
-                if (rethrow !== err) throw rethrow;
             }
         }
         // Preserve err.name on generic rethrow so AbortError/etc. classification survives.

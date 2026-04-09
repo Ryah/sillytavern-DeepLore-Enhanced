@@ -922,9 +922,20 @@ export async function showGraphPopup() {
     // ========================================================================
     function tick() {
         if (!gs.isRunning) return;
-        if (!document.getElementById('dle-graph-canvas')) {
+        // BUG-122: Belt-and-braces teardown. The MutationObserver is the primary
+        // popup-close detector, but if the popup framework moves the canvas in a way
+        // the observer misses (or the .popup ancestor lookup raced and we observed
+        // the wrong target), the animation loop is the only thing still ticking. When
+        // the canvas is gone, abort listenerAC so document-level keydown/click handlers
+        // can never outlive the popup, cancel pending fit timers, and stop layout interval.
+        if (!canvas.isConnected || !document.getElementById('dle-graph-canvas')) {
             gs.isRunning = false;
             if (gs.animationFrameId) { cancelAnimationFrame(gs.animationFrameId); gs.animationFrameId = null; }
+            for (const id of gs._fitTimers || []) clearTimeout(id);
+            gs._fitTimers = [];
+            if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
+            try { listenerAC.abort(); } catch (e) { /* already aborted */ }
+            try { observer.disconnect(); } catch (e) { /* already disconnected */ }
             return;
         }
         physics.simulate();
@@ -1023,13 +1034,17 @@ export async function showGraphPopup() {
             const el = gs.tooltipEl?.querySelector('.dle-graph-layout-notice');
             if (el) el.classList.add('dle-fade-out');
         });
-        setTimeout(() => {
+        // BUG-133: Track the 4s notice-clear timer in _fitTimers so MutationObserver
+        // teardown cancels it. Otherwise a stale callback can fire on a destroyed gs.
+        if (!gs._fitTimers) gs._fitTimers = [];
+        gs._fitTimers.push(setTimeout(() => {
+            if (!gs.isRunning) return;
             if (gs.layoutNotice === '\u2713 Layout saved') {
                 gs.layoutNotice = '';
                 if (gs.updateTooltip) gs.updateTooltip();
             }
-        }, 4000);
-        if (gs.fitToView) gs.fitToView(true);
+        }, 4000));
+        if (gs.fitToView && !gs._userPanned) gs.fitToView(true);
     };
 
     // ========================================================================

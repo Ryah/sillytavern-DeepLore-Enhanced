@@ -16,6 +16,14 @@
     --dle-bg-hover: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 8%, transparent);
     --dle-text-muted: var(--SmartThemeEmColor, #aaa);
 
+    /* BUG-215: brand accents — derived from theme so light themes don't kill
+       contrast. Fallbacks match the prior hardcoded values. */
+    --dle-guide-fg: color-mix(in srgb, var(--SmartThemeUnderlineColor, #b89cff) 75%, var(--SmartThemeBodyColor, #fff));
+    --dle-guide-bg: color-mix(in srgb, var(--SmartThemeUnderlineColor, #b89cff) 18%, transparent);
+    --dle-guide-border: color-mix(in srgb, var(--SmartThemeUnderlineColor, #b89cff) 40%, transparent);
+    --dle-librarian-accent: color-mix(in srgb, var(--SmartThemeQuoteColor, #d4a847) 70%, var(--SmartThemeBodyColor, #fff));
+    --dle-librarian-tint: var(--SmartThemeQuoteColor, #b8860b);
+
     /* Type scale (minor third 1.2 ratio)
        BUG-213: bumped `--dle-text-xs` from 0.7em to 0.78em so at ST's default 14px
        base it renders ~10.9px → ~11px, above the old 9.8px floor. Still compact but
@@ -513,11 +521,21 @@ dle-notes { display: none !important; }
     position: relative;
 }
 
+/* BUG-199: applying filter:blur to the wrap itself created a new stacking
+   context that re-scoped the .dle-overlay-notice (z-index:10) and forced
+   compound compositing with the notice card. Push the blur down to the
+   wrap's non-overlay children so the wrap stays a normal stacking context
+   and the overlay notice composites at the page level. */
 .dle-ai-content-wrap.dle-blurred {
-    filter: blur(3px);
-    opacity: 0.5;
     pointer-events: none;
     user-select: none;
+}
+.dle-ai-content-wrap.dle-blurred > *:not(.dle-overlay-notice) {
+    filter: blur(3px);
+    opacity: 0.5;
+}
+.dle-ai-content-wrap.dle-blurred .dle-overlay-notice {
+    pointer-events: auto;
 }
 
 .dle-overlay-notice {
@@ -708,9 +726,16 @@ dle-notes { display: none !important; }
 
 /* Fix for dynamically-injected drawers: @starting-style transition from height:0 → height:100%
    doesn't complete reliably for elements added after page load. Use explicit calc instead. */
+/* BUG-212: avoid 100vh on iOS Safari (counts URL bar, causes scroll bounce).
+   Use 100% as the safe fallback for ancient browsers; modern browsers use
+   100dvh via the @supports gate below. */
 #deeplore-panel.openDrawer {
-    height: calc(100vh - var(--topBarBlockSize, 35px));
-    height: calc(100dvh - var(--topBarBlockSize, 35px));
+    height: calc(100% - var(--topBarBlockSize, 35px));
+}
+@supports (height: 100dvh) {
+    #deeplore-panel.openDrawer {
+        height: calc(100dvh - var(--topBarBlockSize, 35px));
+    }
 }
 
 /* --- Drawer controls row (pin + close, side by side) --- */
@@ -967,6 +992,10 @@ dle-notes { display: none !important; }
     overscroll-behavior: contain;
     flex: 1;
     min-height: 0; /* Allow flex item to shrink below content height for proper scrolling */
+    /* Isolate scroll/layout from ST's scrollableInner so the panel is the sole
+       scroll container for its content (prevents double-allocated scroll chain
+       where sticky footers would scroll away with content). */
+    contain: layout paint;
 }
 
 .dle-tab-panel.active {
@@ -980,10 +1009,20 @@ dle-notes { display: none !important; }
     align-items: center;
     gap: var(--dle-space-2);
     margin-bottom: var(--dle-space-2);
+    /* BUG-222: allow toolbar to wrap rather than overflow on narrow drawers
+       (was overflowing below ~200px because every item was non-shrinkable). */
+    flex-wrap: wrap;
+    row-gap: var(--dle-space-1);
 }
 
 .dle-panel-toolbar .dle-text-sm {
-    flex-shrink: 0;
+    /* BUG-222: allow the label to shrink (and ellipsize via min-width:0)
+       instead of forcing siblings to overflow. */
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .dle-panel-toolbar .dle-section-diff {
@@ -1056,11 +1095,15 @@ dle-notes { display: none !important; }
 
 /* Budget urgency states */
 .dle-token-bar-container.dle-budget-high .dle-token-bar {
-    background: linear-gradient(90deg, var(--dle-warning), var(--dle-error));
+    background:
+        repeating-linear-gradient(45deg, transparent 0 6px, rgba(255,255,255,0.18) 6px 10px),
+        linear-gradient(90deg, var(--dle-warning), var(--dle-error));
     box-shadow: 0 0 6px color-mix(in srgb, var(--dle-warning) 40%, transparent);
 }
 .dle-token-bar-container.dle-budget-critical .dle-token-bar {
-    background: var(--dle-error);
+    background:
+        repeating-linear-gradient(45deg, transparent 0 4px, rgba(255,255,255,0.32) 4px 8px),
+        var(--dle-error);
     box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
     /* BUG-170: infinite box-shadow keyframe removed — caused per-frame repaint storm
        while budget-critical state was active. Solid red background + static glow
@@ -1099,11 +1142,15 @@ dle-notes { display: none !important; }
     margin: 0;
 }
 .dle-entries-bar-container.dle-budget-high .dle-entries-bar {
-    background: linear-gradient(90deg, var(--dle-warning), var(--dle-error));
+    background:
+        repeating-linear-gradient(45deg, transparent 0 6px, rgba(255,255,255,0.18) 6px 10px),
+        linear-gradient(90deg, var(--dle-warning), var(--dle-error));
     box-shadow: 0 0 6px color-mix(in srgb, var(--dle-warning) 40%, transparent);
 }
 .dle-entries-bar-container.dle-budget-critical .dle-entries-bar {
-    background: var(--dle-error);
+    background:
+        repeating-linear-gradient(45deg, transparent 0 4px, rgba(255,255,255,0.32) 4px 8px),
+        var(--dle-error);
     box-shadow: 0 0 8px color-mix(in srgb, var(--dle-error) 50%, transparent);
     /* BUG-170: see token-bar rule above. Same repaint-storm fix. */
 }
@@ -1135,9 +1182,15 @@ dle-notes { display: none !important; }
     color: var(--SmartThemeBodyColor, #eee);
     transition: opacity 150ms ease-in, transform 150ms ease-in;
 }
+/* BUG-216: use a keyframe animation with forwards fill-mode so rapid
+   class toggles can't strand the chip mid-fade. */
+@keyframes dle-chip-remove {
+    from { opacity: 1; transform: scale(1); }
+    to   { opacity: 0; transform: scale(0.8); }
+}
 .dle-chip.dle-chip-removing {
-    opacity: 0;
-    transform: scale(0.8);
+    animation: dle-chip-remove 150ms ease-in forwards;
+    pointer-events: none;
 }
 
 /* Chip remove button */
@@ -1545,7 +1598,10 @@ button.dle-chip-x:hover {
     align-items: center;
 }
 
-/* When expanded, allow the entry to grow beyond fixed row height (no height override — JS manages it) */
+/* When expanded, the entry contains its own preview within the JS-managed
+   height. BUG-221: dropped `overflow: visible` (which depended on every
+   ancestor in the virtual scroll chain leaving overflow unset) and use
+   `overflow: hidden` so the row clips itself — independent of parent. */
 .dle-browse-entry:has(.dle-browse-preview) {
     flex-direction: column;
     align-items: stretch;
@@ -1553,7 +1609,7 @@ button.dle-chip-x:hover {
     background: var(--SmartThemeBlurTintColor, #1a1a1a);
     border-radius: var(--dle-radius-md);
     box-shadow: var(--dle-shadow-md);
-    overflow: visible;
+    overflow: hidden;
 }
 
 .dle-browse-info {
@@ -1577,9 +1633,9 @@ button.dle-chip-x:hover {
     font-size: 0.75em;
     font-weight: 600;
     border-radius: 8px;
-    background: rgba(140, 100, 220, 0.18);
-    color: #b89cff;
-    border: 1px solid rgba(140, 100, 220, 0.4);
+    background: var(--dle-guide-bg);
+    color: var(--dle-guide-fg);
+    border: 1px solid var(--dle-guide-border);
     vertical-align: middle;
 }
 .dle-browse-guide-pill i { margin-right: 3px; }
@@ -1643,13 +1699,32 @@ button.dle-browse-block.dle-block-active {
 }
 
 .dle-gating-dot {
-    width: 6px;
-    height: 6px;
+    /* Bumped from 6px to meet a11y minimum and add a shape ring so the
+       active/empty distinction isn't carried by color alone. */
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     flex-shrink: 0;
+    border: 1.5px solid var(--dle-text-muted);
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    line-height: 1;
+    font-weight: 700;
+    color: var(--dle-bg-1, #000);
 }
-.dle-gating-dot-active { background: var(--dle-success); }
-.dle-gating-dot-empty { background: var(--dle-text-muted); opacity: 0.4; }
+.dle-gating-dot-active {
+    background: var(--dle-success);
+    border-color: var(--dle-success);
+}
+.dle-gating-dot-active::before { content: "\2713"; } /* check */
+.dle-gating-dot-empty {
+    background: transparent;
+    opacity: 0.6;
+}
+.dle-gating-dot-empty::before { content: ""; }
 
 .dle-gating-label {
     font-size: var(--dle-text-sm);
@@ -1905,9 +1980,38 @@ button.dle-browse-block.dle-block-active {
     /* BUG-177: explicit top/height so overlay can't drift into ST's top bar. */
     top: var(--topBarBlockSize, 42px) !important;
     height: calc(100dvh - var(--topBarBlockSize, 42px)) !important;
+    /* BUG-203: ST layer cake reference (as of ST 1.12).
+         #top-bar / drawers          ~1000–2000
+         shadow_popup / dialogue     3000  (ST popups)
+         .pinnedOpen drawer          2999  (just below popups)
+         .dle-overlay-mode           3001  (just above popups intentionally:
+                                            overlay is a transient panel that
+                                            should sit over a passive popup
+                                            until user dismisses it)
+       If ST ever lowers popup z-index, revisit this value. */
     z-index: 3001;
     border-left: 1px solid var(--SmartThemeBorderColor);
     backdrop-filter: blur(calc(var(--SmartThemeBlurStrength, 10px) * 2));
+}
+
+/* BUG-224: visual scrim for the overlay-mode panel. Click-outside dismiss is
+   handled in JS; this just communicates the dismiss zone visually. The scrim
+   is rendered via the panel's own ::before so no markup change is needed,
+   uses pointer-events:none so it doesn't intercept clicks (JS handler still
+   sees the original target), and is layered behind the panel via negative
+   z-index in the same fixed stacking context. */
+#deeplore-panel.dle-overlay-mode::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+    z-index: -1;
+}
+@media (prefers-reduced-motion: reduce) {
+    #deeplore-panel.dle-overlay-mode::before {
+        background: rgba(0, 0, 0, 0.5);
+    }
 }
 
 /* --- Empty states (class-based visibility for animation) --- */
@@ -2207,10 +2311,18 @@ button.dle-browse-block.dle-block-active {
     background: var(--dle-bg-hover);
 }
 
+/* BUG-225: pointer-events:none doesn't remove the <button> from tab order.
+   CSS alone can't reach tabindex; the proper fix is JS adding tabindex="-1".
+   Until then, at least make focus visible so a keyboard user lands on the
+   header explicitly rather than silently. */
 .dle-settings-tab--header {
     cursor: default;
     opacity: 0.7;
     pointer-events: none;
+}
+.dle-settings-tab--header:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: -2px;
 }
 
 .dle-settings-tab.active {
@@ -2569,34 +2681,48 @@ button.dle-browse-block.dle-block-active {
     to { color: inherit; }
 }
 
-/* Cartographer popup — entry detail expand */
+/* Cartographer popup — entry detail expand.
+   BUG-201: replaced max-height:0→2000px with display:grid + grid-template-rows
+   0fr→1fr. Animates the actual content height (no clipping above 2000px,
+   no easing waste, no per-frame layout cost). */
 .dle-ctx-detail {
-    max-height: 0;
+    display: grid;
+    grid-template-rows: 0fr;
     opacity: 0;
+    transition: grid-template-rows 250ms ease-out, opacity 200ms ease;
+}
+.dle-ctx-detail > * {
+    min-height: 0;
     overflow: hidden;
-    transition: max-height 250ms ease-out, opacity 200ms ease;
 }
 .dle-ctx-detail.dle-ctx-expanded {
-    max-height: 2000px;
+    grid-template-rows: 1fr;
     opacity: 1;
-    overflow-y: auto;
     margin-top: var(--dle-space-1);
 }
+.dle-ctx-detail.dle-ctx-expanded > * {
+    overflow-y: auto;
+}
 
-/* Why-Not section — animated expand */
+/* Why-Not section — animated expand.
+   BUG-201: same grid-rows fix as .dle-ctx-detail. */
 .dle-why-not-section {
-    overflow: hidden;
-    max-height: 0;
+    display: grid;
+    grid-template-rows: 0fr;
     opacity: 0;
-    transition: max-height 250ms ease-out, opacity 200ms ease;
+    transition: grid-template-rows 250ms ease-out, opacity 200ms ease, padding 200ms ease;
     background: color-mix(in srgb, var(--dle-warning) 5%, transparent);
     border-left: 3px solid color-mix(in srgb, var(--dle-warning) 40%, transparent);
     border-radius: 0 var(--dle-radius-md) var(--dle-radius-md) 0;
     padding: 0 var(--dle-space-2);
     margin-top: var(--dle-space-2);
 }
+.dle-why-not-section > * {
+    min-height: 0;
+    overflow: hidden;
+}
 .dle-why-not-section.dle-visible {
-    max-height: 2000px;
+    grid-template-rows: 1fr;
     opacity: 1;
     padding: var(--dle-space-2);
 }
@@ -2662,9 +2788,11 @@ button.dle-browse-block.dle-block-active {
     margin-bottom: var(--dle-space-1, 4px);
 }
 
-/* Override ST's text_pole full-width behavior inside graph toolbar */
-.dle-graph-toolbar .text_pole {
-    width: auto !important;
+/* Override ST's text_pole full-width behavior inside graph toolbar.
+   Higher specificity (3 classes) lets us drop !important. */
+.dle-graph-toolbar.dle-graph-toolbar input.text_pole,
+.dle-graph-toolbar.dle-graph-toolbar select.text_pole {
+    width: auto;
     flex: 0 1 auto;
 }
 
@@ -3144,7 +3272,9 @@ button.dle-browse-block.dle-block-active {
 .dle-graph-sr-content { max-height: 100px; overflow-y: auto; font-size: var(--dle-text-sm); }
 
 /* Graph toolbar secondary / focus mode */
-.dle-graph-toolbar--secondary { padding: 2px 6px; flex-wrap: nowrap; }
+/* BUG-223: was flex-wrap:nowrap which clipped focus-mode hop +/- buttons on
+   narrow graph popups. Allow wrap so the back button can drop to its own row. */
+.dle-graph-toolbar--secondary { padding: 2px 6px; flex-wrap: wrap; row-gap: 4px; }
 .dle-graph-hop-btn { padding: 2px 6px; }
 .dle-graph-depth-display { font-size: var(--dle-text-sm); font-weight: bold; min-width: 1.5em; text-align: center; }
 .dle-graph-back-btn { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
@@ -3835,9 +3965,12 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     word-break: break-all;
     flex: 1;
 }
-.dle-wizard-demo-copy {
-    padding: 2px 8px !important;
-    min-height: unset !important;
+/* BUG-208: scoped under .dle-wizard so the higher specificity beats ST's
+   .menu_button base without needing !important. */
+.dle-wizard .dle-wizard-demo-copy,
+.dle-setup-wizard .dle-wizard-demo-copy {
+    padding: 2px 8px;
+    min-height: unset;
     font-size: var(--dle-text-xs);
     flex-shrink: 0;
 }
@@ -4028,8 +4161,12 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 .dle-gap-type { grid-column: 2; }
 .dle-gap-title { grid-column: 3; }
 .dle-gap-time { grid-column: 4; }
-.dle-gap-selected {
-    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 12%, transparent) !important;
+/* BUG-209: scoped under .dle-librarian-entry so source order + specificity
+   beats the temperature-tint rule without !important. Selection is the
+   stronger user signal so it intentionally suppresses temperature heatmap. */
+.dle-librarian-entry.dle-gap-selected,
+.dle-librarian-entry.dle-gap-tinted.dle-gap-selected {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 12%, transparent);
 }
 
 /* Entrance animation moved into main .dle-librarian-entry rule above */
@@ -4761,13 +4898,17 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     line-height: 1.4;
     opacity: var(--dle-opacity-muted);
 }
-.dle-lib-option-apply {
-    font-size: var(--dle-text-xs) !important;
-    padding: 2px 10px !important;
+/* BUG-207: scoped under .dle-librarian-popup so the higher specificity beats
+   ST's .menu_button base without needing !important. */
+.dle-librarian-popup .dle-lib-option-apply,
+.dle-librarian-review .dle-lib-option-apply {
+    font-size: var(--dle-text-xs);
+    padding: 2px 10px;
 }
-.dle-lib-option-dismiss {
-    font-size: var(--dle-text-xs) !important;
-    padding: 2px 10px !important;
+.dle-librarian-popup .dle-lib-option-dismiss,
+.dle-librarian-review .dle-lib-option-dismiss {
+    font-size: var(--dle-text-xs);
+    padding: 2px 10px;
     opacity: 0.7;
     width: 100%;
     margin-top: 4px;
@@ -4805,19 +4946,19 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     min-height: 1.4em;
     color: var(--SmartThemeBodyColor);
 }
+/* BUG-217: animating `content` forces a paint per step and is non-composited.
+   Use a static '...' string and animate opacity, which the compositor handles
+   on the GPU with no per-step paint. */
 .dle-lib-status-thinking::after {
-    content: '';
+    content: '...';
     display: inline-block;
     width: 1.2em;
     text-align: left;
-    animation: dle-lib-dots 1.4s steps(4, end) infinite;
+    animation: dle-lib-dots 1.4s ease-in-out infinite;
 }
 @keyframes dle-lib-dots {
-    0%   { content: ''; }
-    25%  { content: '.'; }
-    50%  { content: '..'; }
-    75%  { content: '...'; }
-    100% { content: ''; }
+    0%, 100% { opacity: 0.2; }
+    50%      { opacity: 1; }
 }
 /* BUG-196: explicit reduced-motion override so content-flashing steps don't fire. */
 @media (prefers-reduced-motion: reduce) {
@@ -5003,14 +5144,17 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
  * on the assistant reply message instead (injected by librarian-ui.js).
  * ============================================================================ */
 
-/* Hide all tool call system messages from chat */
-.mes.smallSysMes.toolCall {
-    display: none !important;
+/* Hide tool-call system messages only when DLE is actively rendering a
+   consulted-vault dropdown in the same chat. The :has() guard scopes the
+   override to chats DLE is participating in, so other extensions that emit
+   .smallSysMes.toolCall messages are not affected. */
+#chat:has(.dle-librarian-details) .mes.smallSysMes.toolCall {
+    display: none;
 }
 
 /* Hide empty intermediate "Thought for some time" messages before tool calls */
-.mes.reasoning:has(+ .mes.smallSysMes.toolCall) {
-    display: none !important;
+#chat:has(.dle-librarian-details) .mes.reasoning:has(+ .mes.smallSysMes.toolCall) {
+    display: none;
 }
 
 /* ============================================================================
@@ -5030,6 +5174,12 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
 .dle-librarian-summary::-webkit-details-marker {
     display: none;
 }
+/* BUG-228: Firefox uses the standard ::marker pseudo for <details>; without
+   this, the default disclosure triangle leaks through next to our custom arrow. */
+.dle-librarian-summary::marker {
+    content: "";
+    display: none;
+}
 
 .dle-librarian-header {
     cursor: pointer;
@@ -5042,16 +5192,16 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     padding: 7px 14px;
     padding-right: calc(0.7em + 14px);
     border-radius: 5px;
-    background-color: color-mix(in srgb, var(--SmartThemeBlurTintColor, #1a1a2e) 85%, #b8860b 15%);
+    background-color: color-mix(in srgb, var(--SmartThemeBlurTintColor, #1a1a2e) 85%, var(--dle-librarian-tint) 15%);
     font-size: calc(var(--mainFontSize, 15px) * 0.9);
 }
 
 .dle-librarian-header:hover {
-    background-color: color-mix(in srgb, var(--SmartThemeBlurTintColor, #1a1a2e) 75%, #b8860b 25%);
+    background-color: color-mix(in srgb, var(--SmartThemeBlurTintColor, #1a1a2e) 75%, var(--dle-librarian-tint) 25%);
 }
 
 .dle-librarian-icon-header {
-    color: #d4a847;
+    color: var(--dle-librarian-accent);
     font-size: 0.85em;
     flex-shrink: 0;
 }
@@ -5079,7 +5229,7 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
 /* Expanded content area */
 .dle-librarian-content {
     display: block;
-    border-left: 2px solid #d4a847;
+    border-left: 2px solid var(--dle-librarian-accent);
     border-radius: 2px;
     padding: 5px 5px 5px 14px;
     margin-bottom: 0.5em;

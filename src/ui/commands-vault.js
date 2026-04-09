@@ -6,6 +6,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
+import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
 import { classifyError, NO_ENTRIES_MSG } from '../../core/utils.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { vaultIndex, setIndexTimestamp } from '../state.js';
@@ -25,7 +26,7 @@ export function registerVaultCommands() {
             return '';
         },
         helpString: 'Visualize entry relationships as an interactive force-directed graph.',
-        returns: 'Graph popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -36,7 +37,7 @@ export function registerVaultCommands() {
             return '';
         },
         helpString: 'Open the entry browser — searchable, filterable popup of all indexed entries.',
-        returns: 'Entry browser popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -52,7 +53,7 @@ export function registerVaultCommands() {
             return msg;
         },
         helpString: 'Rebuild the vault index by re-fetching all entries from Obsidian.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // ── Lorebook Import ──
@@ -217,14 +218,19 @@ export function registerVaultCommands() {
                     toastr.success(`Imported ${result.imported} entries${renamedNote}.`, 'DeepLore Enhanced');
                 }
 
-                // Refresh index to pick up new entries
-                setIndexTimestamp(0);
-                await buildIndex();
+                // BUG-108: Single buildIndex at the end to avoid two sequential rebuilds
+                // with a window where generation sees partially-summarized index.
+                let needsRebuild = true;
 
                 // Offer to generate AI summaries for imported entries
                 if (result.imported > 0) {
                     const settings = getSettings();
                     if (settings.aiSearchEnabled) {
+                        // Rebuild index first so we can filter for unsummarized entries
+                        setIndexTimestamp(0);
+                        await buildIndex();
+                        needsRebuild = false;
+
                         const offerSummaries = await callGenericPopup(
                             `<p>Generate AI summaries for the ${result.imported} imported entries?</p>
                             <p class="dle-text-sm dle-muted">This uses your AI search connection to create meaningful summaries, replacing the default placeholder. Each summary is presented for review before writing.</p>`,
@@ -236,13 +242,16 @@ export function registerVaultCommands() {
                                 const { summarizeEntries } = await import('./commands-ai.js');
                                 const sumResult = await summarizeEntries(imported);
                                 toastr.success(`Summaries: ${sumResult.generated} written, ${sumResult.skipped} skipped, ${sumResult.failed} failed.`, 'DeepLore Enhanced');
-                                if (sumResult.generated > 0) {
-                                    setIndexTimestamp(0);
-                                    await buildIndex();
-                                }
+                                if (sumResult.generated > 0) needsRebuild = true;
                             }
                         }
                     }
+                }
+
+                // Final rebuild — either the only one, or picks up summaries
+                if (needsRebuild) {
+                    setIndexTimestamp(0);
+                    await buildIndex();
                 }
             } catch (err) {
                 console.error('[DLE] Import error:', err);
@@ -251,6 +260,6 @@ export function registerVaultCommands() {
             return '';
         },
         helpString: 'Import SillyTavern World Info JSON into the Obsidian vault. Usage: /dle-import <folder>. Example: /dle-import Imported.',
-        returns: 'Import status',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 }

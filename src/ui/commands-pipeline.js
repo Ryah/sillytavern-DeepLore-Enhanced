@@ -7,6 +7,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
+import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
 import { NO_ENTRIES_MSG, classifyError } from '../../core/utils.js';
 import { formatAndGroup } from '../../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
@@ -44,7 +45,7 @@ export function registerPipelineCommands() {
             return '';
         },
         helpString: 'Replay chat history step-by-step, showing which entries activate and deactivate at each message.',
-        returns: 'Simulation timeline popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -122,7 +123,7 @@ export function registerPipelineCommands() {
             return '';
         },
         helpString: 'Preview which entries would be included in the next message, and why. Alias: /dle-context',
-        returns: 'Context map popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -409,6 +410,6 @@ export function registerPipelineCommands() {
             return '';
         },
         helpString: 'Show which entries matched, why, and what the AI selected in the last message.',
-        returns: 'Entry inspector popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 }

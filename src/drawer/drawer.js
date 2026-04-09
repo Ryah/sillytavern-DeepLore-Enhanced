@@ -42,7 +42,13 @@ import {
 // Teardown registry (BUG-349 — drawer destroy/teardown to prevent listener leaks)
 // ════════════════════════════════════════════════════════════════════════════
 let drawerDestroyed = false;
-let drawerListeners = { eventSource: [], timers: [], stateObservers: [] };
+let drawerListeners = { eventSource: [], timers: [], stateObservers: [], windowEvents: [] };
+// BUG-119: gap-announce debouncer state must be module-scoped so a drawer re-init
+// (HMR / destroyDrawerPanel + createDrawerPanel) doesn't leave the old subscriber's
+// closure alive with a stale `_lastGapCount`. Two subscribers competing on
+// per-closure state previously produced duplicate announcements with stale counts.
+let _gapAnnounceTimer = null;
+let _lastGapCount = 0;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Public API (consumed by index.js)
@@ -131,6 +137,7 @@ export async function createDrawerPanel() {
     drawerListeners.eventSource = [];
     drawerListeners.timers = [];
     drawerListeners.stateObservers = [];
+    drawerListeners.windowEvents = [];
 
     // Load ST internals (Moving UI, mobile detection)
     await loadSTInternals();
@@ -206,12 +213,14 @@ export async function createDrawerPanel() {
 
     // CRITICAL: Bind the drawer toggle — ST's initial binding already ran at page load,
     // so dynamically-added drawers need explicit binding to doNavbarIconClick
+    // BUG-152: Single click handler instead of two separate bindings
     $drawer.find('.drawer-toggle').on('click', function (e) {
         doNavbarIconClick.call(this, e);
-        // Update aria-expanded after ST processes the toggle
+        // Update aria-expanded and overlay mode after ST processes the toggle
         requestAnimationFrame(() => {
             const isOpen = $drawer.find('#deeplore-panel').hasClass('openDrawer');
             $drawer.find('#deeploreDrawerIcon').attr('aria-expanded', String(isOpen));
+            updateOverlayMode();
         });
     });
 
@@ -232,8 +241,22 @@ export async function createDrawerPanel() {
         }
     }
 
-    // Check on drawer toggle
-    $drawer.find('.drawer-toggle').on('click', () => requestAnimationFrame(updateOverlayMode));
+    // BUG-152: Overlay mode check merged into the single drawer-toggle click handler above
+    // BUG-065: Also re-check on window resize so crossing the chat-width threshold
+    // (e.g. user drags ST window across breakpoint, or rotates a tablet) toggles
+    // overlay mode without requiring a manual drawer interaction. Debounced via rAF.
+    let _overlayResizeRaf = null;
+    const handleOverlayResize = () => {
+        if (_overlayResizeRaf) cancelAnimationFrame(_overlayResizeRaf);
+        _overlayResizeRaf = requestAnimationFrame(() => {
+            _overlayResizeRaf = null;
+            if (drawerDestroyed) return;
+            updateOverlayMode();
+        });
+    };
+    window.addEventListener('resize', handleOverlayResize);
+    drawerListeners.windowEvents = drawerListeners.windowEvents || [];
+    drawerListeners.windowEvents.push({ event: 'resize', handler: handleOverlayResize });
     // Check now (in case drawer is pinned open at init)
     updateOverlayMode();
 
@@ -533,8 +556,9 @@ export async function createDrawerPanel() {
         scheduleRender(renderBrowseTab);
     }));
 
-    let _gapAnnounceTimer = null;
-    let _lastGapCount = loreGaps.length;
+    // BUG-119: re-seed module-scoped baseline at init so first announce after a
+    // chat reload doesn't fire for pre-existing gaps.
+    _lastGapCount = loreGaps.length;
     drawerListeners.stateObservers.push(onLoreGapsChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderLibrarianTab);
@@ -599,6 +623,11 @@ export function destroyDrawerPanel() {
         try { esCleanup?.removeListener?.(event, handler); } catch (e) { /* ignore */ }
     }
     drawerListeners.eventSource = [];
+    // BUG-065: Remove window-level listeners (resize, etc.)
+    for (const { event, handler } of (drawerListeners.windowEvents || [])) {
+        try { window.removeEventListener(event, handler); } catch (e) { /* ignore */ }
+    }
+    drawerListeners.windowEvents = [];
     // Release state observer subscriptions (BUG-026)
     for (const unsub of drawerListeners.stateObservers) {
         try { if (typeof unsub === 'function') unsub(); } catch (e) { /* ignore */ }
@@ -609,6 +638,10 @@ export function destroyDrawerPanel() {
         try { clearTimeout(t); } catch (e) { /* ignore */ }
     }
     drawerListeners.timers = [];
+    // BUG-119: clear gap-announce debouncer state so re-init starts clean
+    if (_gapAnnounceTimer) { try { clearTimeout(_gapAnnounceTimer); } catch { /* ignore */ } }
+    _gapAnnounceTimer = null;
+    _lastGapCount = 0;
     // Detach the drawer DOM if present
     if (ds && ds.$drawer) {
         try { ds.$drawer.remove(); } catch (e) { /* ignore */ }

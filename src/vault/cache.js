@@ -247,11 +247,14 @@ export async function pruneOrphanedCacheKeys(saveSucceeded) {
  * @returns {Promise<void>}
  */
 export async function clearIndexCache() {
+    // BUG-123: Clear ALL cache keys, not just the current fingerprint.
+    // Old fingerprints from previous vault configs would otherwise linger
+    // until pruning runs after a successful build.
     let db;
     try {
         db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).delete(getCacheKey());
+        tx.objectStore(STORE_NAME).clear();
         await new Promise((resolve, reject) => {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);

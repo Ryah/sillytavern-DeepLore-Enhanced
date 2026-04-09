@@ -4,6 +4,31 @@
 
 import { parseFrontmatter, extractWikiLinks, cleanContent, extractTitle } from './utils.js';
 import { extractCustomFields } from '../src/fields.js';
+// BUG-094: Use ST's canonical role name → enum mapper instead of a local positional map.
+// Resolved lazily so unit tests / cold-start don't crash if ST isn't loaded yet.
+let _getExtensionPromptRoleByName = null;
+let _roleByNameAttempted = false;
+const _ROLE_FALLBACK = { system: 0, user: 1, assistant: 2 };
+function _resolveRoleByName(name) {
+    if (typeof name !== 'string') return null;
+    const lower = name.toLowerCase();
+    if (!_roleByNameAttempted) {
+        _roleByNameAttempted = true;
+        try {
+            // Probe the global ST namespace; the function is exported on script.js.
+            // eslint-disable-next-line no-undef
+            const g = (typeof window !== 'undefined' ? window : globalThis);
+            if (g && typeof g.getExtensionPromptRoleByName === 'function') {
+                _getExtensionPromptRoleByName = g.getExtensionPromptRoleByName;
+            }
+        } catch { /* ignore */ }
+    }
+    if (typeof _getExtensionPromptRoleByName === 'function') {
+        const v = _getExtensionPromptRoleByName(lower);
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+    }
+    return _ROLE_FALLBACK[lower] ?? null;
+}
 
 /**
  * @typedef {object} VaultEntry
@@ -129,15 +154,31 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
         ? frontmatter.outlet.trim() : null;
 
     // Per-entry injection position overrides
+    // BUG-093: position numbers still need a string→enum map (ST does not export
+    // a public name resolver for positions); roles route through ST's helper.
     const positionMap = { before: 2, after: 0, in_chat: 1 };
-    const roleMap = { system: 0, user: 1, assistant: 2 };
 
     const injectionPosition = typeof frontmatter.position === 'string'
         ? (positionMap[frontmatter.position.toLowerCase()] ?? null) : null;
-    const injectionDepth = typeof frontmatter.depth === 'number'
-        ? frontmatter.depth : null;
+    // BUG-092: Clamp per-entry depth to MAX_INJECTION_DEPTH (10000) so a typo
+    // like `depth: 50000` no longer makes the entry vanish silently.
+    let injectionDepth = null;
+    if (typeof frontmatter.depth === 'number' && Number.isFinite(frontmatter.depth)) {
+        const d = frontmatter.depth;
+        if (d < 0) {
+            console.warn(`[DLE] entry "${file.filename}": depth ${d} < 0 — clamping to 0`);
+            injectionDepth = 0;
+        } else if (d > 10000) {
+            console.warn(`[DLE] entry "${file.filename}": depth ${d} exceeds MAX_INJECTION_DEPTH (10000) — clamping`);
+            injectionDepth = 10000;
+        } else {
+            injectionDepth = d;
+        }
+    }
+    // BUG-094: Resolve role names through ST's helper (handles future role additions
+    // without code changes here) instead of a static positional map.
     const injectionRole = typeof frontmatter.role === 'string'
-        ? (roleMap[frontmatter.role.toLowerCase()] ?? null) : null;
+        ? _resolveRoleByName(frontmatter.role) : null;
 
     // Per-entry cooldown and warmup
     const cooldown = typeof frontmatter.cooldown === 'number' && frontmatter.cooldown > 0 ? frontmatter.cooldown : null;

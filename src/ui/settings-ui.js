@@ -7,7 +7,7 @@ import {
 } from '../../../../../../script.js';
 import { ConnectionManagerRequestService } from '../../../../shared.js';
 import { escapeHtml } from '../../../../../utils.js';
-import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
+import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../popup.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
 import { accountStorage } from '../../../../../util/AccountStorage.js';
 import { buildAiChatContext } from '../../core/utils.js';
@@ -33,6 +33,10 @@ import { setupSyncPolling } from '../vault/sync.js';
 import { buildIndex, buildIndexWithReuse } from '../vault/vault.js';
 import { showNotebookPopup, showBrowsePopup, showAiNotepadPopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
+
+// BUG-120: Module-scoped rebuild timer so closing and re-opening the settings
+// popup cancels any stale debounced rebuild from the prior popup instance.
+let _rebuildTimer = null;
 
 // ============================================================================
 // BUG-341: Drain pending prompt_list PM cleanup when PromptManager becomes
@@ -327,7 +331,9 @@ function populateProfileDropdownIn($container, selectId, settingsKey) {
             if (p.id === currentId) opt.selected = true;
             select.appendChild(opt);
         }
-    } catch {
+    } catch (err) {
+        // BUG-112: Log so API load failures are diagnosable
+        console.debug('[DLE] Profile dropdown load failed:', err?.message);
         const opt = document.createElement('option');
         opt.value = '';
         opt.textContent = 'Connection Manager not available';
@@ -409,6 +415,8 @@ const PROMPT_PRESET_TOOLS = {
     optimizeKeys: { settingsKey: 'optimizeKeysPrompt', textareaId: 'dle-sp-optimize-keys-prompt' },
     librarian:    { settingsKey: 'librarianCustomSystemPrompt', textareaId: 'dle-sp-librarian-custom-prompt' },
     aiNotepad:    { settingsKey: 'aiNotepadPrompt', textareaId: 'dle-sp-ai-notepad-prompt' },
+    // BUG-128: Extract mode users can now save/reuse named presets
+    aiNotepadExtract: { settingsKey: 'aiNotepadExtractPrompt', textareaId: 'dle-sp-ai-notepad-extract-prompt' },
 };
 
 /**
@@ -479,17 +487,26 @@ async function saveCurrentAsPreset($container, $select, toolKey, settings) {
         return;
     }
 
+    // BUG-107: Capture input reference via onOpen so we can read it reliably
+    // before the popup DOM is torn down. The popup result is a boolean, not the input value.
+    let nameInputRef = null;
     const name = await callGenericPopup(
         '<p>Enter a name for this preset:</p><input id="dle-preset-name-input" class="text_pole" type="text" placeholder="My preset" autofocus />',
         POPUP_TYPE.CONFIRM, '', {
             okButton: 'Save', cancelButton: 'Cancel',
+            onOpen: (popup) => {
+                const root = popup?.dlg || document;
+                nameInputRef = root.querySelector('#dle-preset-name-input');
+            },
+            onClose: () => {
+                // Snapshot the value before DOM teardown
+                if (nameInputRef) nameInputRef._snapshotValue = nameInputRef.value;
+            },
         },
     );
     if (!name) { $select.val(''); return; }
 
-    // Get value from input (popup resolves true/false for confirm, so we need to capture)
-    const nameInput = document.getElementById('dle-preset-name-input');
-    const presetName = nameInput?.value?.trim();
+    const presetName = (nameInputRef?._snapshotValue ?? nameInputRef?.value ?? '').trim();
     if (!presetName) { $select.val(''); return; }
 
     if (!settings.promptPresets[toolKey]) settings.promptPresets[toolKey] = {};
@@ -849,9 +866,11 @@ function bindAccordionEvents($container) {
         saveSettingsDebounced();
     });
 
-    // "AI Connections" cross-tab link — switches to Connection > AI Connections sub-tab
+    // BUG-320: "AI Connections" cross-tab link — switch to Connection tab FIRST, then sub-tab
     $container.on('click', '.dle-goto-ai-connections', function (e) {
         e.preventDefault();
+        const $connTab = $container.find('[data-settings-tab="connection"]');
+        if ($connTab.length) switchSettingsTab($connTab);
         const $subtab = $container.find('.dle-connection-subtab[data-connection-subtab="ai-connections"]');
         if ($subtab.length) switchConnectionSubtab($subtab);
     });
@@ -968,6 +987,9 @@ export async function openSettingsPopup() {
             switchSettingsTab($connectionTab);
         }
     }
+
+    // BUG-225: headers are not interactive — remove from tab order so keyboard users skip them
+    $container.find('.dle-settings-tab--header').attr('tabindex', '-1').attr('aria-hidden', 'true');
 
     // Main tab click handler — headers (Features, Connection) are not clickable (sub-tabs handle it)
     $container.on('click', '.dle-settings-tab:not(.dle-settings-tab--header)', function () {
@@ -1117,16 +1139,21 @@ export async function openSettingsPopup() {
         large: true,
         wide: true,
         allowVerticalScrolling: true,
-        onOpen: () => {
+        onOpen: (popup) => {
             updatePopupIndexStats();
+            // BUG-102: Use popup.completeCancelled() instead of reaching into .popup-button-close.
             // Click-outside-to-dismiss: clicking the ::backdrop area of the <dialog>
             // fires a click on the dialog element itself with target === dialog.
-            const dlg = $container[0]?.closest('dialog');
+            const dlg = popup?.dlg || $container[0]?.closest('dialog');
             if (dlg) {
                 dlg.addEventListener('click', (e) => {
                     if (e.target === dlg) {
                         saveSettingsDebounced();
-                        dlg.querySelector('.popup-button-close')?.click();
+                        if (popup?.completeCancelled) {
+                            popup.completeCancelled();
+                        } else if (popup?.complete) {
+                            popup.complete(POPUP_RESULT.CANCELLED);
+                        }
                     }
                 });
             }
@@ -1466,7 +1493,7 @@ function bindPopupEvents($container) {
     const $c = (sel) => $container.find(sel);
 
     // Debounced index rebuild for tag inputs — avoids rebuilding on every keystroke
-    let _rebuildTimer = null;
+    // BUG-120: _rebuildTimer is now module-scoped so new popup cancels stale timer
     const debouncedRebuild = () => { clearTimeout(_rebuildTimer); _rebuildTimer = setTimeout(() => buildIndexWithReuse(), 500); };
 
     $container.on('change input', 'input, select, textarea', () => invalidateSettingsCache());
@@ -1691,11 +1718,35 @@ function bindPopupEvents($container) {
     $c('#dle-sp-allow-wi-scan').on('change', function () { settings.allowWIScan = $(this).prop('checked'); saveSettingsDebounced(); });
 
     // Cross-tab links (e.g., "Injection tab" links in Features subtabs)
+    // BUG-320: Cross-tab links with optional sub-tab switch + target scroll/highlight
     $container.on('click', '.dle-goto-tab-link', function (e) {
         e.preventDefault();
         const targetTab = $(this).data('goto-tab');
+        const targetSubtab = $(this).data('goto-subtab');
+        const targetId = $(this).data('goto-target');
+
         const $targetTab = $container.find(`[data-settings-tab="${targetTab}"]`);
         if ($targetTab.length) switchSettingsTab($targetTab);
+
+        // Optional sub-tab (features or connection)
+        if (targetSubtab) {
+            const $featuresSub = $container.find(`.dle-features-subtab[data-features-subtab="${targetSubtab}"]`);
+            if ($featuresSub.length) switchFeaturesSubtab($featuresSub);
+            const $connSub = $container.find(`.dle-connection-subtab[data-connection-subtab="${targetSubtab}"]`);
+            if ($connSub.length) switchConnectionSubtab($connSub);
+        }
+
+        // Optional scroll-into-view + flash-highlight on a target element
+        if (targetId) {
+            requestAnimationFrame(() => {
+                const el = $container.find(`#${targetId}`)[0] || $container.find(`[data-setting-id="${targetId}"]`)[0];
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('dle-pulse');
+                    setTimeout(() => el.classList.remove('dle-pulse'), 2000);
+                }
+            });
+        }
     });
 
     // ── AI Connections accordion ──

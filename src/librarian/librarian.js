@@ -25,9 +25,24 @@ import { searchLoreAction, flagLoreAction } from './librarian-tools.js';
  * user has seen the UI.
  */
 export function registerLibrarianTools() {
-    if (librarianToolsRegistered) return;
     if (!getSettings().librarianEnabled) return;
     if (typeof ToolManager?.registerFunctionTool !== 'function') return;
+
+    // BUG-086: re-verify tools actually exist in ToolManager every call. Another
+    // extension or an HMR cycle may have rebuilt ToolManager's internal #tools
+    // map; the local `librarianToolsRegistered` flag would still be true, leaving
+    // our tools silently absent. If either tool is missing, force re-registration.
+    try {
+        const present = Array.isArray(ToolManager.tools) ? ToolManager.tools : [];
+        const have = new Set(present.map(t => t?.name).filter(Boolean));
+        const ok = have.has('dle_search_lore') && have.has('dle_flag_lore');
+        if (librarianToolsRegistered && ok) return;
+        if (librarianToolsRegistered && !ok) {
+            console.warn('[DLE] Librarian tools missing from ToolManager — re-asserting registration');
+            setLibrarianToolsRegistered(false);
+        }
+    } catch { /* ToolManager.tools getter unavailable — fall through to register */ }
+    if (librarianToolsRegistered) return;
 
     try {
         ToolManager.registerFunctionTool({

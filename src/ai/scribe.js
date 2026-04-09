@@ -60,6 +60,8 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     }
 
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
+    // BUG-116: Circuit breaker integration for st mode (consistent with profile/proxy modes)
+    if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
     // Note: generateQuietPrompt cannot be aborted — the background generation will complete
     // regardless, but BUG-241 wires GENERATION_STOPPED so our await resolves early and the
     // scribeInProgress lock releases promptly instead of waiting out the full timeout.
@@ -70,7 +72,7 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     let scribeTimer;
     let onStop;
     try {
-        return await Promise.race([
+        const result = await Promise.race([
             quietPromise.finally(() => clearTimeout(scribeTimer)),
             new Promise((_, reject) => { scribeTimer = setTimeout(() => {
                 console.warn('[DLE] Scribe quiet prompt timed out — orphaned generation may still complete in background');
@@ -88,6 +90,13 @@ export async function callScribe(systemPrompt, userMessage, settings) {
                 try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
             }),
         ]);
+        // BUG-116: Record success for circuit breaker consistency with profile/proxy modes
+        recordAiSuccess();
+        return result;
+    } catch (err) {
+        // BUG-116: Record failure (skip user aborts and timeouts per BUG-252 pattern)
+        if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
+        throw err;
     } finally {
         if (onStop) { try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ } }
     }
@@ -175,10 +184,14 @@ export async function runScribe(customPrompt) {
                 if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed during note write, skipping metadata update');
                 return;
             }
-            setLastScribeSummary(sanitizedSummary.trim());
+            const finalSummary = sanitizedSummary.trim();
+            setLastScribeSummary(finalSummary);
             const chatLenAtWrite = chat?.length || 0;
             setLastScribeChatLength(chatLenAtWrite); // Use current length, not stale start value
-            chat_metadata.deeplore_lastScribeSummary = lastScribeSummary;
+            // BUG-056: write the local computed value, not the live `lastScribeSummary` binding —
+            // future debounced/setter migration of setLastScribeSummary would otherwise persist
+            // the previous summary here.
+            chat_metadata.deeplore_lastScribeSummary = finalSummary;
             // BUG-308: persist the "we already scribed at length N" guard to chat_metadata so
             // CHAT_CHANGED / reload can hydrate it. Previously the guard was in-memory only,
             // so on returning to a chat the next rendered message could re-trigger scribe

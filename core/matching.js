@@ -2,7 +2,36 @@
  * DeepLore Enhanced Core — Matching, Gating & Formatting
  */
 
-import { escapeRegex, truncateToSentence } from './utils.js';
+import { escapeRegex, truncateToSentence, escapeXml } from './utils.js';
+// BUG-092/093: Use ST's enums and MAX_INJECTION_DEPTH constant rather than magic numbers.
+// Resolved lazily off the global so node-side unit tests (which never load script.js) still work.
+const _PT_FALLBACK = { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 };
+const _PR_FALLBACK = { SYSTEM: 0, USER: 1, ASSISTANT: 2 };
+const _g = (typeof window !== 'undefined' ? window : globalThis);
+const _PT = (_g && _g.extension_prompt_types) || _PT_FALLBACK;
+const _PR = (_g && _g.extension_prompt_roles) || _PR_FALLBACK;
+const _MAX_DEPTH = (_g && Number.isFinite(_g.MAX_INJECTION_DEPTH)) ? _g.MAX_INJECTION_DEPTH : 10000;
+
+/**
+ * Clamp an injection depth to ST's MAX_INJECTION_DEPTH range, warning on out-of-range values.
+ * BUG-092: Typo'd `depth: 50000` previously caused entries to vanish silently.
+ * @param {number} depth
+ * @param {string} [label]
+ * @returns {number}
+ */
+function clampDepth(depth, label) {
+    const n = Number(depth);
+    if (!Number.isFinite(n)) return 0;
+    if (n < 0) {
+        console.warn(`[DLE] injection depth ${n} < 0${label ? ` (${label})` : ''} — clamping to 0`);
+        return 0;
+    }
+    if (n > _MAX_DEPTH) {
+        console.warn(`[DLE] injection depth ${n} > MAX_INJECTION_DEPTH (${_MAX_DEPTH})${label ? ` (${label})` : ''} — clamping`);
+        return _MAX_DEPTH;
+    }
+    return n;
+}
 
 // ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
 const _regexCache = new WeakMap();
@@ -33,6 +62,11 @@ function getCachedRegexes(entry, settings) {
     cache = { _key: cacheKey, primary: [], refine: [] };
     for (const rawKey of entry.keys) {
         if (!rawKey || !rawKey.trim()) continue;
+        // BUG-148: Warn (once per cache build) when keys overflow the limit so silent
+        // truncation no longer eats the tail of long phrasal triggers without notice.
+        if (rawKey.length > MAX_KEYWORD_LENGTH) {
+            console.warn(`[DLE] keyword "${rawKey.slice(0, 40)}..." exceeds MAX_KEYWORD_LENGTH (${MAX_KEYWORD_LENGTH}) on entry "${entry.title}" — truncated`);
+        }
         const truncatedKey = rawKey.length > MAX_KEYWORD_LENGTH ? rawKey.substring(0, MAX_KEYWORD_LENGTH) : rawKey;
         const key = settings.caseSensitive ? truncatedKey : truncatedKey.normalize('NFC').toLowerCase();
         if (settings.matchWholeWords) {
@@ -282,6 +316,9 @@ export function resolveLinks(vaultIndex) {
  * @returns {{ groups: Array<{ tag: string, text: string, position: number, depth: number, role: number }>, count: number, totalTokens: number, acceptedEntries: import('./pipeline.js').VaultEntry[] }}
  */
 export function formatAndGroup(entries, settings, promptTagPrefix) {
+    // BUG-158 REVERTED: the `</{{title}}>` close tag is load-bearing — without it,
+    // multi-line entries concatenated with `\n` have no delimiter and bleed into each
+    // other, so the model can't tell where one entry ends and the next begins.
     const template = settings.injectionTemplate || '<{{title}}>\n{{content}}\n</{{title}}>';
     let totalTokens = 0;
     let count = 0;
@@ -327,7 +364,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                 accepted.push({
                     entry: truncatedEntry,
                     position: truncatedEntry.injectionPosition ?? settings.injectionPosition,
-                    depth: truncatedEntry.injectionDepth ?? settings.injectionDepth,
+                    depth: clampDepth(truncatedEntry.injectionDepth ?? settings.injectionDepth, truncatedEntry.title),
                     role: truncatedEntry.injectionRole ?? settings.injectionRole,
                 });
                 totalTokens += truncatedEntry.tokenEstimate;
@@ -344,45 +381,51 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         accepted.push({
             entry,
             position: entry.injectionPosition ?? settings.injectionPosition,
-            depth: entry.injectionDepth ?? settings.injectionDepth,
+            depth: clampDepth(entry.injectionDepth ?? settings.injectionDepth, entry.title),
             role: entry.injectionRole ?? settings.injectionRole,
         });
         totalTokens += entry.tokenEstimate;
         count++;
     }
 
-    // Only escape angle brackets to prevent structural XML injection (e.g. </system>).
-    // Do NOT escape quotes or ampersands — those are valid content the AI should see as-is.
-    const escapeBrackets = (s) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // BUG-090: Use the canonical escapeXml helper instead of a local stub that only
+    // handled < and >. Literal `&` and `"` are now also escaped, matching ST utils.escapeHtml
+    // behavior so downstream parsers (and any wrapping XML tooling) stay well-formed.
     const formatEntry = (entry) => {
-        let text = template.replace(/\{\{title\}\}/g, escapeBrackets(entry.title));
-        text = text.replace(/\{\{content\}\}/g, escapeBrackets(entry.content));
+        let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
+        text = text.replace(/\{\{content\}\}/g, escapeXml(entry.content));
         return text;
     };
 
     // ── Outlet entries: group by outlet name, inject via {{outlet::name}} macro ──
-    // Outlet entries bypass positional injection entirely (extension_prompt_types.NONE = -1).
+    // Outlet entries bypass positional injection entirely (extension_prompt_types.NONE).
     // They're written to extension_prompts under 'customWIOutlet_<name>' keys and read by
     // ST's {{outlet::name}} macro. Budget/maxEntries limits don't apply to outlet entries
     // since they're user-placed via macros, not auto-positioned.
+    // BUG-146: Carry per-entry role through the outlet group so frontmatter `role:` no
+    // longer silently coerces to SYSTEM. We pick the first non-null role in each group;
+    // mixed-role outlets are an authoring error, not something we can split (one tag = one role).
     const outletGroupMap = new Map();
     let outletTokens = 0;
     for (const entry of outletEntries) {
         const key = `customWIOutlet_${entry.outlet}`;
         if (!outletGroupMap.has(key)) {
-            outletGroupMap.set(key, { tag: key, texts: [], tokens: 0 });
+            outletGroupMap.set(key, { tag: key, texts: [], tokens: 0, role: null });
         }
         const g = outletGroupMap.get(key);
         g.texts.push(formatEntry(entry));
         g.tokens += entry.tokenEstimate;
+        if (g.role === null && entry.injectionRole !== null && entry.injectionRole !== undefined) {
+            g.role = entry.injectionRole;
+        }
         outletTokens += entry.tokenEstimate;
     }
     const outletGroups = [...outletGroupMap.values()].map(g => ({
         tag: g.tag,
         text: g.texts.join('\n\n'),
-        position: -1, // extension_prompt_types.NONE
+        position: _PT.NONE,
         depth: 0,
-        role: 0,
+        role: g.role ?? _PR.SYSTEM,
     }));
 
     const mode = settings.injectionMode || 'extension';
@@ -391,7 +434,9 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         // ── Prompt List mode: group by type (constants vs lore) with stable keys ──
         // Entries with per-entry overrides get their own IN_CHAT group (bypasses PM).
         const groupMap = new Map();
-        const IN_PROMPT = 0; // extension_prompt_types.IN_PROMPT
+        // BUG-093: Use the imported enum instead of a magic number that drifts on ST refactor.
+        const IN_PROMPT = _PT.IN_PROMPT;
+        const SYSTEM_ROLE = _PR.SYSTEM;
 
         for (const item of accepted) {
             const hasOverride = item.entry.injectionPosition !== null || item.entry.injectionDepth !== null || item.entry.injectionRole !== null;
@@ -407,12 +452,12 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                 key = `${promptTagPrefix}constants`;
                 position = IN_PROMPT;
                 depth = 0;
-                role = 0;
+                role = SYSTEM_ROLE;
             } else {
                 key = `${promptTagPrefix}lore`;
                 position = IN_PROMPT;
                 depth = 0;
-                role = 0;
+                role = SYSTEM_ROLE;
             }
 
             if (!groupMap.has(key)) {

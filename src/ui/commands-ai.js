@@ -11,6 +11,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
+import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
 import { classifyError, NO_ENTRIES_MSG, yamlEscape } from '../../core/utils.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { vaultIndex, scribeInProgress, setIndexTimestamp } from '../state.js';
@@ -55,7 +56,7 @@ export function registerAiCommands() {
             return '';
         },
         helpString: 'Suggest better keywords for an entry using AI. Usage: /dle-optimize-keys <entry name>.',
-        returns: 'Optimization popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     const newloreCallback = async () => {
@@ -79,14 +80,14 @@ export function registerAiCommands() {
         name: 'dle-newlore',
         callback: newloreCallback,
         helpString: 'Analyze the chat for characters, locations, and concepts not in your lorebook, and suggest new entries to create.',
-        returns: 'Suggestion popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
     // Backwards-compatible alias
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-suggest',
         callback: newloreCallback,
         helpString: 'Analyze the chat and suggest new lorebook entries. Alias for /dle-newlore.',
-        returns: 'Suggestion popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -101,7 +102,7 @@ export function registerAiCommands() {
             return 'Session note written.';
         },
         helpString: 'Write a session summary note to Obsidian. Usage: /dle-scribe <focus topic>. Example: /dle-scribe What happened with the sword?',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -155,7 +156,7 @@ export function registerAiCommands() {
             }
         },
         helpString: 'Send the entire vault to the AI for review and feedback. Usage: /dle-review <question>. Example: /dle-review What inconsistencies do you see?',
-        returns: 'AI review posted to chat',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // ── Auto-Summary Generation ──
@@ -200,7 +201,7 @@ export function registerAiCommands() {
             return '';
         },
         helpString: 'Generate AI search summaries for entries that are missing them. Each summary is presented for review before writing.',
-        returns: 'Summary generation status',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // ── Librarian Session ──
@@ -233,7 +234,7 @@ export function registerAiCommands() {
             return '';
         },
         helpString: 'Open the Librarian AI session. Usage: /dle-librarian [gap &lt;id&gt; | review]',
-        returns: 'Opens librarian popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 }
 

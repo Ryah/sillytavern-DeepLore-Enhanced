@@ -53,7 +53,7 @@ export function registerGatingCommands() {
             enumProvider: () => vaultIndex.map(e => new SlashCommandEnumValue(e.title)),
         })],
         helpString: 'Pin an entry so it always injects in this chat. Usage: /dle-pin <entry name>.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -80,7 +80,7 @@ export function registerGatingCommands() {
             enumProvider: () => (chat_metadata.deeplore_pins || []).map(p => new SlashCommandEnumValue(normalizePinBlock(p).title)),
         })],
         helpString: 'Remove a per-chat pin. Usage: /dle-unpin <entry name>.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -116,7 +116,7 @@ export function registerGatingCommands() {
             enumProvider: () => vaultIndex.map(e => new SlashCommandEnumValue(e.title)),
         })],
         helpString: 'Block an entry so it never injects in this chat. Usage: /dle-block <entry name>.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -143,7 +143,7 @@ export function registerGatingCommands() {
             enumProvider: () => (chat_metadata.deeplore_blocks || []).map(b => new SlashCommandEnumValue(normalizePinBlock(b).title)),
         })],
         helpString: 'Remove a per-chat block. Usage: /dle-unblock <entry name>.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -179,7 +179,7 @@ export function registerGatingCommands() {
             return '';
         },
         helpString: 'Show all per-chat pinned and blocked entries.',
-        returns: 'Pins/blocks popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // ── Contextual Gating Commands ──
@@ -267,10 +267,12 @@ export function registerGatingCommands() {
         html += '</div></div>';
 
         // Show popup and wire up click handlers via onOpen callback
+        // BUG-105: Scope querySelectorAll to the popup root instead of document
         await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
             wide: false,
-            onOpen: () => {
-                const buttons = document.querySelectorAll('.dle-field-select');
+            onOpen: (popup) => {
+                const root = popup?.dlg || document;
+                const buttons = root.querySelectorAll('.dle-field-select');
                 for (const btn of buttons) {
                     btn.addEventListener('click', () => {
                         const selected = btn.getAttribute('data-value');
@@ -328,7 +330,7 @@ export function registerGatingCommands() {
             enumProvider: () => [...collectFieldValues('era').values()].map(v => new SlashCommandEnumValue(v.display)),
         })],
         helpString: 'Set the current era for contextual gating. Usage: /dle-set-era <era>. Run without args to browse available values.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -367,7 +369,7 @@ export function registerGatingCommands() {
             enumProvider: () => [...collectFieldValues('location').values()].map(v => new SlashCommandEnumValue(v.display)),
         })],
         helpString: 'Set the current location for contextual gating. Usage: /dle-set-location <location>. Run without args to browse available values.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -405,7 +407,7 @@ export function registerGatingCommands() {
             enumProvider: () => [...collectFieldValues('scene_type').values()].map(v => new SlashCommandEnumValue(v.display)),
         })],
         helpString: 'Set the current scene type for contextual gating. Usage: /dle-set-scene <type>. Run without args to browse available values.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -446,10 +448,12 @@ export function registerGatingCommands() {
                 }
                 html += '</div></div>';
 
+                // BUG-105: Scope querySelectorAll to the popup root
                 await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
                     wide: false,
-                    onOpen: () => {
-                        const buttons = document.querySelectorAll('.dle-char-select');
+                    onOpen: (popup) => {
+                        const root = popup?.dlg || document;
+                        const buttons = root.querySelectorAll('.dle-char-select');
                         for (const btn of buttons) {
                             btn.addEventListener('click', () => {
                                 const val = btn.getAttribute('data-value');
@@ -501,7 +505,7 @@ export function registerGatingCommands() {
             enumProvider: () => [...collectFieldValues('character_present').values()].map(v => new SlashCommandEnumValue(v.display)),
         })],
         helpString: 'Set which characters are present for contextual gating. Usage: /dle-set-characters <name1, name2>. Run without args to browse and toggle.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -520,7 +524,7 @@ export function registerGatingCommands() {
             return '';
         },
         helpString: 'Show current contextual gating state for all defined fields.',
-        returns: 'Context state popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // ── Generic Field Commands (for custom fields) ──
@@ -576,7 +580,7 @@ export function registerGatingCommands() {
             },
         })],
         helpString: 'Set a custom gating field value. Usage: /dle-set-field <field_name> [value]. Run with just the field name to browse values.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -614,7 +618,7 @@ export function registerGatingCommands() {
             },
         })],
         helpString: 'Clear a gating field value. Usage: /dle-clear-field <field_name>.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -642,7 +646,7 @@ export function registerGatingCommands() {
             return `Cleared ${cleared} fields`;
         },
         helpString: 'Clear all active gating context fields (era, location, scene, characters, custom fields) at once.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // ── Folder Filter Commands ──
@@ -742,7 +746,7 @@ export function registerGatingCommands() {
             enumProvider: () => folderList.map(f => new SlashCommandEnumValue(f.path, `${f.entryCount} entries`)),
         })],
         helpString: 'Set which vault folders are active for this chat. Only entries in selected folders will be injected. No args opens a selection popup.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -759,6 +763,6 @@ export function registerGatingCommands() {
             return '';
         },
         helpString: 'Clear the folder filter, allowing entries from all folders to be injected.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 }

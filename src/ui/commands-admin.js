@@ -2,11 +2,12 @@
  * DeepLore Enhanced — Slash Commands: Admin & Status
  * /dle-notebook, /dle-ai-notepad, /dle-status, /dle-scribe-history, /dle-analytics, /dle-health, /dle-setup, /dle-help
  */
-import { saveSettingsDebounced } from '../../../../../../script.js';
+import { saveSettingsDebounced, chat_metadata } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
+import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
 import { parseFrontmatter, simpleHash, classifyError } from '../../core/utils.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { fetchScribeNotes } from '../vault/obsidian-api.js';
@@ -73,7 +74,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Open the Author Notebook editor for the current chat.',
-        returns: 'Opens Author Notebook popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -81,7 +82,7 @@ export function registerAdminCommands() {
         callback: async (_args, value) => {
             const subcommand = (value || '').trim().toLowerCase();
             if (subcommand === 'clear') {
-                const { chat_metadata } = await import('../../../../../../script.js');
+                // BUG-151: Use static imports instead of dynamic await import
                 const { saveMetadataDebounced } = await import('../../../../../extensions.js');
                 chat_metadata.deeplore_ai_notepad = '';
                 saveMetadataDebounced();
@@ -92,7 +93,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'View or clear AI-written session notes. Usage: /dle-ai-notepad [clear]',
-        returns: 'Opens AI Notebook popup or clears notes',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -132,7 +133,7 @@ export function registerAdminCommands() {
             return msg;
         },
         helpString: 'Show DeepLore Enhanced connection status and index stats.',
-        returns: 'Status information',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -216,7 +217,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Show all session notes from the scribe folder.',
-        returns: 'Session timeline popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -289,7 +290,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Show entry usage analytics: how often each entry was matched and injected.',
-        returns: 'Analytics popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -307,7 +308,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Export an anonymized diagnostic report (.md) for support requests. Same as the System tab button.',
-        returns: 'Triggers a browser download.',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -383,7 +384,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Run 30+ health checks on vault entries and settings: circular requires, duplicates, orphaned references, conflicting overrides, budget warnings, and more.',
-        returns: 'Health check popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // ── Setup Wizard ──
@@ -435,7 +436,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Show vault cache status: size, age, entry count, and a button to clear it.',
-        returns: 'Cache info popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -446,7 +447,7 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Open the setup wizard: connect vault, configure tags, matching, AI, and more.',
-        returns: 'Setup wizard',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     // /dle-help removed — ST's /help auto-discovers commands via their helpString fields.
@@ -525,6 +526,6 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Open command palette — search and run any DLE command.',
-        returns: 'Command palette popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 }

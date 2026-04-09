@@ -188,8 +188,13 @@ export async function showBrowsePopup() {
     const settings = getSettings();
     const analytics = settings.analyticsData || {};
     const allTags = [...new Set(vaultIndex.flatMap(e => e.tags))].sort();
-    const pins = new Set((chat_metadata.deeplore_pins || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
-    const blocks = new Set((chat_metadata.deeplore_blocks || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
+    // BUG-136: Re-read pins/blocks from chat_metadata on each access so changes
+    // made while the popup is open (e.g. via drawer) are reflected immediately.
+    const getPins = () => new Set((chat_metadata.deeplore_pins || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
+    const getBlocks = () => new Set((chat_metadata.deeplore_blocks || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
+    // Alias for backward compat in the render closures below
+    let pins = getPins();
+    let blocks = getBlocks();
 
     const container = document.createElement('div');
     container.classList.add('dle-popup');
@@ -233,6 +238,10 @@ export async function showBrowsePopup() {
     }
 
     function renderList() {
+        // BUG-136: Refresh pin/block sets from live chat_metadata
+        pins = getPins();
+        blocks = getBlocks();
+
         const searchEl = container.querySelector('#dle-browse-search');
         const statusEl = container.querySelector('#dle-browse-status');
         const tagEl = container.querySelector('#dle-browse-tag');

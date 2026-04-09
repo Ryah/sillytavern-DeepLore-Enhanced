@@ -96,6 +96,8 @@ function _teardownDleExtension() {
     _dleListeners.eventSource = [];
     // Tear down the drawer (removes its own listeners + DOM)
     try { destroyDrawerPanel(); } catch (err) { console.warn('[DLE] destroyDrawerPanel failed:', err?.message); }
+    // BUG-062: detach Cartographer's namespaced delegated handler from #chat
+    try { $('#chat').off('.dle-carto'); } catch { /* ignore */ }
     // Remove the beforeunload handler itself so it doesn't accumulate on re-init
     if (_dleBeforeUnloadHandler) {
         try { window.removeEventListener('beforeunload', _dleBeforeUnloadHandler); } catch { /* ignore */ }
@@ -171,20 +173,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
     }
 
-    // Strip DLE tool call messages from previous generations so they don't bloat context.
-    // Tool results are ephemeral (like lorebook injections) — they served their purpose and
-    // should not persist. The continuation check above already returned for current-gen tool calls.
-    for (let i = chat.length - 1; i >= 0; i--) {
-        const msg = chat[i];
-        if (!msg?.is_system || !Array.isArray(msg.extra?.tool_invocations)) continue;
-        const invocations = msg.extra.tool_invocations;
-        const allDle = invocations.every(inv => inv.name?.startsWith('dle_'));
-        if (allDle) {
-            chat.splice(i, 1);
-        } else {
-            msg.extra.tool_invocations = invocations.filter(inv => !inv.name?.startsWith('dle_'));
-        }
-    }
+    // BUG-058: Strip DLE tool-call messages AFTER the early-return guards but BEFORE the lock
+    // check is moved here intentionally — see below. The actual chat splice now lives past the
+    // generationLock guard so a contended-pipeline early return doesn't mutate `chat` and leak
+    // the change to other ST interceptors.
 
     // Lazy Librarian tool registration — ensures tools are registered even if init() ran
     // before settings were fully loaded (race condition with ST's extension_settings hydration)
@@ -211,6 +203,21 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
     }
     setGenerationLock(true);
+
+    // BUG-058: Strip DLE tool-call messages from previous generations only AFTER acquiring the
+    // generation lock. Doing this before the lock allowed a contended early return (lock held)
+    // to mutate `chat` and leak the splice/filter to other ST interceptors with no rollback.
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const msg = chat[i];
+        if (!msg?.is_system || !Array.isArray(msg.extra?.tool_invocations)) continue;
+        const invocations = msg.extra.tool_invocations;
+        const allDle = invocations.every(inv => inv.name?.startsWith('dle_'));
+        if (allDle) {
+            chat.splice(i, 1);
+        } else {
+            msg.extra.tool_invocations = invocations.filter(inv => !inv.name?.startsWith('dle_'));
+        }
+    }
 
     // Reset librarian per-generation search counter
     setLoreGapSearchCount(0);
@@ -485,8 +492,11 @@ async function onGenerate(chat, contextSize, abort, type) {
             const usePromptList = settings.injectionMode === 'prompt_list';
             for (const group of groups) {
                 // Outlet groups bypass PM entirely — inject via extension_prompts for {{outlet::name}} macro
+                // BUG-146: Forward allowWIScan + the group's resolved role so per-entry frontmatter
+                // `role:` survives instead of being silently coerced to SYSTEM, and so outlet content
+                // honors the global "allow WI to scan injected lore" toggle like positional groups do.
                 if (group.position === -1) {
-                    setExtensionPrompt(group.tag, group.text, -1, 0);
+                    setExtensionPrompt(group.tag, group.text, -1, 0, settings.allowWIScan, group.role);
                     continue;
                 }
                 if (usePromptList && promptManager) {
@@ -531,22 +541,33 @@ async function onGenerate(chat, contextSize, abort, type) {
             }
         }
 
-        // Author's Notebook injection (independent of entry pipeline)
-        if (settings.notebookEnabled && chat_metadata?.deeplore_notebook?.trim()) {
-            const rawNotebook = chat_metadata.deeplore_notebook.trim();
-            const notebookContent = rawNotebook;
+        // BUG-147: Single fallback ladder for the four PM-or-extension_prompts inject paths
+        // (notebook, notepad, plus the lore/constants pair handled above). Previously each
+        // call site duplicated a 4-line "is prompt_list? → PM entry; else setExtensionPrompt"
+        // ladder, which drifted (different fallback args, missing allowWIScan, etc.).
+        const _injectAuxPrompt = (id, content, position, depth, role, allowWIScan = false) => {
             const usePromptList = settings.injectionMode === 'prompt_list';
             if (usePromptList && promptManager) {
-                const pmEntry = promptManager.getPromptById('deeplore_notebook');
+                const pmEntry = promptManager.getPromptById(id);
                 if (pmEntry) {
-                    pmEntry.content = notebookContent;
-                } else {
-                    // Fallback: PM entry not found
-                    setExtensionPrompt('deeplore_notebook', notebookContent, settings.notebookPosition, settings.notebookDepth, false, settings.notebookRole);
+                    pmEntry.content = content;
+                    return;
                 }
-            } else {
-                setExtensionPrompt('deeplore_notebook', notebookContent, settings.notebookPosition, settings.notebookDepth, false, settings.notebookRole);
+                // Fallback: PM entry not registered for this id — use extension_prompts.
             }
+            setExtensionPrompt(id, content, position, depth, allowWIScan, role);
+        };
+
+        // Author's Notebook injection (independent of entry pipeline)
+        if (settings.notebookEnabled && chat_metadata?.deeplore_notebook?.trim()) {
+            const notebookContent = chat_metadata.deeplore_notebook.trim();
+            _injectAuxPrompt(
+                'deeplore_notebook',
+                notebookContent,
+                settings.notebookPosition,
+                settings.notebookDepth,
+                settings.notebookRole,
+            );
         }
 
         // AI Notebook injection
@@ -567,17 +588,14 @@ async function onGenerate(chat, contextSize, abort, type) {
             // Only inject if we have content (extract mode with no existing notes = nothing to inject)
             if (parts.length > 0) {
                 const notepadContent = parts.join('\n\n');
-                const usePromptList = settings.injectionMode === 'prompt_list';
-                if (usePromptList && promptManager) {
-                    const pmEntry = promptManager.getPromptById('deeplore_ai_notepad');
-                    if (pmEntry) {
-                        pmEntry.content = notepadContent;
-                    } else {
-                        setExtensionPrompt('deeplore_ai_notepad', notepadContent, settings.aiNotepadPosition, settings.aiNotepadDepth, false, settings.aiNotepadRole);
-                    }
-                } else {
-                    setExtensionPrompt('deeplore_ai_notepad', notepadContent, settings.aiNotepadPosition, settings.aiNotepadDepth, false, settings.aiNotepadRole);
-                }
+                // BUG-147: Routed through the shared ladder helper.
+                _injectAuxPrompt(
+                    'deeplore_ai_notepad',
+                    notepadContent,
+                    settings.aiNotepadPosition,
+                    settings.aiNotepadDepth,
+                    settings.aiNotepadRole,
+                );
             }
         }
 
@@ -850,7 +868,9 @@ jQuery(async function () {
         // otherwise DLE's wizard lands on top of ST's persona-name popup on brand-new installs.
         const firstRunSettings = getSettings();
         const hasEnabledVaults = (firstRunSettings.vaults || []).some(v => v.enabled);
-        if (!hasEnabledVaults && !firstRunSettings._wizardCompleted) {
+        // BUG-125: Also check localStorage sentinel in case settings save crashed
+        const wizardCompleted = firstRunSettings._wizardCompleted || (typeof localStorage !== 'undefined' && localStorage.getItem('dle-wizard-completed') === '1');
+        if (!hasEnabledVaults && !wizardCompleted) {
             const launchWizard = async () => {
                 try {
                     // Wait for ST's onboarding popup to be gone, in case APP_READY fired early
@@ -875,7 +895,13 @@ jQuery(async function () {
                 }
             };
             // APP_READY fires after ST's getSettings() and its awaited doOnboarding() popup.
-            _registerEs(event_types.APP_READY, () => setTimeout(launchWizard, 500), { once: true });
+            // BUG-118: this once-registration sits after several awaits in init(); on a fast
+            // machine APP_READY may have already fired and our `once` listener will never run.
+            // Fire-once latch + fallback timer covers both ordering cases without double-launching.
+            let _wizardLatched = false;
+            const _wizardOnce = () => { if (_wizardLatched) return; _wizardLatched = true; setTimeout(launchWizard, 500); };
+            _registerEs(event_types.APP_READY, _wizardOnce, { once: true });
+            setTimeout(_wizardOnce, 3000);
         }
 
         // Register PM prompts on init so they appear in the Prompt Manager immediately.
@@ -942,7 +968,10 @@ jQuery(async function () {
         }
         if (initSettings.enabled) {
             // Try instant hydration from IndexedDB, then validate against Obsidian in background
-            _registerEs(event_types.APP_READY, async () => {
+            // BUG-118: same fast-machine race as the wizard registration above. Latch + fallback.
+            let _autoConnectLatched = false;
+            const _autoConnectOnce = async () => {
+                if (_autoConnectLatched) return; _autoConnectLatched = true;
                 // Skip if a build was already triggered (e.g. by early user generation)
                 if (indexEverLoaded || indexing) return;
                 try {
@@ -955,11 +984,17 @@ jQuery(async function () {
                 } catch (err) {
                     console.warn('[DLE] Auto-connect:', err.message);
                 }
-            }, { once: true });
+            };
+            _registerEs(event_types.APP_READY, _autoConnectOnce, { once: true });
+            setTimeout(_autoConnectOnce, 3000);
         }
 
-        // Context Cartographer: click + keyboard handler (event delegation — registered once)
-        $('#chat').on('click keydown', '.mes_deeplore_sources', function (e) {
+        // BUG-062: Context Cartographer click/keydown delegation. Namespaced as `.dle-carto`
+        // so _teardownDleExtension can detach via $('#chat').off('.dle-carto'). Without the
+        // namespace, extension reload double-bound the handler and toggling showLoreSources
+        // off had no detach path.
+        $('#chat').off('.dle-carto');
+        $('#chat').on('click.dle-carto keydown.dle-carto', '.mes_deeplore_sources', function (e) {
             if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
             if (e.type === 'keydown') e.preventDefault();
             const messageId = $(this).closest('.mes').attr('mesid');
@@ -1070,87 +1105,87 @@ jQuery(async function () {
                 return;
             }
 
+            // BUG-142: Each job is wrapped in try-catch so one failure doesn't abort the rest.
+
             // --- Context Cartographer: store sources and inject button ---
-            // Only consume sources that belong to the current chat epoch (race condition guard:
-            // prevents stale sources from a previous chat from being stored on the wrong message).
-            // Sources are NOT nulled after consumption — the drawer reads them for the Why? tab.
-            // Instead, track which message consumed them to prevent re-consumption on subsequent renders.
-            if (settings.showLoreSources && lastInjectionSources && lastInjectionSources.length > 0) {
-                if (lastInjectionEpoch === chatEpoch && lastInjectionSources._consumedByMesId !== messageId) {
-                    // BUG-301: re-validate message identity before writing sources. Also stamp
-                    // the owning swipe_id so downstream reads/cleanups can detect stale data
-                    // after swipe navigation instead of blindly trusting the array.
-                    if (message && !message.is_user) {
-                        message.extra = message.extra || {};
-                        message.extra.deeplore_sources = lastInjectionSources;
-                        message.extra.deeplore_sources_swipe_id = message.swipe_id ?? 0;
-                        lastInjectionSources._consumedByMesId = messageId;
-                        saveMetadataDebounced();
+            try {
+                if (settings.showLoreSources && lastInjectionSources && lastInjectionSources.length > 0) {
+                    if (lastInjectionEpoch === chatEpoch && lastInjectionSources._consumedByMesId !== messageId) {
+                        if (message && !message.is_user) {
+                            message.extra = message.extra || {};
+                            message.extra.deeplore_sources = lastInjectionSources;
+                            message.extra.deeplore_sources_swipe_id = message.swipe_id ?? 0;
+                            lastInjectionSources._consumedByMesId = messageId;
+                            saveMetadataDebounced();
+                        }
                     }
                 }
-            }
-
-            if (settings.showLoreSources) {
-                injectSourcesButton(messageId);
-            }
+                if (settings.showLoreSources) {
+                    injectSourcesButton(messageId);
+                }
+            } catch (err) { console.warn('[DLE] Cartographer render-handler failed:', err?.message); }
 
             // --- AI Notebook: fallback extraction (if GENERATION_ENDED missed it, e.g. swipe) ---
-            if (settings.aiNotepadEnabled) {
-                if (message && !message.is_user && message.mes) {
-                    const { notes, cleanedMessage } = extractAiNotes(message.mes);
-                    if (notes) {
-                        message.mes = cleanedMessage;
-                        message.extra = message.extra || {};
-                        if (!message.extra.deeplore_ai_notes) {
-                            message.extra.deeplore_ai_notes = notes;
-                            const existing = chat_metadata.deeplore_ai_notepad || '';
-                            chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+            try {
+                if (settings.aiNotepadEnabled) {
+                    if (message && !message.is_user && message.mes) {
+                        const { notes, cleanedMessage } = extractAiNotes(message.mes);
+                        if (notes) {
+                            message.mes = cleanedMessage;
+                            message.extra = message.extra || {};
+                            if (!message.extra.deeplore_ai_notes) {
+                                message.extra.deeplore_ai_notes = notes;
+                                const existing = chat_metadata.deeplore_ai_notepad || '';
+                                chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+                            }
+                            saveMetadataDebounced();
+                            const mesBlock = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
+                            if (mesBlock) mesBlock.innerHTML = messageFormatting(cleanedMessage, message.name, message.is_system, message.is_user, messageId);
                         }
-                        saveMetadataDebounced();
-                        const mesBlock = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
-                        if (mesBlock) mesBlock.innerHTML = messageFormatting(cleanedMessage, message.name, message.is_system, message.is_user, messageId);
                     }
                 }
-            }
+            } catch (err) { console.warn('[DLE] AI Notebook render-handler failed:', err?.message); }
 
             // --- Librarian: consolidate tool call messages into reply dropdown ---
-            // consumePendingToolCalls() returns ALL tool calls that accumulated since the last
-            // non-intermediate render. Because we skip intermediates above, this naturally
-            // collects searches+flags from all tool-call rounds into one batch.
-            if (settings.librarianEnabled) {
-                const pendingCalls = consumePendingToolCalls();
-                if (pendingCalls.length > 0) {
-                    if (message && !message.is_user) {
-                        message.extra = message.extra || {};
-                        message.extra.deeplore_tool_calls = pendingCalls;
-                        saveMetadataDebounced();
+            try {
+                if (settings.librarianEnabled) {
+                    const pendingCalls = consumePendingToolCalls();
+                    if (pendingCalls.length > 0) {
+                        if (message && !message.is_user) {
+                            message.extra = message.extra || {};
+                            message.extra.deeplore_tool_calls = pendingCalls;
+                            saveMetadataDebounced();
+                        }
+                        injectLibrarianDropdown(messageId, pendingCalls);
                     }
-                    injectLibrarianDropdown(messageId, pendingCalls);
                 }
-            }
+            } catch (err) { console.warn('[DLE] Librarian render-handler failed:', err?.message); }
 
             // --- Session Scribe: track chat position and auto-trigger ---
-            if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
-                const newMessages = chat.length - lastScribeChatLength;
-                if (newMessages >= settings.scribeInterval && !scribeInProgress) {
-                    runScribe(); // fire-and-forget
+            try {
+                if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
+                    const newMessages = chat.length - lastScribeChatLength;
+                    if (newMessages >= settings.scribeInterval && !scribeInProgress) {
+                        runScribe(); // fire-and-forget
+                    }
                 }
-            }
+            } catch (err) { console.warn('[DLE] Scribe render-handler failed:', err?.message); }
 
             // --- Auto Lorebook: increment counter and auto-trigger every N messages ---
-            if (settings.enabled && settings.autoSuggestEnabled && settings.autoSuggestInterval > 0) {
-                setAutoSuggestMessageCount(autoSuggestMessageCount + 1);
-                if (autoSuggestMessageCount >= settings.autoSuggestInterval) {
-                    setAutoSuggestMessageCount(0);
-                    // Fire-and-forget: fetch suggestions then show popup (popup honors autoSuggestSkipReview)
-                    (async () => {
-                        try {
-                            const suggestions = await runAutoSuggest();
-                            if (suggestions && suggestions.length > 0) await showSuggestionPopup(suggestions);
-                        } catch (err) { console.warn('[DLE] Auto-suggest auto-trigger failed:', err?.message); }
-                    })();
+            try {
+                if (settings.enabled && settings.autoSuggestEnabled && settings.autoSuggestInterval > 0) {
+                    setAutoSuggestMessageCount(autoSuggestMessageCount + 1);
+                    if (autoSuggestMessageCount >= settings.autoSuggestInterval) {
+                        setAutoSuggestMessageCount(0);
+                        (async () => {
+                            try {
+                                const suggestions = await runAutoSuggest();
+                                if (suggestions && suggestions.length > 0) await showSuggestionPopup(suggestions);
+                            } catch (err) { console.warn('[DLE] Auto-suggest auto-trigger failed:', err?.message); }
+                        })();
+                    }
                 }
-            }
+            } catch (err) { console.warn('[DLE] Auto-suggest render-handler failed:', err?.message); }
         });
 
         // Swipe handler: clear stale tool call data and sources from the swiped message
@@ -1510,8 +1545,11 @@ jQuery(async function () {
                     const start = Math.max(0, chat.length - 50);
                     let needsSave = false;
 
+                    // BUG-126: Skip migration passes if already completed for this chat
+                    const migrationDone = chat_metadata?.deeplore_migration_v2;
+
                     // ── Migration pass 1: tool_invocations → deeplore_tool_calls ──
-                    if (settings.librarianEnabled) {
+                    if (settings.librarianEnabled && !migrationDone) {
                         const pendingMigration = [];
                         for (let i = start; i < chat.length; i++) {
                             const m = chat[i];
@@ -1554,7 +1592,8 @@ jQuery(async function () {
                     }
 
                     // ── Migration pass 2: deeplore_sources from empty intermediates → correct reply ──
-                    for (let i = start; i < chat.length; i++) {
+                    // BUG-126: Skip if migration already done for this chat
+                    for (let i = migrationDone ? chat.length : start; i < chat.length; i++) {
                         const m = chat[i];
                         if (!m.is_user && !m.is_system && !m.mes?.trim() && m.extra?.deeplore_sources) {
                             for (let j = i + 1; j < chat.length; j++) {
@@ -1590,6 +1629,10 @@ jQuery(async function () {
                         }
                     }
 
+                    // BUG-126: Mark migration complete so it doesn't re-scan on next CHAT_CHANGED
+                    if (needsSave && !migrationDone) {
+                        chat_metadata.deeplore_migration_v2 = true;
+                    }
                     if (needsSave) saveMetadataDebounced();
                 } catch (err) { console.error('[DLE] Chat load UI injection error:', err); }
                 });

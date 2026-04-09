@@ -35,14 +35,24 @@ export async function openVaultScanPopup(opts = {}) {
             </details>
         </div>`;
 
-    // Launch popup non-blocking by passing wide false; we need handle to update DOM. Use callGenericPopup OK-only.
-    const popupPromise = callGenericPopup(html, POPUP_TYPE.TEXT, '', { wide: true, large: false, allowVerticalScrolling: true, okButton: 'Cancel' });
+    // BUG-103: Use onOpen callback to get scoped DOM references instead of
+    // setTimeout + global getElementById. onOpen fires once the popup is in the DOM.
+    let fill, text, results;
+    let onOpenResolve;
+    const onOpenReady = new Promise(r => { onOpenResolve = r; });
 
-    // Wait one tick for DOM, then run scan
-    await new Promise(r => setTimeout(r, 50));
-    const fill = document.getElementById('dle-vsp-fill');
-    const text = document.getElementById('dle-vsp-text');
-    const results = document.getElementById('dle-vsp-results');
+    const popupPromise = callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+        wide: true, large: false, allowVerticalScrolling: true, okButton: 'Cancel',
+        onOpen: (popup) => {
+            const root = popup?.dlg || document;
+            fill = root.querySelector('#dle-vsp-fill') || root.querySelector('.dle-vault-scan-progress-fill');
+            text = root.querySelector('#dle-vsp-text') || root.querySelector('.dle-vault-scan-progress-text');
+            results = root.querySelector('#dle-vsp-results') || root.querySelector('.dle-vault-scan-results');
+            onOpenResolve();
+        },
+    });
+
+    await onOpenReady;
 
     let selected = null;
 

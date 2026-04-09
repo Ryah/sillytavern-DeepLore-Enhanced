@@ -21,9 +21,11 @@ const VALID_EFFORTS = new Set(['low', 'medium', 'high']);
  *
  * @param {string} profileId - Connection Manager profile id
  * @param {string} [modelOverride] - DLE per-feature model override (e.g. settings.aiSearchModel)
+ * @param {object} [opts]
+ * @param {object} [opts.freshPreset] - BUG-397: optionally pass a just-read preset object so callers on hot paths avoid any risk of a stale preset manager cache; if omitted we re-read JIT from ctx.getPresetManager('openai').
  * @returns {{bad: boolean, reason?: string, profileName?: string, modelName?: string, presetName?: string}}
  */
-export function detectClaudeAdaptiveIssue(profileId, modelOverride) {
+export function detectClaudeAdaptiveIssue(profileId, modelOverride, opts = {}) {
     try {
         if (!profileId) return { bad: false };
 
@@ -52,8 +54,10 @@ export function detectClaudeAdaptiveIssue(profileId, modelOverride) {
             };
         }
 
-        const presetMgr = ctx.getPresetManager?.('openai');
-        const preset = presetMgr?.getCompletionPresetByName?.(presetName);
+        // BUG-397: always re-read preset just-in-time (never memoize across calls);
+        // callers on hot paths can pass a fresh preset via opts.freshPreset to skip the lookup.
+        const preset = opts.freshPreset
+            || ctx.getPresetManager?.('openai')?.getCompletionPresetByName?.(presetName);
         const effort = preset?.reasoning_effort;
 
         if (!effort || !VALID_EFFORTS.has(String(effort).toLowerCase())) {

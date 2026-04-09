@@ -114,9 +114,12 @@ export async function runAutoSuggest() {
     try {
     const settings = getSettings();
     await ensureIndexFresh();
-    if (epoch !== chatEpoch) return []; // chat changed during index refresh
-
+    // BUG-398: snapshot the writer-visible entry set BEFORE the epoch check so that
+    // a concurrent rebuild landing between the check and the read cannot inject new
+    // entries into our "existing" list (which would cause us to suggest entries that
+    // already exist, or worse, silently write duplicates under skipReview).
     const visibleEntries = getWriterVisibleEntries();
+    if (epoch !== chatEpoch) return []; // chat changed during index refresh
     const existingTitles = visibleEntries.map(e => `"${e.title.replace(/"/g, '\\"')}"`).join(', ');
     // BUG 3 FIX: Use a proper scan depth, not the interval frequency
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth || 20);

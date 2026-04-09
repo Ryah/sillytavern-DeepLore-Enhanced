@@ -129,20 +129,39 @@ export function extractAiResponseClient(text) {
  * @returns {Array<{title: string, confidence: string, reason: string}>}
  */
 export function normalizeResults(arr) {
+    // BUG-391: Reject non-string/non-object items rather than coercing via String(item).
+    // Numbers, booleans, arrays, and objects without title/name are format drift and
+    // must not become fake titles like "42" or "[object Object]".
     return arr.map(item => {
         if (typeof item === 'string') {
             return { title: item, confidence: 'medium', reason: 'AI search' };
         }
-        if (typeof item === 'object' && item !== null && (item.title || item.name)) {
+        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+            const rawTitle = item.title || item.name;
+            if (typeof rawTitle !== 'string' || !rawTitle.trim()) return null;
             return {
-                title: item.title || item.name || '',
+                title: rawTitle,
                 confidence: ['high', 'medium', 'low'].includes(item.confidence) ? item.confidence : 'medium',
                 reason: typeof item.reason === 'string' ? item.reason : 'AI search',
             };
         }
-        return { title: String(item), confidence: 'medium', reason: 'AI search' };
-    }).filter(r => r.title && r.title.trim() && r.title !== 'null' && r.title !== 'undefined');
+        return null;
+    }).filter(r => r && r.title && r.title.trim() && r.title !== 'null' && r.title !== 'undefined');
 }
+
+// BUG-384: Infrastructure tags used by the lorebook import pipeline. These are
+// present on most (often ALL) imported entries and must be skipped when picking a
+// clustering tag — otherwise the hierarchical pre-filter collapses to one cluster
+// and is effectively disabled.
+export const LOREBOOK_INFRA_TAGS = new Set([
+    'lorebook',
+    'lorebook-always',
+    'lorebook-seed',
+    'lorebook-bootstrap',
+    'lorebook-guide',
+    'lorebook-never',
+    'lorebook-constant',
+]);
 
 // ── Hierarchical Clustering ──
 
@@ -154,11 +173,19 @@ export function normalizeResults(arr) {
 export function clusterEntries(entries) {
     const clusters = new Map();
     for (const entry of entries) {
-        // Use first meaningful tag, or type frontmatter field, or 'Uncategorized'
+        // BUG-384: Skip well-known lorebook infrastructure tags (lorebook, lorebook-always,
+        // lorebook-seed, etc.) when picking the clustering tag. WI imports tag every entry
+        // with `lorebook` as the first tag, which would collapse everything into one cluster
+        // and disable the hierarchical pre-filter. Fall back to folder, then 'Uncategorized'.
         let category = 'Uncategorized';
         if (entry.tags && entry.tags.length > 0) {
-            // Use the most specific tag (first non-generic tag)
-            category = entry.tags[0];
+            const firstReal = entry.tags.find(t => !LOREBOOK_INFRA_TAGS.has(String(t).toLowerCase()));
+            if (firstReal) {
+                category = firstReal;
+            } else if (entry.filename && entry.filename.includes('/')) {
+                // Fallback: use top folder from filename
+                category = entry.filename.split('/')[0] || 'Uncategorized';
+            }
         }
         if (!clusters.has(category)) clusters.set(category, []);
         clusters.get(category).push(entry);

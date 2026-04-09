@@ -10,6 +10,18 @@ import { validateProxyUrl } from './proxy-api.js';
 
 const CACHE_PREFIX = 'dle_models_v1::';
 
+// BUG-388: short, non-reversible fingerprint of the API key so rotating keys
+// invalidates the cache without ever storing the raw key in sessionStorage.
+function apiKeyFingerprint(apiKey) {
+    if (!apiKey) return 'nokey';
+    let h = 0x811c9dc5; // FNV-1a 32-bit
+    for (let i = 0; i < apiKey.length; i++) {
+        h ^= apiKey.charCodeAt(i);
+        h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+    }
+    return h.toString(16).padStart(8, '0');
+}
+
 /**
  * @param {{baseUrl: string, apiKey?: string, timeout?: number, via?: 'auto'|'direct'|'cors'}} opts
  * @returns {Promise<{ok: boolean, models: string[], raw: any, error?: string, source: 'cache'|'direct'|'cors'}>}
@@ -20,7 +32,7 @@ export async function fetchModels({ baseUrl, apiKey, timeout = 8000, via = 'auto
     try { validateProxyUrl(baseUrl); }
     catch (e) { return { ok: false, models: [], raw: null, error: e.message, source: 'direct' }; }
 
-    const cacheKey = CACHE_PREFIX + baseUrl.replace(/\/+$/, '');
+    const cacheKey = CACHE_PREFIX + baseUrl.replace(/\/+$/, '') + '::' + apiKeyFingerprint(apiKey);
     try {
         const cached = sessionStorage.getItem(cacheKey);
         if (cached) {
@@ -63,15 +75,29 @@ export async function fetchModels({ baseUrl, apiKey, timeout = 8000, via = 'auto
             source = 'cors';
             res = await tryCors();
         } else {
+            let directErr = null;
+            let directRes = null;
             try {
-                res = await tryDirect();
+                directRes = await tryDirect();
             } catch (err) {
-                if (via === 'auto' && err && (err.name === 'TypeError' || /failed to fetch|cors/i.test(err.message || ''))) {
-                    source = 'cors';
-                    res = await tryCors();
-                } else {
-                    throw err;
-                }
+                directErr = err;
+            }
+            // BUG-389: fall back to CORS bridge on TypeError/CORS, AbortError (timeout),
+            // and HTTP errors — but NOT on auth failures (401/403), which must surface.
+            const isNetworkErr = directErr && (
+                directErr.name === 'TypeError'
+                || directErr.name === 'AbortError'
+                || /failed to fetch|cors/i.test(directErr.message || '')
+            );
+            const isRetryableHttp = directRes && !directRes.ok
+                && directRes.status !== 401 && directRes.status !== 403;
+            if (via === 'auto' && (isNetworkErr || isRetryableHttp)) {
+                source = 'cors';
+                res = await tryCors();
+            } else if (directErr) {
+                throw directErr;
+            } else {
+                res = directRes;
             }
         }
     } catch (err) {
@@ -101,7 +127,13 @@ export async function fetchModels({ baseUrl, apiKey, timeout = 8000, via = 'auto
 export function clearModelsCache(baseUrl) {
     try {
         if (baseUrl) {
-            sessionStorage.removeItem(CACHE_PREFIX + baseUrl.replace(/\/+$/, ''));
+            // BUG-388: cache keys now include an api-key fingerprint suffix, so we
+            // must sweep all fingerprints for this base URL.
+            const prefix = CACHE_PREFIX + baseUrl.replace(/\/+$/, '') + '::';
+            for (let i = sessionStorage.length - 1; i >= 0; i--) {
+                const k = sessionStorage.key(i);
+                if (k && k.startsWith(prefix)) sessionStorage.removeItem(k);
+            }
         } else {
             for (let i = sessionStorage.length - 1; i >= 0; i--) {
                 const k = sessionStorage.key(i);

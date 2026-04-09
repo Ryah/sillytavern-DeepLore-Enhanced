@@ -23,8 +23,17 @@
  * @param {string} url
  */
 export function validateProxyUrl(url) {
+    // BUG-396: empty / malformed / non-http(s) URLs must fail loudly here rather than
+    // slip through to callers that assume validateProxyUrl either threw or OK'd the URL.
+    if (typeof url !== 'string' || !url.trim()) {
+        throw new Error('Proxy URL is empty');
+    }
     let parsed;
-    try { parsed = new URL(url); } catch { return; /* invalid format — let downstream fail */ }
+    try { parsed = new URL(url); }
+    catch { throw new Error(`Proxy URL "${url}" is not a valid URL`); }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        throw new Error(`Proxy URL "${url}" must use http:// or https://`);
+    }
     const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     const blockedHosts = ['169.254.169.254', 'metadata.google.internal', '100.100.100.200'];
     if (blockedHosts.includes(hostname)) {

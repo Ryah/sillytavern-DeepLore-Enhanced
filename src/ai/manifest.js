@@ -79,7 +79,8 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false, set
     // BUG-047: Use candidates.length (includes force-injected) not selectable.length (tautological)
     const forcedCount = candidates.length - selectable.length;
     let forcedTokens = 0;
-    for (const e of candidates) { if (isForceInjected(e)) forcedTokens += e.tokenEstimate; }
+    // BUG-395: pass bootstrapActive so bootstrap entries are counted in the header tally
+    for (const e of candidates) { if (isForceInjected(e, { bootstrapActive: excludeBootstrap })) forcedTokens += e.tokenEstimate; }
     const budgetInfo = s.unlimitedBudget
         ? ''
         : `\nToken budget: ~${s.maxTokensBudget} tokens total.`;

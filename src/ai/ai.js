@@ -10,13 +10,14 @@ import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
     trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
+    entityRegexVersion,
     notifyAiStatsUpdated,
     isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe,
     fieldDefinitions,
 } from '../state.js';
 import { dedupWarning, dedupError } from '../toast-dedup.js';
 // Re-export pure functions from helpers.js for consumers that import from ai.js
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch } from '../helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch, LOREBOOK_INFRA_TAGS } from '../helpers.js';
 // buildCandidateManifest extracted to manifest.js for testability
 import { buildCandidateManifest as _buildCandidateManifest } from './manifest.js';
 
@@ -293,7 +294,12 @@ const HIERARCHICAL_THRESHOLD = 40;
 export async function hierarchicalPreFilter(candidates, chat, signal) {
     const settings = getSettings();
     const bootstrapActive = chat.length <= settings.newChatThreshold;
-    const selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive }));
+    let selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive }));
+
+    // BUG-387: in summary_only mode, cluster vote must match manifest filter
+    if (settings.manifestSummaryMode === 'summary_only') {
+        selectable = selectable.filter(e => e.summary && e.summary.trim());
+    }
 
     if (selectable.length < HIERARCHICAL_THRESHOLD) return null; // Too few, skip clustering
 
@@ -338,10 +344,13 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
         const usage = result.usage;
 
         // BUG-017: Don't increment aiSearchStats.calls here — only count in aiSearch()
-        // to avoid double-counting when hierarchical + main search both run
+        // to avoid double-counting when hierarchical + main search both run.
+        // BUG-393: But we DO need to count this call somewhere so token averages don't
+        // divide by the wrong N. Use a dedicated hierarchicalCalls counter.
         if (usage) {
             aiSearchStats.totalInputTokens += usage.input_tokens || 0;
             aiSearchStats.totalOutputTokens += usage.output_tokens || 0;
+            aiSearchStats.hierarchicalCalls = (aiSearchStats.hierarchicalCalls || 0) + 1;
         }
         notifyAiStatsUpdated();
 
@@ -372,12 +381,18 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
 
         if (selectedCategories.size === 0) return null;
 
-        // Filter candidates to only those in selected categories
-        // Fuzzy match: check if any selected category is a substring or the entry's category is a substring
-        const filtered = selectable.filter(entry => {
-            const category = (entry.tags && entry.tags.length > 0) ? entry.tags[0].toLowerCase() : 'uncategorized';
-            return [...selectedCategories].some(sc => category.includes(sc) || sc.includes(category));
-        });
+        // Filter candidates to only those in selected categories.
+        // BUG-385: Use exact case-insensitive match. Substring matching caused generic
+        // category names like "lore" or "l" to match every category in the vault.
+        // Re-derive category the same way clusterEntries does (see helpers.js/clusterEntries).
+        const pickCategory = (entry) => {
+            if (entry.tags && entry.tags.length > 0) {
+                const firstReal = entry.tags.find(t => !LOREBOOK_INFRA_TAGS.has(String(t).toLowerCase()));
+                if (firstReal) return firstReal.toLowerCase();
+            }
+            return 'uncategorized';
+        };
+        const filtered = selectable.filter(entry => selectedCategories.has(pickCategory(entry)));
 
         // Always include force-injected entries
         const forceInjected = candidates.filter(e => isForceInjected(e, { bootstrapActive }));
@@ -458,8 +473,10 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     let chatContext = buildAiChatContext(chatForCache, settings.aiSearchScanDepth);
     if (!chatContext.trim()) return { results: [], error: false };
 
-    // Prepend seed entry content as story context on new chats
-    const isNewChat = chat.length <= settings.newChatThreshold;
+    // Prepend seed entry content as story context on new chats.
+    // BUG-390: compute from chatForCache (same source as the sliding-window cache)
+    // so boundary turns don't flip between new/not-new.
+    const isNewChat = chatForCache.length <= settings.newChatThreshold;
     if (isNewChat) {
         const seedEntries = (snapshot || vaultIndex).filter(e => e.seed);
         if (seedEntries.length > 0) {
@@ -497,10 +514,15 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     let chatLines = null;
     const getChatLines = () => { if (!chatLines) chatLines = chatContext.split('\n').filter(l => l.trim()); return chatLines; };
 
-    // Resolve cached title-based results back to current VaultEntry objects
+    // Resolve cached title-based results back to current VaultEntry objects.
+    // BUG-382: Replay ONLY against the current candidate set — never against the full
+    // vault index. Using vaultIndex here leaks blocked/gated entries to drawer/Carto
+    // (the cache was built from a narrower set; widening it at read time defeats that).
     const resolveCachedResults = (cached) => {
-        const indexToSearch = snapshot || vaultIndex;
-        const titleMap = new Map(indexToSearch.map(e => [e.title.toLowerCase(), e]));
+        const replayPool = Array.isArray(candidateEntries) && candidateEntries.length > 0
+            ? candidateEntries
+            : (snapshot || vaultIndex);
+        const titleMap = new Map(replayPool.map(e => [e.title.toLowerCase(), e]));
         return cached
             .map(r => ({ entry: titleMap.get(r.title.toLowerCase()), confidence: r.confidence, reason: r.reason }))
             .filter(r => r.entry);
@@ -549,10 +571,13 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         return { results: resolveCachedResults(aiSearchCache.results), error: false };
     }
 
-    // Sliding window: manifest unchanged + only newest message(s) differ
+    // Sliding window: manifest unchanged + only newest message(s) differ.
+    // BUG-394: If entityShortNameRegexes was rebuilt since the cache was written,
+    // the sliding-window entity-mention scan would use a stale regex set — skip.
     if (aiSearchCache.manifestHash === manifestHash
         && aiSearchCache.chatLineCount > 0
-        && getChatLines().length > aiSearchCache.chatLineCount) {
+        && getChatLines().length > aiSearchCache.chatLineCount
+        && (aiSearchCache.entityRegexVersion ?? -1) === entityRegexVersion) {
         // Extract only the new lines added since last cache
         const newLines = getChatLines().slice(aiSearchCache.chatLineCount);
         const newText = newLines.join(' ').toLowerCase();
@@ -597,8 +622,10 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             systemPrompt = 'You are Claude Code. ' + systemPrompt;
         }
 
-        // On new chats, tell AI to always fill to max selections
-        if (isNewChat) {
+        // On new chats, tell AI to always fill to max selections.
+        // BUG-386: Skip when unlimitedEntries is active — "select exactly N" directly
+        // contradicts the unlimited instruction added upstream.
+        if (isNewChat && !settings.unlimitedEntries) {
             const constantCount = indexToUse.filter(e => e.constant).length;
             const selectCount = Math.max(1, settings.maxEntries - constantCount);
             systemPrompt += '\n\nIMPORTANT: The conversation just started. You have story context above to help you understand the setting. Select exactly ' + selectCount + ' entries from the manifest — always fill to this count. The user needs rich context for the conversation start. Do not return fewer entries or an empty array.';
@@ -649,7 +676,21 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
         notifyAiStatsUpdated();
 
-        const parsed = extractAiResponseClient(aiResult.text);
+        let parsed = extractAiResponseClient(aiResult.text);
+        // BUG-383: Handle object-shaped AI responses (e.g. {"results": [...]}) and trip
+        // the circuit breaker on persistent format drift so it can open after 2 failures.
+        if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+            const arrayValue = parsed.results || parsed.entries || parsed.titles || parsed.selected
+                || Object.values(parsed).find(Array.isArray);
+            if (Array.isArray(arrayValue)) {
+                parsed = arrayValue;
+            } else {
+                if (settings.debugMode) console.warn('[DLE] AI search: unrecognized object-shaped response, treating as failure');
+                recordAiFailure();
+                dedupWarning('AI search returned an unrecognized response shape — falling back to keywords.', 'aiSearch_shape_failure', { hint: 'extractAiResponseClient returned a non-array object with no known wrapper key.' });
+                return { results: [], error: true, errorMessage: 'AI response shape unrecognized' };
+            }
+        }
         if (!parsed) {
             // BUG-M7: Log truncated response for debugging parse failures
             if (settings.debugMode) {
@@ -662,6 +703,15 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
         const aiResults = normalizeResults(parsed)
             .filter(r => r.title && r.title.trim() !== '' && r.title !== 'null' && r.title !== 'undefined');
+        // BUG-383: If parsed had items but normalizeResults produced nothing, the AI
+        // returned an array of unrecognized shapes (numbers, nested arrays, objects
+        // without title/name). Treat as format-drift failure so the breaker can trip.
+        if (Array.isArray(parsed) && parsed.length > 0 && aiResults.length === 0) {
+            if (settings.debugMode) console.warn('[DLE] AI search: normalizeResults produced zero items from non-empty response');
+            recordAiFailure();
+            dedupWarning('AI search response had no usable entries — falling back to keywords.', 'aiSearch_normalize_empty', { hint: 'normalizeResults returned empty from a non-empty parsed array (format drift).' });
+            return { results: [], error: true, errorMessage: 'AI response had no usable entries' };
+        }
 
         // Map returned results back to VaultEntry objects with confidence/reason
         const aiResultMap = new Map();
@@ -732,6 +782,9 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             chatLineCount: getChatLines().length,
             results: filteredResults.map(r => ({ title: r.entry.title, confidence: r.confidence, reason: r.reason })),
             matchedEntrySet,
+            // BUG-394: stamp regex version so sliding-window hits are skipped when
+            // entityShortNameRegexes has been rebuilt since this cache entry was written.
+            entityRegexVersion,
         });
 
         if (settings.debugMode) {

@@ -18,7 +18,7 @@ export let indexEverLoaded = false;
 export let aiSearchCache = { hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null };
 
 /** Session-scoped AI search usage stats */
-export let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+export let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputTokens: 0, hierarchicalCalls: 0 };
 
 /** Context Cartographer: sources from the last generation interceptor run */
 export let lastInjectionSources = null;
@@ -198,7 +198,11 @@ export function setEntityNameSet(v) { entityNameSet = v; }
 
 /** Pre-compiled word-boundary regexes for short entity names (≤3 chars) */
 export let entityShortNameRegexes = new Map();
-export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }
+/** Monotonic version counter bumped whenever entityShortNameRegexes is rebuilt.
+ *  Consumers (e.g. aiSearchCache) can stamp this at write time and compare on read
+ *  to detect post-rebuild staleness. (BUG-394) */
+export let entityRegexVersion = 0;
+export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; entityRegexVersion++; }
 
 /** BM25 fuzzy search index: { idf: Map<term, number>, docs: Map<title, {tf: Map<term, number>, len: number}>, avgDl: number } */
 export let fuzzySearchIndex = null;

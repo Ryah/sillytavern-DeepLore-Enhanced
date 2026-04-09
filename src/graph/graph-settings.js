@@ -30,7 +30,6 @@ export function initGraphSettings(gs, dbg) {
     // Each slider is -100..+100. 0 = default. Negative = below default, positive = above.
     const sliderMaps = {
         'dle-gs-repulsion':   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 5.0,   round: 2, power: 1.5 },
-        'dle-gs-spring':      { key: 'graphSpringLength',    min: 30,    def: 80,   max: 400,   round: 0, power: 1 },
         'dle-gs-gravity':     { key: 'graphGravity',         min: 0.1,   def: 11.0, max: 20,    round: 1, power: 1.5 },
         'dle-gs-damping':     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1 },
         'dle-gs-hover-dim':   { key: 'graphHoverDimDistance', min: 0,     def: 3,    max: 8,     round: 0, power: 1 },
@@ -77,7 +76,7 @@ export function initGraphSettings(gs, dbg) {
     }
 
     // Physics sliders restart simulation on change
-    const physicsKeys = new Set(['graphRepulsion', 'graphSpringLength', 'graphGravity', 'graphDamping']);
+    const physicsKeys = new Set(['graphRepulsion', 'graphGravity', 'graphDamping']);
 
     /** Update the backbone edge count display */
     function updateEdgeCount() {
@@ -264,10 +263,10 @@ export function initGraphSettings(gs, dbg) {
         // Balanced: takes the prior Compact values (general-purpose).
         // Spacious + Ginormous unchanged.
         const presets = {
-            compact:    { graphRepulsion: 0.15, graphSpringLength: 40,  graphGravity: 16.0, graphDamping: 0.85 },
-            balanced:   { graphRepulsion: 0.2,  graphSpringLength: 50,  graphGravity: 13.0, graphDamping: 0.50 },
-            spacious:   { graphRepulsion: 0.6,  graphSpringLength: 180, graphGravity: 7.0,  graphDamping: 0.50 },
-            ginormous:  { graphRepulsion: 1.2,  graphSpringLength: 300, graphGravity: 3.5,  graphDamping: 0.50 },
+            compact:    { graphRepulsion: 0.15, graphGravity: 16.0, graphDamping: 0.85 },
+            balanced:   { graphRepulsion: 0.2,  graphGravity: 13.0, graphDamping: 0.50 },
+            spacious:   { graphRepulsion: 0.6,  graphGravity: 7.0,  graphDamping: 0.50 },
+            ginormous:  { graphRepulsion: 1.2,  graphGravity: 3.5,  graphDamping: 0.50 },
         };
         settingsPanel.querySelectorAll('.dle-gs-preset').forEach(btn => {
             btn.addEventListener('click', () => {

@@ -604,7 +604,7 @@ export function initEvents(gs, dbg) {
                         if (!rdepth.has(nb)) { rdepth.set(nb, d + 1); rqueue.push(nb); }
                     }
                 }
-                const rSpacing = (settings.graphSpringLength || 200) * 1.5;
+                const rSpacing = 300;
                 const rByDepth = new Map();
                 for (const [id, d] of rdepth) {
                     if (!rByDepth.has(d)) rByDepth.set(d, []);

@@ -393,11 +393,6 @@ export async function showGraphPopup() {
                             <span class="dle-gs-value" id="dle-gs-repulsion-val"></span>
                         </div>
                         <div class="dle-graph-settings-row">
-                            <label title="Preferred length of edges">Link Length</label>
-                            <input type="range" id="dle-gs-spring" min="-100" max="100" step="1" />
-                            <span class="dle-gs-value" id="dle-gs-spring-val"></span>
-                        </div>
-                        <div class="dle-graph-settings-row">
                             <label title="Pull toward canvas center">Gravity</label>
                             <input type="range" id="dle-gs-gravity" min="-100" max="100" step="1" />
                             <span class="dle-gs-value" id="dle-gs-gravity-val"></span>
@@ -454,7 +449,7 @@ export async function showGraphPopup() {
     // ========================================================================
     // Initial node positions (Weighted BFS + progressive reveal)
     // ========================================================================
-    const springLen = settings.graphSpringLength || 200;
+    const springLen = 200;
 
     const disconnected = nodes.filter(n => (edgeCountByNode.get(n.id) || 0) === 0);
     const orphanCols = Math.ceil(Math.sqrt(disconnected.length));

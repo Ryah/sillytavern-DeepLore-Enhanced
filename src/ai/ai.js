@@ -165,9 +165,10 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
         result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model);
     } else {
         // Proxy mode
+        if (!model) throw new Error('Proxy mode requires a model name. Set one in AI Search settings → Model Override.');
         result = await callProxyViaCorsBridge(
             proxyUrl,
-            model || 'claude-haiku-4-5-20251001',
+            model,
             systemPrompt,
             userMessage,
             maxTokens,

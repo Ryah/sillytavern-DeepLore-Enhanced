@@ -993,7 +993,8 @@ function bindPopupEvents($container) {
                 await callViaProfile('You are a test assistant. Respond with exactly: {"ok": true}', 'Test. Respond: {"ok": true}', 64, settings.aiSearchTimeout);
                 const m = getProfileModelHint(); statusEl.text(`Connected${m ? ' (' + m + ')' : ''}`).addClass('success').removeClass('failure');
             } else {
-                const data = await testProxyConnection(settings.aiSearchProxyUrl, settings.aiSearchModel || 'claude-haiku-4-5-20251001');
+                if (!settings.aiSearchModel) throw new Error('Proxy mode requires a model name');
+                const data = await testProxyConnection(settings.aiSearchProxyUrl, settings.aiSearchModel);
                 statusEl.text(data.ok ? 'Connected' : `Failed: ${data.error}`).toggleClass('success', data.ok).toggleClass('failure', !data.ok);
             }
         } catch (err) { statusEl.text(`Error: ${err.message}`).addClass('failure').removeClass('success'); }

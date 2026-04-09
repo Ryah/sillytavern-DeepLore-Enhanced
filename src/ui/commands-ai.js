@@ -227,7 +227,7 @@ export async function summarizeEntries(entries) {
                 mode: settings.aiSearchConnectionMode || 'profile',
                 profileId: settings.aiSearchProfileId,
                 proxyUrl: settings.aiSearchProxyUrl,
-                model: settings.aiSearchModel || 'claude-haiku-4-5-20251001',
+                model: settings.aiSearchModel,
                 maxTokens: 300,
                 timeout: settings.aiSearchTimeout,
             });

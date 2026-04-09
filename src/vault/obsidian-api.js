@@ -271,6 +271,9 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
     }
 
     // Fetch directories in batches to avoid overwhelming the Obsidian REST API
+    // BUG-366: Track partial failures so callers can avoid committing a truncated
+    // index over the top of a previously-good one.
+    let partial = false;
     if (dirs.length > 0) {
         const DIR_BATCH = 10;
         for (let i = 0; i < dirs.length; i += DIR_BATCH) {
@@ -280,15 +283,17 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
             );
             for (const result of dirResults) {
                 if (result.status === 'fulfilled') {
-                    allFiles.push(...result.value);
+                    allFiles.push(...result.value.files);
+                    if (result.value.partial) partial = true;
                 } else {
+                    partial = true;
                     console.warn(`[DLE] Failed to list directory: ${result.reason?.message || result.reason}`);
                 }
             }
         }
     }
 
-    return allFiles;
+    return { files: allFiles, partial };
 }
 
 /**
@@ -426,7 +431,11 @@ export function buildConnectionGuidanceHtml(result) {
  * @returns {Promise<{files: Array<{filename: string, content: string}>, total: number, failed: number}>}
  */
 export async function fetchAllMdFiles(host, port, apiKey, useHttps = false) {
-    const allFiles = await listAllFiles(host, port, apiKey, '', 0, useHttps);
+    // BUG-366: listAllFiles now returns {files, partial}. If partial, signal caller
+    // so it can preserve the previous index instead of committing a truncated one.
+    const listing = await listAllFiles(host, port, apiKey, '', 0, useHttps);
+    const allFiles = listing.files;
+    const listingPartial = !!listing.partial;
     const mdFiles = allFiles.filter(f => f.endsWith('.md'));
 
     const BATCH_SIZE = OBSIDIAN_BATCH_SIZE;
@@ -465,7 +474,7 @@ export async function fetchAllMdFiles(host, port, apiKey, useHttps = false) {
         }
     }
 
-    return { files: results, total: mdFiles.length, failed };
+    return { files: results, total: mdFiles.length, failed, partial: listingPartial };
 }
 
 /**
@@ -574,7 +583,8 @@ export async function fetchScribeNotes(host, port, apiKey, folder, useHttps = fa
     // BUG-040: Validate folder path to prevent directory traversal
     validateVaultPath(folder);
     try {
-        const allFiles = await listAllFiles(host, port, apiKey, folder, 0, useHttps);
+        const listing = await listAllFiles(host, port, apiKey, folder, 0, useHttps);
+        const allFiles = listing.files;
         const mdFiles = allFiles.filter(f => f.endsWith('.md'));
         const BATCH_SIZE = OBSIDIAN_BATCH_SIZE;
         const notes = [];

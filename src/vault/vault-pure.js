@@ -3,7 +3,6 @@
  * Extracted from vault.js for testability (no SillyTavern imports).
  */
 
-import { simpleHash } from '../../core/utils.js';
 import { setEntityNameSet, setEntityShortNameRegexes } from '../state.js';
 
 /**
@@ -58,9 +57,20 @@ export function deduplicateMultiVault(entries, mode) {
             if (mode === 'last') {
                 titleMap.set(key, entry);
             } else if (mode === 'merge') {
-                const existing = titleMap.get(key);
+                // BUG-378: Previously mutated the first entry in place and clobbered
+                // `_contentHash` with a hash of the merged content. Because reuse-sync
+                // compares `entry._contentHash` to the on-disk file hash to detect "modified"
+                // entries, the clobbered hash never matched any real file → every poll
+                // reported the entry as modified and triggered a redundant re-parse/re-tokenize.
+                // Fix: clone the first entry before merging and PRESERVE its original
+                // `_contentHash` so reuse-sync sees a stable, on-disk-matching hash.
+                const firstEntry = titleMap.get(key);
+                const existing = { ...firstEntry };
+                // Deep-copy customFields so we don't mutate the source entry's fields
+                if (firstEntry.customFields) existing.customFields = { ...firstEntry.customFields };
+                titleMap.set(key, existing);
                 // H18: Merge all relevant fields, not just keys
-                // Arrays: union (deduplicate)
+                // Arrays: union (deduplicate) — construct new arrays rather than mutating
                 for (const field of ['keys', 'tags', 'links', 'resolvedLinks', 'requires', 'excludes']) {
                     if (Array.isArray(entry[field]) && entry[field].length > 0) {
                         existing[field] = [...new Set([...(existing[field] || []), ...entry[field]])];
@@ -69,20 +79,23 @@ export function deduplicateMultiVault(entries, mode) {
                 // content: concatenate with separator
                 if (entry.content && entry.content.trim()) {
                     existing.content = (existing.content || '') + '\n\n---\n\n' + entry.content;
-                    // Recalculate token estimate and content hash from merged content
+                    // Recalculate token estimate from merged content for budgeting.
                     existing.tokenEstimate = Math.ceil(existing.content.length / 4.0); // BUG-H9: standardize on 4.0 chars/token
-                    existing._contentHash = simpleHash(existing.content);
+                    // BUG-378: Do NOT recompute `_contentHash` — it must remain equal to the
+                    // hash of the ORIGINAL (unmerged) first entry's file content so reuse-sync
+                    // can match it against the on-disk file and avoid infinite "modified" loops.
+                    // (existing._contentHash was already copied from firstEntry above.)
                 }
                 // summary: prefer first non-empty
                 if (!existing.summary && entry.summary) existing.summary = entry.summary;
                 // customFields: merge — union arrays, prefer first non-empty for scalars
                 if (entry.customFields) {
                     if (!existing.customFields) existing.customFields = {};
-                    for (const [key, val] of Object.entries(entry.customFields)) {
+                    for (const [k, val] of Object.entries(entry.customFields)) {
                         if (Array.isArray(val) && val.length > 0) {
-                            existing.customFields[key] = [...new Set([...(existing.customFields[key] || []), ...val])];
-                        } else if (!existing.customFields[key] && val != null) {
-                            existing.customFields[key] = val;
+                            existing.customFields[k] = [...new Set([...(existing.customFields[k] || []), ...val])];
+                        } else if (!existing.customFields[k] && val != null) {
+                            existing.customFields[k] = val;
                         }
                     }
                 }

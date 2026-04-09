@@ -36,7 +36,9 @@ import { computeEntityDerivedState, deduplicateMultiVault } from './vault-pure.j
 export { computeEntityDerivedState, deduplicateMultiVault };
 
 // ─── Constants ───
-const OBSIDIAN_FETCH_TIMEOUT = 15000;
+// BUG-381: Renamed from OBSIDIAN_FETCH_TIMEOUT — used only as a toastr `timeOut`
+// (display duration in ms), never as an actual fetch/abort timeout.
+const OBSIDIAN_TOAST_TIMEOUT = 15000;
 const CACHE_FALLBACK_TOAST_TIMEOUT = 10000;
 
 // computeEntityDerivedState and deduplicateMultiVault — extracted to vault-pure.js, imported above
@@ -51,10 +53,84 @@ const CACHE_FALLBACK_TOAST_TIMEOUT = 10000;
  * @param {object} options.settings - Current extension settings
  * @param {boolean} [options.skipCacheSave=false] - If true, skip persisting to IndexedDB (e.g. when a vault fetch failed)
  */
-async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
+/**
+ * BUG-370: Compute derived index fields (mentionWeights, folderList, vaultAvgTokens)
+ * Shared between finalizeIndex (after full build) and hydrateFromCache (cold start)
+ * so cache-hydrated sessions aren't stuck with degraded scoring until a full rebuild.
+ */
+function computeDerivedIndexFields(entries, settings) {
     // Compute vault average token count for Context Map coloring
     const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
     setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
+
+    // Build cross-entry mention weight table.
+    // BUG-374: Precompile one combined regex per target entry and pre-lowercase content once,
+    // so it's O(N × total_content) instead of O(N × M_names × content).
+    {
+        const weights = new Map();
+        const targetNames = new Map(); // targetTitle → string[]
+        for (const entry of entries) {
+            const names = [entry.title.toLowerCase()];
+            for (const key of entry.keys) {
+                const keyLc = key.toLowerCase();
+                if (keyLc.length >= 2) names.push(keyLc);
+            }
+            targetNames.set(entry.title, names);
+        }
+        const targetRegexes = new Map();
+        for (const [title, names] of targetNames) {
+            const parts = names.map(name => {
+                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                return name.length <= 3 ? `\\b${escaped}\\b` : escaped;
+            });
+            parts.sort((a, b) => b.length - a.length);
+            targetRegexes.set(title, new RegExp(parts.join('|'), 'gi'));
+        }
+        const contentLower = new Map();
+        for (const source of entries) {
+            contentLower.set(source.title, source.content.toLowerCase());
+        }
+        for (const source of entries) {
+            const content = contentLower.get(source.title);
+            const sourceName = source.title;
+            for (const [targetTitle, regex] of targetRegexes) {
+                if (targetTitle === sourceName) continue;
+                regex.lastIndex = 0;
+                let count = 0;
+                while (regex.exec(content) !== null) count++;
+                if (count > 0) {
+                    weights.set(`${sourceName}\0${targetTitle}`, count);
+                }
+            }
+        }
+        setMentionWeights(weights);
+        if (settings?.debugMode) {
+            console.debug(`[DLE] Built mention weights: ${weights.size} pairs`);
+        }
+    }
+
+    // Compute folder list from vault entries for folder-based filtering UI
+    {
+        const folderCounts = new Map();
+        for (const entry of entries) {
+            if (entry.folderPath) {
+                const parts = entry.folderPath.split('/');
+                for (let i = 1; i <= parts.length; i++) {
+                    const ancestor = parts.slice(0, i).join('/');
+                    folderCounts.set(ancestor, (folderCounts.get(ancestor) || 0) + 1);
+                }
+            }
+        }
+        const list = [...folderCounts.entries()]
+            .map(([path, entryCount]) => ({ path, entryCount }))
+            .sort((a, b) => b.entryCount - a.entryCount);
+        setFolderList(list);
+    }
+}
+
+async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
+    // BUG-370: derived fields now shared with hydrateFromCache via computeDerivedIndexFields.
+    // (vaultAvgTokens set inside the helper.)
 
     // Resolve wiki-links to confirmed entry titles
     resolveLinks(vaultIndex);
@@ -90,60 +166,8 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
         }
     }
 
-    // Build cross-entry mention weight table
-    // Counts how many times each entry's content mentions another entry's title/keys.
-    // Optimized: group names by target title and build one combined regex per target,
-    // so we scan each content string once per target (not once per name).
-    {
-        const weights = new Map();
-        // Group names by target title: targetTitle → [lowercased names]
-        const targetNames = new Map(); // targetTitle → string[]
-        for (const entry of entries) {
-            const names = [entry.title.toLowerCase()];
-            for (const key of entry.keys) {
-                const keyLc = key.toLowerCase();
-                if (keyLc.length >= 2) names.push(keyLc);
-            }
-            targetNames.set(entry.title, names);
-        }
-
-        // Pre-compile one combined regex per target entry: matches any of its names.
-        // Short names (≤3 chars) use \b word boundaries; longer names use plain alternation.
-        const targetRegexes = new Map();
-        for (const [title, names] of targetNames) {
-            const parts = names.map(name => {
-                const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                return name.length <= 3 ? `\\b${escaped}\\b` : escaped;
-            });
-            // Sort longest first within the alternation so greedy match prefers longer names
-            parts.sort((a, b) => b.length - a.length);
-            targetRegexes.set(title, new RegExp(parts.join('|'), 'gi'));
-        }
-
-        // Pre-lowercase all content once to avoid redundant .toLowerCase() per source×target
-        const contentLower = new Map();
-        for (const source of entries) {
-            contentLower.set(source.title, source.content.toLowerCase());
-        }
-
-        for (const source of entries) {
-            const content = contentLower.get(source.title);
-            const sourceName = source.title;
-            for (const [targetTitle, regex] of targetRegexes) {
-                if (targetTitle === sourceName) continue; // skip self-mentions
-                regex.lastIndex = 0;
-                let count = 0;
-                while (regex.exec(content) !== null) count++;
-                if (count > 0) {
-                    weights.set(`${sourceName}\0${targetTitle}`, count);
-                }
-            }
-        }
-        setMentionWeights(weights);
-        if (settings.debugMode) {
-            console.debug(`[DLE] Built mention weights: ${weights.size} pairs`);
-        }
-    }
+    // BUG-370/374: mentionWeights, folderList, vaultAvgTokens computed in shared helper
+    computeDerivedIndexFields(entries, settings);
 
     // Pre-compute entity names and short-name regexes for AI cache sliding window
     computeEntityDerivedState(entries);
@@ -185,24 +209,7 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
         );
     }
 
-    // Compute folder list from vault entries for folder-based filtering UI
-    {
-        const folderCounts = new Map();
-        for (const entry of entries) {
-            if (entry.folderPath) {
-                // Count both the direct folder and all ancestor folders
-                const parts = entry.folderPath.split('/');
-                for (let i = 1; i <= parts.length; i++) {
-                    const ancestor = parts.slice(0, i).join('/');
-                    folderCounts.set(ancestor, (folderCounts.get(ancestor) || 0) + 1);
-                }
-            }
-        }
-        const list = [...folderCounts.entries()]
-            .map(([path, entryCount]) => ({ path, entryCount }))
-            .sort((a, b) => b.entryCount - a.entryCount);
-        setFolderList(list);
-    }
+    // BUG-370: folder list already computed in computeDerivedIndexFields above.
 
     // BUG-026: Prune analytics data for entries no longer in the vault.
     // This intentionally mutates the live settings.analyticsData object — the pruned data
@@ -305,6 +312,9 @@ export async function buildIndex() {
         let totalFiles = 0;
         let vaultFetchFailed = false;
         let vaultFailCount = 0;
+        // BUG-366/367: Snapshot the prior live index BEFORE fetching so we can carry
+        // forward per-vault slices if a vault comes back partial or successful-but-empty.
+        const priorIndexSnapshot = [...vaultIndex];
         setLastVaultAttemptCount(enabledVaults.length);
         for (const vault of enabledVaults) {
             try {
@@ -312,6 +322,40 @@ export async function buildIndex() {
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Vault "${vault.name}" returned invalid data`);
                     continue;
+                }
+
+                // BUG-366: Partial directory listing — don't commit a truncated view on top
+                // of a known-good index. Carry forward previous entries for this vault.
+                if (data.partial) {
+                    console.warn(`[DLE] Vault "${vault.name}" returned a partial directory listing — preserving previous entries for this vault`);
+                    vaultFetchFailed = true;
+                    vaultFailCount++;
+                    dedupWarning(
+                        `Some folders in "${vault.name}" couldn't be listed — keeping the previously indexed entries for this vault.`,
+                        'vault_fetch_partial',
+                    );
+                    for (const entry of priorIndexSnapshot) {
+                        if (entry.vaultSource === vault.name) entries.push(entry);
+                    }
+                    continue;
+                }
+
+                // BUG-367: Successful-but-empty preserve guard. If Obsidian returned zero
+                // files but we previously had entries for this vault, treat as transient
+                // and carry forward rather than silently wiping a valid index.
+                if (data.files.length === 0) {
+                    const priorForThisVault = priorIndexSnapshot.filter(e => e.vaultSource === vault.name);
+                    if (priorForThisVault.length > 0) {
+                        console.warn(`[DLE] Vault "${vault.name}" returned 0 files but prior index had ${priorForThisVault.length} entries — preserving`);
+                        vaultFetchFailed = true;
+                        vaultFailCount++;
+                        dedupWarning(
+                            `"${vault.name}" returned no files — keeping the ${priorForThisVault.length} previously indexed entries.`,
+                            'vault_empty_preserve',
+                        );
+                        for (const entry of priorForThisVault) entries.push(entry);
+                        continue;
+                    }
                 }
 
                 totalFiles += data.total || data.files.length;
@@ -399,7 +443,7 @@ export async function buildIndex() {
             dedupWarning(
                 `Connected to Obsidian but found 0 entries with the '${tag}' tag. Add \`tags: [${tag}]\` to your note frontmatter to make entries visible to DeepLore.`,
                 'zero_entries',
-                { timeOut: OBSIDIAN_FETCH_TIMEOUT },
+                { timeOut: OBSIDIAN_TOAST_TIMEOUT },
             );
         }
     } catch (err) {
@@ -473,9 +517,12 @@ export async function hydrateFromCache() {
         resolveLinks(vaultIndex);
         // Compute entity name set for AI cache sliding window validation on cold start
         computeEntityDerivedState(cached.entries);
+        // BUG-370: Compute mentionWeights, folderList, vaultAvgTokens so cold-start
+        // generations don't run with degraded scoring until a full rebuild completes.
+        const hydrateSettings = getSettings();
+        computeDerivedIndexFields(cached.entries, hydrateSettings);
         // Build BM25 index during hydration so fuzzy search and Librarian tools
         // are available immediately, before the background rebuild completes
-        const hydrateSettings = getSettings();
         if (hydrateSettings.fuzzySearchEnabled || hydrateSettings.librarianSearchEnabled) {
             setFuzzySearchIndex(buildBM25Index(cached.entries));
         }
@@ -488,7 +535,13 @@ export async function hydrateFromCache() {
         // Background: rebuild from Obsidian to validate cache freshness
         // H3: Capture epoch so stale background rebuilds don't apply to a different chat
         const hydrateEpoch = chatEpoch;
-        buildIndex().catch(err => {
+        buildIndex().then(() => {
+            // BUG-377: Guard success continuation with the same chat-epoch check as the
+            // catch branch. If the chat changed while the background rebuild was in flight,
+            // any post-rebuild continuation (notifications, UI refresh) for the stale chat
+            // must be skipped.
+            if (chatEpoch !== hydrateEpoch) return;
+        }).catch(err => {
             console.warn('[DLE] Background rebuild after cache hydration failed:', err.message);
             if (chatEpoch !== hydrateEpoch) return; // Chat changed — skip stale retry logic
             if (vaultIndex.length > 0) {
@@ -554,7 +607,19 @@ export async function buildIndexWithReuse() {
         // carry customFields parsed under the old schema while newly-parsed entries use the new
         // schema, and concurrent readers of state see inconsistent definitions. Commit to state
         // once after parsing is complete (below, just before finalizeIndex).
+        //
+        // BUG-375: `oldFieldDefsHash` is captured HERE (reading the shared `fieldDefinitions`
+        // state) before any possible setter call. The setter lives below after the parse loop
+        // (`setFieldDefinitions(newFieldDefs)`), so the "old" hash is unambiguously the hash
+        // of the pre-sync schema. Keep this ordering: moving the hash capture below the setter
+        // would make it equal to `newFieldDefsHash` and break `fieldDefsChanged` detection.
         const oldFieldDefsHash = simpleHash(JSON.stringify(fieldDefinitions.map(f => f.name + f.type + (f.multi || ''))));
+        // BUG-368: Capture prior previousIndexSnapshot so we can restore per-vault slices for
+        // vaults that came from the carry-forward (failure) branch. finalizeIndex below
+        // overwrites previousIndexSnapshot wholesale; we patch it back for failed vaults so
+        // edits made to those vaults while they were unreachable aren't permanently masked.
+        const priorPrevSnapshot = previousIndexSnapshot;
+        const failedVaultNames = new Set();
         let newFieldDefs = fieldDefinitions; // default: keep existing (for non-404 fetch errors)
         const primaryVault = enabledVaults[0];
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
@@ -602,6 +667,7 @@ export async function buildIndexWithReuse() {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
                     vaultFailCount++;
+                    failedVaultNames.add(vault.name);
                     // Carry forward existing entries for this vault (same as catch block)
                     for (const entry of indexSnapshot) {
                         if (entry.vaultSource === vault.name) {
@@ -651,6 +717,7 @@ export async function buildIndexWithReuse() {
                 console.warn(`[DLE] Reuse sync failed for vault "${vault.name}":`, vaultErr.message);
                 anyVaultFailed = true;
                 vaultFailCount++;
+                failedVaultNames.add(vault.name);
                 // Carry forward all existing entries for this vault to avoid silent data loss
                 for (const entry of indexSnapshot) {
                     if (entry.vaultSource === vault.name) {
@@ -699,6 +766,40 @@ export async function buildIndexWithReuse() {
         setIndexTimestamp(Date.now());
 
         await finalizeIndex({ entries: dedupedEntries, settings });
+
+        // BUG-368: finalizeIndex has now replaced previousIndexSnapshot with one built from
+        // (fresh entries + carried-forward entries). For vaults that FAILED this cycle, we must
+        // NOT update the snapshot — otherwise, when the vault recovers, edits made during the
+        // outage are permanently masked because the new comparison baseline already contains
+        // the carried-forward (post-edit) state. Restore those vaults' filename-keyed snapshot
+        // entries from the prior snapshot so the next successful poll can detect the drift.
+        if (failedVaultNames.size > 0 && priorPrevSnapshot) {
+            const newSnap = previousIndexSnapshot;
+            if (newSnap) {
+                const failedFilenames = new Set(
+                    dedupedEntries
+                        .filter(e => failedVaultNames.has(e.vaultSource))
+                        .map(e => e.filename),
+                );
+                for (const fname of failedFilenames) {
+                    if (priorPrevSnapshot.contentHashes.has(fname)) {
+                        newSnap.contentHashes.set(fname, priorPrevSnapshot.contentHashes.get(fname));
+                    } else {
+                        newSnap.contentHashes.delete(fname);
+                    }
+                    if (priorPrevSnapshot.titleMap.has(fname)) {
+                        newSnap.titleMap.set(fname, priorPrevSnapshot.titleMap.get(fname));
+                    } else {
+                        newSnap.titleMap.delete(fname);
+                    }
+                    if (priorPrevSnapshot.keyMap.has(fname)) {
+                        newSnap.keyMap.set(fname, priorPrevSnapshot.keyMap.get(fname));
+                    } else {
+                        newSnap.keyMap.delete(fname);
+                    }
+                }
+            }
+        }
 
         if (settings.debugMode) {
             console.log(`[DLE] Reuse sync: ${allEntries.length} entries after reuse rebuild`);

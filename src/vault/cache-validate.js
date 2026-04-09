@@ -28,7 +28,25 @@ export function validateCachedEntry(entry) {
     for (const field of ['links', 'resolvedLinks', 'tags']) {
         if (!Array.isArray(entry[field])) entry[field] = [];
     }
-    // Validate customFields object
-    if (!entry.customFields || typeof entry.customFields !== 'object') entry.customFields = {};
+    // Validate customFields object. BUG-376: also validate inner field values —
+    // reject entries whose customFields contains a non-plain-object (array, Map, etc.),
+    // and coerce any inner value that is itself a non-plain-object/non-primitive to a safe default.
+    if (!entry.customFields || typeof entry.customFields !== 'object' || Array.isArray(entry.customFields)) {
+        entry.customFields = {};
+    } else {
+        for (const [k, v] of Object.entries(entry.customFields)) {
+            if (v == null) continue;
+            const t = typeof v;
+            if (t === 'string' || t === 'number' || t === 'boolean') continue;
+            if (Array.isArray(v)) {
+                // Ensure all items are primitives (string/number/boolean); otherwise drop the field.
+                if (v.every(x => x == null || typeof x === 'string' || typeof x === 'number' || typeof x === 'boolean')) continue;
+                delete entry.customFields[k];
+                continue;
+            }
+            // Objects, Maps, Sets, functions, etc. — not valid custom field values. Drop.
+            delete entry.customFields[k];
+        }
+    }
     return true;
 }

@@ -3,7 +3,16 @@
  * Extracted from vault.js for testability (pure functions, no ST globals).
  */
 
-import { trackerKey } from '../state.js';
+/**
+ * BUG-369: BM25 docId must be unique WITHIN a single vault. trackerKey
+ * (`vaultSource:title`) collides when two entries in the same vault share a title,
+ * silently dropping one from the search index. Filename is unique within a vault
+ * (verified by reuse-sync code keying existing entries by `vault.name\0filename`),
+ * so `vaultSource\0filename` is a correct composite docId.
+ */
+function bm25DocId(entry) {
+    return `${entry.vaultSource || ''}\0${entry.filename || entry.title}`;
+}
 
 const BM25_K1 = 1.5;   // Term frequency saturation
 const BM25_B = 0.75;    // Length normalization
@@ -39,8 +48,9 @@ export function buildBM25Index(entries) {
         for (const token of tokens) {
             tf.set(token, (tf.get(token) || 0) + 1);
         }
-        // BUG-013: Use trackerKey (vaultSource:title) for multi-vault uniqueness
-        docs.set(trackerKey(entry), { tf, len: tokens.length, entry });
+        // BUG-013 + BUG-369: Use (vaultSource, filename) composite for docId.
+        // trackerKey (vaultSource:title) collides for same-titled entries within one vault.
+        docs.set(bm25DocId(entry), { tf, len: tokens.length, entry });
         totalLen += tokens.length;
 
         // Count unique terms per document for DF

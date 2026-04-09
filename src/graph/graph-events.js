@@ -266,6 +266,8 @@ export function initEvents(gs, dbg) {
             gs.panStartX = mx; gs.panStartY = my;
             gs.panOriginX = gs.panX; gs.panOriginY = gs.panY;
             canvas.style.cursor = 'grabbing';
+            // BUG-358: Mark that user has panned so pending _fitTimers don't snap back.
+            gs._userPanned = true;
         }
     }, lOpt);
 
@@ -395,13 +397,17 @@ export function initEvents(gs, dbg) {
         gs.panY = my - (my - gs.panY) * zoomFactor;
         gs.zoom *= zoomFactor;
         gs.zoom = Math.max(0.2, Math.min(5, gs.zoom));
+        // BUG-358: Mark user-initiated zoom so pending _fitTimers don't snap back.
+        gs._userPanned = true;
         gs.needsDraw = true;
     }, { passive: false, signal: gs.listenerAC.signal });
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (!document.getElementById('dle-graph-canvas')) return;
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        // BUG-353: Also block when focus is in a contenteditable element (e.g. ST chat
+        // input, custom prose editors) to prevent e/0 firing while graph is behind them.
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
 
         switch (e.key) {
             case '0':

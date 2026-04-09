@@ -10,6 +10,7 @@ import { getSettings, invalidateSettingsCache } from '../../settings.js';
 import {
     vaultIndex, indexTimestamp, indexEverLoaded,
     aiSearchStats, lastInjectionSources,
+    generationLock, indexing,
     notifyGatingChanged, notifyPinBlockChanged,
     fieldDefinitions, folderList,
     loreGaps, setLoreGaps,
@@ -118,10 +119,26 @@ export function switchTab($drawer, tabName) {
 
 /** Wire tools tab buttons to slash commands */
 export function wireToolsTab($drawer) {
-    $drawer.find('#dle-panel-tools').on('click', '.dle-tool-btn[data-action]', function () {
+    // BUG-354: Delegate from $drawer, not #dle-panel-tools, so the binding survives container replacement.
+    $drawer.on('click', '#dle-panel-tools .dle-tool-btn[data-action]', function () {
         const action = $(this).data('action');
         const cmd = TOOL_ACTIONS[action];
-        if (cmd) executeCommand(cmd);
+        if (!cmd) return;
+        // BUG-359: Guard against firing during generation lock, active indexing, or master-disabled state.
+        const settings = getSettings();
+        if (!settings.enabled) {
+            toastr.warning('DeepLore Enhanced is disabled.', 'DeepLore Enhanced', { timeOut: 2500 });
+            return;
+        }
+        if (generationLock) {
+            toastr.warning('Cannot run tools during lore selection.', 'DeepLore Enhanced', { timeOut: 2500 });
+            return;
+        }
+        if (indexing) {
+            toastr.warning('Cannot run tools while indexing.', 'DeepLore Enhanced', { timeOut: 2500 });
+            return;
+        }
+        executeCommand(cmd);
     });
 }
 

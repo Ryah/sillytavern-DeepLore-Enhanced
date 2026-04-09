@@ -376,6 +376,19 @@ export function initRender(gs) {
         // Track drawn dim pairs to avoid multi-edge alpha stacking on hover
         const drawnDimPairs = hoverDistances ? new Set() : null;
 
+        // Hub damping: applied to n+2+ edges when the hovered node has many
+        // connections (additive compounding effect). n+1 gets a separate, very
+        // gentle tilt — tiny bump for sparse nodes, tiny cut for dense ones,
+        // centered at degree 5.
+        let hubDamp = 1;
+        let n1Tilt = 1;
+        if (hoverDistances && gs.hoverNode) {
+            const deg = gs.edgeCountByNode.get(gs.hoverNode.id) || 0;
+            if (deg > 8) hubDamp = 1 / (1 + (deg - 8) * 0.05);
+            n1Tilt = Math.max(0.75, Math.min(1.70, 1 + (5 - deg) * 0.13));
+        }
+
+
         for (const [type, edgeList] of Object.entries(edgesByType)) {
             if (edgeList.length === 0) continue;
             ctx.strokeStyle = edgeColors[type] || '#555';
@@ -435,14 +448,25 @@ export function initRender(gs) {
                     drawnDimPairs.add(pairKey);
 
                     if (du === undefined || dv === undefined) {
-                        // Off-graph relative to hover — keep faintly visible as backdrop
-                        ctx.globalAlpha = ambient;
+                        // Off-branch relative to hover — ducked below ambient
+                        // so the hover branch visually pops against the rest.
+                        ctx.globalAlpha = ambient * 0.55;
                         ctx.lineWidth = 1;
                         ctx.shadowBlur = 0;
                     } else {
                         const eF = Math.pow(t, du);
                         const eT = Math.pow(t, dv);
-                        const minE = Math.min(eF, eT);
+                        // Edge alpha: clamp n+1 at a lower max, then drop 30%
+                        // per additional ring (compounding). n+1 is the cap;
+                        // n+2 = 0.7*cap, n+3 = 0.49*cap, n+4 = 0.343*cap, etc.
+                        const dEdge = Math.max(du, dv);
+                        const HOVER_MAX = 0.40;
+                        // Hub damping only applies from n+2 outward — when a
+                        // hub is directly hovered, its n+1 edges stay at the
+                        // full cap; damping is for edges further out in the
+                        // branch where the additive effect compounds.
+                        const damp = dEdge <= 1 ? n1Tilt : hubDamp;
+                        const minE = damp * HOVER_MAX * Math.pow(0.6, Math.max(0, dEdge - 1));
                         const maxE = Math.max(eF, eT);
                         let alpha = minE * 0.95;
                         if (du === dv && du > 0) alpha *= 0.7; // same-ring sibling damp
@@ -620,11 +644,16 @@ export function initRender(gs) {
                         ctx.globalAlpha = 1;
                     }
                     const labelOffset = (getNodeRadius(n) + 4) * zoom;
+                    // Hop distance tag for nodes in the hover branch (skip the
+                    // hovered node itself at distance 0).
+                    const labelText = (inHoverSet && hoverDist && hoverDist > 0)
+                        ? `${n.title} [+${hoverDist}]`
+                        : n.title;
                     // Dark outline for readability over any background
                     ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
                     ctx.lineWidth = 3;
-                    ctx.strokeText(n.title, s.x, s.y - labelOffset);
-                    ctx.fillText(n.title, s.x, s.y - labelOffset);
+                    ctx.strokeText(labelText, s.x, s.y - labelOffset);
+                    ctx.fillText(labelText, s.x, s.y - labelOffset);
                 }
             }
 

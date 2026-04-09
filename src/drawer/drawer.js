@@ -58,6 +58,9 @@ export function resetDrawerState() {
     ds.browseLastRangeStart = -1;
     ds.browseLastRangeEnd = -1;
     ds.browseExpandedEntry = null;
+    // BUG-362: Also clear virtual scroll expanded-state so stale offset math can't persist.
+    ds.browseExpandedIdx = null;
+    ds.browseExpandedExtraHeight = 0;
     ds.browseNavigateTarget = null;
     ds.browseCustomFieldFilters = {}; // BUG-AUDIT-11: Reset custom field filters on chat change
     ds.browseFolderFilter = '';

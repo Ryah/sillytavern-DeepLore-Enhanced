@@ -22,7 +22,8 @@ import {
 let _cachedRejectionMap = new Map();
 let _cachedRejectionTrace = null;
 let _cachedExpandedPreviewHtml = null;
-let _cachedExpandedPreviewTitle = null;
+// BUG-360: Cache key is trackerKey (vaultSource:title) to prevent multi-vault collision on same title.
+let _cachedExpandedPreviewKey = null;
 let _cachedFieldValues = null;
 let _cachedFieldValuesIndexLen = -1;
 
@@ -457,8 +458,19 @@ export function renderBrowseWindow() {
     const listRect = listEl.getBoundingClientRect();
     const relativeScroll = containerRect.top - listRect.top;
 
-    const startIdx = Math.max(0, Math.floor(relativeScroll / BROWSE_ROW_HEIGHT) - BROWSE_OVERSCAN);
-    const endIdx = Math.min(entries.length, Math.ceil((relativeScroll + viewHeight) / BROWSE_ROW_HEIGHT) + BROWSE_OVERSCAN);
+    // BUG-350: Account for browseExpandedExtraHeight when mapping pixel offset to row index.
+    // Entries after the expanded row are shifted down by browseExpandedExtraHeight, so subtract it
+    // from pixel offsets that fall past the expanded-entry boundary before dividing by row height.
+    const expandedOffset = (ds.browseExpandedIdx !== null && ds.browseExpandedExtraHeight > 0)
+        ? ds.browseExpandedExtraHeight : 0;
+    const expandedBoundary = ds.browseExpandedIdx !== null
+        ? (ds.browseExpandedIdx + 1) * BROWSE_ROW_HEIGHT : Infinity;
+    const adjustedStart = relativeScroll > expandedBoundary
+        ? relativeScroll - expandedOffset : relativeScroll;
+    const adjustedEnd = (relativeScroll + viewHeight) > expandedBoundary
+        ? (relativeScroll + viewHeight) - expandedOffset : (relativeScroll + viewHeight);
+    const startIdx = Math.max(0, Math.floor(adjustedStart / BROWSE_ROW_HEIGHT) - BROWSE_OVERSCAN);
+    const endIdx = Math.min(entries.length, Math.ceil(adjustedEnd / BROWSE_ROW_HEIGHT) + BROWSE_OVERSCAN);
 
     // Skip re-render if visible range hasn't changed
     if (startIdx === ds.browseLastRangeStart && endIdx === ds.browseLastRangeEnd) return;
@@ -559,8 +571,10 @@ export function renderBrowseWindow() {
         if ($entry.length) {
             const entry = ds.browseFilteredEntries.find(e => e.title === ds.browseExpandedEntry);
             if (entry) {
-                // Only rebuild preview HTML when the expanded entry changes
-                if (_cachedExpandedPreviewTitle !== ds.browseExpandedEntry) {
+                // Only rebuild preview HTML when the expanded entry changes.
+                // BUG-360: Key on trackerKey (vaultSource:title) to prevent multi-vault title collision.
+                const expandedKey = trackerKey(entry);
+                if (_cachedExpandedPreviewKey !== expandedKey) {
                     const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
                     const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
                     const settings = getSettings();
@@ -600,7 +614,7 @@ export function renderBrowseWindow() {
                         relatedHtml += `</div>`;
                     }
                     _cachedExpandedPreviewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}${relatedHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
-                    _cachedExpandedPreviewTitle = ds.browseExpandedEntry;
+                    _cachedExpandedPreviewKey = expandedKey;
                 }
 
                 $entry.append(_cachedExpandedPreviewHtml);

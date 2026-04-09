@@ -172,27 +172,28 @@ export async function showGraphPopup() {
 
     // Build adjacency for hover-dim BFS
     let adjacency = new Map();
+    // edgeCountByNode is rebuilt alongside adjacency so both share the same
+    // edgeVisibility filter — previously it was computed once at init over
+    // ALL edges and never rebuilt when the user toggled edge types, leaving
+    // hub damping / centrality coloring / top-connected list / disconnected
+    // detection out of sync with what's actually drawn on screen.
+    const edgeCountByNode = new Map();
+    let maxEdgeCount = 1;
     function buildAdjacency() {
         adjacency = new Map();
         for (const n of nodes) adjacency.set(n.id, []);
+        edgeCountByNode.clear();
         for (const edge of edges) {
             if (!edgeVisibility[edge.type]) continue;
             adjacency.get(edge.from).push(edge.to);
             adjacency.get(edge.to).push(edge.from);
+            edgeCountByNode.set(edge.from, (edgeCountByNode.get(edge.from) || 0) + 1);
+            edgeCountByNode.set(edge.to, (edgeCountByNode.get(edge.to) || 0) + 1);
         }
+        maxEdgeCount = Math.max(1, ...edgeCountByNode.values());
         dbg('Adjacency rebuilt, visible edge types:', Object.entries(edgeVisibility).filter(([, v]) => v).map(([k]) => k).join(', '));
     }
     buildAdjacency();
-
-    // ========================================================================
-    // Precompute data for coloring modes
-    // ========================================================================
-    const edgeCountByNode = new Map();
-    for (const edge of edges) {
-        edgeCountByNode.set(edge.from, (edgeCountByNode.get(edge.from) || 0) + 1);
-        edgeCountByNode.set(edge.to, (edgeCountByNode.get(edge.to) || 0) + 1);
-    }
-    const maxEdgeCount = Math.max(1, ...edgeCountByNode.values());
 
     const nodeDegree = new Float64Array(nodes.length);
     for (let i = 0; i < nodes.length; i++) {
@@ -707,24 +708,40 @@ export async function showGraphPopup() {
         bootstrap: '#9c27b0',
         regular: '#4caf50',
     };
-    const edgeColors = {
-        link: '#aac8ff',
-        requires: computedStyle.getPropertyValue('--dle-success').trim() || '#4caf50',
-        excludes: computedStyle.getPropertyValue('--dle-error').trim() || '#f44336',
-        cascade: computedStyle.getPropertyValue('--dle-warning').trim() || '#ff9800',
-    };
+    // BUG-361: edgeColors is rebuilt each frame inside readEdgeColors() so theme
+    // swaps propagate to canvas-drawn edges without any theme-change event wiring.
+    function readEdgeColors() {
+        const cs = getComputedStyle(document.documentElement);
+        return {
+            link: '#aac8ff',
+            requires: cs.getPropertyValue('--dle-success').trim() || '#4caf50',
+            excludes: cs.getPropertyValue('--dle-error').trim() || '#f44336',
+            cascade: cs.getPropertyValue('--dle-warning').trim() || '#ff9800',
+        };
+    }
+    const edgeColors = readEdgeColors();
 
     // ========================================================================
     // Cleanup on popup close
     // ========================================================================
     const listenerAC = new AbortController();
+    // BUG-351: Resolve the observe target unconditionally — fall back to document.body
+    // so the MutationObserver (and its cleanup) always fires even when the .popup
+    // ancestor lookup races/fails.
+    // BUG-364: Prefer the closest .popup child-list observer over subtree on body.
     const popupContainer = canvas.closest('.popup') || container.parentElement;
+    const observeTarget = popupContainer || document.body;
+    // BUG-364: Only use subtree when we had to fall back to body; the .popup container
+    // only needs childList (its direct children are tab panels / the canvas wrapper).
+    const observeOptions = popupContainer
+        ? { childList: true }
+        : { childList: true, subtree: true };
     const observer = new MutationObserver(() => {
         if (!canvas.isConnected) {
             dbg('Canvas removed from DOM — cleaning up graph');
             gs.isRunning = false;
             if (gs.animationFrameId) { cancelAnimationFrame(gs.animationFrameId); gs.animationFrameId = null; }
-            // BUG-FIX: Cancel pending fit timers to prevent stale callbacks
+            // Cancel pending fit timers to prevent stale callbacks
             for (const id of gs._fitTimers || []) clearTimeout(id);
             gs._fitTimers = [];
             if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
@@ -732,9 +749,7 @@ export async function showGraphPopup() {
             observer.disconnect();
         }
     });
-    if (popupContainer) {
-        observer.observe(popupContainer, { childList: true, subtree: true });
-    }
+    observer.observe(observeTarget, observeOptions);
 
     // Focus tree exit: press 'e' (handled in graph-events.js). ESC closes the popup
     // (ST default) and is no longer captured here.
@@ -760,6 +775,8 @@ export async function showGraphPopup() {
         // Interaction
         dragNode: null, hoverNode: null,
         isPanning: false, panStartX: 0, panStartY: 0, panOriginX: 0, panOriginY: 0,
+        // BUG-358: Set to true when user manually pans/zooms; suppresses replayReveal _fitTimers.
+        _userPanned: false,
         hoverDistances: null,
         contextMenuNode: null, tempPinnedNode: null,
         settlingUntil: 0, // Set dynamically when layout overlay is shown
@@ -770,8 +787,11 @@ export async function showGraphPopup() {
         simulationStartTime: restoredLayout ? 0 : Date.now(), // For 90s hard clamp
         onSettleComplete: null, // Set below after overlay is created
         // Simulation
-        isRunning: true, alpha: restoredLayout ? 0.3 : 1.0,
-        hasSpringEnergy: true, maxDelta: 0, simFrame: 0,
+        // BUG-352: Restored layouts get alpha=0 / hasSpringEnergy=false so physics
+        // doesn't jiggle a perfectly-restored set of node positions. Fresh layouts
+        // keep alpha=1.0 / hasSpringEnergy=true for normal force-directed settling.
+        isRunning: true, alpha: restoredLayout ? 0 : 1.0,
+        hasSpringEnergy: !restoredLayout, maxDelta: 0, simFrame: 0,
         // Graph state
         colorMode: settings.graphDefaultColorMode || 'type',
         searchQuery: '', typeFilter: '', tagFilter: '',
@@ -805,10 +825,14 @@ export async function showGraphPopup() {
         gapAnalysisActive: false,
     };
 
-    // Wire buildAdjacency as a gs method (updates gs.adjacency)
+    // Wire buildAdjacency as a gs method (updates gs.adjacency + degree-derived state)
     gs.buildAdjacency = () => {
         buildAdjacency();
         gs.adjacency = adjacency;
+        gs.maxEdgeCount = maxEdgeCount;
+        for (let i = 0; i < nodes.length; i++) {
+            nodeDegree[i] = edgeCountByNode.get(i) || 0;
+        }
     };
 
     // ========================================================================
@@ -887,12 +911,13 @@ export async function showGraphPopup() {
             }
         }, 1000);
         // Auto-fit 1s + 2s + 6s after redraw starts (don't wait for settle)
-        // BUG-FIX: Store timer IDs so they can be cancelled on popup close
+        // Store timer IDs so they can be cancelled on popup close.
+        // BUG-358: Skip fit if user panned manually since the timer was scheduled.
         for (const id of gs._fitTimers || []) clearTimeout(id);
         gs._fitTimers = [
-            setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 1000),
-            setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 2000),
-            setTimeout(() => { if (gs.isRunning && gs.fitToView) gs.fitToView(true); }, 6000),
+            setTimeout(() => { if (gs.isRunning && gs.fitToView && !gs._userPanned) gs.fitToView(true); }, 1000),
+            setTimeout(() => { if (gs.isRunning && gs.fitToView && !gs._userPanned) gs.fitToView(true); }, 2000),
+            setTimeout(() => { if (gs.isRunning && gs.fitToView && !gs._userPanned) gs.fitToView(true); }, 6000),
         ];
         dbg('Redraw: replaying BFS reveal animation');
     };
@@ -953,6 +978,9 @@ export async function showGraphPopup() {
         const hoverChanged = gs.hoverNode !== gs.prevHoverNode;
         gs.prevHoverNode = gs.hoverNode;
         if (gs.hasSpringEnergy || gs.maxDelta > 0.01 || gs.dragNode || hoverChanged || gs.needsDraw) {
+            // BUG-361: Refresh edge colors each frame so theme swaps propagate to
+            // canvas-drawn edges. getComputedStyle is cheap relative to a full draw.
+            gs.edgeColors = readEdgeColors();
             render.draw();
             if (hoverChanged) render.updateTooltip();
             gs.needsDraw = false;
@@ -1018,11 +1046,13 @@ export async function showGraphPopup() {
     // Auto-fit: restored = quick, fresh reveal = 1s + 2s + 6s so nodes have spread out
     // Store timer IDs in _fitTimers so MutationObserver cleanup can cancel them
     if (!gs._fitTimers) gs._fitTimers = [];
+    // BUG-358: Guard all startup fit timers with !gs._userPanned so a manual pan
+    // before the timer fires doesn't snap the view back.
     if (restoredLayout) {
-        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 150));
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning && !gs._userPanned) gs.fitToView(true); }, 150));
     } else {
-        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 1000));
-        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 2000));
-        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning) gs.fitToView(true); }, 6000));
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning && !gs._userPanned) gs.fitToView(true); }, 1000));
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning && !gs._userPanned) gs.fitToView(true); }, 2000));
+        gs._fitTimers.push(setTimeout(() => { if (gs.isRunning && !gs._userPanned) gs.fitToView(true); }, 6000));
     }
 }

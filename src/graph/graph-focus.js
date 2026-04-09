@@ -201,7 +201,8 @@ export function initFocus(gs, dbg) {
         const el = document.getElementById('dle-graph-hints');
         if (!el) return;
         if (focusMode) {
-            el.textContent = 'Double-click node to re-root · +/- to change depth · Backspace or ← to exit focus · Scroll to zoom · 0 to fit';
+            // BUG-357: Exit key is 'e', not Backspace/← — correct the hint text.
+            el.textContent = 'Double-click node to re-root · +/- to change depth · e to exit focus · Scroll to zoom · 0 to fit';
         } else {
             el.textContent = 'Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit';
         }

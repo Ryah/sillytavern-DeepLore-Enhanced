@@ -5,11 +5,13 @@ title: "[Bug] "
 labels: bug
 ---
 
-**DLE version**: (e.g., v0.2.1-beta)
+**DLE version**: (e.g., v1.0.0-beta)
 **SillyTavern version**: (e.g., 1.12.x)
 **Browser**: (e.g., Chrome 125, Firefox 128)
 **Connection mode**: (profile / proxy / keywords-only)
 **Obsidian REST API version**: (if applicable)
+**Multi-vault configuration**: (single vault / multi-vault — if multi, how many?)
+**AI features enabled**: (Librarian / Scribe / Auto-Suggest / AI Notepad — list all that are on)
 
 ## What happened?
 

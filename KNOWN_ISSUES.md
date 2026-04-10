@@ -10,3 +10,12 @@ Entry summaries are included in the AI search manifest. In multi-author vaults, 
 
 ## No AI Call Rate Limiting
 All AI features (search, scribe, auto-suggest) make API calls without rate limiting. A fast typist or auto-generation could cause many calls in quick succession. This is a design decision — rate limiting would add latency. **Mitigation:** Each feature has configurable intervals and timeouts.
+
+## Librarian Auto-Enables Function Calling
+When the Librarian feature is enabled, DLE automatically enables function calling on the active API connection. Disabling function calling elsewhere while Librarian is active will break tool invocations. **Mitigation:** If you need function calling off, disable Librarian first.
+
+## Guide Tag Conflict Resolution
+Entries tagged `lorebook-guide` that also carry conflicting tags (`lorebook-seed`, `lorebook-bootstrap`, or base `lorebook`) have runtime conflict resolution: `guide` wins. The entry will be treated as guide-only (never injected into the writing AI context). This is intentional but may surprise authors who expect seed/bootstrap behavior.
+
+## Graph Focus Mode Exit Key
+Graph focus mode exits with the `e` key, not Escape. Escape bubbles up to SillyTavern's popup event handler and would close the graph dialog instead of just exiting focus mode.

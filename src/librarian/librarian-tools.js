@@ -67,7 +67,7 @@ export function clearPendingToolCalls() {
 // ════════════════════════════════════════════════════════════════════════════
 
 /** Generate a unique gap record ID */
-function gapId() {
+export function gapId() {
     return typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -77,13 +77,14 @@ function gapId() {
  * Check if a new query overlaps significantly with an existing gap's query.
  * Returns the matching gap if >60% token overlap, null otherwise.
  */
-function findSimilarGap(gaps, newQuery, type) {
+function findSimilarGap(gaps, newQuery, type, subtype = null) {
     const newTokens = tokenize(newQuery);
     if (newTokens.length === 0) return null;
     const newSet = new Set(newTokens);
 
     for (const gap of gaps) {
         if (gap.type !== type) continue;
+        if (subtype && gap.subtype !== subtype) continue;
         const existingTokens = tokenize(gap.query);
         if (existingTokens.length === 0) continue;
 
@@ -98,17 +99,22 @@ function findSimilarGap(gaps, newQuery, type) {
     return null;
 }
 
-/** Persist lore gaps to chat_metadata and save */
-function persistGaps(updatedGaps) {
+/**
+ * Persist lore gaps to chat_metadata and save.
+ * @param {Array} updatedGaps
+ * @returns {boolean} true if persisted, false if chatMetadata unavailable
+ */
+export function persistGaps(updatedGaps) {
     // BUG-304: check metadata availability BEFORE mutating in-memory state. Otherwise a
     // missing chat_metadata (cold start, between chats) leaves setLoreGaps committed but
     // the drawer-visible gap never persists — next reload silently loses it.
     const ctx = getContext();
     const meta = ctx?.chatMetadata;
-    if (!meta) return;
+    if (!meta) return false;
     setLoreGaps(updatedGaps);
     meta.deeplore_lore_gaps = updatedGaps;
     saveMetadataDebounced();
+    return true;
 }
 
 // ── Soft-remove sibling-array helpers (mirrors deeplore_pins/blocks pattern) ──
@@ -470,9 +476,11 @@ export async function flagLoreAction(args) {
     if (!reason) return 'No reason provided.';
 
     const urgency = ['low', 'medium', 'high'].includes(args?.urgency) ? args.urgency : 'medium';
+    const flagType = ['gap', 'update'].includes(args?.flag_type) ? args.flag_type : 'gap';
+    const entryTitle = args?.entry_title?.trim() || null;
 
-    // Merge frequency with existing flags for the same topic
-    const existingGap = findSimilarGap(loreGaps, title, 'flag');
+    // Merge frequency with existing flags for the same topic (only within same subtype)
+    const existingGap = findSimilarGap(loreGaps, title, 'flag', flagType);
     // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone —
     // dismissed entries still escalate urgency silently so the user sees the latest state on un-dismiss.
     if (existingGap) clearHiddenSilently(existingGap.id);
@@ -495,6 +503,8 @@ export async function flagLoreAction(args) {
         const newGap = {
             id: gapId(),
             type: 'flag',
+            subtype: flagType,
+            entryTitle,
             query: title,
             reason,
             timestamp: Date.now(),
@@ -513,6 +523,8 @@ export async function flagLoreAction(args) {
     // Activity log + pending buffer for consolidated dropdown
     const logEntry = {
         type: 'flag',
+        subtype: flagType,
+        entryTitle,
         query: title,
         resultCount: 0,
         resultTitles: [],
@@ -532,5 +544,8 @@ export async function flagLoreAction(args) {
     updateAnalytics('totalGapFlags');
     incrementStats('flagCalls', 10); // ~10 tokens for the flag confirmation
 
-    return `Flagged: "${title}"`;
+    if (flagType === 'update' && entryTitle) {
+        return `Flagged update: "${title}" (entry: ${entryTitle})`;
+    }
+    return `Flagged gap: "${title}"`;
 }

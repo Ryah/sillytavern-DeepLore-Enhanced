@@ -228,12 +228,14 @@ export function registerAiCommands() {
                 await openLibrarianPopup('gap', { gap });
             } else if (sub === 'review') {
                 await openLibrarianPopup('review');
+            } else if (sub === 'audit') {
+                await openLibrarianPopup('audit');
             } else {
                 await openLibrarianPopup('new');
             }
             return '';
         },
-        helpString: 'Open the Librarian AI session. Usage: /dle-librarian [gap &lt;id&gt; | review]',
+        helpString: 'Open the Librarian AI session. Usage: /dle-librarian [gap &lt;id&gt; | review | audit]',
         returns: ARGUMENT_TYPE.STRING,
     }));
 }

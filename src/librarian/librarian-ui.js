@@ -12,23 +12,26 @@ import { getSettings } from '../../settings.js';
  */
 function buildSummaryText(toolCalls) {
     const searches = toolCalls.filter(c => c.type === 'search').length;
-    const flags = toolCalls.filter(c => c.type === 'flag').length;
+    const gaps = toolCalls.filter(c => c.type === 'flag' && c.subtype !== 'update').length;
+    const updates = toolCalls.filter(c => c.type === 'flag' && c.subtype === 'update').length;
+    const totalFlags = gaps + updates;
 
     const parts = [];
     if (searches > 0) {
         parts.push(`${searches} ${searches === 1 ? 'search' : 'searches'}`);
     }
-    if (flags > 0) {
-        parts.push(`${flags} ${flags === 1 ? 'flag' : 'flags'}`);
-    }
 
-    if (searches > 0 && flags > 0) {
-        return `Consulted lore vault (${parts[0]}, ${flags} ${flags === 1 ? 'gap noted' : 'gaps noted'})`;
+    const flagParts = [];
+    if (gaps > 0) flagParts.push(`${gaps} ${gaps === 1 ? 'gap' : 'gaps'}`);
+    if (updates > 0) flagParts.push(`${updates} ${updates === 1 ? 'update' : 'updates'}`);
+
+    if (searches > 0 && totalFlags > 0) {
+        return `Consulted lore vault (${parts[0]}, ${flagParts.join(', ')} noted)`;
     }
     if (searches > 0) {
         return `Consulted lore vault (${parts[0]})`;
     }
-    return `Noted ${flags} ${flags === 1 ? 'gap' : 'gaps'} in your lore`;
+    return `Noted ${flagParts.join(' and ')} in your lore`;
 }
 
 /**
@@ -47,11 +50,14 @@ function buildEntryHtml(call) {
             <span class="dle-librarian-result">${escapeHtml(resultText)}</span>
         </div>`;
     }
-    // flag
+    // flag (gap or update)
+    const isUpdate = call.subtype === 'update';
+    const icon = isUpdate ? 'fa-pen-to-square' : 'fa-flag';
     const urgencyLabel = call.urgency ? ` (${call.urgency})` : '';
-    return `<div class="dle-librarian-dropdown-entry">
-        <span class="dle-librarian-icon fa-solid fa-flag"></span>
-        <span class="dle-librarian-query">${escapeHtml(call.query)}</span>
+    const entryRef = isUpdate && call.entryTitle ? ` — ${escapeHtml(call.entryTitle)}` : '';
+    return `<div class="dle-librarian-dropdown-entry${isUpdate ? ' dle-flag-update' : ''}">
+        <span class="dle-librarian-icon fa-solid ${icon}"></span>
+        <span class="dle-librarian-query">${escapeHtml(call.query)}${entryRef}</span>
         <span class="dle-librarian-result">${escapeHtml(urgencyLabel)}</span>
     </div>`;
 }

@@ -15,6 +15,10 @@ export const EMMA_ADHOC_GREETING =
     "Back for more? What guide do you want to work on today? I can show you what's already written, " +
     "or we can start something fresh.";
 
+export const EMMA_AUDIT_GREETING =
+    "Audit mode. Let me pull up the recent chat and cross-reference it against the vault. " +
+    "This might take a few tool calls — I'll flag anything that looks stale, contradicted, or missing.";
+
 export const DLE_PRIMER_FOR_EMMA = `
 ## What you are doing here
 

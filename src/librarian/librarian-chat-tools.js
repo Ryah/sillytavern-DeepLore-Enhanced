@@ -1,17 +1,24 @@
 /**
  * DeepLore Enhanced — Librarian Chat Tools
- * Read-only tools the Librarian AI can call during conversation to query the vault.
- * These are NOT registered with SillyTavern's ToolManager — they execute locally
- * within the Librarian's conversation loop only.
+ * Tools the Librarian AI can call during conversation to query (and in limited
+ * cases mutate) vault state. These are NOT registered with SillyTavern's
+ * ToolManager — they execute locally within the Librarian's conversation loop only.
+ *
+ * Most tools are read-only. `flag_entry_update` is the exception — it writes a
+ * gap record to loreGaps/chat_metadata. See mutation safety notes in the plan.
  */
-import { vaultIndex, fuzzySearchIndex, loreGaps } from '../state.js';
+import { vaultIndex, fuzzySearchIndex, loreGaps, chatEpoch, notifyLoreGapsChanged } from '../state.js';
 import { queryBM25 } from '../vault/bm25.js';
+import { getContext } from '../../../../../extensions.js';
+import { persistGaps, gapId } from './librarian-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Constants
 // ════════════════════════════════════════════════════════════════════════════
 
 const TOOL_RESULT_MAX_CHARS = 2000;
+const CHAT_RESULT_MAX_CHARS = 4000;
+const COMPARE_RESULT_MAX_CHARS = 6000;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Tool Definitions
@@ -77,6 +84,30 @@ const LIBRARIAN_TOOLS = [
             tag: { type: 'string', required: false, description: 'Filter by tag (substring match)' },
         },
     },
+    {
+        name: 'get_recent_chat',
+        description: 'Retrieve the last N messages from the active RP chat. Essential for comparing lore entries against what is actually happening in the story.',
+        parameters: {
+            count: { type: 'number', required: false, description: 'Number of recent messages to retrieve (default 10, max 50)' },
+        },
+    },
+    {
+        name: 'flag_entry_update',
+        description: 'Flag an existing vault entry as needing an update. Creates a persistent record in the drawer that the user can act on. Use when you spot staleness, contradictions, or missing information in an entry.',
+        parameters: {
+            title: { type: 'string', required: true, description: 'Title of the vault entry that needs updating' },
+            reason: { type: 'string', required: true, description: 'Why this entry needs updating' },
+            fields: { type: 'string', required: false, description: 'Comma-separated list of specific fields that need attention (e.g. "summary, content, keys")' },
+        },
+    },
+    {
+        name: 'compare_entry_to_chat',
+        description: 'Pull a vault entry and recent chat messages side by side so you can analyze staleness, contradictions, or gaps. Returns both the entry content and recent chat context. Faster than calling get_entry + get_recent_chat separately.',
+        parameters: {
+            title: { type: 'string', required: true, description: 'Entry title to compare against recent chat' },
+            chat_count: { type: 'number', required: false, description: 'Number of recent chat messages to include (default 15)' },
+        },
+    },
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -122,6 +153,9 @@ export function executeToolCall(name, args = {}) {
         case 'get_links': return toolGetLinks(args);
         case 'get_backlinks': return toolGetBacklinks(args);
         case 'list_entries': return toolListEntries(args);
+        case 'get_recent_chat': return toolGetRecentChat(args);
+        case 'flag_entry_update': return toolFlagEntryUpdate(args);
+        case 'compare_entry_to_chat': return toolCompareEntryToChat(args);
         case 'get_writing_guide': return toolGetWritingGuide(args);
         // BUG-325: default error message must include get_writing_guide — it is handled above but
         // not in LIBRARIAN_TOOLS (it is dynamic/conditional and built separately in buildToolsPromptSection).
@@ -307,6 +341,93 @@ function toolListEntries(args) {
     return truncate(`${header}\n${lines.join('\n')}`, TOOL_RESULT_MAX_CHARS);
 }
 
+// ── Chat-context and mutation tools ──────────────────────────────────────
+
+function toolGetRecentChat(args) {
+    const count = Math.min(Math.max(Number(args.count) || 10, 1), 50);
+    const ctx = getContext();
+    const chat = ctx?.chat;
+    if (!chat || chat.length === 0) return 'No active chat found.';
+
+    const recent = chat.slice(-count).filter(m =>
+        m && typeof m.mes === 'string' && m.mes.trim().length > 0 && !m.is_system
+    );
+    if (recent.length === 0) return 'No scannable messages in recent chat.';
+
+    const lines = recent.map(m => {
+        const speaker = m.name || 'Unknown';
+        const role = m.is_user ? '(user)' : '(character)';
+        return `**${speaker}** ${role}:\n${m.mes}`;
+    });
+    return truncate(lines.join('\n\n'), CHAT_RESULT_MAX_CHARS);
+}
+
+function toolFlagEntryUpdate(args) {
+    const title = args.title?.trim();
+    const reason = args.reason?.trim();
+    if (!title) return 'Error: title is required.';
+    if (!reason) return 'Error: reason is required.';
+
+    // Verify entry exists
+    const entry = findEntry(title);
+    if (!entry) return `Error: Entry "${title}" not found in vault.`;
+
+    const fields = args.fields?.trim() || null;
+    const fullReason = fields ? `${reason} (fields: ${fields})` : reason;
+
+    // Snapshot epoch for stale-guard
+    const epoch = chatEpoch;
+
+    // Create update flag record — late-read loreGaps to minimize race window
+    const newGap = {
+        id: gapId(),
+        type: 'flag',
+        subtype: 'update',
+        entryTitle: entry.title, // Use canonical title from vault
+        query: entry.title,
+        reason: fullReason,
+        timestamp: Date.now(),
+        generation: 0, // Not from generation — from Emma session
+        status: 'pending',
+        frequency: 1,
+        urgency: 'medium',
+        hadResults: false,
+        resultTitles: null,
+        source: 'emma-session',
+    };
+
+    // Guard: don't persist if chat changed during tool execution
+    if (epoch !== chatEpoch) {
+        return `Error: chat changed during tool execution — flag not persisted.`;
+    }
+
+    const updatedGaps = [...loreGaps, newGap];
+    const ok = persistGaps(updatedGaps);
+    if (!ok) {
+        return `Error: could not persist flag (no active chat metadata).`;
+    }
+    notifyLoreGapsChanged();
+
+    return `Flagged "${entry.title}" for update: ${fullReason}`;
+}
+
+function toolCompareEntryToChat(args) {
+    const title = args.title?.trim();
+    if (!title) return 'Error: title is required.';
+
+    const entry = findEntry(title);
+    if (!entry) return `Entry "${title}" not found.`;
+
+    const chatCount = Math.min(Math.max(Number(args.chat_count) || 15, 1), 50);
+    const chatText = toolGetRecentChat({ count: chatCount });
+    const entryText = toolGetEntry({ title: entry.title });
+
+    return truncate(
+        `## Entry: ${entry.title}\n${entryText}\n\n---\n\n## Recent Chat (last ${chatCount} messages)\n${chatText}`,
+        COMPARE_RESULT_MAX_CHARS
+    );
+}
+
 // ── Writing-guide tool (dynamic, runtime-built) ──────────────────────────
 
 /**
@@ -401,7 +522,8 @@ You may call multiple tools in a single response.
 ${toolDocs}${guideToolDoc}
 
 ### Rules:
-- Tools are **read-only** — you cannot write to the vault. The user is the only one who clicks "Write to Vault."
+- Most tools are **read-only**. The exception is **flag_entry_update**, which creates a persistent flag record visible in the drawer.
+- You cannot write to the vault directly. The user is the only one who clicks "Write to Vault."
 - Use tools when the manifest lacks detail or you need to see an entry's full content.
 - After receiving tool results, respond with your final answer (action: "update_draft", "propose_options", or null).
 - Don't use tools for entries already visible in the manifest summary.
@@ -410,5 +532,8 @@ ${toolDocs}${guideToolDoc}
 - **find_similar** before creating a new entry — if there's already something close, you should know.
 - **get_full_content** only when **get_entry** truncated something you actually need (it caps at ~2000 chars). It's more expensive — be deliberate.
 - **list_flags** when the user asks "what's broken" or "what needs work" or you want to know what gaps the librarian has been collecting.
+- **get_recent_chat** to see what's actually happening in the story — essential for audit/review workflows.
+- **flag_entry_update** when you find an entry that's stale or contradicted — creates a visible record the user can act on.
+- **compare_entry_to_chat** for a side-by-side view of an entry vs. the story — faster than calling both tools separately.
 `;
 }

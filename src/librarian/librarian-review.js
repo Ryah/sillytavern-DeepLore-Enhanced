@@ -30,12 +30,21 @@ function buildPopupHTML(session) {
     const isReview = session.entryPoint === 'review';
     const isGap = session.entryPoint === 'gap';
 
+    const isAudit = session.entryPoint === 'audit';
+
     // Initial welcome message for chat
     let welcomeMsg = '';
     if (isGap && session.gapRecord) {
-        welcomeMsg = `*shuffles papers* So your vault name-drops "<b>${escapeHtml(session.gapRecord.query)}</b>" but nobody bothered to write the entry. ${escapeHtml(session.gapRecord.reason || '')} Classic. Tell me what you want, or I'll just start drafting.`;
+        if (session.gapRecord.subtype === 'update' && session.gapRecord.entryTitle) {
+            welcomeMsg = `*shuffles papers* So "<b>${escapeHtml(session.gapRecord.entryTitle)}</b>" needs updating. ${escapeHtml(session.gapRecord.reason || '')} Let me pull it up and see what's changed.`;
+        } else {
+            welcomeMsg = `*shuffles papers* So your vault name-drops "<b>${escapeHtml(session.gapRecord.query)}</b>" but nobody bothered to write the entry. ${escapeHtml(session.gapRecord.reason || '')} Classic. Tell me what you want, or I'll just start drafting.`;
+        }
     } else if (isReview) {
         welcomeMsg = `*leans back, flips through your vault* Alright, let's see what kind of mess we're working with. Send me a direction or I'll start pulling threads from your recent chat.`;
+    } else if (isAudit) {
+        // Audit uses seeded greeting from session — this is a fallback
+        welcomeMsg = escapeHtml(session.messages?.[0]?.content || 'Audit mode. Pulling up the vault and recent chat now.');
     } else {
         // Empty 'new' session — Emma greets with a random flavor intro
         welcomeMsg = escapeHtml(pickFlavorIntro());
@@ -113,7 +122,7 @@ function buildPopupHTML(session) {
             <div class="dle-lib-msg dle-lib-msg-ai">${welcomeMsg}</div>
             <div class="dle-lib-status-line" id="dle-lib-status-line" aria-live="polite" hidden></div>
         </div>
-        ${isReview && session.workQueue ? `<div class="dle-librarian-queue" id="dle-lib-queue"></div>` : ''}
+        ${(isReview || isAudit) && session.workQueue ? `<div class="dle-librarian-queue" id="dle-lib-queue"></div>` : ''}
         <div class="dle-librarian-input-row">
             <input type="text" id="dle-lib-chat-input" class="text_pole" placeholder="Ask Emma anything..." aria-label="Chat message">
             <button id="dle-lib-send" class="menu_button" aria-label="Send message">
@@ -133,7 +142,7 @@ function buildPopupHTML(session) {
 
 /**
  * Open the librarian review popup.
- * @param {'gap'|'new'|'review'} entryPoint
+ * @param {'gap'|'new'|'review'|'audit'} entryPoint
  * @param {object} [options] - Options (e.g. { gap: gapRecord })
  */
 export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
@@ -1103,8 +1112,18 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
 
             // If gap review and auto-send enabled, send initial prompt (skip if restored)
             if (!isRestored && entryPoint === 'gap' && session.gapRecord && getSettings().librarianAutoSendOnGap !== false) {
+                const isUpdate = session.gapRecord.subtype === 'update' && session.gapRecord.entryTitle;
                 session._autoSendTimer = setTimeout(() => {
-                    chatInput.value = `Draft an entry for "${session.gapRecord.query}".`;
+                    chatInput.value = isUpdate
+                        ? `Review and update the entry for "${session.gapRecord.entryTitle}". Context: ${session.gapRecord.reason || session.gapRecord.query}`
+                        : `Draft an entry for "${session.gapRecord.query}".`;
+                    handleSend();
+                }, 300);
+            }
+            // Auto-send for audit mode — kick off the systematic review
+            if (!isRestored && entryPoint === 'audit') {
+                session._autoSendTimer = setTimeout(() => {
+                    chatInput.value = 'Begin the audit. Pull the recent chat, cross-reference with vault entries, and flag anything stale or contradicted.';
                     handleSend();
                 }, 300);
             }

@@ -79,18 +79,20 @@ export function registerLibrarianTools() {
 
         ToolManager.registerFunctionTool({
             name: 'dle_flag_lore',
-            displayName: 'Flag Lore Gap',
+            displayName: 'Flag Lore Issue',
             description:
-                'Flag a gap in the lore vault. Use when you notice the conversation '
-                + 'involves a topic that should have a lorebook entry but does not, or when '
-                + 'you had to invent details that should be recorded for consistency.',
+                'Flag a lore issue. Two types: (1) flag_type="gap" (default) — missing lore '
+                + 'that should have a lorebook entry but does not. (2) flag_type="update" — an '
+                + 'existing entry that is stale, contradicted by recent events, or incomplete '
+                + '(include entry_title). Use "gap" when lore is missing entirely. Use "update" '
+                + 'when an existing entry needs revision.',
             parameters: {
                 $schema: 'http://json-schema.org/draft-04/schema#',
                 type: 'object',
                 properties: {
                     title: {
                         type: 'string',
-                        description: 'What is missing (character, place, concept)',
+                        description: 'What is missing or needs updating (character, place, concept)',
                     },
                     reason: {
                         type: 'string',
@@ -100,6 +102,15 @@ export function registerLibrarianTools() {
                         type: 'string',
                         enum: ['low', 'medium', 'high'],
                         description: 'low=nice to have, medium=relevant gap, high=invented critical details',
+                    },
+                    flag_type: {
+                        type: 'string',
+                        enum: ['gap', 'update'],
+                        description: 'gap=missing lore (default), update=existing entry needs revision',
+                    },
+                    entry_title: {
+                        type: 'string',
+                        description: 'For update flags: the title of the existing entry that needs revision',
                     },
                 },
                 required: ['title', 'reason'],

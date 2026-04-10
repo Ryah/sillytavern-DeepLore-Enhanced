@@ -15,6 +15,7 @@ import {
     buildLibrarianBootstrapSystemPrompt,
     EMMA_FIRSTRUN_GREETING,
     EMMA_ADHOC_GREETING,
+    EMMA_AUDIT_GREETING,
 } from './librarian-prompts.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -80,7 +81,7 @@ function getChatContextMaxChars() { return getSettings().librarianChatContextMax
  * @property {Array<{role: string, content: string}>} messages
  * @property {object|null} draftState
  * @property {object|null} gapRecord
- * @property {'gap'|'new'|'review'} entryPoint
+ * @property {'gap'|'new'|'review'|'audit'} entryPoint
  * @property {string} manifest
  * @property {string} chatContext
  * @property {Array|null} workQueue
@@ -88,7 +89,7 @@ function getChatContextMaxChars() { return getSettings().librarianChatContextMax
 
 /**
  * Create a new librarian session.
- * @param {'gap'|'new'|'review'} entryPoint
+ * @param {'gap'|'new'|'review'|'audit'} entryPoint
  * @param {object} [options]
  * @param {object} [options.gap] - Gap record (for 'gap' entry point)
  * @returns {LibrarianSession}
@@ -131,6 +132,8 @@ export function createSession(entryPoint, options = {}) {
             includeFirstRunScript: mode === 'guide-firstrun',
         });
         seededGreeting = mode === 'guide-firstrun' ? EMMA_FIRSTRUN_GREETING : EMMA_ADHOC_GREETING;
+    } else if (entryPoint === 'audit') {
+        seededGreeting = EMMA_AUDIT_GREETING;
     }
 
     // BUG-332: seed greeting as plain text. The restore path (librarian-review.js
@@ -501,8 +504,14 @@ You're Emma. You have a library sciences degree and you ended up cataloguing fic
     // Entry point context
     if (session.entryPoint === 'gap' && session.gapRecord) {
         const gap = session.gapRecord;
-        parts.push(`## Gap Context\nA gap was detected during generation:`);
-        parts.push(`- **Topic:** ${gap.query}`);
+        const isUpdate = gap.subtype === 'update';
+        if (isUpdate && gap.entryTitle) {
+            parts.push(`## Update Context\nAn existing entry was flagged as needing revision during generation:`);
+            parts.push(`- **Entry to update:** ${gap.entryTitle}`);
+        } else {
+            parts.push(`## Gap Context\nA gap was detected during generation:`);
+            parts.push(`- **Topic:** ${gap.query}`);
+        }
         parts.push(`- **Reason:** ${gap.reason}`);
         parts.push(`- **Urgency:** ${gap.urgency || 'medium'}`);
         if (gap.resultTitles && gap.resultTitles.length > 0) {
@@ -510,8 +519,33 @@ You're Emma. You have a library sciences degree and you ended up cataloguing fic
         } else if (gap.type === 'search') {
             parts.push(`- **Search results:** none found`);
         }
+        if (isUpdate) {
+            parts.push(`\nUse \`get_entry\` or \`compare_entry_to_chat\` to review the current state of "${gap.entryTitle}" and identify what needs changing.`);
+        }
     } else if (session.entryPoint === 'review') {
         parts.push(`\n## Vault Review Mode\nThe following chat history has not yet been integrated into the lore vault. Review it and propose entries to create or update, prioritized by importance.`);
+    } else if (session.entryPoint === 'audit') {
+        parts.push(`
+## Vault Audit Mode
+You are performing a systematic audit of the vault against recent story developments.
+
+### Your task:
+1. Use \`get_recent_chat\` to read the latest story context
+2. Use \`list_entries\` and \`search_vault\` to identify entries that may be affected
+3. For each potentially affected entry, use \`get_entry\` or \`compare_entry_to_chat\` to check for:
+   - **Staleness**: Entry describes a state that the story has moved past
+   - **Contradictions**: Entry says X but the story now shows Y
+   - **Missing information**: Story introduced new details not yet in the entry
+   - **New entries needed**: Story introduced concepts/characters with no vault entry
+4. Use \`flag_entry_update\` for entries needing updates — this creates persistent records in the drawer
+5. Report your findings with a prioritized work queue
+
+### Approach:
+- Work through entries systematically, don't try to do everything at once
+- Prioritize entries that directly conflict with recent events
+- Use your tools freely — this is an investigation, not a quick check
+- When done, propose a work queue of entries to create or update (use action: "propose_queue")
+`);
     }
 
     // Manifest
@@ -623,7 +657,9 @@ Each option has a \`label\` (user-facing description) and \`fields\` (draft fiel
 - Include the lorebook tag "${lorebookTag}" in tags
 - Use [[wikilinks]] to reference other vault entries when relevant
 - Keys should be 2-5 trigger words that would appear in chat when this entry is relevant
-- Prefer partial draft updates over resending unchanged fields`);
+- Prefer partial draft updates over resending unchanged fields
+- In audit mode, use get_recent_chat and compare_entry_to_chat to verify entries against the story
+- Use flag_entry_update to create persistent records of issues you find, not just mention them in chat`);
 
     return parts.join('\n');
 }
@@ -799,14 +835,21 @@ export async function sendMessage(session, userMessage, options = {}) {
                 session.messages.push({ role: 'assistant', content: validParsed.message });
             }
 
-            // Execute each tool call
+            // Execute each tool call (try-catch: some tools may mutate state,
+            // and an uncaught error would leave partial mutations committed)
             const results = [];
             for (const tc of validParsed.tool_calls) {
                 if (signal?.aborted) {
                     return abortReturn();
                 }
                 onToolCall?.(tc.name, tc.args);
-                const toolResult = executeToolCall(tc.name, tc.args || {});
+                let toolResult;
+                try {
+                    toolResult = executeToolCall(tc.name, tc.args || {});
+                } catch (err) {
+                    toolResult = `Tool error (${tc.name}): ${err?.message || 'unknown error'}`;
+                    console.warn(`[DLE] Librarian tool "${tc.name}" threw:`, err);
+                }
                 onToolResult?.(tc.name, toolResult);
                 results.push(`**${tc.name}**(${JSON.stringify(tc.args || {})})\n${toolResult}`);
                 toolCallCount++;

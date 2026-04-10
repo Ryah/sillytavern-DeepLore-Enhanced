@@ -170,7 +170,7 @@ export function renderLibrarianTab() {
             $text.text('Librarian is disabled. Enable it in Settings \u2192 Features \u2192 Librarian.');
             $emptyActions.css('display', 'none');
         } else {
-            $text.text('No flagged gaps yet. The AI will flag missing lore during replies.');
+            $text.text('No flagged issues yet. The AI will flag missing or stale lore during replies.');
             $emptyActions.css('display', '');
         }
         $empty.addClass('dle-visible');
@@ -190,18 +190,30 @@ export function renderLibrarianTab() {
         // Selective heatmap: only repeat-flagged or high-urgency gaps get tinted
         const tinted = (gap.frequency || 1) >= 2 || gap.urgency === 'high';
         const tintClass = tinted ? 'dle-gap-tinted' : '';
+        const isUpdate = gap.subtype === 'update';
+        const subtypeClass = isUpdate ? 'dle-gap-update' : '';
         const statusInfo = STATUS_ICONS[gap.status] || STATUS_ICONS.pending;
         const title = escapeHtml(gap.query || '');
+        const entryTitleAttr = gap.entryTitle ? `data-entry-title="${escapeHtml(gap.entryTitle)}"` : '';
         const time = relativeTime(gap.timestamp);
         const isSelected = ds.librarianSelected.has(gap.id);
         const selClass = isSelected ? 'dle-gap-selected' : '';
 
-        html += `<div class="dle-librarian-entry ${tintClass} ${selClass}" style="--dle-gap:${score.toFixed(2)}" `
-            + `data-gap-id="${escapeHtml(gap.id)}" data-urgency="${gap.urgency || 'medium'}" role="listitem" `
+        html += `<div class="dle-librarian-entry ${tintClass} ${subtypeClass} ${selClass}" style="--dle-gap:${score.toFixed(2)}" `
+            + `data-gap-id="${escapeHtml(gap.id)}" data-subtype="${gap.subtype || 'gap'}" ${entryTitleAttr} `
+            + `data-urgency="${gap.urgency || 'medium'}" role="listitem" `
             + `aria-expanded="false" aria-label="${title}, ${statusInfo.label}, ${gap.urgency || 'medium'} urgency" tabindex="0">`;
         html += `<input type="checkbox" class="dle-gap-check" ${isSelected ? 'checked' : ''} aria-label="Select ${title}" tabindex="-1">`;
-        html += `<span class="dle-gap-status ${statusInfo.cls}" title="${statusInfo.label}" aria-label="${statusInfo.label}">${statusInfo.icon}</span>`;
+        // Update flags get a pen icon; gaps get the status icon
+        if (isUpdate) {
+            html += `<span class="dle-gap-status dle-gap-update-icon" title="Entry needs updating" aria-label="Update needed"><i class="fa-solid fa-pen-to-square" aria-hidden="true"></i></span>`;
+        } else {
+            html += `<span class="dle-gap-status ${statusInfo.cls}" title="${statusInfo.label}" aria-label="${statusInfo.label}">${statusInfo.icon}</span>`;
+        }
         html += `<span class="dle-gap-title">${title}</span>`;
+        if (isUpdate && gap.entryTitle) {
+            html += `<span class="dle-gap-entry-title dle-text-xs dle-muted">${escapeHtml(gap.entryTitle)}</span>`;
+        }
         html += `<span class="dle-gap-time dle-text-xs dle-muted">${time}</span>`;
         html += `</div>`;
     }

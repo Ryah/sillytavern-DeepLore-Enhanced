@@ -85,7 +85,9 @@ export function registerLibrarianTools() {
                 + 'that should have a lorebook entry but does not. (2) flag_type="update" — an '
                 + 'existing entry that is stale, contradicted by recent events, or incomplete '
                 + '(include entry_title). Use "gap" when lore is missing entirely. Use "update" '
-                + 'when an existing entry needs revision.',
+                + 'when an existing entry needs revision. '
+                + 'IMPORTANT: Always include flag_lore calls in the same response as your text — never in a separate tool-only response without text content. '
+                + 'Do not narrate or summarize what you flagged — the user sees flags in the sidebar automatically.',
             parameters: {
                 $schema: 'http://json-schema.org/draft-04/schema#',
                 type: 'object',
@@ -115,6 +117,7 @@ export function registerLibrarianTools() {
                 },
                 required: ['title', 'reason'],
             },
+            stealth: true,
             action: flagLoreAction,
             formatMessage: () => null,
             shouldRegister: () => {

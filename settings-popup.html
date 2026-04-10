@@ -945,6 +945,10 @@
                         <input id="dle-sp-librarian-show-tool-calls" type="checkbox" class="checkbox">
                         <span>Show tool call details on messages</span>
                     </label>
+                    <label class="checkbox_label" for="dle-sp-librarian-per-message" title="Tie search/flag activity to messages. Gap records are cleared when a new generation starts and rebuilt from the new response. Keeps activity in sync with what's actually in the chat.">
+                        <input id="dle-sp-librarian-per-message" type="checkbox" class="checkbox">
+                        <span>Per-message activity (reset gaps on new generation)</span>
+                    </label>
 
                     <div class="flex-container">
                         <div class="flex1" title="Maximum vault searches per AI reply. Default: 2.">

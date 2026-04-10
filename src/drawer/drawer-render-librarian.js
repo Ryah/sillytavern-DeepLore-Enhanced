@@ -122,7 +122,7 @@ export function renderLibrarianTab() {
             const isSearch = item.type === 'search';
             const hasResults = isSearch && (item.resultTitles && item.resultTitles.length > 0);
             const metaText = item.kind === 'gap-search'
-                ? (item.hadResults ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}` : 'no results')
+                ? 'no results'
                 : item.kind === 'gap-flag'
                     ? `${item.urgency || 'medium'}${item.frequency > 1 ? `, flagged ${item.frequency}x` : ''}`
                     : isSearch

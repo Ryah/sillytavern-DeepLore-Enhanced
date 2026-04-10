@@ -239,6 +239,7 @@ export const defaultSettings = {
     librarianSystemPromptMode: 'default', // 'default' | 'append' | 'override'
     librarianCustomSystemPrompt: '',    // custom system prompt text (used in append/override modes)
     librarianShowToolCalls: true,      // show "Consulted lore vault" dropdown on assistant messages
+    librarianPerMessageActivity: false, // tie gap/flag records to messages — clear on new generation, keep on swipe, delete on message delete
     // Analytics
     analyticsData: {},
     // First-run setup wizard completed flag

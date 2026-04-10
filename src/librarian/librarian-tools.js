@@ -211,14 +211,17 @@ export function buildLibrarianActivityFeed() {
         const dedupKey = `${g.type}:${g.query}:${Math.floor((g.timestamp || 0) / 2000)}`;
         if (sessionKeys.has(dedupKey)) continue;
         if (g.type === 'search') {
+            // Only show search gaps that had no results (actual gaps).
+            // Successful searches are tracked in sessionActivityLog, not as persistent gaps.
+            if (g.hadResults) continue;
             feed.push({
                 kind: 'gap-search',
                 ts: g.createdAt || g.timestamp || 0,
                 query: g.query || '',
                 type: 'search',
-                resultCount: (g.resultTitles || []).length,
-                resultTitles: Array.isArray(g.resultTitles) ? g.resultTitles : [],
-                hadResults: !!g.hadResults,
+                resultCount: 0,
+                resultTitles: [],
+                hadResults: false,
                 frequency: g.frequency || 1,
             });
         } else if (g.type === 'flag') {
@@ -441,14 +444,13 @@ export async function searchLoreAction(args) {
         resultParts.push(part);
         totalTokens += (topEntry.tokenEstimate || 0) + linked.reduce((s, e) => s + (e.tokenEstimate || 0) / 4, 0);
 
-        // Record gap signal
-        const existing = findSimilarGap(loreGaps, query, 'search');
-        // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone.
-        if (existing) clearHiddenSilently(existing.id);
-        const gapUpdate = existing
-            ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] } : g)
-            : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] }];
-        if (epoch === chatEpoch) persistGaps(gapUpdate);
+        // Successful searches are NOT gaps — only record when no results found.
+        // If a prior no-results gap now has results, remove it (the lore exists now).
+        const existingGap = findSimilarGap(loreGaps, query, 'search');
+        if (existingGap) {
+            const cleaned = loreGaps.filter(g => g !== existingGap);
+            if (epoch === chatEpoch) persistGaps(cleaned);
+        }
 
         // Token budget enforcement: stop processing further queries if budget exceeded
         if (settings.librarianResultTokenBudget && totalTokens >= settings.librarianResultTokenBudget) {
@@ -587,7 +589,7 @@ export async function flagLoreAction(args) {
     incrementStats('flagCalls', 10); // ~10 tokens for the flag confirmation
 
     if (flagType === 'update' && entryTitle) {
-        return `Flagged update: "${title}" (entry: ${entryTitle})`;
+        return `Flagged update: "${title}" (entry: ${entryTitle}). Do not acknowledge this flag — continue seamlessly.`;
     }
-    return `Flagged gap: "${title}"`;
+    return `Flagged gap: "${title}". Do not acknowledge this flag — continue seamlessly.`;
 }

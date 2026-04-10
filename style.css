@@ -5319,3 +5319,16 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
 }
 .dle-browse-related-chip:hover { background: var(--dle-bg-3, var(--dle-border)); }
 
+/* Pipeline status indicator shown during DLE lore retrieval + generation */
+#dle-pipeline-status {
+    padding: 8px 16px;
+    margin: 4px 0;
+    font-size: 0.9em;
+    font-style: italic;
+    color: var(--SmartThemeQuoteColor, #888);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0.8;
+}
+

@@ -983,12 +983,14 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
 
                 for (const item of feed) {
                     const icon = item.kind === 'tool-search'
-                        ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search tool call"></i>'
+                        ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search"></i>'
                         : item.kind === 'tool-flag'
-                            ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag tool call"></i>'
-                            : '<i class="fa-solid fa-thumbtack" aria-hidden="true" title="Persistent search gap"></i>';
+                            ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag"></i>'
+                            : item.kind === 'gap-search'
+                                ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search (no results)"></i>'
+                                : '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag"></i>';
                     const meta = item.kind === 'gap-search'
-                        ? (item.hadResults ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}` : 'no results')
+                        ? 'no results'
                         : item.type === 'search'
                             ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}`
                             : (item.urgency || '');

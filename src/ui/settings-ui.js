@@ -1275,6 +1275,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-librarian-search').prop('checked', settings.librarianSearchEnabled);
     $c('#dle-sp-librarian-flag').prop('checked', settings.librarianFlagEnabled);
     $c('#dle-sp-librarian-show-tool-calls').prop('checked', settings.librarianShowToolCalls !== false);
+    $c('#dle-sp-librarian-per-message').prop('checked', settings.librarianPerMessageActivity !== false);
     $c('#dle-sp-librarian-max-searches').val(settings.librarianMaxSearches);
     $c('#dle-sp-librarian-max-results').val(settings.librarianMaxResults);
     $c('#dle-sp-librarian-token-budget').val(settings.librarianResultTokenBudget);
@@ -1837,6 +1838,7 @@ function bindPopupEvents($container) {
     });
     $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-show-tool-calls').on('change', function () { settings.librarianShowToolCalls = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-librarian-per-message').on('change', function () { settings.librarianPerMessageActivity = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-max-searches').on('input', function () { settings.librarianMaxSearches = numVal($(this).val(), 2); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-max-results').on('input', function () { settings.librarianMaxResults = numVal($(this).val(), 5); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-token-budget').on('input', function () { settings.librarianResultTokenBudget = numVal($(this).val(), 1500); saveSettingsDebounced(); });

@@ -37,7 +37,7 @@ export function matchEntries(chat, snapshot = null, opts = {}) {
  * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
-export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null, signal = null } = {}) {
+export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null, signal = null, onStatus = null } = {}) {
     // Snapshot settings and vault index so async stages (AI search) see a consistent view
     const rawSettings = getSettings();
     const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
@@ -113,6 +113,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
         if (candidateManifest) {
+            onStatus?.('Consulting vault\u2026');
             const _aiStart = performance.now();
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates, signal);
             trace.aiSearchMs = Math.round(performance.now() - _aiStart);
@@ -234,6 +235,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         if (!candidateManifest) {
             finalEntries = keywordResult.matched;
         } else {
+            onStatus?.('Consulting vault\u2026');
             const _aiStart2 = performance.now();
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates, signal);
             trace.aiSearchMs = Math.round(performance.now() - _aiStart2);

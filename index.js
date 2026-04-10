@@ -180,7 +180,7 @@ async function onGenerate(chat, contextSize, abort, type) {
 
     // Lazy Librarian tool registration — ensures tools are registered even if init() ran
     // before settings were fully loaded (race condition with ST's extension_settings hydration)
-    if (settings.librarianEnabled && !librarianToolsRegistered) {
+    if (settings.librarianEnabled) {
         try { registerLibrarianTools(); } catch { /* logged inside */ }
     }
 
@@ -331,7 +331,9 @@ async function onGenerate(chat, contextSize, abort, type) {
         const blocks = chat_metadata.deeplore_blocks || [];
         const folderFilter = chat_metadata.deeplore_folder_filter || null;
 
+        const _pipelineStartMs = performance.now();
         const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal });
+        trace.totalMs = Math.round(performance.now() - _pipelineStartMs);
         if (pipelineAbort.signal.aborted) {
             if (settings.debugMode) console.debug('[DLE] Pipeline aborted by user before commit');
             return;
@@ -731,6 +733,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         // BUG-233: User aborts are not errors — no toast, no log spam.
         if (err?.userAborted || err?.name === 'AbortError' || pipelineAbort.signal.aborted) {
             if (settings.debugMode) console.debug('[DLE] Pipeline aborted:', err?.message || 'user stop');
+            // Record abort in flight recorder for diagnostic export
+            try { const { recordAbort } = await import('./src/diagnostics/flight-recorder.js'); recordAbort(err?.message || 'user stop'); } catch { /* noop */ }
         } else {
             console.error('[DLE] Error during generation:', err);
             dedupError('Couldn\'t load your lore. Try /dle-refresh, or /dle-health for diagnostics.', 'pipeline', { hint: classifyError(err) });

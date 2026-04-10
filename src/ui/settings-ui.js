@@ -1524,25 +1524,38 @@ function bindPopupEvents($container) {
         $label.text('Processing...');
         try {
             const { triggerDiagnosticDownload } = await import('../diagnostics/ui.js');
-            await triggerDiagnosticDownload();
+            const { scrubStats } = await triggerDiagnosticDownload();
             $label.text('Done');
+
+            // Build scrub stats summary for the popup
+            const statParts = [];
+            if (scrubStats.ips > 0) statParts.push(`${scrubStats.ips} IPs`);
+            if (scrubStats.ipv6s > 0) statParts.push(`${scrubStats.ipv6s} IPv6`);
+            if (scrubStats.hosts > 0) statParts.push(`${scrubStats.hosts} hostnames`);
+            if (scrubStats.emails > 0) statParts.push(`${scrubStats.emails} emails`);
+            if (scrubStats.userPaths > 0) statParts.push(`${scrubStats.userPaths} user paths`);
+            if (scrubStats.titles > 0) statParts.push(`${scrubStats.titles} titles`);
+            if (scrubStats.sensitiveFields > 0) statParts.push(`${scrubStats.sensitiveFields} sensitive fields`);
+            if (scrubStats.bearerTokens > 0) statParts.push(`${scrubStats.bearerTokens} bearer tokens`);
+            if (scrubStats.openaiKeys > 0) statParts.push(`${scrubStats.openaiKeys} API keys`);
+            if (scrubStats.longTokens > 0) statParts.push(`${scrubStats.longTokens} long tokens`);
+            const statsHtml = statParts.length > 0
+                ? `<p style="margin: 8px 0; padding: 8px 12px; background: var(--SmartThemeBlurTintColor); border-radius: 6px; font-size: 0.9em;"><strong>Anonymized:</strong> ${statParts.join(', ')}. Profile names, vault names, and character names were partially masked.</p>`
+                : '<p style="margin: 8px 0; padding: 8px 12px; background: var(--SmartThemeBlurTintColor); border-radius: 6px; font-size: 0.9em;"><em>No sensitive data patterns detected.</em> Profile names, vault names, and character names were still partially masked as a precaution.</p>';
+
             await callGenericPopup(
                 `<div class="dle-diag-done">
-                    <h3>Diagnostic report downloaded</h3>
-                    <p>Check your browser's downloads folder for the <code>.md</code> file.</p>
-                    <p><strong>This file has been anonymized as much as possible.</strong>
-                    API keys, auth headers, and long opaque tokens are stripped. IP addresses,
-                    hostnames, emails, and user paths are pseudonymized (e.g. <code>&lt;ip-1&gt;</code>,
-                    <code>&lt;host-2&gt;</code>) so cardinality is preserved without leaking the
-                    real values. Chat content and vault entry contents are <em>not</em> included.</p>
-                    <p><strong>You should verify this yourself before sharing — we want to prove
-                    we aren't hiding anything.</strong> The format is plain markdown wrapped around
-                    a base64 gzip blob, designed to be read by a flagship LLM (Claude, GPT-5,
-                    Gemini). Drop the file into one of those and ask:</p>
+                    <h3>2 files downloaded</h3>
+                    <p><strong><code>dle-diagnostics-*.md</code></strong> — Anonymized report, safe to share on GitHub issues.
+                    Drop it into a flagship LLM (Claude, GPT-5, Gemini) for self-diagnosis.</p>
+                    <p><strong><code>dle-connections-reference-*.md</code></strong> — Your real connection data (profile names,
+                    URLs, models). <strong>Do NOT share this file.</strong> It's for your own reference when reading the anonymized report.</p>
+                    ${statsHtml}
+                    <p><strong>Please verify the diagnostic file before sharing.</strong>
+                    The format is plain markdown around a base64 blob — any LLM can audit it:</p>
                     <p><em>"Decode the base64 blob in this DLE diagnostic report and tell me
                     everything personally identifiable that's still in it."</em></p>
-                    <p>The model can decompress and audit it inline. Please do this at least once.
-                    If you find anything we missed, that's a bug — please open an issue.</p>
+                    <p>If you find anything we missed, that's a bug — please open an issue.</p>
                     <p style="margin-top: 14px;">
                         <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/new"
                            target="_blank" rel="noopener noreferrer"
@@ -1555,9 +1568,14 @@ function bindPopupEvents($container) {
                 POPUP_TYPE.TEXT, '', { wide: false, large: false, allowVerticalScrolling: true }
             );
         } catch (err) {
-            $label.text(origLabel);
-            try { toastr.error('Couldn\'t export the diagnostic report.', 'DeepLore Enhanced'); } catch {}
             console.error('[DLE] Diagnostic export failed:', err);
+            const msg = String(err?.message || '');
+            const hint = msg.includes('CompressionStream') || msg.includes('CompressionStream')
+                ? 'Your browser may not support gzip compression. Try a recent Chrome, Firefox, or Safari.'
+                : msg.includes('SecurityError') || msg.includes('NotAllowed')
+                    ? 'Browser blocked the file download. Check pop-up blocker or security settings.'
+                    : 'Try /dle-diagnostics in chat instead, or check browser console (F12) for details.';
+            try { toastr.error(`Diagnostic export failed. ${hint}`, 'DeepLore Enhanced', { timeOut: 10000 }); } catch {}
         } finally {
             $btn.prop('disabled', false).removeClass('disabled');
             // Restore label after a beat so the user sees "Done" briefly.

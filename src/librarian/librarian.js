@@ -34,7 +34,7 @@ export function registerLibrarianTools() {
     // our tools silently absent. If either tool is missing, force re-registration.
     try {
         const present = Array.isArray(ToolManager.tools) ? ToolManager.tools : [];
-        const have = new Set(present.map(t => t?.name).filter(Boolean));
+        const have = new Set(present.map(t => t?.toFunctionOpenAI?.()?.function?.name).filter(Boolean));
         const ok = have.has('dle_search_lore') && have.has('dle_flag_lore');
         if (librarianToolsRegistered && ok) return;
         if (librarianToolsRegistered && !ok) {

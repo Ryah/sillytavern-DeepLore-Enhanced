@@ -61,7 +61,7 @@ export function safeStringify(args, maxLen = 2000) {
                 parts.push('[unserializable]');
             }
         }
-        let out = parts.join(' ');
+        let out = parts.length === 1 ? parts[0] : parts.join(' | ');
         if (out.length > maxLen) out = out.slice(0, maxLen) + `…[+${out.length - maxLen} chars]`;
         return out;
     } catch {

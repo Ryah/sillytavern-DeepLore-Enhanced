@@ -60,6 +60,18 @@ export function pruneCircuitBreakers(activeKeys) {
     }
 }
 
+/**
+ * Get per-vault circuit breaker states for diagnostics.
+ * @returns {Object<string, {state: string, failures: number, backoffRemaining: number}>}
+ */
+export function getAllCircuitStates() {
+    const out = {};
+    for (const [key, cb] of circuitBreakers.entries()) {
+        out[key] = _getCircuitStateForBreaker(cb);
+    }
+    return out;
+}
+
 function _getCircuitStateForBreaker(cb) {
     if (cb.state === 'open') {
         const elapsed = Date.now() - cb.openedAt;

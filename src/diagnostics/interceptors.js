@@ -65,6 +65,7 @@ function patchFetch() {
         let method = 'GET';
         try {
             if (typeof input === 'string') url = input;
+            else if (typeof Request !== 'undefined' && input instanceof Request) url = input.url;
             else if (input && typeof input.url === 'string') url = input.url;
             method = (init && init.method) || (input && input.method) || 'GET';
         } catch { /* noop */ }
@@ -91,6 +92,8 @@ function patchFetch() {
 function patchXHR() {
     if (typeof XMLHttpRequest === 'undefined') return;
     const proto = XMLHttpRequest.prototype;
+    // Sentinel: prevent double-chaining if module is re-evaluated (e.g., test harness)
+    if (proto.open?.__dle_patched) return;
     const origOpen = proto.open;
     const origSend = proto.send;
 
@@ -100,11 +103,13 @@ function patchXHR() {
         } catch { /* noop */ }
         return origOpen.call(this, method, url, ...rest);
     };
+    proto.open.__dle_patched = true;
 
     proto.send = function (...args) {
         try {
             const meta = this.__dle_diag;
             if (meta) {
+                // { once: true } prevents listener accumulation if XHR object is reused
                 this.addEventListener('loadend', () => {
                     try {
                         meta.status = this.status;
@@ -113,7 +118,7 @@ function patchXHR() {
                         networkBuffer.push(meta);
                         maybeEcho('log', 'xhr', meta);
                     } catch { /* noop */ }
-                });
+                }, { once: true });
             }
         } catch { /* noop */ }
         return origSend.apply(this, args);
@@ -123,29 +128,26 @@ function patchXHR() {
 function patchErrors() {
     if (typeof window === 'undefined') return;
 
-    const prevOnError = window.onerror;
-    window.onerror = function (message, source, lineno, colno, error) {
+    // Use addEventListener instead of assignment to avoid last-writer-wins conflicts
+    // with ST core or other extensions that also set window.onerror.
+    window.addEventListener('error', (event) => {
         try {
             errorBuffer.push({
                 t: Date.now(),
                 kind: 'window.onerror',
-                message: String(message),
-                source: source || '',
-                lineno, colno,
-                stack: (error && error.stack) || '',
+                message: String(event.message || ''),
+                source: event.filename || '',
+                lineno: event.lineno,
+                colno: event.colno,
+                stack: (event.error && event.error.stack) || '',
             });
-            maybeEcho('error', 'onerror', { message, source, lineno });
+            maybeEcho('error', 'onerror', { message: event.message, source: event.filename, lineno: event.lineno });
         } catch { /* noop */ }
-        if (typeof prevOnError === 'function') {
-            try { return prevOnError.apply(this, arguments); } catch { /* noop */ }
-        }
-        return false;
-    };
+    });
 
-    const prevOnRej = window.onunhandledrejection;
-    window.onunhandledrejection = function (ev) {
+    window.addEventListener('unhandledrejection', (event) => {
         try {
-            const reason = ev && ev.reason;
+            const reason = event.reason;
             errorBuffer.push({
                 t: Date.now(),
                 kind: 'unhandledrejection',
@@ -154,10 +156,7 @@ function patchErrors() {
             });
             maybeEcho('error', 'rej', reason);
         } catch { /* noop */ }
-        if (typeof prevOnRej === 'function') {
-            try { return prevOnRej.apply(this, arguments); } catch { /* noop */ }
-        }
-    };
+    });
 }
 
 /**

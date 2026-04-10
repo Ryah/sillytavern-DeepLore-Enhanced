@@ -16,6 +16,17 @@ export const generationBuffer = new RingBuffer(20);
 
 let started = false;
 
+// Session-scoped title pseudonymizer for flight recorder entries.
+// Consistent within a session: "entry X" in gen 5 is the same "entry X" in gen 12.
+const _frTitleMap = new Map();
+let _frTitleN = 0;
+function pseudoTitle(title) {
+    if (!title) return '?';
+    let p = _frTitleMap.get(title);
+    if (!p) { p = `<title-${++_frTitleN}>`; _frTitleMap.set(title, p); }
+    return p;
+}
+
 /** Convert lastPipelineTrace into a compact summary. */
 function summarizeTrace(trace) {
     if (!trace || typeof trace !== 'object') return null;
@@ -32,7 +43,7 @@ function summarizeTrace(trace) {
         budgetCut:                arr('budgetCut'),
         injected:                 arr('injected'),
         injectedTitles:           Array.isArray(trace.injected)
-                                      ? trace.injected.slice(0, 30).map(e => e?.title || e?.filename || '?')
+                                      ? trace.injected.slice(0, 30).map(e => pseudoTitle(e?.title || e?.filename || '?'))
                                       : [],
         bootstrapActive:          !!trace.bootstrapActive,
         aiFallback:               !!trace.aiFallback,
@@ -46,7 +57,25 @@ function summarizeTrace(trace) {
             inputCount:  trace.aiPreFilter.inputCount  ?? null,
             outputCount: trace.aiPreFilter.outputCount ?? null,
         } : null,
+        // Pipeline timing (if available in trace)
+        totalMs:          trace.totalMs          ?? null,
+        keywordMatchMs:   trace.keywordMatchMs   ?? null,
+        aiSearchMs:       trace.aiSearchMs       ?? null,
     };
+}
+
+/**
+ * Record a pipeline abort into the flight recorder.
+ * Called from index.js catch block when user stops generation or pipeline times out.
+ */
+export function recordAbort(reason) {
+    try {
+        generationBuffer.push({
+            t: Date.now(),
+            aborted: true,
+            reason: reason || 'unknown',
+        });
+    } catch { /* never throw from diagnostic code */ }
 }
 
 /**
@@ -74,5 +103,7 @@ export async function startFlightRecorder() {
                 });
             } catch { /* never throw from observer */ }
         });
-    } catch { /* state.js not yet importable — try again later? cheap to skip */ }
+    } catch {
+        started = false; // allow retry on next call (import may succeed later)
+    }
 }

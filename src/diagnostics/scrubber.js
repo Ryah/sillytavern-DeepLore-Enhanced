@@ -25,19 +25,34 @@
 
 // ── Field-name patterns: any object key matching one of these gets <redacted>.
 // (Keys are always replaced wholesale — no cardinality is meaningful for a secret.)
-const SENSITIVE_KEY_RE = /(api[_-]?key|apikey|access[_-]?token|secret|password|passwd|authorization|auth[_-]?header|bearer|x[_-]?api[_-]?key|obsidianapikey|proxy[_-]?key|cookie|session)/i;
+const SENSITIVE_KEY_RE = /(api[_-]?key|apikey|access[_-]?token|secret|password|passwd|authorization|auth[_-]?header|bearer|x[_-]?api[_-]?key|obsidianapikey|proxy[_-]?key|cookie|session|refresh[_-]?token|oauth[_-]?token|private[_-]?key|client[_-]?id|app[_-]?key|encryption[_-]?key|master[_-]?key)/i;
 
 /**
  * Per-export context. Maps from real value → stable pseudonym.
  * Each pseudonym table is independent so e.g. <ip-1> and <host-1> can coexist.
+ * Includes stats counters so the report can show what was scrubbed.
  */
-function makeCtx() {
+export function makeCtx() {
     return {
         ip: new Map(),
         ipv6: new Map(),
         email: new Map(),
         host: new Map(),
         userPath: new Map(),
+        title: new Map(),
+        stats: {
+            ips: 0,
+            ipv6s: 0,
+            emails: 0,
+            hosts: 0,
+            userPaths: 0,
+            titles: 0,
+            bearerTokens: 0,
+            urlTokens: 0,
+            openaiKeys: 0,
+            longTokens: 0,
+            sensitiveFields: 0,
+        },
     };
 }
 
@@ -56,12 +71,17 @@ const PATTERNS = [
     // Bearer / Authorization header values inline in strings
     {
         re: /(Bearer\s+)[A-Za-z0-9._\-+/=]{8,}/gi,
-        fn: (m, _g1) => m.replace(/(Bearer\s+).+/i, '$1<token>'),
+        fn: (m, _g1, _o, _s, _gl, ctx) => { ctx.stats.bearerTokens++; return m.replace(/(Bearer\s+).+/i, '$1<token>'); },
     },
-    // URL query-string tokens: ?key=abc... &token=...
+    // URL query-string tokens: ?key=abc... &token=... (expanded to cover more param names)
     {
-        re: /([?&](?:key|token|access_token|api_key|auth)=)[^&\s"']+/gi,
-        fn: (_m, g1) => `${g1}<token>`,
+        re: /([?&](?:key|token|access_token|api_key|auth|secret|password|jwt|bearer|authorization|oauth_token)=)[^&\s"']+/gi,
+        fn: (_m, g1, _o, _s, _gl, ctx) => { ctx.stats.urlTokens++; return `${g1}<token>`; },
+    },
+    // OpenAI / Anthropic / Stripe key formats: sk-proj-..., sk_test_..., sk-ant-..., sk_live_...
+    {
+        re: /\bsk[-_][A-Za-z0-9_\-]{20,}\b/g,
+        fn: (_m, _o, _s, _gl, ctx) => { ctx.stats.openaiKeys++; return '<openai-key>'; },
     },
     // IPv4 (with optional port). Conservative — requires 0-255 range to avoid
     // false positives on version strings like 1.2.3.4 in changelogs (it'll still
@@ -69,32 +89,37 @@ const PATTERNS = [
     {
         re: /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?::(\d{1,5}))?\b/g,
         fn: (m, port, _o, _s, _gl, ctx) => {
-            // Strip port for the lookup so 1.2.3.4:80 and 1.2.3.4:443 share an alias,
-            // then re-attach the port (which is not sensitive).
+            ctx.stats.ips++;
             const ipPart = m.replace(/:\d+$/, '');
-            const alias = pseudonym(ctx.ip, ipPart, 'ip');
+            // Keep first two octets visible for network-level tracking,
+            // mask last two for privacy. Same real IP → same masked suffix.
+            const octets = ipPart.split('.');
+            const prefix = `${octets[0]}.${octets[1]}`;
+            const suffix = `${octets[2]}.${octets[3]}`;
+            const masked = pseudonym(ctx.ip, suffix, 'host');
+            const alias = `${prefix}.${masked}`;
             return port ? `${alias}:${port}` : alias;
         },
     },
     // IPv6 (loose — any run of hex groups separated by colons, with at least two colons)
     {
         re: /\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b/g,
-        fn: (m, _o, _s, _gl, ctx) => pseudonym(ctx.ipv6, m, 'ipv6'),
+        fn: (m, _o, _s, _gl, ctx) => { ctx.stats.ipv6s++; return pseudonym(ctx.ipv6, m, 'ipv6'); },
     },
     // Email
     {
         re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
-        fn: (m, _o, _s, _gl, ctx) => pseudonym(ctx.email, m.toLowerCase(), 'email'),
+        fn: (m, _o, _s, _gl, ctx) => { ctx.stats.emails++; return pseudonym(ctx.email, m.toLowerCase(), 'email'); },
     },
     // Windows user home paths: C:\Users\<name>\... → C:\Users\<user-N>\...
     {
         re: /([A-Za-z]:\\Users\\)([^\\\/\s"']+)/g,
-        fn: (_m, prefix, name, _o, _s, ctx) => `${prefix}${pseudonym(ctx.userPath, name.toLowerCase(), 'user')}`,
+        fn: (_m, prefix, name, _o, _s, ctx) => { ctx.stats.userPaths++; return `${prefix}${pseudonym(ctx.userPath, name.toLowerCase(), 'user')}`; },
     },
     // POSIX home paths
     {
         re: /(\/(?:home|Users)\/)([^\/\s"']+)/g,
-        fn: (_m, prefix, name, _o, _s, ctx) => `${prefix}${pseudonym(ctx.userPath, name.toLowerCase(), 'user')}`,
+        fn: (_m, prefix, name, _o, _s, ctx) => { ctx.stats.userPaths++; return `${prefix}${pseudonym(ctx.userPath, name.toLowerCase(), 'user')}`; },
     },
     // Hostnames inside URLs (after the scheme). Skips localhost. Done after IP
     // pattern so numeric hosts have already been pseudonymized.
@@ -102,6 +127,7 @@ const PATTERNS = [
         re: /(https?:\/\/)([A-Za-z0-9][A-Za-z0-9.\-]*)(?=[/:?#]|$)/g,
         fn: (_m, scheme, host, _o, _s, ctx) => {
             if (host === 'localhost' || host.startsWith('<ip')) return `${scheme}${host}`;
+            ctx.stats.hosts++;
             return `${scheme}${pseudonym(ctx.host, host.toLowerCase(), 'host')}`;
         },
     },
@@ -109,7 +135,7 @@ const PATTERNS = [
     // Last so it can't clobber more specific patterns. No cardinality value — uniformly redact.
     {
         re: /\b[A-Za-z0-9_\-]{32,}\b/g,
-        fn: () => '<long-token>',
+        fn: (_m, _o, _s, _gl, ctx) => { ctx.stats.longTokens++; return '<long-token>'; },
     },
 ];
 
@@ -181,8 +207,13 @@ export function scrubDeep(value, ctx, _seen = new WeakMap()) {
                 if (value instanceof Map) {
                     const obj = {};
                     for (const [k, v] of value.entries()) {
-                        const ks = String(k);
-                        obj[ks] = SENSITIVE_KEY_RE.test(ks) ? '<redacted>' : scrubDeep(v, ctx, _seen);
+                        const ks = scrubString(String(k), ctx); // scrub tracker keys (vaultSource:title)
+                        if (SENSITIVE_KEY_RE.test(ks)) {
+                            ctx.stats.sensitiveFields++;
+                            obj[ks] = '<redacted>';
+                        } else {
+                            obj[ks] = scrubDeep(v, ctx, _seen);
+                        }
                     }
                     return { __type: 'Map', entries: obj };
                 }
@@ -195,6 +226,7 @@ export function scrubDeep(value, ctx, _seen = new WeakMap()) {
             const out = {};
             for (const k of Object.keys(value)) {
                 if (SENSITIVE_KEY_RE.test(k)) {
+                    ctx.stats.sensitiveFields++;
                     out[k] = '<redacted>';
                 } else {
                     out[k] = scrubDeep(value[k], ctx, _seen);

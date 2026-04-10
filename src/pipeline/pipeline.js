@@ -113,7 +113,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
         if (candidateManifest) {
+            const _aiStart = performance.now();
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates, signal);
+            trace.aiSearchMs = Math.round(performance.now() - _aiStart);
             if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
@@ -165,7 +167,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
     } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
+        const _kwStart = performance.now();
         const keywordResult = matchEntries(chat, vaultSnapshot);
+        trace.keywordMatchMs = Math.round(performance.now() - _kwStart);
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
@@ -230,7 +234,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         if (!candidateManifest) {
             finalEntries = keywordResult.matched;
         } else {
+            const _aiStart2 = performance.now();
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates, signal);
+            trace.aiSearchMs = Math.round(performance.now() - _aiStart2);
             if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
@@ -272,7 +278,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
     } else {
+        const _kwStart2 = performance.now();
         const keywordResult = matchEntries(chat, vaultSnapshot);
+        trace.keywordMatchMs = Math.round(performance.now() - _kwStart2);
         finalEntries = keywordResult.matched;
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));

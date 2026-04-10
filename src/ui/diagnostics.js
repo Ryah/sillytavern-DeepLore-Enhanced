@@ -138,6 +138,18 @@ export function runHealthCheck() {
             }
         }
 
+        // BUG-AUDIT-H22: Warn when excluding a force-injected entry (constant/seed/bootstrap)
+        // — force-injected entries are always present, so this entry will be permanently blocked.
+        if (entry.excludes.length > 0) {
+            for (const exc of entry.excludes) {
+                const target = entries.find(e => e.title.toLowerCase() === exc.toLowerCase());
+                if (target && (target.constant || target.seed || target.bootstrap)) {
+                    const kind = target.constant ? 'constant' : target.seed ? 'seed' : 'bootstrap';
+                    issues.push({ type: 'Gating', severity: 'warning', entry: entry.title, detail: `Excludes "${exc}" which is a ${kind} (always injected) — this entry will always be blocked` });
+                }
+            }
+        }
+
         // Oversized entries
         if (entry.tokenEstimate > 1500) {
             issues.push({ type: 'Size', severity: 'warning', entry: entry.title, detail: `~${entry.tokenEstimate} tokens (>1500)` });

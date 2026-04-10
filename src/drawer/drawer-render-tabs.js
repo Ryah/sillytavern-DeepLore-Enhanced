@@ -75,8 +75,9 @@ export function renderInjectionTab() {
 
     // Why? tab filter toggle — now static in drawer.html, just update active state
     const $filterToggle = $drawer.find('.dle-why-filter-toggle');
-    $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false');
-    $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true');
+    // BUG-AUDIT-C11: Roving tabindex — only active radio button is in tab order.
+    $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false').attr('tabindex', '-1');
+    $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true').attr('tabindex', '0');
 
     // Compute diff via shared data layer
     const diff = computeSourcesDiff(sources, prev);
@@ -91,6 +92,12 @@ export function renderInjectionTab() {
     const settings = getSettings();
     const addedTitles = new Set(diff.added.map(s => s.title));
     const removedTitles = new Set(diff.removed.map(s => s.title));
+
+    // BUG-AUDIT-H14: Build title→entry lookup once instead of vaultIndex.find() per entry (O(N*M) → O(N+M)).
+    const titleToEntry = new Map();
+    for (const e of vaultIndex) {
+        if (!titleToEntry.has(e.title)) titleToEntry.set(e.title, e);
+    }
 
     function buildWhyHtml(srcs) {
         let h = '';
@@ -114,7 +121,7 @@ export function renderInjectionTab() {
                 h += escapeHtml(src.title);
             }
             // Show folder path if entry has one
-            const whyEntry = vaultIndex.find(e => e.title === src.title);
+            const whyEntry = titleToEntry.get(src.title);
             if (whyEntry?.folderPath) {
                 h += ` <span class="dle-entry-folder" title="${escapeHtml(whyEntry.folderPath)}">${escapeHtml(whyEntry.folderPath)}</span>`;
             }

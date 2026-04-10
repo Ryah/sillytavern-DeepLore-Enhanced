@@ -143,6 +143,16 @@ const VISIBLE_NOTES_PATTERNS = [
     /\[Meta:[\s\S]*?\]/gi,
 ];
 
+// BUG-AUDIT-H08: Soft cap for deeplore_ai_notepad to prevent unbounded growth.
+// Trim oldest block at paragraph boundary when exceeding 64 KB.
+const AI_NOTEPAD_MAX_CHARS = 65536;
+function capNotepad(text) {
+    if (!text || text.length <= AI_NOTEPAD_MAX_CHARS) return text;
+    const trimmed = text.slice(text.length - AI_NOTEPAD_MAX_CHARS);
+    const boundary = trimmed.indexOf('\n\n');
+    return boundary !== -1 ? trimmed.slice(boundary + 2) : trimmed;
+}
+
 // ============================================================================
 // Generation Interceptor
 // ============================================================================
@@ -1035,6 +1045,9 @@ jQuery(async function () {
         _registerEs(event_types.GENERATION_STOPPED, () => {
             try {
                 _removePipelineStatus();
+                // BUG-AUDIT-CNEW04: Reset tool status counts on stop — otherwise they
+                // accumulate across stopped+restarted generations.
+                _removeDleToolStatus();
                 setGenerationLockEpoch(generationLockEpoch + 1);
                 if (generationLock) setGenerationLock(false);
             } catch (err) { console.warn('[DLE] GENERATION_STOPPED cleanup failed:', err?.message); }
@@ -1049,13 +1062,16 @@ jQuery(async function () {
 
             if (mode === 'tag') {
                 // Tag mode: extract <dle-notes> blocks
+                // BUG-AUDIT-C01: Capture epoch before any writes — fast chat switch between
+                // extractAiNotes() and the metadata write can land notes in the wrong chat.
+                const tagEpoch = chatEpoch;
                 const { notes, cleanedMessage } = extractAiNotes(lastMessage.mes);
-                if (notes) {
+                if (notes && tagEpoch === chatEpoch) {
                     lastMessage.mes = cleanedMessage;
                     lastMessage.extra = lastMessage.extra || {};
                     lastMessage.extra.deeplore_ai_notes = notes;
                     const existing = chat_metadata.deeplore_ai_notepad || '';
-                    chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+                    chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + notes).trim());
                     saveMetadataDebounced();
                 }
             } else if (mode === 'extract') {
@@ -1072,10 +1088,14 @@ jQuery(async function () {
 
                 // BUG-AUDIT-7: Fire-and-forget async extraction with epoch guard
                 // to prevent writing notes to the wrong chat after a chat switch.
+                // BUG-AUDIT-C04: Set flag INSIDE the try block so any sync throw
+                // (e.g. resolveConnectionConfig) doesn't leak the flag forever.
                 if (notepadExtractInProgress) return;
-                setNotepadExtractInProgress(true);
                 const extractEpoch = chatEpoch;
+                const msgIndex = chat.length - 1;
+                const swipeIdAtStart = lastMessage.swipe_id;
                 (async () => {
+                    setNotepadExtractInProgress(true);
                     try {
                         const extractPrompt = settings.aiNotepadExtractPrompt?.trim() || DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT;
                         const existingNotes = chat_metadata?.deeplore_ai_notepad?.trim();
@@ -1091,11 +1111,14 @@ jQuery(async function () {
 
                         // BUG-AUDIT-7: Bail if chat changed during async extraction
                         if (extractEpoch !== chatEpoch) return;
+                        // BUG-AUDIT-CNEW01: Bail if message was swiped/deleted during extraction
+                        const currentMsg = chat[msgIndex];
+                        if (!currentMsg || currentMsg.swipe_id !== swipeIdAtStart) return;
                         if (responseText && responseText !== 'NOTHING_TO_NOTE') {
-                            lastMessage.extra = lastMessage.extra || {};
-                            lastMessage.extra.deeplore_ai_notes = responseText;
+                            currentMsg.extra = currentMsg.extra || {};
+                            currentMsg.extra.deeplore_ai_notes = responseText;
                             const existing = chat_metadata.deeplore_ai_notepad || '';
-                            chat_metadata.deeplore_ai_notepad = (existing + '\n' + responseText).trim();
+                            chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + responseText).trim());
                             saveMetadataDebounced();
                         }
                     } catch (err) {
@@ -1166,6 +1189,9 @@ jQuery(async function () {
 
         // Librarian: consolidate tool calls at end of turn (GENERATION_ENDED fires once)
         _registerEs(event_types.GENERATION_ENDED, () => {
+            // BUG-AUDIT-DP02: Capture epoch before any writes — chat switch during
+            // multi-round tool calls can persist results to the wrong chat.
+            const libEpoch = chatEpoch;
             _removeDleToolStatus();
             _removePipelineStatus();
             try {
@@ -1174,6 +1200,7 @@ jQuery(async function () {
 
                 const pendingCalls = consumePendingToolCalls();
                 if (pendingCalls.length === 0) return;
+                if (libEpoch !== chatEpoch) return;
 
                 // Find the last non-empty assistant message in the current turn.
                 // Skip empty intermediates left by tool-call rounds (their .mes is '' or '...').
@@ -1228,7 +1255,6 @@ jQuery(async function () {
                         if (message && !message.is_user) {
                             message.extra = message.extra || {};
                             message.extra.deeplore_sources = lastInjectionSources;
-                            message.extra.deeplore_sources_swipe_id = message.swipe_id ?? 0;
                             lastInjectionSources._consumedByMesId = messageId;
                             saveMetadataDebounced();
                         }
@@ -1242,15 +1268,18 @@ jQuery(async function () {
             // --- AI Notebook: fallback extraction (if GENERATION_ENDED missed it, e.g. swipe) ---
             try {
                 if (settings.aiNotepadEnabled) {
+                    // BUG-AUDIT-C02: Capture epoch before extraction — CHAT_CHANGED can race
+                    // between extractAiNotes and the metadata append, writing to the wrong chat.
+                    const renderEpoch = chatEpoch;
                     if (message && !message.is_user && message.mes) {
                         const { notes, cleanedMessage } = extractAiNotes(message.mes);
-                        if (notes) {
+                        if (notes && renderEpoch === chatEpoch) {
                             message.mes = cleanedMessage;
                             message.extra = message.extra || {};
                             if (!message.extra.deeplore_ai_notes) {
                                 message.extra.deeplore_ai_notes = notes;
                                 const existing = chat_metadata.deeplore_ai_notepad || '';
-                                chat_metadata.deeplore_ai_notepad = (existing + '\n' + notes).trim();
+                                chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + notes).trim());
                             }
                             saveMetadataDebounced();
                             const mesBlock = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
@@ -1480,10 +1509,21 @@ jQuery(async function () {
             try {
                 const message = chat?.[messageId];
                 if (!message?.extra?.deeplore_ai_notes) return;
+                // BUG-AUDIT-H07: Use last-occurrence removal (same as MESSAGE_SWIPED BUG-290)
+                // to avoid removing an earlier message's identical note instead of this one.
                 const notes = message.extra.deeplore_ai_notes;
                 const acc = chat_metadata?.deeplore_ai_notepad || '';
                 if (acc.includes(notes)) {
-                    chat_metadata.deeplore_ai_notepad = acc.replace(notes, '').replace(/\n{3,}/g, '\n\n').trim();
+                    const anchored = '\n' + notes;
+                    let updated = acc;
+                    const aIdx = acc.lastIndexOf(anchored);
+                    if (aIdx !== -1) {
+                        updated = acc.slice(0, aIdx) + acc.slice(aIdx + anchored.length);
+                    } else {
+                        const nIdx = acc.lastIndexOf(notes);
+                        if (nIdx !== -1) updated = acc.slice(0, nIdx) + acc.slice(nIdx + notes.length);
+                    }
+                    chat_metadata.deeplore_ai_notepad = updated.replace(/\n{3,}/g, '\n\n').trim();
                 }
                 delete message.extra.deeplore_ai_notes;
                 saveMetadataDebounced();

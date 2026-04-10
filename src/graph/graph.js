@@ -306,10 +306,10 @@ export async function showGraphPopup() {
             <button id="dle-graph-analyze" class="menu_button dle-graph-toolbar-btn" title="Find gaps in your vault — highlights orphans, weak bridges, and missing connections"><i class="fa-solid fa-magnifying-glass-chart"></i> Find Gaps</button>
         </div>
         <div class="dle-graph-legend" id="dle-graph-legend">
-            <span class="dle-graph-legend-item" data-edge-type="link"><span style="color: #aac8ff;">—</span> Link</span>
-            <span class="dle-graph-legend-item" data-edge-type="requires"><span class="dle-success">—</span> Requires</span>
-            <span class="dle-graph-legend-item" data-edge-type="excludes"><span class="dle-error">—</span> Excludes</span>
-            <span class="dle-graph-legend-item" data-edge-type="cascade"><span class="dle-warning">—</span> Cascade</span>
+            <span class="dle-graph-legend-item" data-edge-type="link" role="button" tabindex="0" aria-label="Toggle link edges"><span style="color: #aac8ff;">—</span> Link</span>
+            <span class="dle-graph-legend-item" data-edge-type="requires" role="button" tabindex="0" aria-label="Toggle requires edges"><span class="dle-success">—</span> Requires</span>
+            <span class="dle-graph-legend-item" data-edge-type="excludes" role="button" tabindex="0" aria-label="Toggle excludes edges"><span class="dle-error">—</span> Excludes</span>
+            <span class="dle-graph-legend-item" data-edge-type="cascade" role="button" tabindex="0" aria-label="Toggle cascade edges"><span class="dle-warning">—</span> Cascade</span>
         </div>
         <div class="dle-graph-canvas-wrap">
             <canvas id="dle-graph-canvas" class="dle-graph-canvas" tabindex="-1" width="900" height="550" aria-label="Force-directed graph showing ${nodes.length} vault entries and ${edges.length} relationships between them."></canvas>
@@ -488,22 +488,25 @@ export async function showGraphPopup() {
     const revealOrder = [];
     const placeDist = springLen * 1.2;
 
+    // BUG-AUDIT-H11: Pre-compute neighbor sets ONCE — reused for both placement and physics.
+    // Was duplicated O(N²) as neighborSetsForPlace + neighborSets.
+    const neighborSets = new Map();
+    for (const n of nodes) {
+        if (n.orphan) continue;
+        neighborSets.set(n.id, new Set((adjacency.get(n.id) || [])));
+    }
+
     // Pre-compute shared neighbors for placement
     const sharedWith = new Map();
     for (const n of nodes) sharedWith.set(n.id, []);
-    const neighborSetsForPlace = new Map();
-    for (const n of nodes) {
-        if (n.orphan) continue;
-        neighborSetsForPlace.set(n.id, new Set((adjacency.get(n.id) || [])));
-    }
     for (let i = 0; i < nodes.length; i++) {
         if (nodes[i].orphan) continue;
-        const setI = neighborSetsForPlace.get(i);
+        const setI = neighborSets.get(i);
         if (!setI || setI.size === 0) continue;
         for (let j = i + 1; j < nodes.length; j++) {
             if (nodes[j].orphan) continue;
             if (setI.has(j)) continue;
-            const setJ = neighborSetsForPlace.get(j);
+            const setJ = neighborSets.get(j);
             if (!setJ || setJ.size === 0) continue;
             let shared = 0;
             for (const nb of setI) { if (setJ.has(nb)) shared++; }
@@ -647,11 +650,7 @@ export async function showGraphPopup() {
     }
 
     // Pre-compute shared neighbors (virtual springs)
-    const neighborSets = new Map();
-    for (const n of nodes) {
-        if (n.orphan) continue;
-        neighborSets.set(n.id, new Set((adjacency.get(n.id) || [])));
-    }
+    // BUG-AUDIT-H11: neighborSets already computed above for placement — reuse here.
     const MAX_SHARED_PAIRS = 2000;
     const sharedNeighborPairs = [];
     outerLoop:
@@ -674,9 +673,11 @@ export async function showGraphPopup() {
     }
     dbg(`Shared-neighbor pairs: ${sharedNeighborPairs.length} (n+2 virtual springs)`);
 
-    // Pre-compute same-tag pairs
+    // BUG-AUDIT-H16: Pre-compute same-tag pairs with cap (same as sharedNeighborPairs)
     const tagPairs = [];
+    const MAX_TAG_PAIRS = 2000;
     const lorebookTag = (settings.lorebookTag || 'lorebook').toLowerCase();
+    outerTagLoop:
     for (let i = 0; i < nodes.length; i++) {
         if (nodes[i].orphan) continue;
         const tagsI = nodes[i].tags.filter(t => t.toLowerCase() !== lorebookTag);
@@ -687,7 +688,10 @@ export async function showGraphPopup() {
             if (tagsJ.length === 0) continue;
             let shared = 0;
             for (const t of tagsI) { if (tagsJ.includes(t)) shared++; }
-            if (shared > 0) tagPairs.push({ a: i, b: j, shared });
+            if (shared > 0) {
+                tagPairs.push({ a: i, b: j, shared });
+                if (tagPairs.length >= MAX_TAG_PAIRS) break outerTagLoop;
+            }
         }
     }
     dbg(`Tag pairs: ${tagPairs.length} (same-tag clustering springs)`);

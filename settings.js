@@ -156,7 +156,8 @@ export const defaultSettings = {
     stripDuplicateInjections: true,
     stripLookbackDepth: 2,
     // Optimize Keys
-    optimizeKeysMode: 'keyword-only',
+    // BUG-AUDIT-H20: Must match HTML <option value="keyword">, not "keyword-only"
+    optimizeKeysMode: 'keyword',
     optimizeKeysPrompt: '',
     optimizeKeysConnectionMode: 'inherit',
     optimizeKeysProfileId: '',

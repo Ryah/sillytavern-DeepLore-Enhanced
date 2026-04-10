@@ -17,7 +17,7 @@ import { testEntryMatch } from '../../core/matching.js';
 import { getSettings, getVaultByName } from '../../settings.js';
 import { writeNote, obsidianFetch, encodeVaultPath } from '../vault/obsidian-api.js';
 import {
-    vaultIndex, trackerKey,
+    vaultIndex, trackerKey, chatEpoch,
     setVaultIndex, setIndexTimestamp,
 } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
@@ -88,6 +88,8 @@ export function attachCopyHandler(container) {
  * Show the Notebook editor popup for the current chat.
  */
 export async function showNotebookPopup() {
+    // BUG-AUDIT-DP04: Snapshot epoch at open — discard edits if chat changed while popup was open.
+    const epochAtOpen = chatEpoch;
     const currentContent = chat_metadata?.deeplore_notebook || '';
 
     const container = document.createElement('div');
@@ -125,6 +127,10 @@ export async function showNotebookPopup() {
     });
 
     if (result) {
+        if (epochAtOpen !== chatEpoch) {
+            toastr.warning('Chat changed while editing — changes discarded to prevent cross-chat corruption.', 'DeepLore Enhanced');
+            return;
+        }
         chat_metadata.deeplore_notebook = capturedValue;
         saveMetadataDebounced();
     }
@@ -135,6 +141,8 @@ export async function showNotebookPopup() {
  * Read-only display of accumulated AI-written notes with clear option.
  */
 export async function showAiNotepadPopup() {
+    // BUG-AUDIT-DP04: Snapshot epoch at open — discard edits if chat changed while popup was open.
+    const epochAtOpen = chatEpoch;
     const currentNotes = chat_metadata?.deeplore_ai_notepad || '';
 
     const container = document.createElement('div');
@@ -171,6 +179,10 @@ export async function showAiNotepadPopup() {
     });
 
     if (result) {
+        if (epochAtOpen !== chatEpoch) {
+            toastr.warning('Chat changed while editing — changes discarded to prevent cross-chat corruption.', 'DeepLore Enhanced');
+            return;
+        }
         chat_metadata.deeplore_ai_notepad = capturedValue;
         saveMetadataDebounced();
     }

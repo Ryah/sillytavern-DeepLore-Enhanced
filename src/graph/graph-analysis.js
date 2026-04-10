@@ -131,10 +131,11 @@ export function computeLouvainCommunities(gs) {
 
     // Phase 1: Local moves — iterate until no improvement
     const MAX_ITERATIONS = 20;
+    // BUG-AUDIT-H17: Allocate order array ONCE, re-shuffle in place each iteration.
+    const order = Array.from({ length: n }, (_, i) => i);
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
         let moved = false;
-        // Random order for better convergence
-        const order = Array.from({ length: n }, (_, i) => i);
+        // Shuffle in place for better convergence
         for (let i = order.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [order[i], order[j]] = [order[j], order[i]];

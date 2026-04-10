@@ -91,19 +91,25 @@ Contextual gating is now fully customizable. Define your own frontmatter fields 
 - **Responsive** -- Rule builder adapts at 1024px and 768px breakpoints.
 - **Drawer icon** -- Changed from FA scroll to inline Obsidian crystal SVG.
 
-### New Slash Commands
+### Slash Commands
 
 | Command | Description |
 |---------|-------------|
-| `/dle-notebook` | Open/edit persistent per-chat AI scratchpad |
-| `/dle-ai-notepad` | View or clear AI-written session notes |
+| `/dle-why` | Show why entries would/wouldn't inject (alias: `/dle-context`) |
 | `/dle-browse` | Searchable entry browser with content preview |
 | `/dle-graph` | Interactive entry relationship graph |
 | `/dle-simulate` | Replay chat showing entry activation timeline |
-| `/dle-suggest` | AI suggests new lorebook entries from chat |
+| `/dle-inspect` | Detailed pipeline trace of last generation |
+| `/dle-status` | Show extension status, vault stats, and active settings |
+| `/dle-notebook` | Open/edit persistent per-chat AI scratchpad |
+| `/dle-ai-notepad` | View or clear AI-written session notes |
+| `/dle-newlore` | AI suggests new lorebook entries from chat (alias: `/dle-suggest`) |
 | `/dle-optimize-keys` | AI keyword suggestions for entries |
-| `/dle-context` | Show what would be injected right now |
+| `/dle-summarize` | Generate AI summaries for entries without one |
+| `/dle-review` | AI review of vault entry quality |
+| `/dle-scribe` | Write a session summary to Obsidian on demand |
 | `/dle-scribe-history` | View all session notes from Obsidian |
+| `/dle-librarian` | Toggle the Librarian AI tool system on/off |
 | `/dle-pin` | Pin an entry to always inject in the current chat |
 | `/dle-unpin` | Remove a pin from the current chat |
 | `/dle-block` | Block an entry from injecting in the current chat |
@@ -116,11 +122,16 @@ Contextual gating is now fully customizable. Define your own frontmatter fields 
 | `/dle-set-scene` | Alias: set active scene type |
 | `/dle-set-characters` | Alias: set present characters |
 | `/dle-context-state` | Show all active gating fields |
-| `/dle-setup` | Run the first-time setup wizard |
-| `/dle-summarize` | Generate AI summaries for entries without one |
-| `/dle-import` | Import SillyTavern World Info JSON into the vault |
-| `/dle-cache-info` | View vault cache status and storage info |
+| `/dle-set-folder` | Filter entries by vault folder path |
+| `/dle-clear-folder` | Clear folder filter |
 | `/dle-clear-all-context` | Clear all active gating filters at once |
+| `/dle-refresh` | Refresh vault index from Obsidian |
+| `/dle-import` | Import SillyTavern World Info JSON into the vault |
+| `/dle-setup` | Run the first-time setup wizard |
+| `/dle-health` | Audit entries for common issues (30+ checks) |
+| `/dle-analytics` | Show entry usage analytics popup |
+| `/dle-diagnostics` | Export diagnostics bundle (alias: `/dle-diag`) |
+| `/dle-cache-info` | View vault cache status and storage info |
 
 ### New Frontmatter Fields
 

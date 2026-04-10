@@ -97,6 +97,12 @@ export function registerAiCommands() {
                 toastr.warning('A session summary is already being written. Wait for it to finish.', 'DeepLore Enhanced');
                 return '';
             }
+            // BUG-AUDIT-H23: Guard against missing scribeFolder — writes to "undefined/" otherwise.
+            const settings = getSettings();
+            if (!settings.scribeFolder) {
+                toastr.warning('Session Scribe folder is not set. Configure it in Settings → Features → Session Scribe.', 'DeepLore Enhanced');
+                return '';
+            }
             toastr.info('Writing session note...', 'DeepLore Enhanced');
             await runScribe(userPrompt?.trim() || '');
             return 'Session note written.';

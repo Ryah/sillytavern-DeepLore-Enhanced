@@ -217,6 +217,16 @@ export function wireInjectionTab($drawer) {
         scheduleRender(renderInjectionTab);
     });
 
+    // BUG-AUDIT-C11: Roving tabindex for Why? filter radiogroup — matches Librarian sub-tab pattern.
+    $drawer.on('keydown', '.dle-why-filter-btn', function (e) {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        e.preventDefault();
+        const $btns = $drawer.find('.dle-why-filter-btn');
+        const idx = $btns.index(this);
+        const next = e.key === 'ArrowRight' ? (idx + 1) % $btns.length : (idx - 1 + $btns.length) % $btns.length;
+        $btns.eq(next).trigger('click').focus();
+    });
+
     // Copy injected entry titles to clipboard
     $drawer.on('click', '.dle-copy-titles-btn', function () {
         const sources = lastInjectionSources;

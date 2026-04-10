@@ -65,7 +65,12 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
     // Add pinned entries not already in results
     // H23: Use matchesPinBlock for vault-aware matching (backward compat with bare strings)
     if (policy.pins.length > 0) {
-        const resultTitles = new Set(result.map(e => e.title.toLowerCase()));
+        // BUG-AUDIT-H15: Build title→index Map for O(1) lookup instead of findIndex per pin.
+        const resultTitleIdx = new Map();
+        for (let ri = 0; ri < result.length; ri++) {
+            const lk = result[ri].title.toLowerCase();
+            if (!resultTitleIdx.has(lk)) resultTitleIdx.set(lk, ri);
+        }
         for (const entry of vaultSnapshot) {
             const isPinned = policy.pins.some(pb => matchesPinBlock(pb, entry));
             if (isPinned) {
@@ -77,16 +82,20 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
                     excludes: [...(entry.excludes || [])],
                     links: [...(entry.links || [])],
                     resolvedLinks: [...(entry.resolvedLinks || [])],
-                    customFields: entry.customFields ? JSON.parse(JSON.stringify(entry.customFields)) : {},
+                    // BUG-AUDIT-P8: Avoid JSON round-trip for customFields — shallow clone with array spread.
+                    customFields: entry.customFields
+                        ? Object.fromEntries(Object.entries(entry.customFields).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v]))
+                        : {},
                 };
-                if (!resultTitles.has(entry.title.toLowerCase())) {
+                const lowerTitle = entry.title.toLowerCase();
+                if (!resultTitleIdx.has(lowerTitle)) {
+                    resultTitleIdx.set(lowerTitle, result.length);
                     result.push({ ...entry, constant: true, priority: 10, ...cloneFields });
-                    resultTitles.add(entry.title.toLowerCase());
                     matchedKeys.set(entry.title, '(pinned)');
                 } else {
                     // Entry already matched — replace with pinned copy
-                    const idx = result.findIndex(e => e.title.toLowerCase() === entry.title.toLowerCase());
-                    if (idx !== -1) result[idx] = { ...entry, constant: true, priority: 10, ...cloneFields };
+                    const idx = resultTitleIdx.get(lowerTitle);
+                    if (idx !== undefined) result[idx] = { ...entry, constant: true, priority: 10, ...cloneFields };
                 }
             }
         }

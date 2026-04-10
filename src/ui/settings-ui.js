@@ -525,13 +525,21 @@ async function deletePreset($container, $select, toolKey, settings) {
     const options = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
     const html = `<p>Select a preset to delete:</p><select id="dle-preset-delete-select" class="text_pole">${options}</select>`;
 
+    // BUG-AUDIT-C06: Capture selected value BEFORE the popup closes and removes
+    // the DOM element. The old code queried `getElementById` after `callGenericPopup`
+    // resolved, which reads from a detached/removed DOM — silent failure.
+    let selectedToDelete = '';
     const confirmed = await callGenericPopup(html, POPUP_TYPE.CONFIRM, '', {
         okButton: 'Delete', cancelButton: 'Cancel',
+        onOpen: () => {
+            const sel = document.getElementById('dle-preset-delete-select');
+            if (sel) sel.addEventListener('change', () => { selectedToDelete = sel.value; });
+            if (sel?.value) selectedToDelete = sel.value;
+        },
     });
     if (!confirmed) { $select.val(''); return; }
 
-    const deleteSelect = document.getElementById('dle-preset-delete-select');
-    const toDelete = deleteSelect?.value;
+    const toDelete = selectedToDelete;
     if (toDelete && settings.promptPresets[toolKey]) {
         delete settings.promptPresets[toolKey][toDelete];
         saveSettingsDebounced();
@@ -1973,7 +1981,11 @@ function bindPopupEvents($container) {
         );
         if (!confirmed) return;
 
-        // Preserve all connection settings (vault + AI profiles/proxies)
+        // Preserve all connection settings (vault + AI profiles/proxies) and user data
+        // BUG-AUDIT-H21: Also preserve promptPresets and analyticsData — these are user-created
+        // data, not settings defaults. Wiping them on "reset settings" is data loss.
+        const savedPromptPresets = JSON.parse(JSON.stringify(settings.promptPresets || {}));
+        const savedAnalyticsData = JSON.parse(JSON.stringify(settings.analyticsData || {}));
         const savedVaults = JSON.parse(JSON.stringify(settings.vaults || []));
         const savedPort = settings.obsidianPort;
         const savedKey = settings.obsidianApiKey;
@@ -2011,8 +2023,10 @@ function bindPopupEvents($container) {
                 : value;
         }
 
-        // Restore all connection settings
+        // Restore all connection settings and user data
         settings.vaults = savedVaults;
+        settings.promptPresets = savedPromptPresets;
+        settings.analyticsData = savedAnalyticsData;
         settings.obsidianPort = savedPort;
         settings.obsidianApiKey = savedKey;
         settings._vaultsMigrated = true;

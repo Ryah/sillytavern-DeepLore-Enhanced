@@ -13,6 +13,7 @@ import {
     fuzzySearchIndex, vaultIndex,
     buildPromise,
     generationCount,
+    generationLockEpoch,
     chatEpoch,
     librarianSessionStats, setLibrarianSessionStats,
     librarianChatStats, setLibrarianChatStats,
@@ -111,8 +112,28 @@ export function persistGaps(updatedGaps) {
     const ctx = getContext();
     const meta = ctx?.chatMetadata;
     if (!meta) return false;
-    setLoreGaps(updatedGaps);
-    meta.deeplore_lore_gaps = updatedGaps;
+    // BUG-AUDIT-C03: Cap gap count to prevent unbounded growth in long chats.
+    // Evict oldest by createdAt when exceeding limit.
+    const MAX_GAPS = 200;
+    let capped = updatedGaps;
+    if (capped.length > MAX_GAPS) {
+        capped = [...capped].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, MAX_GAPS);
+    }
+    setLoreGaps(capped);
+    meta.deeplore_lore_gaps = capped;
+    // BUG-AUDIT-H09: Prune orphaned ids from hidden/dismissed sibling arrays.
+    // When gaps are removed (evicted or dismissed), their ids linger forever in these arrays.
+    const activeIds = new Set(capped.map(g => g.id));
+    const hidden = meta.deeplore_lore_gaps_hidden;
+    if (Array.isArray(hidden) && hidden.length > 0) {
+        const pruned = hidden.filter(id => activeIds.has(id));
+        if (pruned.length !== hidden.length) meta.deeplore_lore_gaps_hidden = pruned;
+    }
+    const dismissed = meta.deeplore_lore_gaps_dismissed;
+    if (Array.isArray(dismissed) && dismissed.length > 0) {
+        const pruned = dismissed.filter(id => activeIds.has(id));
+        if (pruned.length !== dismissed.length) meta.deeplore_lore_gaps_dismissed = pruned;
+    }
     saveMetadataDebounced();
     return true;
 }
@@ -321,13 +342,16 @@ function formatLinkedManifest(entries, summaryLen = 400) {
  * @param {number} [max=10] - Maximum linked entries to return
  * @returns {Array} Resolved VaultEntry objects
  */
-function resolveLinkedEntries(entry, excludeTitles, max = 10) {
+function resolveLinkedEntries(entry, excludeTitles, max = 10, titleMap = null) {
     if (!entry.resolvedLinks?.length) return [];
     const linked = [];
     for (const linkTitle of entry.resolvedLinks) {
         if (linked.length >= max) break;
         if (excludeTitles.has(linkTitle.toLowerCase())) continue;
-        const found = vaultIndex.find(e => e.title.toLowerCase() === linkTitle.toLowerCase());
+        // BUG-AUDIT-P1: Use pre-built titleMap for O(1) lookup instead of O(N) vaultIndex.find per link.
+        const found = titleMap
+            ? titleMap.get(linkTitle.toLowerCase())
+            : vaultIndex.find(e => e.title.toLowerCase() === linkTitle.toLowerCase());
         if (found) linked.push(found);
     }
     return linked;
@@ -345,7 +369,11 @@ export async function searchLoreAction(args) {
     // BUG-295: snapshot the generation counter at call-start so a swipe that clears
     // pendingToolCalls while this action is mid-await can't get its activity row pushed
     // back into the fresh swipe's buffer.
+    // BUG-AUDIT-CNEW02: Also snapshot generationLockEpoch — it's always bumped on
+    // GENERATION_STOPPED and lock acquisition, unlike generationCount which requires
+    // pipelineRan=true. Prevents tool results from a stopped generation leaking forward.
     const genAtStart = generationCount;
+    const lockEpochAtStart = generationLockEpoch;
 
     // Accept both { queries: [...] } and legacy { query: "..." }
     let queries = args?.queries;
@@ -362,6 +390,13 @@ export async function searchLoreAction(args) {
     // Wait for index if building
     if (!fuzzySearchIndex && buildPromise) {
         try { await buildPromise; } catch { /* fall through */ }
+    }
+
+    // BUG-AUDIT-P1: Build title→entry Map once for O(1) lookups in resolveLinkedEntries.
+    const titleMap = new Map();
+    for (const e of vaultIndex) {
+        const lk = e.title.toLowerCase();
+        if (!titleMap.has(lk)) titleMap.set(lk, e);
     }
 
     // Still no index — record gaps and bail
@@ -433,7 +468,7 @@ export async function searchLoreAction(args) {
         let part = `## Query: "${query}"\n${truncNote}\n### ${topEntry.title}\n${topEntry.content || ''}`;
 
         // Linked entries from top hit: manifest summaries, up to 10
-        const linked = resolveLinkedEntries(topEntry, shownTitles, 10);
+        const linked = resolveLinkedEntries(topEntry, shownTitles, 10, titleMap);
         if (linked.length > 0) {
             // Mark linked entries as shown to avoid duplication in later queries
             for (const le of linked) shownTitles.add(le.title.toLowerCase());
@@ -442,7 +477,8 @@ export async function searchLoreAction(args) {
         }
 
         resultParts.push(part);
-        totalTokens += (topEntry.tokenEstimate || 0) + linked.reduce((s, e) => s + (e.tokenEstimate || 0) / 4, 0);
+        // BUG-AUDIT-H18: tokenEstimate is already in tokens — don't divide by 4 again.
+        totalTokens += (topEntry.tokenEstimate || 0) + linked.reduce((s, e) => s + (e.tokenEstimate || 0), 0);
 
         // Successful searches are NOT gaps — only record when no results found.
         // If a prior no-results gap now has results, remove it (the lore exists now).
@@ -473,7 +509,9 @@ export async function searchLoreAction(args) {
     }
 
     const resultText = resultParts.join('\n\n---\n\n');
-    const estimatedTokens = Math.ceil(resultText.length / 4);
+    // BUG-AUDIT-H19: Use the accumulated totalTokens (from real tokenEstimate values)
+    // instead of the raw length/4 heuristic. Fall back to heuristic only if totalTokens is 0.
+    const estimatedTokens = totalTokens > 0 ? totalTokens : Math.ceil(resultText.length / 4);
 
     // Activity log + pending buffer
     const logEntry = {
@@ -489,7 +527,7 @@ export async function searchLoreAction(args) {
     // BUG-295: only push into the pending-tool-calls buffer if we're still in the same
     // generation we started in — otherwise a swipe since call-start already flushed the
     // buffer, and this late push would land in the next swipe's dropdown.
-    if (genAtStart === generationCount && epoch === chatEpoch) {
+    if (genAtStart === generationCount && lockEpochAtStart === generationLockEpoch && epoch === chatEpoch) {
         pendingToolCalls.push(logEntry);
     }
     notifyLoreGapsChanged(); // Re-render Activity sub-tab even when persistGaps wasn't called
@@ -512,7 +550,9 @@ export async function searchLoreAction(args) {
 export async function flagLoreAction(args) {
     const epoch = chatEpoch; // Snapshot for stale-guard
     // BUG-295: same generation-gen guard as searchLoreAction for the pendingToolCalls push.
+    // BUG-AUDIT-CNEW02: Also snapshot generationLockEpoch (same as searchLoreAction).
     const genAtStart = generationCount;
+    const lockEpochAtStart = generationLockEpoch;
     const title = args?.title?.trim();
     const reason = args?.reason?.trim();
     if (!title) return 'No title provided.';
@@ -579,7 +619,7 @@ export async function flagLoreAction(args) {
     };
     sessionActivityLog.push(logEntry);
     // BUG-295: generation / chat gate — see searchLoreAction for rationale.
-    if (genAtStart === generationCount && epoch === chatEpoch) {
+    if (genAtStart === generationCount && lockEpochAtStart === generationLockEpoch && epoch === chatEpoch) {
         pendingToolCalls.push(logEntry);
     }
     notifyLoreGapsChanged();

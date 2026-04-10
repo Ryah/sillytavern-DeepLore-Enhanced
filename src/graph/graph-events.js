@@ -174,13 +174,18 @@ export function initEvents(gs, dbg) {
                 }
                 if (entry.summary) details.push(`<em>${escapeHtml(entry.summary.substring(0, 120))}${entry.summary.length > 120 ? '...' : ''}</em>`);
                 const panel = canvas.parentNode?.querySelector('.dle-graph-detail-panel');
+                // BUG-AUDIT-H25: Add ARIA attributes and focus management to detail panel.
                 if (panel) {
+                    panel.setAttribute('role', 'dialog');
+                    panel.setAttribute('aria-label', `Entry details: ${entry.title}`);
                     panel.innerHTML = `<div class="dle-graph-detail-header">
                         <strong>${escapeHtml(entry.title)}</strong>
-                        <button class="dle-graph-detail-close" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                        <button class="dle-graph-detail-close" title="Close" aria-label="Close entry details"><i class="fa-solid fa-xmark"></i></button>
                     </div><div class="dle-graph-detail-body">${details.join('<br>')}</div>`;
                     panel.style.display = '';
-                    panel.querySelector('.dle-graph-detail-close')?.addEventListener('click', () => { panel.style.display = 'none'; }, { once: true });
+                    const closeBtn = panel.querySelector('.dle-graph-detail-close');
+                    closeBtn?.addEventListener('click', () => { panel.style.display = ''; panel.removeAttribute('role'); panel.style.display = 'none'; }, { once: true });
+                    closeBtn?.focus();
                 }
                 break;
             }
@@ -684,7 +689,7 @@ export function initEvents(gs, dbg) {
     const legendEl = document.getElementById('dle-graph-legend');
     if (legendEl) {
         legendEl.querySelectorAll('.dle-graph-legend-item').forEach(item => {
-            item.addEventListener('click', () => {
+            const toggleEdge = () => {
                 const type = item.dataset.edgeType;
                 if (!type) return;
                 edgeVisibility[type] = !edgeVisibility[type];
@@ -692,6 +697,11 @@ export function initEvents(gs, dbg) {
                 dbg(`Legend toggle: ${type} → ${edgeVisibility[type] ? 'visible' : 'hidden'}`);
                 gs.buildAdjacency();
                 gs.needsDraw = true;
+            };
+            item.addEventListener('click', toggleEdge, lOpt);
+            // BUG-AUDIT-H24: Keyboard activation for legend items (Enter/Space).
+            item.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEdge(); }
             }, lOpt);
         });
     }

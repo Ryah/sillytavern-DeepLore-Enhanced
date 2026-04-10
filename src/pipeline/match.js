@@ -245,7 +245,8 @@ export function matchEntries(chat, snapshot = null, { settings, characterName } 
 
     // Keyword occurrence weighting: re-sort within same priority group using hit count as tiebreaker
     if (settings.keywordOccurrenceWeighting) {
-        const scanText = buildScanText(chat, settings.scanDepth);
+        // BUG-AUDIT-H13: Use getScanText memo instead of calling buildScanText directly.
+        const scanText = getScanText(settings.scanDepth);
         const occurrenceCache = new Map();
         const getCachedCount = (entry) => {
             let count = occurrenceCache.get(entry.title);

@@ -219,6 +219,9 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
     if (analytics) {
         const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
         for (const key of Object.keys(analytics)) {
+            // BUG-AUDIT-DP01: Skip sub-objects like _librarian — they aren't tracker keys
+            // and were being silently wiped on every vault rebuild.
+            if (key.startsWith('_')) continue;
             if (!activeKeys.has(key)) delete analytics[key];
         }
     }
@@ -570,8 +573,9 @@ export async function hydrateFromCache() {
  */
 export async function buildIndexWithReuse() {
     if (indexing || vaultIndex.length === 0) {
-        // If a build is in progress, await it and report that delta didn't run
-        if (buildPromise) await buildPromise;
+        // If a build is in progress, await it — index is now fresh, no need for caller to rebuild.
+        // BUG-AUDIT-CNEW03: Previously returned false, causing callers to trigger redundant full rebuilds.
+        if (buildPromise) { await buildPromise; return true; }
         return false;
     }
 
@@ -585,6 +589,11 @@ export async function buildIndexWithReuse() {
     const promise = new Promise((res, rej) => { _reuseResolve = res; _reuseReject = rej; });
     setBuildPromise(promise);
     setIndexing(true);
+
+    // BUG-AUDIT-C05: Capture buildEpoch so force-release (which bumps epoch) can signal
+    // this build to bail out before committing stale results — same pattern as buildIndex().
+    const capturedBuildEpoch = buildEpoch;
+    const isZombie = () => buildEpoch !== capturedBuildEpoch;
 
     const tagConfig = {
         lorebookTag: settings.lorebookTag,
@@ -659,10 +668,13 @@ export async function buildIndexWithReuse() {
         setLastVaultAttemptCount(enabledVaults.length);
 
         for (const vault of enabledVaults) {
+            // BUG-AUDIT-C05: Bail if force-release bumped epoch during vault fetch loop
+            if (isZombie()) { _reuseResult = false; return; }
             try {
                 // Fetch ALL file contents to detect content changes via hash comparison.
                 // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
                 const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey, !!vault.https);
+                if (isZombie()) { _reuseResult = false; return; }
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
@@ -760,6 +772,10 @@ export async function buildIndexWithReuse() {
         if (fieldDefsChanged) {
             setFieldDefinitions(newFieldDefs);
         }
+
+        // BUG-AUDIT-C05: Final zombie check before committing — if force-release fired
+        // during the parse/dedup phase, bail to avoid overwriting the new build's results.
+        if (isZombie()) { _reuseResult = false; return; }
 
         // Apply changes
         setVaultIndex(dedupedEntries);

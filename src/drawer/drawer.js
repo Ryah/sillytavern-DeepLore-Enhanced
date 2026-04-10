@@ -15,7 +15,7 @@ import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
 import {
     vaultIndex,
-    lastInjectionSources, loreGaps,
+    lastInjectionSources, loreGaps, librarianChatStats,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
     onIndexingChanged, onLoreGapsChanged, onClaudeAutoEffortChanged,
@@ -562,6 +562,11 @@ export async function createDrawerPanel() {
     drawerListeners.stateObservers.push(onLoreGapsChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderLibrarianTab);
+        // Update footer context bar with librarian extra tokens
+        if (ds.contextBarAvailable && ds.promptManagerRef?.tokenUsage != null) {
+            ds.contextTokens = ds.promptManagerRef.tokenUsage + (librarianChatStats.estimatedExtraTokens || 0);
+            scheduleRender(renderFooter);
+        }
         // Debounced screen reader announcement for new gaps (500ms during generation bursts)
         const newCount = loreGaps.length;
         if (newCount > _lastGapCount) {

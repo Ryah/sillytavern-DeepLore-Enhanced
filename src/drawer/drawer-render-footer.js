@@ -5,7 +5,7 @@
 import { amount_gen } from '../../../../../../script.js';
 import { getSettings } from '../../settings.js';
 import {
-    vaultIndex, lastPipelineTrace,
+    vaultIndex, lastPipelineTrace, librarianChatStats,
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
@@ -50,8 +50,10 @@ export function renderFooter() {
             width: `${responsePct}%`,
         });
 
+        const libExtra = librarianChatStats.estimatedExtraTokens || 0;
+        const libSuffix = libExtra > 0 ? ` (+${libExtra.toLocaleString()} librarian)` : '';
         const label = contextUsed
-            ? `${contextUsed.toLocaleString()} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
+            ? `${contextUsed.toLocaleString()}${libSuffix} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
             : `+ ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`;
         $footer.find('.dle-context-bar-label').text(label);
 

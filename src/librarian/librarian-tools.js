@@ -189,7 +189,10 @@ function clearHiddenSilently(id) {
 export function buildLibrarianActivityFeed() {
     const feed = [];
     // Session tool calls (in-memory, current session only)
+    // Build a dedup set so persistent gap entries don't duplicate live session entries
+    const sessionKeys = new Set();
     for (const e of sessionActivityLog) {
+        sessionKeys.add(`${e.type}:${e.query}:${Math.floor((e.timestamp || 0) / 2000)}`);
         feed.push({
             kind: e.type === 'search' ? 'tool-search' : 'tool-flag',
             ts: e.timestamp || 0,
@@ -202,19 +205,37 @@ export function buildLibrarianActivityFeed() {
             urgency: e.urgency,
         });
     }
-    // Persistent search gaps (across chat reloads)
+    // Persistent gaps (across chat reloads) — search + flag
     for (const g of loreGaps) {
-        if (g.type !== 'search') continue;
-        feed.push({
-            kind: 'gap-search',
-            ts: g.timestamp || 0,
-            query: g.query || '',
-            type: 'search',
-            resultCount: (g.resultTitles || []).length,
-            resultTitles: Array.isArray(g.resultTitles) ? g.resultTitles : [],
-            hadResults: !!g.hadResults,
-            frequency: g.frequency || 1,
-        });
+        // Dedup: skip if a session entry covers this gap (same type+query within 2s)
+        const dedupKey = `${g.type}:${g.query}:${Math.floor((g.timestamp || 0) / 2000)}`;
+        if (sessionKeys.has(dedupKey)) continue;
+        if (g.type === 'search') {
+            feed.push({
+                kind: 'gap-search',
+                ts: g.createdAt || g.timestamp || 0,
+                query: g.query || '',
+                type: 'search',
+                resultCount: (g.resultTitles || []).length,
+                resultTitles: Array.isArray(g.resultTitles) ? g.resultTitles : [],
+                hadResults: !!g.hadResults,
+                frequency: g.frequency || 1,
+            });
+        } else if (g.type === 'flag') {
+            feed.push({
+                kind: 'gap-flag',
+                ts: g.createdAt || g.timestamp || 0,
+                query: g.query || '',
+                type: 'flag',
+                subtype: g.subtype,
+                entryTitle: g.entryTitle,
+                resultCount: 0,
+                resultTitles: [],
+                urgency: g.urgency,
+                frequency: g.frequency || 1,
+                reason: g.reason,
+            });
+        }
     }
     feed.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     return feed;
@@ -346,7 +367,7 @@ export async function searchLoreAction(args) {
             const failGap = {
                 id: gapId(), type: 'search', query,
                 reason: `AI searched for "${query}" but vault index was not ready`,
-                timestamp: Date.now(), generation: generationCount,
+                createdAt: Date.now(), timestamp: Date.now(), generation: generationCount,
                 status: 'pending', frequency: 1, urgency: 'medium',
                 hadResults: false, resultTitles: [],
             };
@@ -395,7 +416,7 @@ export async function searchLoreAction(args) {
             if (existing) clearHiddenSilently(existing.id);
             const gapUpdate = existing
                 ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: false } : g)
-                : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
+                : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
             if (epoch === chatEpoch) persistGaps(gapUpdate);
             continue;
         }
@@ -405,7 +426,8 @@ export async function searchLoreAction(args) {
         shownTitles.add(topEntry.title.toLowerCase());
         allResultTitles.push(topEntry.title);
 
-        let part = `## Query: "${query}"\n\n### ${topEntry.title}\n${topEntry.content || ''}`;
+        const truncNote = filtered.length > 1 ? `*(showing top 1 of ${filtered.length} matches — refine your query for others)*\n\n` : '';
+        let part = `## Query: "${query}"\n${truncNote}\n### ${topEntry.title}\n${topEntry.content || ''}`;
 
         // Linked entries from top hit: manifest summaries, up to 10
         const linked = resolveLinkedEntries(topEntry, shownTitles, 10);
@@ -425,8 +447,27 @@ export async function searchLoreAction(args) {
         if (existing) clearHiddenSilently(existing.id);
         const gapUpdate = existing
             ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] } : g)
-            : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] }];
+            : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: true, resultTitles: [topEntry.title, ...linked.map(l => l.title)] }];
         if (epoch === chatEpoch) persistGaps(gapUpdate);
+
+        // Token budget enforcement: stop processing further queries if budget exceeded
+        if (settings.librarianResultTokenBudget && totalTokens >= settings.librarianResultTokenBudget) {
+            const qIdx = queries.indexOf(query);
+            const remaining = queries.slice(qIdx + 1);
+            if (remaining.length > 0) {
+                resultParts.push(`Token budget reached (${totalTokens} est. tokens). Skipped queries: ${remaining.map(q => `"${q}"`).join(', ')}. Try these queries on the next message.`);
+                // Record gaps for skipped queries so they appear in activity
+                for (const skippedQuery of remaining) {
+                    const existingSkipped = findSimilarGap(loreGaps, skippedQuery, 'search');
+                    if (existingSkipped) clearHiddenSilently(existingSkipped.id);
+                    const skipGapUpdate = existingSkipped
+                        ? loreGaps.map(g => g === existingSkipped ? { ...existingSkipped, frequency: existingSkipped.frequency + 1, timestamp: Date.now() } : g)
+                        : [...loreGaps, { id: gapId(), type: 'search', query: skippedQuery, reason: `AI searched for "${skippedQuery}" but token budget was reached`, createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
+                    if (epoch === chatEpoch) persistGaps(skipGapUpdate);
+                }
+            }
+            break;
+        }
     }
 
     const resultText = resultParts.join('\n\n---\n\n');
@@ -507,6 +548,7 @@ export async function flagLoreAction(args) {
             entryTitle,
             query: title,
             reason,
+            createdAt: Date.now(),
             timestamp: Date.now(),
             generation: generationCount,
             status: 'pending',

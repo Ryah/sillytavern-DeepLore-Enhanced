@@ -116,14 +116,18 @@ export function renderLibrarianTab() {
                 ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search tool call"></i>'
                 : item.kind === 'tool-flag'
                     ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag tool call"></i>'
-                    : '<i class="fa-solid fa-thumbtack" aria-hidden="true" title="Persistent search gap"></i>';
+                    : item.kind === 'gap-flag'
+                        ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Persistent flag"></i>'
+                        : '<i class="fa-solid fa-thumbtack" aria-hidden="true" title="Persistent search gap"></i>';
             const isSearch = item.type === 'search';
             const hasResults = isSearch && (item.resultTitles && item.resultTitles.length > 0);
             const metaText = item.kind === 'gap-search'
                 ? (item.hadResults ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}` : 'no results')
-                : isSearch
-                    ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}`
-                    : (item.urgency || '');
+                : item.kind === 'gap-flag'
+                    ? `${item.urgency || 'medium'}${item.frequency > 1 ? `, flagged ${item.frequency}x` : ''}`
+                    : isSearch
+                        ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}`
+                        : (item.urgency || '');
             const metaHtml = hasResults
                 ? `<button type="button" class="dle-activity-meta dle-activity-results-link dle-text-xs" data-results="${escapeHtml(JSON.stringify(item.resultTitles))}" data-query="${escapeHtml(item.query)}" title="Show context returned to writing AI">${escapeHtml(metaText)}</button>`
                 : `<span class="dle-activity-meta dle-text-xs dle-muted">${escapeHtml(metaText)}</span>`;

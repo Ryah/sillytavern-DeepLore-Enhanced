@@ -2406,6 +2406,9 @@ function stripESMForParsing(src) {
     // Strip re-exports: export { ... } from '...' and bare export { ... };
     s = s.replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '');
     s = s.replace(/^export\s+\{[^}]*\}\s*;?\s*$/gm, '');
+    // Replace import.meta expressions (ESM-only, not valid in Script/CJS mode)
+    s = s.replace(/import\.meta\.url/g, '"file:///stub"');
+    s = s.replace(/import\.meta/g, '({})');
     // Transform export declarations into plain declarations
     s = s.replace(/^export\s+async\s+function/gm, 'async function');
     s = s.replace(/^export\s+function/gm, 'function');

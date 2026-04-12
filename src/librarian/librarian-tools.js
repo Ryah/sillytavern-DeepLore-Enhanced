@@ -232,19 +232,8 @@ export function buildLibrarianActivityFeed() {
         const dedupKey = `${g.type}:${g.query}:${Math.floor((g.timestamp || 0) / 2000)}`;
         if (sessionKeys.has(dedupKey)) continue;
         if (g.type === 'search') {
-            // Only show search gaps that had no results (actual gaps).
-            // Successful searches are tracked in sessionActivityLog, not as persistent gaps.
-            if (g.hadResults) continue;
-            feed.push({
-                kind: 'gap-search',
-                ts: g.createdAt || g.timestamp || 0,
-                query: g.query || '',
-                type: 'search',
-                resultCount: 0,
-                resultTitles: [],
-                hadResults: false,
-                frequency: g.frequency || 1,
-            });
+            // Skip persistent search gaps from activity feed — only live session searches shown
+            continue;
         } else if (g.type === 'flag') {
             feed.push({
                 kind: 'gap-flag',
@@ -386,6 +375,10 @@ export async function searchLoreAction(args) {
     if (loreGapSearchCount >= settings.librarianMaxSearches) {
         return `Search limit reached (${settings.librarianMaxSearches} per generation). Work with the lore already provided.`;
     }
+    // Count this search call IMMEDIATELY after the guard — before any awaits — to prevent
+    // race conditions when the AI sends multiple search_lore calls in a single response.
+    // Both would start concurrently; without this, both pass the guard before either increments.
+    setLoreGapSearchCount(loreGapSearchCount + 1);
 
     // Wait for index if building
     if (!fuzzySearchIndex && buildPromise) {
@@ -420,9 +413,6 @@ export async function searchLoreAction(args) {
         return 'Lore vault index is still loading. This does NOT count against your search limit — try again on the next message.';
     }
 
-    // Count this search call
-    setLoreGapSearchCount(loreGapSearchCount + 1);
-
     // Build injected titles set for filtering
     const injectedTitles = new Set();
     if (lastInjectionSources && Array.isArray(lastInjectionSources)) {
@@ -431,11 +421,18 @@ export async function searchLoreAction(args) {
         }
     }
 
-    // Track entries already shown across queries to avoid duplication
+    // BUG-FIX-1: Restructured — collect all results across ALL queries, pick single best
+    // entry (full content), up to 3 direct graph edges (manifest/summary only). Max 4 entries total.
     const shownTitles = new Set(injectedTitles);
-    const resultParts = [];
     const allResultTitles = [];
     let totalTokens = 0;
+
+    // Phase 1: Run all queries, collect scored results
+    let bestHit = null;
+    let bestScore = -Infinity;
+    let bestQuery = null;
+    const perQueryCounts = new Map(); // query → filtered hit count
+    const noResultQueries = [];
 
     for (const query of queries) {
         const hits = queryBM25(
@@ -446,11 +443,10 @@ export async function searchLoreAction(args) {
         const filtered = hits.filter(h => !shownTitles.has(h.entry.title.toLowerCase()) && !h.entry.guide);
 
         if (filtered.length === 0) {
-            resultParts.push(`## Query: "${query}"\nNo matching entries found.`);
+            noResultQueries.push(query);
             trackUnmetQuery(query);
-            // Record gap
+            // Record gap for no-result query
             const existing = findSimilarGap(loreGaps, query, 'search');
-            // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone.
             if (existing) clearHiddenSilently(existing.id);
             const gapUpdate = existing
                 ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: false } : g)
@@ -459,53 +455,56 @@ export async function searchLoreAction(args) {
             continue;
         }
 
-        // Top hit: full content
-        const topEntry = filtered[0].entry;
-        shownTitles.add(topEntry.title.toLowerCase());
-        allResultTitles.push(topEntry.title);
+        perQueryCounts.set(query, filtered.length);
 
-        const truncNote = filtered.length > 1 ? `*(showing top 1 of ${filtered.length} matches — refine your query for others)*\n\n` : '';
-        let part = `## Query: "${query}"\n${truncNote}\n### ${topEntry.title}\n${topEntry.content || ''}`;
-
-        // Linked entries from top hit: manifest summaries, up to 10
-        const linked = resolveLinkedEntries(topEntry, shownTitles, 10, titleMap);
-        if (linked.length > 0) {
-            // Mark linked entries as shown to avoid duplication in later queries
-            for (const le of linked) shownTitles.add(le.title.toLowerCase());
-            allResultTitles.push(...linked.map(le => le.title));
-            part += `\n\n### Linked entries:\n${formatLinkedManifest(linked)}`;
+        // Track the single highest-scoring hit across all queries
+        if (filtered[0].score > bestScore) {
+            bestScore = filtered[0].score;
+            bestHit = filtered[0].entry;
+            bestQuery = query;
         }
 
-        resultParts.push(part);
-        // BUG-AUDIT-H18: tokenEstimate is already in tokens — don't divide by 4 again.
-        totalTokens += (topEntry.tokenEstimate || 0) + linked.reduce((s, e) => s + (e.tokenEstimate || 0), 0);
-
-        // Successful searches are NOT gaps — only record when no results found.
-        // If a prior no-results gap now has results, remove it (the lore exists now).
+        // Clear any prior no-result gaps for this query (lore now exists)
         const existingGap = findSimilarGap(loreGaps, query, 'search');
         if (existingGap) {
             const cleaned = loreGaps.filter(g => g !== existingGap);
             if (epoch === chatEpoch) persistGaps(cleaned);
         }
+    }
 
-        // Token budget enforcement: stop processing further queries if budget exceeded
-        if (settings.librarianResultTokenBudget && totalTokens >= settings.librarianResultTokenBudget) {
-            const qIdx = queries.indexOf(query);
-            const remaining = queries.slice(qIdx + 1);
-            if (remaining.length > 0) {
-                resultParts.push(`Token budget reached (${totalTokens} est. tokens). Skipped queries: ${remaining.map(q => `"${q}"`).join(', ')}. Try these queries on the next message.`);
-                // Record gaps for skipped queries so they appear in activity
-                for (const skippedQuery of remaining) {
-                    const existingSkipped = findSimilarGap(loreGaps, skippedQuery, 'search');
-                    if (existingSkipped) clearHiddenSilently(existingSkipped.id);
-                    const skipGapUpdate = existingSkipped
-                        ? loreGaps.map(g => g === existingSkipped ? { ...existingSkipped, frequency: existingSkipped.frequency + 1, timestamp: Date.now() } : g)
-                        : [...loreGaps, { id: gapId(), type: 'search', query: skippedQuery, reason: `AI searched for "${skippedQuery}" but token budget was reached`, createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
-                    if (epoch === chatEpoch) persistGaps(skipGapUpdate);
-                }
-            }
-            break;
+    // Phase 2: Build result — single best entry + up to 3 graph edges
+    const resultParts = [];
+
+    if (bestHit) {
+        shownTitles.add(bestHit.title.toLowerCase());
+        allResultTitles.push(bestHit.title);
+        totalTokens += bestHit.tokenEstimate || 0;
+
+        resultParts.push(`### ${bestHit.title}\n${bestHit.content || ''}`);
+
+        // Direct graph edges — manifest/summary format only, max 3
+        const linked = resolveLinkedEntries(bestHit, shownTitles, 3, titleMap);
+        if (linked.length > 0) {
+            for (const le of linked) shownTitles.add(le.title.toLowerCase());
+            allResultTitles.push(...linked.map(le => le.title));
+            // Token estimate for manifest entries is minimal, but track for analytics
+            totalTokens += linked.reduce((s, e) => s + Math.min(e.tokenEstimate || 0, 100), 0);
+            resultParts.push(`### Related entries:\n${formatLinkedManifest(linked)}`);
         }
+
+        // Summarize other matches across all queries
+        const totalOtherMatches = [...perQueryCounts.values()].reduce((s, c) => s + c, 0) - 1; // subtract the best hit
+        if (totalOtherMatches > 0) {
+            const otherQueries = [...perQueryCounts.keys()].filter(q => q !== bestQuery || perQueryCounts.get(q) > 1);
+            if (otherQueries.length > 0) {
+                resultParts.push(`*${totalOtherMatches} other match${totalOtherMatches !== 1 ? 'es' : ''} found across queries: ${otherQueries.map(q => `"${q}"`).join(', ')}. Refine your query for specifics.*`);
+            }
+        }
+    }
+
+    // Report no-result queries
+    for (const query of noResultQueries) {
+        resultParts.push(`No matching entries found for "${query}".`);
     }
 
     const resultText = resultParts.join('\n\n---\n\n');

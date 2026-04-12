@@ -35,7 +35,7 @@ const LIBRARIAN_TOOLS = [
     },
     {
         name: 'get_entry',
-        description: 'Get full content and frontmatter of a vault entry by title. Use when you need to read an existing entry.',
+        description: 'Get metadata and a TRUNCATED preview of a vault entry (frontmatter + ~2000 chars). For YOUR internal use only — checking tags, comparing entries, planning edits, drafting. The preview is often incomplete. NEVER show truncated content to the user; use get_full_content when the user asks to see, read, or review an entry.',
         parameters: {
             title: { type: 'string', required: true, description: 'Entry title (case-insensitive)' },
         },
@@ -56,7 +56,7 @@ const LIBRARIAN_TOOLS = [
     },
     {
         name: 'get_full_content',
-        description: 'Get the FULL untruncated content of a vault entry by title. Use when get_entry truncated something important and you need to see the rest. More expensive than get_entry — only call when needed.',
+        description: 'Get the COMPLETE untruncated content of a vault entry AND automatically load it into the entry editor. REQUIRED whenever the user wants to see, read, review, or inspect an entry — "show me", "pull up", "what does it say", "let me see", etc. The editor populates automatically; you do NOT need to echo the content back as a draft.',
         parameters: {
             title: { type: 'string', required: true, description: 'Entry title (case-insensitive)' },
         },
@@ -102,7 +102,7 @@ const LIBRARIAN_TOOLS = [
     },
     {
         name: 'compare_entry_to_chat',
-        description: 'Pull a vault entry and recent chat messages side by side so you can analyze staleness, contradictions, or gaps. Returns both the entry content and recent chat context. Faster than calling get_entry + get_recent_chat separately.',
+        description: 'Pull a vault entry and recent chat messages side by side for staleness/contradiction analysis. Returns both entry content (truncated) and recent chat context. For YOUR internal analysis — checking if an entry needs updating. If the user wants to see the entry itself, use get_full_content instead.',
         parameters: {
             title: { type: 'string', required: true, description: 'Entry title to compare against recent chat' },
             chat_count: { type: 'number', required: false, description: 'Number of recent chat messages to include (default 15)' },
@@ -143,11 +143,11 @@ function truncate(text, max = TOOL_RESULT_MAX_CHARS) {
  * @param {object} args - Tool arguments
  * @returns {string} Result text
  */
-export function executeToolCall(name, args = {}) {
+export function executeToolCall(name, args = {}, session = null) {
     switch (name) {
         case 'search_vault': return toolSearchVault(args);
         case 'get_entry': return toolGetEntry(args);
-        case 'get_full_content': return toolGetFullContent(args);
+        case 'get_full_content': return toolGetFullContent(args, session);
         case 'find_similar': return toolFindSimilar(args);
         case 'list_flags': return toolListFlags(args);
         case 'get_links': return toolGetLinks(args);
@@ -213,19 +213,38 @@ function toolGetEntry(args) {
         `**Links out:** ${(entry.resolvedLinks || []).join(', ') || 'none'}`,
     ].filter(Boolean).join('\n');
 
-    const content = truncate(entry.content || '(no content)', TOOL_RESULT_MAX_CHARS - meta.length - 20);
-    return `${meta}\n\n---\n${content}`;
+    const raw = entry.content || '(no content)';
+    const maxLen = TOOL_RESULT_MAX_CHARS - meta.length - 100;
+    const content = truncate(raw, maxLen);
+    const wasTruncated = raw.length > maxLen;
+    const footer = wasTruncated ? '\n\n[Content truncated — use get_full_content to see the complete entry]' : '';
+    return `${meta}\n\n---\n${content}${footer}`;
 }
 
 // Hard cap for full-content fetches: still keep a ceiling so a 50KB entry
 // doesn't blow the prompt budget, but much higher than the standard 2000.
 const FULL_CONTENT_MAX_CHARS = 16000;
 
-function toolGetFullContent(args) {
+function toolGetFullContent(args, session = null) {
     const title = args.title?.trim();
     if (!title) return 'Error: title is required.';
     const entry = findEntry(title);
     if (!entry) return `Entry "${title}" not found.`;
+
+    // Populate the editor draft directly — no AI round-trip needed
+    if (session) {
+        session.draftState = {
+            ...session.draftState,
+            title: entry.title,
+            type: entry.type || 'lore',
+            priority: entry.priority || 50,
+            tags: entry.tags?.length ? [...entry.tags] : [],
+            keys: entry.keys?.length ? [...entry.keys] : [],
+            summary: entry.summary || '',
+            content: entry.content || '',
+        };
+    }
+
     const content = entry.content || '(no content)';
     if (content.length <= FULL_CONTENT_MAX_CHARS) {
         return `**${entry.title}** (full content, ${content.length} chars):\n\n${content}`;
@@ -530,7 +549,7 @@ ${toolDocs}${guideToolDoc}
 
 ### Usage hints:
 - **find_similar** before creating a new entry — if there's already something close, you should know.
-- **get_full_content** only when **get_entry** truncated something you actually need (it caps at ~2000 chars). It's more expensive — be deliberate.
+- **get_entry** returns truncated previews for YOUR internal analysis — never display its output to the user as if it were the full entry. **get_full_content** is REQUIRED when the user asks to see, read, or review an entry.
 - **list_flags** when the user asks "what's broken" or "what needs work" or you want to know what gaps the librarian has been collecting.
 - **get_recent_chat** to see what's actually happening in the story — essential for audit/review workflows.
 - **flag_entry_update** when you find an entry that's stale or contradicted — creates a visible record the user can act on.

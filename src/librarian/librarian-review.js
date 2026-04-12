@@ -17,8 +17,84 @@ import { createSession, sendMessage, editMessage, regenerateResponse, updateGapS
 import { getSessionActivityLog, buildLibrarianActivityFeed } from './librarian-tools.js';
 
 // ════════════════════════════════════════════════════════════════════════════
-// Helpers
+// Helpers — Unified document format
 // ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Serialize a draft state object into a full Obsidian-style document string.
+ * Format: YAML frontmatter block + markdown content.
+ */
+function formatEntryAsDocument(draft, settings) {
+    if (!draft) draft = {};
+    const s = settings || getSettings();
+    const typeStr = draft.type || 'lore';
+    const tags = draft.tags?.length ? draft.tags : [s.lorebookTag || 'lorebook'];
+    const keys = draft.keys || [];
+    const priority = draft.priority || 50;
+    const summary = (draft.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+
+    const fileClassLine = typeStr !== 'story' ? `fileClass: ${yamlEscape(typeStr)}\n` : '';
+    const tagsYaml = tags.map(t => `  - ${yamlEscape(t)}`).join('\n');
+    const keysYaml = keys.length ? keys.map(k => `  - ${yamlEscape(k)}`).join('\n') : '  - ';
+
+    let doc = `---\n${fileClassLine}type: ${yamlEscape(typeStr)}\nstatus: active\npriority: ${priority}\ntags:\n${tagsYaml}\nkeys:\n${keysYaml}\nsummary: "${summary}"\n---`;
+
+    if (draft.title || draft.content) {
+        doc += `\n# ${draft.title || 'Untitled'}\n\n${draft.content || ''}`;
+    }
+    return doc;
+}
+
+/**
+ * Parse a unified document string back into draft state fields.
+ * Extracts YAML frontmatter and markdown content.
+ */
+function parseEntryDocument(text) {
+    const draft = {};
+    if (!text || !text.trim()) return draft;
+
+    // Extract frontmatter
+    const fmMatch = text.match(/^---\n([\s\S]*?)\n---/);
+    let body = text;
+    if (fmMatch) {
+        const yaml = fmMatch[1];
+        body = text.slice(fmMatch[0].length).trim();
+
+        // Parse simple YAML fields
+        const typeMatch = yaml.match(/^type:\s*(.+)$/m);
+        if (typeMatch) draft.type = typeMatch[1].trim();
+
+        const priorityMatch = yaml.match(/^priority:\s*(\d+)/m);
+        if (priorityMatch) draft.priority = parseInt(priorityMatch[1], 10);
+
+        const summaryMatch = yaml.match(/^summary:\s*"((?:[^"\\]|\\.)*)"/m);
+        if (summaryMatch) {
+            draft.summary = summaryMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        }
+
+        // Parse tags array
+        const tagsSection = yaml.match(/^tags:\n((?:\s+-\s+.+\n?)*)/m);
+        if (tagsSection) {
+            draft.tags = tagsSection[1].split('\n').map(l => l.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+        }
+
+        // Parse keys array
+        const keysSection = yaml.match(/^keys:\n((?:\s+-\s+.+\n?)*)/m);
+        if (keysSection) {
+            draft.keys = keysSection[1].split('\n').map(l => l.replace(/^\s*-\s*/, '').trim()).filter(Boolean);
+        }
+    }
+
+    // Extract title from first heading
+    const titleMatch = body.match(/^#\s+(.+)$/m);
+    if (titleMatch) {
+        draft.title = titleMatch[1].trim();
+        body = body.slice(body.indexOf(titleMatch[0]) + titleMatch[0].length).trim();
+    }
+
+    draft.content = body;
+    return draft;
+}
 
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -50,59 +126,13 @@ function buildPopupHTML(session) {
         welcomeMsg = escapeHtml(pickFlavorIntro());
     }
 
-    const settings = getSettings();
-    const lorebookTag = settings.lorebookTag || 'lorebook';
-    const tagsVal = draft.tags ? draft.tags.join(', ') : lorebookTag;
+    const initialDoc = formatEntryAsDocument(draft, getSettings());
 
     return `
 <div class="dle-librarian-popup">
     <div class="dle-librarian-editor" role="form" aria-label="Entry editor">
         <h4 class="dle-librarian-editor-title">Entry Editor</h4>
-        <div class="dle-librarian-field">
-            <label for="dle-lib-title">Title</label>
-            <input type="text" id="dle-lib-title" class="text_pole" value="${escapeHtml(draft.title || '')}" placeholder="Entry title">
-        </div>
-        <div class="dle-librarian-field-row dle-librarian-field-row-3">
-            <div class="dle-librarian-field">
-                <label for="dle-lib-type">Type</label>
-                <select id="dle-lib-type" class="text_pole">
-                    <option value="character" ${draft.type === 'character' ? 'selected' : ''}>Character</option>
-                    <option value="location" ${draft.type === 'location' ? 'selected' : ''}>Location</option>
-                    <option value="lore" ${(!draft.type || draft.type === 'lore') ? 'selected' : ''}>Lore</option>
-                    <option value="organization" ${draft.type === 'organization' ? 'selected' : ''}>Organization</option>
-                    <option value="story" ${draft.type === 'story' ? 'selected' : ''}>Story</option>
-                </select>
-            </div>
-            <div class="dle-librarian-field">
-                <label for="dle-lib-priority">Priority <span class="dle-priority-hint">Lower = more important (20 core, 50 standard, 80 background)</span></label>
-                <input type="number" id="dle-lib-priority" class="text_pole" min="1" max="100" value="${draft.priority || 50}" placeholder="50">
-            </div>
-            <div class="dle-librarian-field">
-                <label for="dle-lib-tags">Tags</label>
-                <input type="text" id="dle-lib-tags" class="text_pole" value="${escapeHtml(tagsVal)}" placeholder="${escapeHtml(lorebookTag)}" title="Comma-separated tags. Must include the lorebook tag.">
-            </div>
-        </div>
-        <div class="dle-librarian-field">
-            <label>Keys</label>
-            <div class="dle-librarian-keys" id="dle-lib-keys">
-                ${(draft.keys || []).map(k => `<span class="dle-key-chip">${escapeHtml(k)}<button class="dle-key-remove" data-key="${escapeHtml(k)}" aria-label="Remove key ${escapeHtml(k)}">&times;</button></span>`).join('')}
-                <input type="text" class="dle-key-input" id="dle-lib-key-input" placeholder="Add key (Enter or comma)..." aria-label="Add keyword">
-            </div>
-        </div>
-        <div class="dle-librarian-frontmatter-preview dle-frontmatter-expanded" id="dle-lib-frontmatter-wrap">
-            <div class="dle-librarian-frontmatter-label" id="dle-lib-frontmatter-toggle" role="button" tabindex="0" aria-expanded="true" aria-controls="dle-lib-frontmatter">
-                <i class="fa-solid fa-chevron-right dle-frontmatter-chevron" aria-hidden="true"></i> Frontmatter (editable)
-            </div>
-            <textarea id="dle-lib-frontmatter" class="dle-librarian-frontmatter-code" spellcheck="false" wrap="off" aria-label="Frontmatter YAML"></textarea>
-        </div>
-        <div class="dle-librarian-field">
-            <label for="dle-lib-summary">Summary <span class="dle-field-hint">(for AI selection, not the writing AI)</span></label>
-            <textarea id="dle-lib-summary" class="text_pole" rows="4" placeholder="Index-card style. What is this, when should the AI select it, who is it connected to. Not prose — Emma will gently roast prose summaries.">${escapeHtml(draft.summary || '')}</textarea>
-        </div>
-        <div class="dle-librarian-field dle-librarian-field-grow">
-            <label for="dle-lib-content">Content</label>
-            <textarea id="dle-lib-content" class="text_pole dle-librarian-content-area" placeholder="Markdown goes here. # Title, intro paragraph, meta-block, prose. Wikilink things with [[brackets]]. Emma will tell you if you forget the heading.">${escapeHtml(draft.content || '')}</textarea>
-        </div>
+        <textarea id="dle-lib-unified" class="text_pole dle-librarian-unified-textarea" spellcheck="false" placeholder="---${'\n'}type: lore${'\n'}priority: 50${'\n'}tags:${'\n'}  - lorebook${'\n'}keys:${'\n'}  - keyword${'\n'}summary: &quot;What this is and when to select it&quot;${'\n'}---${'\n'}# Entry Title${'\n'}${'\n'}Content goes here...">${escapeHtml(initialDoc)}</textarea>
     </div>
     <div class="dle-librarian-chat" role="region" aria-label="AI assistant">
         <div class="dle-librarian-chat-header">
@@ -124,7 +154,7 @@ function buildPopupHTML(session) {
         </div>
         ${(isReview || isAudit) && session.workQueue ? `<div class="dle-librarian-queue" id="dle-lib-queue"></div>` : ''}
         <div class="dle-librarian-input-row">
-            <input type="text" id="dle-lib-chat-input" class="text_pole" placeholder="Ask Emma anything..." aria-label="Chat message">
+            <textarea id="dle-lib-chat-input" class="text_pole" rows="1" placeholder="Ask Emma anything..." aria-label="Chat message"></textarea>
             <button id="dle-lib-send" class="menu_button" aria-label="Send message">
                 <i class="fa-solid fa-paper-plane" aria-hidden="true"></i>
             </button>
@@ -248,20 +278,14 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 });
             }
 
-            // Focus the title input on open
+            // Focus the unified textarea on open
             requestAnimationFrame(() => {
-                const ti = container.querySelector('#dle-lib-title');
-                if (ti) ti.focus();
+                const ta = container.querySelector('#dle-lib-unified');
+                if (ta) ta.focus();
             });
 
-            // ─── Editor field sync ───
-            const titleInput = container.querySelector('#dle-lib-title');
-            const typeSelect = container.querySelector('#dle-lib-type');
-            const priorityInput = container.querySelector('#dle-lib-priority');
-            const tagsInput = container.querySelector('#dle-lib-tags');
-            const summaryInput = container.querySelector('#dle-lib-summary');
-            const contentInput = container.querySelector('#dle-lib-content');
-            const frontmatterPre = container.querySelector('#dle-lib-frontmatter');
+            // ─── Unified editor sync ───
+            const unifiedTextarea = container.querySelector('#dle-lib-unified');
             const editorTitle = container.querySelector('.dle-librarian-editor-title');
 
             function updateDirtyIndicator() {
@@ -274,163 +298,47 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             }
 
             function syncDraftFromFields() {
-                if (!session.draftState) session.draftState = {};
-                session.draftState.title = titleInput.value.trim();
-                session.draftState.type = typeSelect.value;
-                session.draftState.priority = Number(priorityInput.value) || 50;
-                session.draftState.tags = tagsInput.value.split(',').map(t => t.trim()).filter(Boolean);
-                session.draftState.summary = summaryInput.value;
-                session.draftState.content = contentInput.value;
+                const parsed = parseEntryDocument(unifiedTextarea.value);
+                session.draftState = { ...session.draftState, ...parsed };
+                // The unified textarea IS the frontmatter — user always owns it
+                session.frontmatterUserEdited = true;
+                session.frontmatterOverride = unifiedTextarea.value.match(/^---\n[\s\S]*?\n---/)?.[0] || '';
                 dirty = true;
                 dirtySinceLastWrite = true;
                 updateDirtyIndicator();
-                updateFrontmatterPreview();
                 debouncedSaveSession();
             }
 
-            let _flashIndex = 0;
-            function flashField(el, stagger = true) {
-                const delay = stagger ? (_flashIndex++ * 100) : 0;
-                setTimeout(() => {
-                    el.classList.remove('dle-field-updated');
-                    void el.offsetWidth;
-                    el.classList.add('dle-field-updated');
-                    // Add persistent "AI updated" dot on parent field wrapper
-                    const wrap = el.closest('.dle-librarian-field');
-                    if (wrap) wrap.classList.add('dle-ai-modified');
-                }, delay);
-            }
-
-            // Clear "AI updated" dot when user interacts with a field
-            function clearAiDot(e) {
-                const wrap = e.target.closest?.('.dle-librarian-field');
-                if (wrap) wrap.classList.remove('dle-ai-modified');
-            }
-            for (const el of [titleInput, typeSelect, priorityInput, tagsInput, summaryInput, contentInput]) {
-                el.addEventListener('input', clearAiDot);
-                el.addEventListener('change', clearAiDot);
-                el.addEventListener('focus', clearAiDot);
+            function flashField() {
+                unifiedTextarea.classList.remove('dle-field-updated');
+                void unifiedTextarea.offsetWidth;
+                unifiedTextarea.classList.add('dle-field-updated');
             }
 
             function updateFieldsFromDraft() {
-                if (!session.draftState) return;
-                const d = session.draftState;
-                _flashIndex = 0; // Reset stagger counter for batch updates
-                if (d.title !== undefined && titleInput.value !== d.title) { titleInput.value = d.title; flashField(titleInput); }
-                if (d.type !== undefined && typeSelect.value !== d.type) { typeSelect.value = d.type; flashField(typeSelect); }
-                if (d.priority !== undefined && String(priorityInput.value) !== String(d.priority)) { priorityInput.value = d.priority; flashField(priorityInput); }
-                if (d.tags !== undefined) { const tv = d.tags.join(', '); if (tagsInput.value !== tv) { tagsInput.value = tv; flashField(tagsInput); } }
-                if (d.summary !== undefined && summaryInput.value !== d.summary) { summaryInput.value = d.summary; flashField(summaryInput); }
-                if (d.content !== undefined && contentInput.value !== d.content) { contentInput.value = d.content; flashField(contentInput); }
-                rebuildKeyChips();
-                updateDirtyIndicator();
-                updateFrontmatterPreview();
-            }
-
-            function buildFrontmatterYaml(d) {
-                const settings = getSettings();
-                const keysYaml = (d.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
-                const tags = d.tags?.length ? d.tags : [settings.lorebookTag || 'lorebook'];
-                const tagsYaml = tags.map(t => `  - ${yamlEscape(t)}`).join('\n');
-                const typeStr = d.type || 'lore';
-                const fileClassLine = typeStr !== 'story' ? `fileClass: ${yamlEscape(typeStr)}\n` : '';
-                return `---\n${fileClassLine}type: ${yamlEscape(typeStr)}\nstatus: active\npriority: ${d.priority || 50}\ntags:\n${tagsYaml}\nkeys:\n${keysYaml || '  - '}\nsummary: "${(d.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"\n---`;
-            }
-
-            function updateFrontmatterPreview() {
-                const d = session.draftState || {};
-                // Once the user has hand-edited the frontmatter, don't clobber their edits
-                // when other fields change. They opted in to manual control.
-                if (session.frontmatterUserEdited) return;
-                frontmatterPre.value = buildFrontmatterYaml(d);
-            }
-
-            function rebuildKeyChips() {
-                const keysContainer = container.querySelector('#dle-lib-keys');
-                const input = container.querySelector('#dle-lib-key-input');
-                // Remove existing chips but keep the input
-                keysContainer.querySelectorAll('.dle-key-chip').forEach(c => c.remove());
-                const keys = session.draftState?.keys || [];
-                for (const k of keys) {
-                    const chip = document.createElement('span');
-                    chip.className = 'dle-key-chip';
-                    chip.innerHTML = `${escapeHtml(k)}<button class="dle-key-remove" data-key="${escapeHtml(k)}" aria-label="Remove key ${escapeHtml(k)}">&times;</button>`;
-                    keysContainer.insertBefore(chip, input);
-                }
-            }
-
-            // Wire editor field changes
-            [titleInput, typeSelect, priorityInput, tagsInput, summaryInput, contentInput].forEach(el => {
-                el.addEventListener('input', syncDraftFromFields);
-            });
-
-            // Wire key chip add/remove
-            const keyInput = container.querySelector('#dle-lib-key-input');
-
-            function addKeyFromInput() {
-                const val = keyInput.value.trim();
-                if (!val) return false;
-                if (!session.draftState) session.draftState = {};
-                if (!session.draftState.keys) session.draftState.keys = [];
-                // Split on comma to support pasting multiple keys
-                const newKeys = val.split(',').map(k => k.trim()).filter(Boolean);
-                for (const k of newKeys) {
-                    if (!session.draftState.keys.includes(k)) {
-                        session.draftState.keys.push(k);
-                    }
-                }
-                keyInput.value = '';
-                dirty = true;
-                dirtySinceLastWrite = true;
-                rebuildKeyChips();
-                updateFrontmatterPreview();
-                return true;
-            }
-
-            keyInput.addEventListener('keydown', (e) => {
-                if ((e.key === 'Enter' || e.key === 'Tab') && keyInput.value.trim()) {
-                    e.preventDefault();
-                    addKeyFromInput();
-                }
-                // Comma triggers add (but don't prevent default — the comma char will be caught by input event)
-                if (e.key === ',') {
-                    // Use timeout so the comma character is in the value before we process
-                    setTimeout(() => addKeyFromInput(), 0);
-                }
-            });
-            container.querySelector('#dle-lib-keys').addEventListener('click', (e) => {
-                const removeBtn = e.target.closest('.dle-key-remove');
-                if (removeBtn && session.draftState?.keys) {
-                    const key = removeBtn.dataset.key;
-                    session.draftState.keys = session.draftState.keys.filter(k => k !== key);
-                    dirty = true;
-                    dirtySinceLastWrite = true;
-                    rebuildKeyChips();
-                    updateFrontmatterPreview();
-                }
-            });
-
-            // ─── Frontmatter editable ───
-            frontmatterPre.addEventListener('input', () => {
-                session.frontmatterUserEdited = true;
-                session.frontmatterOverride = frontmatterPre.value;
-                dirty = true;
-                dirtySinceLastWrite = true;
-                updateDirtyIndicator();
-            });
-
-            // ─── Frontmatter toggle ───
-            const fmToggle = container.querySelector('#dle-lib-frontmatter-toggle');
-            const fmWrap = container.querySelector('#dle-lib-frontmatter-wrap');
-            if (fmToggle && fmWrap) {
-                fmToggle.addEventListener('click', () => {
-                    const expanded = fmWrap.classList.toggle('dle-frontmatter-expanded');
-                    fmToggle.setAttribute('aria-expanded', String(expanded));
+                const _debug = getSettings().debugMode;
+                if (!session.draftState) { if (_debug) console.debug('[DLE] updateFieldsFromDraft: no draftState'); return; }
+                const newDoc = formatEntryAsDocument(session.draftState, getSettings());
+                if (_debug) console.debug('[DLE] updateFieldsFromDraft:', {
+                    draftKeys: Object.keys(session.draftState),
+                    hasTitle: !!session.draftState.title,
+                    hasContent: !!session.draftState.content,
+                    newDocLen: newDoc.length,
+                    currentLen: unifiedTextarea.value.length,
+                    willUpdate: unifiedTextarea.value !== newDoc,
                 });
-                fmToggle.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fmToggle.click(); }
-                });
+                if (unifiedTextarea.value !== newDoc) {
+                    // Preserve cursor position
+                    const pos = unifiedTextarea.selectionStart;
+                    unifiedTextarea.value = newDoc;
+                    unifiedTextarea.selectionStart = unifiedTextarea.selectionEnd = Math.min(pos, newDoc.length);
+                    flashField();
+                }
+                updateDirtyIndicator();
             }
+
+            // Wire unified textarea changes
+            unifiedTextarea.addEventListener('input', syncDraftFromFields);
 
             // ─── Chat interaction ───
             const messagesDiv = container.querySelector('#dle-lib-messages');
@@ -635,6 +543,26 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             });
 
             // ─── Tool activity helpers ───
+            const TOOL_DISPLAY_NAMES = {
+                search_vault: 'Searching vault',
+                get_entry: 'Reading entry',
+                get_full_content: 'Loading full entry',
+                get_links: 'Checking links',
+                get_backlinks: 'Checking backlinks',
+                find_similar: 'Finding similar entries',
+                list_flags: 'Checking flags',
+                list_entries: 'Listing entries',
+                get_recent_chat: 'Reading recent chat',
+                flag_entry_update: 'Flagging for update',
+                compare_entry_to_chat: 'Comparing to chat',
+                get_writing_guide: 'Reading guide',
+            };
+            function toolDisplayName(name, args) {
+                const friendly = TOOL_DISPLAY_NAMES[name] || name;
+                const subject = args?.title || args?.query || '';
+                return subject ? `${friendly}: ${subject}` : friendly;
+            }
+
             /** Track tool divs created during a single turn for collapsing */
             let turnToolDivs = [];
 
@@ -642,9 +570,9 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 const div = document.createElement('div');
                 div.className = 'dle-lib-msg dle-lib-msg-tool';
                 div.dataset.toolName = name;
-                const argsStr = Object.entries(args || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ');
+                const label = toolDisplayName(name, args);
                 div.innerHTML = `<div class="dle-lib-tool-header" role="button" tabindex="0" aria-expanded="false">`
-                    + `<i class="fa-solid fa-wrench"></i> ${escapeHtml(name)}(${escapeHtml(argsStr)})`
+                    + `<i class="fa-solid fa-wrench"></i> ${escapeHtml(label)}`
                     + ` <i class="fa-solid fa-spinner fa-spin dle-lib-tool-spinner"></i>`
                     + `</div>`
                     + `<div class="dle-lib-tool-result" hidden></div>`;
@@ -683,10 +611,10 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             /** Collapse all tool divs from this turn into a single summary line */
             function collapseToolActivity() {
                 if (turnToolDivs.length === 0) return;
-                // Count tool calls by name
+                // Count tool calls by friendly name
                 const counts = {};
                 for (const div of turnToolDivs) {
-                    const name = div.dataset.toolName || 'tool';
+                    const name = TOOL_DISPLAY_NAMES[div.dataset.toolName] || div.dataset.toolName || 'tool';
                     counts[name] = (counts[name] || 0) + 1;
                 }
                 const summary = Object.entries(counts).map(([n, c]) => c > 1 ? `${n} x${c}` : n).join(', ');
@@ -752,6 +680,13 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     onToolResult: (name, result) => {
                         if (currentToolDiv) completeToolActivity(currentToolDiv, result);
                         currentToolDiv = null;
+                        // get_full_content directly populates session.draftState —
+                        // update the editor immediately so the user sees it
+                        if (name === 'get_full_content') {
+                            updateFieldsFromDraft();
+                            dirty = true;
+                            dirtySinceLastWrite = true;
+                        }
                     },
                 };
             }
@@ -760,10 +695,12 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             function processAIResponse(response) {
                 // Collapse tool activity from this turn before adding the AI's response
                 collapseToolActivity();
+                if (getSettings().debugMode) console.debug('[DLE] processAIResponse:', { valid: response.valid, hasParsed: !!response.parsed, hasDraft: !!response.parsed?.draft, draftType: typeof response.parsed?.draft, exhausted: response.exhausted });
 
                 if (response.valid && response.parsed) {
                     appendMessage('ai', response.parsed.message || '(no message)');
                     if (response.parsed.draft) {
+                        if (getSettings().debugMode) console.debug('[DLE] processAIResponse: draft update received, fields:', Object.keys(response.parsed.draft));
                         updateFieldsFromDraft();
                         dirty = true;
                     }
@@ -873,6 +810,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 sending = true;
                 setSendingUI(true);
                 chatInput.value = '';
+                chatInput.style.height = 'auto';
                 appendMessage('user', text);
                 showLoading(true, 'Preparing...');
                 const opts = buildSendOptions();
@@ -907,6 +845,12 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             }
 
             sendBtn.addEventListener('click', handleSend);
+            // Auto-resize chat textarea as user types
+            function autoResizeChatInput() {
+                chatInput.style.height = 'auto';
+                chatInput.style.height = Math.min(chatInput.scrollHeight, 150) + 'px';
+            }
+            chatInput.addEventListener('input', autoResizeChatInput);
             chatInput.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -933,9 +877,6 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     if (btn && !btn.disabled) btn.click();
                 }
             });
-
-            // Initial frontmatter preview
-            updateFrontmatterPreview();
 
             // ─── Clear chat ───
             const clearChatBtn = container.querySelector('#dle-lib-clear-chat');
@@ -1103,7 +1044,6 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     dirty = true;
                     updateFieldsFromDraft();
                     updateDirtyIndicator();
-                    updateFrontmatterPreview();
                 }
                 // Restore work queue
                 if (session.workQueue?.length) {

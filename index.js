@@ -154,6 +154,27 @@ function capNotepad(text) {
 }
 
 // ============================================================================
+// Pipeline Status Helpers (module scope — used by both onGenerate and init)
+// ============================================================================
+
+/** Show a pipeline status message in the chat area ("Choosing Lore…", etc.) */
+function _updatePipelineStatus(text) {
+    let el = document.getElementById('dle-pipeline-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'dle-pipeline-status';
+        document.getElementById('chat')?.appendChild(el);
+    }
+    el.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="opacity:0.6"></i> ${text}`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+/** Remove the pipeline status element (no-op if it doesn't exist). */
+function _removePipelineStatus() {
+    document.getElementById('dle-pipeline-status')?.remove();
+}
+
+// ============================================================================
 // Generation Interceptor
 // ============================================================================
 
@@ -218,15 +239,39 @@ async function onGenerate(chat, contextSize, abort, type) {
     // BUG-058: Strip DLE tool-call messages from previous generations only AFTER acquiring the
     // generation lock. Doing this before the lock allowed a contended early return (lock held)
     // to mutate `chat` and leak the splice/filter to other ST interceptors with no rollback.
-    for (let i = chat.length - 1; i >= 0; i--) {
-        const msg = chat[i];
-        if (!msg?.is_system || !Array.isArray(msg.extra?.tool_invocations)) continue;
-        const invocations = msg.extra.tool_invocations;
-        const allDle = invocations.every(inv => inv.name?.startsWith('dle_'));
-        if (allDle) {
-            chat.splice(i, 1);
-        } else {
-            msg.extra.tool_invocations = invocations.filter(inv => !inv.name?.startsWith('dle_'));
+    // Also strips intermediate assistant messages from DLE tool-call turns — the AI's text
+    // responses during tool rounds (e.g. "let me dig deeper") that shouldn't persist in chat.
+    {
+        let seenFinalAssistant = false;
+        let inDleToolTurn = false;
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const msg = chat[i];
+            if (msg?.is_user) {
+                seenFinalAssistant = false;
+                inDleToolTurn = false;
+                continue;
+            }
+            // System message with tool_invocations
+            if (msg?.is_system && Array.isArray(msg.extra?.tool_invocations)) {
+                const invocations = msg.extra.tool_invocations;
+                const allDle = invocations.every(inv => inv.name?.startsWith('dle_'));
+                if (allDle) {
+                    inDleToolTurn = true;
+                    chat.splice(i, 1);
+                } else {
+                    msg.extra.tool_invocations = invocations.filter(inv => !inv.name?.startsWith('dle_'));
+                }
+                continue;
+            }
+            // Assistant message
+            if (!msg?.is_system) {
+                if (!seenFinalAssistant) {
+                    seenFinalAssistant = true; // Last assistant msg in turn = final response, keep it
+                } else if (inDleToolTurn) {
+                    // Intermediate assistant message from a DLE tool-call round — strip it
+                    chat.splice(i, 1);
+                }
+            }
         }
     }
 
@@ -769,6 +814,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
         try { eventSource.removeListener(event_types.CHAT_CHANGED, onStop); } catch { /* noop */ }
         try { eventSource.removeListener(event_types.STREAM_TOKEN_RECEIVED, onFirstToken); } catch { /* noop */ }
+        // BUG-FIX-4/12: Always remove pipeline status on exit — covers all early return paths.
+        _removePipelineStatus();
         // Generation tracking must always run when the pipeline was entered,
         // even if no entries matched — otherwise cooldown timers freeze permanently.
         // Wrapped in try/catch to prevent tracking errors from blocking ST generation.
@@ -1050,6 +1097,15 @@ jQuery(async function () {
                 _removeDleToolStatus();
                 setGenerationLockEpoch(generationLockEpoch + 1);
                 if (generationLock) setGenerationLock(false);
+                // BUG-FIX-6: Clear stale prompts so they don't bleed into the next generation.
+                clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
+                const _settings = getSettings();
+                if (_settings.injectionMode === 'prompt_list' && promptManager) {
+                    for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad']) {
+                        const pmEntry = promptManager.getPromptById(id);
+                        if (pmEntry) pmEntry.content = '';
+                    }
+                }
             } catch (err) { console.warn('[DLE] GENERATION_STOPPED cleanup failed:', err?.message); }
         });
 
@@ -1157,20 +1213,8 @@ jQuery(async function () {
             document.getElementById('dle-tool-status')?.remove();
         };
 
-        // Pipeline status indicator: "Choosing Lore...", "Consulting vault...", "Generating..."
-        const _updatePipelineStatus = (text) => {
-            let el = document.getElementById('dle-pipeline-status');
-            if (!el) {
-                el = document.createElement('div');
-                el.id = 'dle-pipeline-status';
-                document.getElementById('chat')?.appendChild(el);
-            }
-            el.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="opacity:0.6"></i> ${text}`;
-            el.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        };
-        const _removePipelineStatus = () => {
-            document.getElementById('dle-pipeline-status')?.remove();
-        };
+        // NOTE: _updatePipelineStatus and _removePipelineStatus are at module scope
+        // (above onGenerate) so both onGenerate and init-block handlers can access them.
 
         _registerEs(event_types.TOOL_CALLS_RENDERED, (invocations) => {
             if (!Array.isArray(invocations)) return;
@@ -1219,6 +1263,17 @@ jQuery(async function () {
                 target.extra.deeplore_tool_calls = pendingCalls;
                 saveMetadataDebounced();
                 injectLibrarianDropdown(targetIdx, pendingCalls);
+
+                // Hide intermediate assistant messages from tool-call rounds.
+                // These are the AI's text responses during tool rounds (e.g. "let me search...")
+                // that should not be visible. stripDleSystemMessages cleans them on next gen;
+                // this hides them from the DOM immediately.
+                for (let i = targetIdx - 1; i >= 0; i--) {
+                    if (chat[i].is_user) break; // turn boundary
+                    if (chat[i].is_system) continue; // system msgs already hidden by TOOL_CALLS_RENDERED
+                    const mesEl = document.querySelector(`#chat .mes[mesid="${i}"]`);
+                    if (mesEl) mesEl.style.display = 'none';
+                }
             } catch (err) {
                 console.warn('[DLE] Librarian GENERATION_ENDED consolidation failed:', err?.message);
             }
@@ -1325,6 +1380,10 @@ jQuery(async function () {
             if (!Number.isInteger(idx) || idx < 0 || idx >= (chat?.length || 0)) return;
             const message = chat[idx];
             if (!message || message.is_user) return;
+
+            // BUG-FIX-2: Clean up any stale pipeline/tool status on swipe.
+            _removePipelineStatus();
+            _removeDleToolStatus();
 
             // Clear tool call dropdown data and DOM.
             // When perMessageActivity is enabled, keep dropdown data on swipe — it will be

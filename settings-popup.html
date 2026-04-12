@@ -66,6 +66,11 @@
             <i class="fa-solid fa-sliders" aria-hidden="true"></i>
             <span>System</span>
         </button>
+        <button class="dle-settings-tab" id="dle-sp-tab-reference" data-settings-tab="reference" role="tab"
+                aria-selected="false" aria-controls="dle-sp-reference">
+            <i class="fa-solid fa-terminal" aria-hidden="true"></i>
+            <span>Reference</span>
+        </button>
     </nav>
 
     <!-- Content area -->
@@ -1165,25 +1170,6 @@
             </div>
             </div>
 
-            <div class="dle-settings-section">
-            <h4>Diagnostics</h4>
-            <div class="flex-container flexFlowColumn">
-                <small class="dle-muted">
-                    Export a self-contained diagnostic report to share when reporting bugs.
-                    The file is anonymized (API keys, IP addresses, hostnames, user paths are
-                    pseudonymized) and is designed to be readable by a flagship LLM for
-                    self-service triage. You're encouraged to verify the file before sharing.
-                </small>
-                <div class="flex-container" style="gap: 6px;">
-                    <div id="dle-sp-export-diagnostics" class="menu_button menu_button_icon" role="button" tabindex="0"
-                         title="Export an anonymized diagnostic report you can attach to a GitHub issue.">
-                        <i class="fa-solid fa-stethoscope"></i>
-                        <span id="dle-sp-export-diagnostics-label">Export Diagnostics</span>
-                    </div>
-                </div>
-            </div>
-            </div>
-
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
@@ -1193,6 +1179,7 @@
              role="tabpanel" aria-labelledby="dle-sp-tab-about">
 
             <div style="text-align: center;" class="dle-my-3">
+                <div id="dle-sp-mascot" class="dle-about-logo" title="Who tends the deep lore?"></div>
                 <h3 style="margin: 0;">DeepLore Enhanced</h3>
                 <span class="dle-text-xs dle-muted" id="dle-sp-version">v1.0.0-beta</span>
             </div>
@@ -1222,11 +1209,47 @@
 
             <div style="text-align: center;" class="dle-my-3">
                 <span class="dle-text-xs dle-muted">
-                    Made by <strong>pixelnull</strong> &middot; Licensed under <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT</a>
+                    Made by <strong>pixelnull</strong> &middot; Licensed under <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT</a> &middot; Icons by <a href="https://www.flaticon.com" target="_blank" rel="noopener noreferrer">Flaticon</a>
                 </span>
             </div>
 
             <hr>
+            <h4>Diagnostics</h4>
+            <div class="flex-container flexFlowColumn">
+                <small class="dle-muted">
+                    Export a self-contained diagnostic report to share when reporting bugs.
+                    The file is anonymized (API keys, IP addresses, hostnames, user paths are
+                    pseudonymized) and is designed to be readable by a flagship LLM for
+                    self-service triage. You're encouraged to verify the file before sharing.
+                </small>
+                <div class="flex-container" style="gap: 6px;">
+                    <div id="dle-sp-export-diagnostics" class="menu_button menu_button_icon" role="button" tabindex="0"
+                         title="Export an anonymized diagnostic report you can attach to a GitHub issue.">
+                        <i class="fa-solid fa-stethoscope"></i>
+                        <span id="dle-sp-export-diagnostics-label">Export Diagnostics</span>
+                    </div>
+                </div>
+            </div>
+
+            <hr>
+            <h4>Danger Zone</h4>
+            <p class="dle-muted dle-mb-2" style="text-align: center; font-size: 0.85em;">
+                Your vault connections and AI connection profiles will be preserved. Everything else (matching, budget, injection, features) resets to defaults.
+            </p>
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 8px 0;">
+                <div id="dle-sp-reset-defaults" class="menu_button menu_button_icon dle-danger-btn" role="button" tabindex="0" title="Reset all DeepLore Enhanced settings to their defaults. Vault and AI connections are preserved.">
+                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
+                    <span>Reset All Settings to Defaults</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════════
+             TAB: Reference
+             ═══════════════════════════════════════════════════════════════════ -->
+        <div class="dle-settings-panel" id="dle-sp-reference" data-settings-panel="reference"
+             role="tabpanel" aria-labelledby="dle-sp-tab-reference" hidden>
+
             <h4>Slash Commands</h4>
             <div class="dle-cmd-grid">
                 <div class="dle-cmd-grid-col">
@@ -1269,17 +1292,6 @@
                 </div>
             </div>
 
-            <hr>
-            <h4>Danger Zone</h4>
-            <p class="dle-muted dle-mb-2" style="text-align: center; font-size: 0.85em;">
-                Your vault connections and AI connection profiles will be preserved. Everything else (matching, budget, injection, features) resets to defaults.
-            </p>
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 8px 0;">
-                <div id="dle-sp-reset-defaults" class="menu_button menu_button_icon dle-danger-btn" role="button" tabindex="0" title="Reset all DeepLore Enhanced settings to their defaults. Vault and AI connections are preserved.">
-                    <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
-                    <span>Reset All Settings to Defaults</span>
-                </div>
-            </div>
         </div>
 
     </div>

@@ -1592,6 +1592,41 @@ function bindPopupEvents($container) {
         }
     });
 
+    // About tab logo — load icon.svg as inline SVG so currentColor works with themes
+    fetch(new URL('../../icon.svg', import.meta.url).href)
+        .then(r => r.ok ? r.text() : '')
+        .then(svg => { const el = $c('#dle-sp-mascot')[0]; if (el && svg) el.innerHTML = svg; })
+        .catch(() => {});
+
+    // Easter egg — companion character cards
+    $c('#dle-sp-mascot').on('click', async function () {
+        const basePath = new URL('../../assets/companions/', import.meta.url).href;
+        const companions = [
+            { file: 'Kara-Emily-Gren-STChar.png', name: 'Kara Emily Gren', desc: 'Forensic researcher. Was. The boundary between study and practice became more a matter of preference.' },
+            { file: 'Nott-STChar.png', name: 'Nott', desc: 'Norse goddess of night. Pale, tattooed, wrapped in black that drinks light rather than catching it.' },
+            { file: 'Emma-STChar.png', name: 'Emma', desc: 'Your Librarian. Copper-red hair, hazel-green eyes, assessing whether what you just said is worth writing down.' },
+        ];
+        const rows = companions.map(c =>
+            `<div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--SmartThemeBorderColor);">
+                <div style="flex:1;">
+                    <strong>${escapeHtml(c.name)}</strong>
+                    <div class="dle-text-xs dle-muted" style="margin-top:2px;">${escapeHtml(c.desc)}</div>
+                </div>
+                <a href="${basePath}${c.file}" download="${c.file}" class="menu_button menu_button_icon" style="text-decoration:none;white-space:nowrap;flex-shrink:0;">
+                    <i class="fa-solid fa-download" aria-hidden="true"></i>
+                </a>
+            </div>`
+        ).join('');
+        await callGenericPopup(
+            `<div style="text-align:center;margin-bottom:12px;">
+                <h3 style="margin:0 0 4px;">The Companions</h3>
+                <span class="dle-text-xs dle-muted">SillyTavern character cards — import them and say hello.</span>
+            </div>
+            <div>${rows}</div>`,
+            POPUP_TYPE.TEXT, '', { wide: false, large: false, allowVerticalScrolling: true }
+        );
+    });
+
     $c('#dle-sp-scan-vaults').on('click', async function () {
         const $btn = $(this);
         if ($btn.prop('disabled')) return;

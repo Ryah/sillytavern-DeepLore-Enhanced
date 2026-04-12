@@ -596,6 +596,9 @@ You are performing a systematic audit of the vault against recent story developm
 
     // Response format
     parts.push(`
+## Editor State
+Each user message is prefixed with the current editor state (e.g. \`[Editor currently loaded: "Kael"]\` or \`[Editor is empty — no entry loaded]\`). Always be aware of what's loaded — the user may refer to "this entry" or "this" meaning the loaded entry.
+
 ## Response Format
 Always respond as JSON. Each field has a specific purpose:
 
@@ -620,6 +623,8 @@ Always respond as JSON. Each field has a specific purpose:
 \`\`\`
 
 **Partial updates are fine.** If the user asks you to improve just the keys, only send \`"draft": { "keys": [...] }\` — don't resend the entire content. The UI merges your draft fields into the current state.
+
+**Note:** \`get_full_content\` automatically populates the entry editor with the retrieved entry's fields. You do NOT need to echo the entry back as a draft — the UI handles it. Just respond with your commentary about the entry.
 
 **Conversation only** (no editor changes):
 \`\`\`json
@@ -713,8 +718,12 @@ export async function sendMessage(session, userMessage, options = {}) {
         return { parsed: null, valid: false, exhausted: false, lastErrors: ['Chat changed during librarian send'] };
     };
 
-    // Append user message to history
-    session.messages.push({ role: 'user', content: userMessage });
+    // Append user message to history — include current editor state
+    const editorTitle = session.draftState?.title;
+    const editorNote = editorTitle
+        ? `[Editor currently loaded: "${editorTitle}"]`
+        : '[Editor is empty — no entry loaded]';
+    session.messages.push({ role: 'user', content: `${editorNote}\n${userMessage}` });
 
     const systemPrompt = buildSystemPrompt(session);
     const connectionConfig = { ...getConnectionConfig(), signal };
@@ -845,7 +854,7 @@ export async function sendMessage(session, userMessage, options = {}) {
                 onToolCall?.(tc.name, tc.args);
                 let toolResult;
                 try {
-                    toolResult = executeToolCall(tc.name, tc.args || {});
+                    toolResult = executeToolCall(tc.name, tc.args || {}, session);
                 } catch (err) {
                     toolResult = `Tool error (${tc.name}): ${err?.message || 'unknown error'}`;
                     console.warn(`[DLE] Librarian tool "${tc.name}" threw:`, err);

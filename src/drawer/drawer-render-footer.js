@@ -51,14 +51,18 @@ export function renderFooter() {
         });
 
         const libExtra = librarianChatStats.estimatedExtraTokens || 0;
-        const libSuffix = libExtra > 0 ? ` (+${libExtra.toLocaleString()} librarian)` : '';
-        const label = contextUsed
-            ? `${contextUsed.toLocaleString()}${libSuffix} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
-            : `+ ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`;
+        const totalUsed = contextUsed + libExtra;
+        const label = totalUsed
+            ? `${totalUsed.toLocaleString()} / ${maxContext.toLocaleString()}`
+            : `— / ${maxContext.toLocaleString()}`;
         $footer.find('.dle-context-bar-label').text(label);
 
-        const contextTitle = `${contextUsed.toLocaleString()} tokens used (+ ${responseTokens.toLocaleString()} output tokens) / ${maxContext.toLocaleString()} total allotted context tokens`;
-        $barContainer.attr('aria-valuenow', contextUsed + responseTokens).attr('aria-valuemax', maxContext);
+        const tooltipParts = [`${contextUsed.toLocaleString()} prompt tokens`];
+        if (libExtra > 0) tooltipParts.push(`${libExtra.toLocaleString()} librarian tokens`);
+        tooltipParts.push(`${responseTokens.toLocaleString()} response reserve`);
+        tooltipParts.push(`${maxContext.toLocaleString()} max context`);
+        const contextTitle = tooltipParts.join(' · ');
+        $barContainer.attr('aria-valuenow', totalUsed + responseTokens).attr('aria-valuemax', maxContext);
         $barContainer.attr('title', contextTitle);
     } else {
         $footer.find('.dle-context-bar-context').css('width', '0%');

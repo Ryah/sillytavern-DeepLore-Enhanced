@@ -105,7 +105,13 @@ export function switchTab($drawer, tabName) {
         ds.browseLastRangeStart = -1;
         ds.browseLastRangeEnd = -1;
         ds._browseLastScrollTop = undefined;
-        renderBrowseWindow();
+        // BUG-FIX-5: Call renderBrowseTab() (not just renderBrowseWindow()) to ensure
+        // ds.browseFilteredEntries is populated before the virtual scroll render. Then
+        // use requestAnimationFrame to defer renderBrowseWindow() until the panel's
+        // CSS .active class has painted — otherwise the visibility guard
+        // (!offsetParent && !offsetHeight) returns early on a still-hidden panel.
+        renderBrowseTab();
+        requestAnimationFrame(() => renderBrowseWindow());
     }
 
     // E10: Persist last viewed tab
@@ -188,6 +194,8 @@ export function wireStatusActions($drawer) {
             case 'refresh': buildIndex().catch(err => console.warn('[DLE] Manual refresh failed:', err.message)); break;
             case 'scribe': executeCommand('/dle-scribe'); break;
             case 'newlore': executeCommand('/dle-newlore'); break;
+            case 'librarian-chat': executeCommand('/dle-librarian'); break;
+            case 'graph': executeCommand('/dle-graph'); break;
         }
     });
 

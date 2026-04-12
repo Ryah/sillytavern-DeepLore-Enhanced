@@ -348,8 +348,8 @@
     border-radius: var(--dle-radius-sm);
 }
 
-/* Status dot accessibility icon */
-.dle-status-dot i { font-size: 0.55em; }
+/* Status mascot SVG sizing inside dot */
+.dle-status-dot svg { display: block; }
 
 /* --- Phase 9: Performance Perception --- */
 
@@ -501,6 +501,19 @@ dle-notes { display: none !important; }
 .dle-danger-btn:hover {
     background: color-mix(in srgb, var(--dle-error, #f44336) 15%, transparent);
 }
+
+/* --- About tab logo --- */
+.dle-about-logo {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 8px;
+    cursor: pointer;
+    color: var(--SmartThemeBodyColor);
+    opacity: 0.85;
+    transition: opacity 0.2s;
+}
+.dle-about-logo:hover { opacity: 1; }
+.dle-about-logo svg { width: 100%; height: 100%; fill: currentColor; }
 
 /* --- Info notices --- */
 .dle-notice {
@@ -856,18 +869,18 @@ dle-notes { display: none !important; }
 }
 
 .dle-pipeline-label {
-    font-size: var(--dle-text-xl);
+    font-size: calc(var(--dle-text-xl) * 1.25);
     font-weight: 700;
 }
 
 .dle-stat-divider {
     color: var(--dle-text-muted);
     opacity: var(--dle-opacity-disabled);
-    font-size: var(--dle-text-xs);
+    font-size: calc(var(--dle-text-xs) * 1.25);
 }
 
 .dle-stat {
-    font-size: var(--dle-text-xs);
+    font-size: calc(var(--dle-text-xs) * 1.25);
     color: var(--dle-text-muted);
     display: flex;
     align-items: center;
@@ -889,30 +902,27 @@ dle-notes { display: none !important; }
     border-color: color-mix(in srgb, var(--SmartThemeBodyColor, #fff) 20%, transparent);
 }
 
-/* --- Status dot (shared) --- */
+/* --- Status mascot icon (replaces old dot) --- */
 .dle-status-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
+    width: 42px;
+    height: 42px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
     position: relative;
-    transition: background-color var(--animation-duration-slow, 375ms) ease;
+    transition: color var(--animation-duration-slow, 375ms) ease;
 }
 
-.dle-status-ok { background: var(--dle-success); }
-.dle-status-degraded { background: var(--dle-warning); }
-.dle-status-limited { background: color-mix(in srgb, var(--SmartThemeQuoteColor, #ff8c00) 70%, #f44336); }
-.dle-status-offline { background: var(--dle-error); }
-
-/* Accessibility: FontAwesome icon inside the status dot (not color-only) */
-.dle-status-dot i {
-    font-size: 0.55em;
-    color: var(--SmartThemeBodyColor, #fff);
-    line-height: 1;
+.dle-status-dot svg {
+    width: 100%;
+    height: 100%;
 }
+
+.dle-status-ok { color: var(--dle-success); }
+.dle-status-degraded { color: var(--dle-warning); }
+.dle-status-limited { color: color-mix(in srgb, var(--SmartThemeQuoteColor, #ff8c00) 70%, #f44336); }
+.dle-status-offline { color: var(--dle-error); }
 
 /* --- Zone 2: Tabs --- */
 .dle-zone-tabs {
@@ -4422,11 +4432,11 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
        was getting squeezed below ~400px between the stack breakpoint and the
        two-col grid's minmax(320px, 380px) chat column. Let the popup size
        naturally inside ST's dialog. */
-    min-width: min(900px, 95vw) !important;
+    min-width: min(1100px, 95vw) !important;
 }
 .dle-librarian-popup {
     display: grid;
-    grid-template-columns: 1fr minmax(320px, 380px);
+    grid-template-columns: 1fr minmax(280px, 340px);
     gap: 16px;
     height: 80vh;
     min-height: 500px;
@@ -4553,6 +4563,18 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     font-size: var(--dle-text-base);
     line-height: 1.5;
     resize: none;
+}
+.dle-librarian-unified-textarea {
+    flex: 1;
+    min-height: 0;
+    font-family: var(--monoFontFamily, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    font-size: var(--dle-text-sm);
+    line-height: 1.5;
+    resize: none;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    tab-size: 2;
+    padding: 12px;
 }
 
 /* Key chips */
@@ -4924,6 +4946,10 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
 }
 .dle-librarian-input-row .text_pole {
     flex: 1;
+    resize: none;
+    overflow-y: hidden;
+    min-height: unset;
+    line-height: 1.4;
 }
 .dle-librarian-input-row .menu_button {
     padding: 4px 10px;

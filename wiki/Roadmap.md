@@ -90,6 +90,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | **Story Timeline View** | M | Scrollable timeline of Session Scribe notes with one-click expansion to full summaries. Replace popup-based `/dle-scribe-history` with a persistent view. |
 | **Debug Mode Lite** | M | In-drawer panel showing live matching traces, pipeline decisions, and cache state — avoiding the need for browser console or `/dle-inspect`. |
 | **Selectable Graph Algorithm** | M | Let users choose between different graph layout algorithms (force-directed, radial, hierarchical, etc.) for different vault structures and visualization needs. |
+| **True Tool-Use Integration with Thinking Dropdown** | L | Replace the current tool-call workaround (hide intermediate messages, strip on next generation) with a proper integration where Librarian tool-use activity is presented in a collapsible thinking/reasoning dropdown on the final message — similar to how reasoning models show chain-of-thought. The dropdown would show the AI's search queries, what it found, what it flagged, and its reasoning, all in a clean UI instead of relying on ST's raw tool_invocation system messages. Eliminates the need to strip/hide intermediate assistant messages and system messages from tool-call rounds. |
 | **Entry Studio** | M-L | In-browser entry viewer/editor with AI chat for adjusting frontmatter and content without needing Obsidian open. Preview AI-written entries before committing to vault. Conversational editing: "add era: Modern to frontmatter", "rewrite the summary". |
 
 ---
@@ -155,7 +156,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 
 *Sources: Reddit ([v0.14 post](https://www.reddit.com/r/SillyTavernAI/comments/1ruxeqy/deeplore_enhanced_aipowered_lorebook_injection/), [v0.2.0 post](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/)), GitHub issues ([#3](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/3), [#5](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/5)), 5-expert code audit (2026-03-19), 8-agent comprehensive audit (2026-03-23), 5-perspective review + fixes (2026-03-23), 6-agent graph popup audit (2026-03-24).*
 
-*Last updated: 2026-04-07*
+*Last updated: 2026-04-11*
 
 ---
 

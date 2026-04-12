@@ -112,13 +112,9 @@ export function renderLibrarianTab() {
 
         let html = '';
         for (const item of feed) {
-            const icon = item.kind === 'tool-search'
-                ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search tool call"></i>'
-                : item.kind === 'tool-flag'
-                    ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag tool call"></i>'
-                    : item.kind === 'gap-flag'
-                        ? '<i class="fa-solid fa-flag" aria-hidden="true" title="Persistent flag"></i>'
-                        : '<i class="fa-solid fa-thumbtack" aria-hidden="true" title="Persistent search gap"></i>';
+            const icon = item.kind === 'tool-search' || item.kind === 'gap-search'
+                ? '<i class="fa-solid fa-magnifying-glass" aria-hidden="true" title="Search"></i>'
+                : '<i class="fa-solid fa-flag" aria-hidden="true" title="Flag"></i>';
             const isSearch = item.type === 'search';
             const hasResults = isSearch && (item.resultTitles && item.resultTitles.length > 0);
             const metaText = item.kind === 'gap-search'

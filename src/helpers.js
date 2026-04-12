@@ -516,7 +516,7 @@ export function categorizeRejections(trace, injectedTitles) {
         const entries = trace.stripDedupRemoved
             .filter(t => !injectedTitles.has(t))
             .map(t => ({ title: t, reason: 'Already in context' }));
-        if (entries.length > 0) groups.push({ stage: 'strip_dedup', label: 'Dedup Removed', icon: 'fa-copy', entries });
+        if (entries.length > 0) groups.push({ stage: 'strip_dedup', label: 'Already Injected', icon: 'fa-copy', entries });
     }
 
     // Probability Skipped (object array)

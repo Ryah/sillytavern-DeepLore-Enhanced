@@ -214,7 +214,7 @@ export function registerPipelineCommands() {
                 plainLines.push('');
             }
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
-                plainLines.push(`Strip Dedup Removed (${t.stripDedupRemoved.length}):`);
+                plainLines.push(`Already Injected (${t.stripDedupRemoved.length}):`);
                 for (const title of t.stripDedupRemoved) plainLines.push(`  ${title}`);
                 plainLines.push('');
             }
@@ -270,7 +270,7 @@ export function registerPipelineCommands() {
                     html += `<li>${escapeHtml(m.title)} [${escapeHtml(m.confidence)}] — ${escapeHtml(m.reason)}</li>`;
                 }
                 html += '</ul>';
-                html += `<p class="dle-text-xs dle-dimmed dle-mt-1"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = tangential or speculative</p>`;
+                html += `<p class="dle-text-xs dle-dimmed dle-mt-1"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = loosely related or speculative</p>`;
             }
 
             if (t.aiFallback) {
@@ -357,7 +357,7 @@ export function registerPipelineCommands() {
 
             // Strip dedup removals
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
-                html += `<h4 class="dle-text-warning">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Already Injected (${t.stripDedupRemoved.length})</h4><ul>`;
                 for (const title of t.stripDedupRemoved) {
                     html += `<li>${escapeHtml(title)} — already injected in recent generation(s)</li>`;
                 }

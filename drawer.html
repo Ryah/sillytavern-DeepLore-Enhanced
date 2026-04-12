@@ -64,7 +64,7 @@
     <!-- Tab bar -->
     <div class="dle-tab-bar" role="tablist" aria-label="DeepLore panels" aria-orientation="horizontal">
         <button class="dle-tab active" id="dle-tab-injection" data-tab="injection" role="tab"
-                aria-selected="true" aria-controls="dle-panel-injection" aria-label="Why? — see which lore was included in the last message and why" tabindex="0">
+                aria-selected="true" aria-controls="dle-panel-injection" aria-label="Injection — see which lore was included in the last message and why" tabindex="0">
             <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
             <span class="dle-tab-badge" data-badge="injection" aria-hidden="true"></span>
         </button>
@@ -90,9 +90,9 @@
     </div>
 
     <!-- Active tab label -->
-    <div class="dle-tab-label" aria-hidden="true">Why?</div>
+    <div class="dle-tab-label" aria-hidden="true">Injection</div>
 
-    <!-- ─── Tab: Why? (explains injection decisions) ─── -->
+    <!-- ─── Tab: Injection (explains injection decisions) ─── -->
     <div class="dle-tab-panel active" id="dle-panel-injection" data-tab="injection"
          role="tabpanel" aria-labelledby="dle-tab-injection">
         <div class="dle-panel-toolbar">
@@ -192,7 +192,7 @@
             <i class="fa-solid fa-database" aria-hidden="true"></i>
             <p>No entries indexed.</p>
             <div class="dle-empty-guide">
-                <p>Your vault needs notes tagged with <code>#lorebook</code>. Each entry needs:</p>
+                <p>Your vault needs notes tagged with <code>#lorebook</code>. Each entry must include:</p>
                 <ul>
                     <li><code>tags: [lorebook]</code> in frontmatter</li>
                     <li><code>keys: [keyword1, keyword2]</code> for matching</li>
@@ -203,7 +203,7 @@
         <!-- Empty state: filters returned no results -->
         <div class="dle-empty-state" id="dle-browse-empty-no-results">
             <i class="fa-solid fa-filter-circle-xmark" aria-hidden="true"></i>
-            <p>No entries match your filters. Try adjusting your search or filters.</p>
+            <p>No entries match your filters. Try adjusting your search or criteria.</p>
         </div>
     </div>
 

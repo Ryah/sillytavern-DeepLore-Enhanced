@@ -229,7 +229,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         const lockAge = Date.now() - generationLockTimestamp;
         if (lockAge > 30_000) {
             console.warn(`[DLE] Previous lore selection took too long (${Math.round(lockAge / 1000)}s) — releasing lock`);
-            dedupWarning('Lore from the last message is taking a while — check your AI timeout setting.', 'pipeline_lock_stale', { hint: 'Pipeline lock held past 30s.' });
+            dedupWarning('Lore from the last message is taking longer than expected — check your AI timeout setting.', 'pipeline_lock_stale', { hint: 'Pipeline lock held past 30s.' });
             // BUG-274: Bump lockEpoch so the stuck pipeline (if it ever unsticks) can't win
             // commit order against this new pipeline. Releasing without the epoch bump would
             // let its late writes pass every `lockEpoch === generationLockEpoch` guard.
@@ -778,7 +778,7 @@ async function onGenerate(chat, contextSize, abort, type) {
                 if (ratio > 0.20 && ratio > lastWarningRatio + 0.05) {
                     const pct = Math.round(ratio * 100);
                     toastr.warning(
-                        `Lore is using ${pct}% of your context window (~${totalTokens} tokens, ${injectedCount} entries). You can set a token budget in Settings to manage this.`,
+                        `Your lore uses ${pct}% of your context window (~${totalTokens} tokens, ${injectedCount} entries). You can set a token budget in Settings to manage this.`,
                         'DeepLore Enhanced',
                         { preventDuplicates: true, timeOut: 8000 },
                     );
@@ -1605,7 +1605,7 @@ jQuery(async function () {
                     invalidateSettingsCache();
                     try { saveSettingsDebounced(); } catch { /* no-op */ }
                     dedupWarning(
-                        `A connection profile wired into ${cleared} DLE feature${cleared === 1 ? '' : 's'} was deleted. Re-bind in DLE settings.`,
+                        `A connection profile used by ${cleared} DLE feature${cleared === 1 ? '' : 's'} was deleted. Re-bind in DLE settings.`,
                         'profile_deleted',
                     );
                 }

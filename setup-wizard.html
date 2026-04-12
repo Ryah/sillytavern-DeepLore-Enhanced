@@ -55,7 +55,7 @@
         <!-- ═══ Page 1: Welcome ═══ -->
         <div class="dle-wizard-page active" data-wizard-page="1">
             <h2>Welcome to DeepLore Enhanced</h2>
-            <p class="dle-wizard-subtitle">Your Obsidian vault, wired into SillyTavern.</p>
+            <p class="dle-wizard-subtitle">Your Obsidian vault, connected to SillyTavern.</p>
 
             <div class="dle-wizard-card">
                 <h3><i class="fa-solid fa-book-open"></i> What is this?</h3>
@@ -67,7 +67,7 @@
                 <ol>
                     <li><strong>Keywords</strong> in chat text match against your vault entries</li>
                     <li><strong>AI refinement</strong> (optional) picks the most relevant matches</li>
-                    <li><strong>Entries are injected</strong> into the AI's context window automatically</li>
+                    <li>Matched entries <strong>are injected</strong> into the AI's context window</li>
                 </ol>
             </div>
 
@@ -185,7 +185,7 @@
                         <input type="radio" name="dle-wiz-search-mode" value="keywords" checked />
                         <div>
                             <strong>Keywords Only</strong>
-                            <span class="dle-wizard-field-hint">Fast, no AI cost. Matches by keyword triggers in your entries.</span>
+                            <span class="dle-wizard-field-hint">Fast and free — matches by keyword triggers in your entries.</span>
                         </div>
                     </label>
                     <label class="dle-wizard-radio">
@@ -267,7 +267,7 @@
 
             <label class="checkbox_label dle-wizard-checkbox">
                 <input id="dle-wiz-fuzzy" type="checkbox" class="checkbox" />
-                <span>Enable fuzzy search (BM25/TF-IDF)</span>
+                <span>Enable fuzzy search</span>
             </label>
             <span class="dle-wizard-field-hint" style="margin-left: 24px;">Supplements keyword matching with ranked relevance scoring. Catches partial matches.</span>
         </div>
@@ -283,7 +283,7 @@
                     <label class="dle-wizard-radio">
                         <input type="radio" name="dle-wiz-ai-mode" value="profile" checked />
                         <div>
-                            <strong>ST Connection Profile</strong>
+                            <strong>SillyTavern Connection Profile</strong>
                             <span class="dle-wizard-field-hint">Use an existing SillyTavern connection profile (recommended)</span>
                         </div>
                     </label>
@@ -388,7 +388,7 @@
                     <p>Contextual gating fields let you filter entries by era, location, scene type, and characters present.</p>
                     <label class="checkbox_label dle-wizard-checkbox">
                         <input id="dle-wiz-create-fields" type="checkbox" class="checkbox" checked />
-                        <span>Create field definitions file</span>
+                        <span>Create a field definitions file</span>
                     </label>
                     <div class="dle-wizard-field">
                         <label>Path in vault</label>

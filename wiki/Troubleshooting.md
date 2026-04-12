@@ -7,7 +7,7 @@ Common issues and how to fix them. Run `/dle-health` first — it catches most p
 ### "Connection failed" or "ECONNREFUSED"
 - **Check:** Is Obsidian running?
 - **Check:** Is the Local REST API plugin enabled in Obsidian settings?
-- **Check:** Does the port in DeepLore settings match the REST API plugin port? (Default: 27123)
+- **Check:** Does the port in DeepLore settings match the REST API plugin port? (Default: 27124 for HTTPS, 27123 for HTTP)
 - **Check:** Is another application using the same port?
 - **Try:** Restart Obsidian, then click **Test All** in DeepLore settings
 

@@ -32,8 +32,8 @@ import { buildBM25Index } from './bm25.js';
 // bm25 functions imported for internal use; consumers should import directly from ./bm25.js
 
 // Pure functions extracted to vault-pure.js for testability
-import { computeEntityDerivedState, deduplicateMultiVault } from './vault-pure.js';
-export { computeEntityDerivedState, deduplicateMultiVault };
+import { computeEntityDerivedState, deduplicateMultiVault, detectCrossVaultDuplicates } from './vault-pure.js';
+export { computeEntityDerivedState, deduplicateMultiVault, detectCrossVaultDuplicates };
 
 // ─── Constants ───
 // BUG-381: Renamed from OBSIDIAN_FETCH_TIMEOUT — used only as a toastr `timeOut`
@@ -424,6 +424,20 @@ export async function buildIndex() {
             }
         }));
 
+        // Warn about cross-vault duplicate titles (forbidden — causes Map key collisions)
+        if (enabledVaults.length > 1) {
+            const dupes = detectCrossVaultDuplicates(entries);
+            if (dupes.length > 0) {
+                const listing = dupes.slice(0, 5).map(d => `"${d.title}" (${d.vaults.join(', ')})`).join('; ');
+                const more = dupes.length > 5 ? ` …and ${dupes.length - 5} more` : '';
+                dedupWarning(
+                    `Duplicate entry titles across vaults: ${listing}${more}. Keeping the first vault's copy. Rename one copy to avoid issues.`,
+                    'cross_vault_dupes',
+                    { timeOut: OBSIDIAN_TOAST_TIMEOUT },
+                );
+            }
+        }
+
         // E6: Multi-vault conflict resolution dedup pass (BUG-007: shared with buildIndexWithReuse)
         entries = deduplicateMultiVault(entries, settings.multiVaultConflictResolution);
 
@@ -761,6 +775,23 @@ export async function buildIndexWithReuse() {
 
         if (settings.debugMode) {
             console.log(`[DLE] Reuse sync: +${newCount} new, ~${modifiedCount} modified, -${removedCount} removed`);
+        }
+
+        // Warn about cross-vault duplicate titles (forbidden — causes Map key collisions)
+        {
+            const enabledCount = (getSettings().vaults || []).filter(v => v.enabled).length;
+            if (enabledCount > 1) {
+                const dupes = detectCrossVaultDuplicates(allEntries);
+                if (dupes.length > 0) {
+                    const listing = dupes.slice(0, 5).map(d => `"${d.title}" (${d.vaults.join(', ')})`).join('; ');
+                    const more = dupes.length > 5 ? ` …and ${dupes.length - 5} more` : '';
+                    dedupWarning(
+                        `Duplicate entry titles across vaults: ${listing}${more}. Keeping the first vault's copy. Rename one copy to avoid issues.`,
+                        'cross_vault_dupes',
+                        { timeOut: 15000 },
+                    );
+                }
+            }
         }
 
         // BUG-007: Apply multi-vault dedup (was missing from reuse path)

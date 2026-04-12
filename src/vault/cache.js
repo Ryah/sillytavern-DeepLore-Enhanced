@@ -14,7 +14,7 @@ export { validateCachedEntry };
 const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;
 const STORE_NAME = 'vaultCache';
-const CACHE_SCHEMA_VERSION = 3; // Bumped: per-vault cache keys
+const CACHE_SCHEMA_VERSION = 4; // Bumped: H-06 cache key includes lorebookTag + conflictResolution
 
 /**
  * BUG-371: Tracks whether the most recent saveIndexToCache call actually persisted.
@@ -36,7 +36,11 @@ function getCacheKey() {
             .map(v => `${v.name}:${v.host || '127.0.0.1'}:${v.port}:${v.https ? 'https' : 'http'}:${simpleHash(v.apiKey || '')}`)
             .sort()
             .join('|');
-        return fp ? `index_${fp}` : 'primaryIndex';
+        // H-06: Include lorebook tag and conflict resolution in fingerprint so
+        // changing either invalidates the cache instead of serving stale data
+        const tag = settings.lorebookTag || 'lorebook';
+        const conflict = settings.multiVaultConflictResolution || 'first';
+        return fp ? `index_${tag}_${conflict}_${fp}` : 'primaryIndex';
     } catch {
         return 'primaryIndex';
     }

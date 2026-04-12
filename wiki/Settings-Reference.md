@@ -18,7 +18,7 @@ DeepLore Enhanced supports multiple Obsidian vaults. Each vault has its own name
 |---------|---------|-------------|
 | **Vault Name** | (none) | Display name for this vault connection. Must match your Obsidian vault name exactly for deep links to work. |
 | **Host** | `127.0.0.1` | IP or hostname of the machine running Obsidian. Change for remote vault connections. |
-| **Port** | `27123` | Port for the Obsidian Local REST API plugin. |
+| **Port** | `27124` | Port for the Obsidian Local REST API plugin (27124 for HTTPS, 27123 for HTTP). |
 | **API Key** | (none) | Bearer token from Obsidian's Local REST API settings. |
 | **Enabled** | On | Toggle this vault on/off without deleting the connection. |
 

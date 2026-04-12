@@ -51,7 +51,7 @@ Stop and restart SillyTavern to load the new extension.
 ### Obsidian Connection
 
 1. In Obsidian, open **Settings > Community Plugins** and install/enable **Local REST API**
-2. Go to **Settings > Local REST API** and note the **API port** (default: `27123`) and copy the **API key**
+2. Go to **Settings > Local REST API** and note the **API port** (default: `27124` for HTTPS, `27123` for HTTP) and copy the **API key**
 3. In SillyTavern, go to **Extensions > DeepLore Enhanced**
 4. Enter the port and API key in the connection fields
 5. Click **Test All**. You should see a success message
@@ -110,7 +110,7 @@ git pull
 
 - **Is Obsidian open?** The Local REST API plugin only serves requests while Obsidian is running.
 - **Is the Local REST API plugin enabled?** Check Obsidian Settings > Community Plugins.
-- **Check the port:** The default is `27123`. Make sure the port in DLE settings matches what Local REST API is using.
+- **Check the port:** The default is `27124` (HTTPS) or `27123` (HTTP). Make sure the port in DLE settings matches what Local REST API is using.
 - **Check the API key:** Copy it fresh from Obsidian Settings > Local REST API. Keys are regenerated when the plugin is reinstalled.
 - **Firewall:** If SillyTavern and Obsidian are on different machines, ensure the port is open.
 

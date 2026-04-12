@@ -23,7 +23,7 @@ Connect to your Obsidian vault's Local REST API.
 |-------|---------|-------------|
 | Vault Name | Primary | Display name for this vault |
 | Host | 127.0.0.1 | IP or hostname where Obsidian is running |
-| Port | 27123 | REST API port (set in Obsidian plugin settings) |
+| Port | 27124 | REST API port (set in Obsidian plugin settings; 27124 HTTPS, 27123 HTTP) |
 | API Key | -- | Bearer token from the REST API plugin |
 
 Click **Test Connection** to verify. The test must pass before you can continue.

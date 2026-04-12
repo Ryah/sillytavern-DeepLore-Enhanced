@@ -32,6 +32,33 @@ export function computeEntityDerivedState(entries) {
 }
 
 /**
+ * Detect entry titles that appear in more than one vault.
+ * Returns an array of { title, vaults[] } for each conflicting title.
+ * Called before deduplicateMultiVault to warn the user.
+ * @param {Array} entries - VaultEntry array
+ * @returns {Array<{title: string, vaults: string[]}>}
+ */
+export function detectCrossVaultDuplicates(entries) {
+    const titleVaults = new Map();
+    for (const entry of entries) {
+        const key = entry.title.toLowerCase();
+        const vault = entry.vaultSource || '(unknown)';
+        if (!titleVaults.has(key)) {
+            titleVaults.set(key, new Map()); // vault → display title
+        }
+        titleVaults.get(key).set(vault, entry.title);
+    }
+    const duplicates = [];
+    for (const [, vaultMap] of titleVaults) {
+        if (vaultMap.size > 1) {
+            const first = vaultMap.values().next().value;
+            duplicates.push({ title: first, vaults: [...vaultMap.keys()] });
+        }
+    }
+    return duplicates;
+}
+
+/**
  * Multi-vault conflict resolution dedup pass (BUG-007).
  * When entries with the same title exist in different vaults, this resolves them:
  *   'all'   — Keep every copy (no dedup). Entries from each vault appear independently.
@@ -85,6 +112,10 @@ export function deduplicateMultiVault(entries, mode) {
                     // hash of the ORIGINAL (unmerged) first entry's file content so reuse-sync
                     // can match it against the on-disk file and avoid infinite "modified" loops.
                     // (existing._contentHash was already copied from firstEntry above.)
+                }
+                // H-05: OR-merge boolean flags — if ANY copy is true, merged entry keeps it
+                for (const flag of ['constant', 'seed', 'bootstrap', 'guide']) {
+                    if (entry[flag]) existing[flag] = true;
                 }
                 // summary: prefer first non-empty
                 if (!existing.summary && entry.summary) existing.summary = entry.summary;

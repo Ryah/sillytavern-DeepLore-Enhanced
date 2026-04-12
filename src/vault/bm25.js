@@ -65,7 +65,16 @@ export function buildBM25Index(entries) {
         idf.set(term, Math.log((N - freq + 0.5) / (freq + 0.5) + 1));
     }
 
-    return { idf, docs, avgDl: totalLen / N };
+    // H-12: Build inverted posting list so queryBM25 only iterates matching docs
+    const invertedIndex = new Map();
+    for (const [docId, doc] of docs) {
+        for (const term of doc.tf.keys()) {
+            if (!invertedIndex.has(term)) invertedIndex.set(term, new Set());
+            invertedIndex.get(term).add(docId);
+        }
+    }
+
+    return { idf, docs, avgDl: totalLen / N, invertedIndex };
 }
 
 /**
@@ -89,7 +98,21 @@ export function queryBM25(index, queryText, topK = 20, minScore = 0.5) {
     const b = BM25_B;
     const scores = [];
 
-    for (const [_key, doc] of index.docs) {
+    // H-12: Use inverted index to only score docs containing at least one query term
+    const candidateDocIds = new Set();
+    if (index.invertedIndex) {
+        for (const term of queryTerms) {
+            const posting = index.invertedIndex.get(term);
+            if (posting) {
+                for (const docId of posting) candidateDocIds.add(docId);
+            }
+        }
+    }
+    const docsToScore = index.invertedIndex
+        ? [...candidateDocIds].map(id => index.docs.get(id)).filter(Boolean)
+        : [...index.docs.values()]; // fallback for indexes built before H-12
+
+    for (const doc of docsToScore) {
         let score = 0;
         for (const term of queryTerms) {
             const termIdf = index.idf.get(term);

@@ -8,7 +8,7 @@ Code-level reference for Claude Code. Covers the full lifecycle from Obsidian fe
 - `src/vault/cache-validate.js` — pure entry validator (validateCachedEntry)
 - `src/vault/obsidian-api.js` — HTTP fetch layer, circuit breaker, connection diagnostics
 - `src/vault/bm25.js` — BM25 fuzzy search index (pure functions)
-- `src/vault/vault-pure.js` — pure derived-state helpers (computeEntityDerivedState, deduplicateMultiVault)
+- `src/vault/vault-pure.js` — pure derived-state helpers (computeEntityDerivedState, deduplicateMultiVault, detectCrossVaultDuplicates)
 - `src/vault/sync.js` — sync polling loop (setupSyncPolling, showChangesToast)
 - `src/vault/import.js` — World Info import bridge
 - `core/pipeline.js` — parseVaultFile (frontmatter parsing, tag classification)
@@ -37,7 +37,8 @@ Default in `settings.js` L174: `vaults: []`. Legacy single-vault fields (`obsidi
 
 All vault-aware code iterates `settings.vaults.filter(v => v.enabled)`. Vault order matters for:
 - **Field definitions**: always loaded from `enabledVaults[0]` (the "primary" vault).
-- **Conflict resolution** (`settings.multiVaultConflictResolution`): `all` | `first` | `last` | `merge`. Applied by `deduplicateMultiVault()` in `vault-pure.js`. Keyed by `entry.title.toLowerCase()`.
+- **Conflict resolution** (`settings.multiVaultConflictResolution`): `all` | `first` | `last` | `merge`. Applied by `deduplicateMultiVault()` in `vault-pure.js`. Keyed by `entry.title.toLowerCase()`. H-05: merge mode now OR-merges boolean flags (`constant`, `seed`, `bootstrap`, `guide`).
+- **Cross-vault duplicate detection**: `detectCrossVaultDuplicates()` runs before dedup in both `buildIndex()` and `buildIndexWithReuse()`. Shows a warning toast listing conflicting titles and vault sources. Duplicates are not forbidden at runtime but users are told to rename.
 
 ### `getPrimaryVault(settings)` (settings.js L525)
 
@@ -285,23 +286,23 @@ Removes `settings.analyticsData` keys that don't match any active `trackerKey(en
 
 - **Database:** `DeepLoreEnhanced` (DB_VERSION = 1)
 - **Object store:** `vaultCache` (no key path -- uses explicit keys)
-- **Schema version:** `CACHE_SCHEMA_VERSION = 3` (bumped for per-vault cache keys)
+- **Schema version:** `CACHE_SCHEMA_VERSION = 4` (bumped: H-06 cache key includes lorebookTag + conflictResolution)
 
 ### Cache key format
 
 `getCacheKey()` (cache.js L31-43): Builds a fingerprint from enabled vault configs:
 
 ```
-"index_" + sorted("name:host:port:protocol:hashedApiKey" per enabled vault, joined by "|")
+"index_" + lorebookTag + "_" + conflictResolution + "_" + sorted("name:host:port:protocol:hashedApiKey" per enabled vault, joined by "|")
 ```
 
-Falls back to `"primaryIndex"` if no vaults configured or on error.
+Falls back to `"primaryIndex"` if no vaults configured or on error. H-06: `lorebookTag` and `multiVaultConflictResolution` are included so changing either invalidates the cache.
 
 ### Stored data shape
 
 ```javascript
 {
-    schemaVersion: 3,
+    schemaVersion: 4,
     timestamp: Date.now(),
     entries: entries.map(e => {
         // All own properties EXCEPT private (_*) fields,
@@ -371,7 +372,7 @@ Returns `{idf: Map<term, number>, docs: Map<docId, {tf, len, entry}>, avgDl: num
 
 Returns `Array<{title, score, entry}>` sorted by score descending.
 
-**Scoring:** Standard BM25 with `k1=1.5`, `b=0.75`. Query tokens are deduplicated (BUG-042).
+**Scoring:** Standard BM25 with `k1=1.5`, `b=0.75`. Query tokens are deduplicated (BUG-042). H-12: Uses inverted posting list (`index.invertedIndex`) to score only docs containing at least one query term, instead of scanning all docs. Falls back to full scan for pre-H-12 indexes.
 
 **Returns `entry.title`** in results, not the map key (BUG-013).
 

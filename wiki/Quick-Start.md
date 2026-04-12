@@ -15,7 +15,7 @@ Get DeepLore Enhanced injecting lore in 5 minutes.
 
 1. Open SillyTavern → Extensions → DeepLore Enhanced
 2. Under **Vault Connections**, your default vault should already be there
-3. Enter the **Port** (default: `27123`) and **API Key** from the Obsidian REST API plugin settings
+3. Enter the **Port** (default: `27124` for HTTPS) and **API Key** from the Obsidian REST API plugin settings
 4. Click **Test All** — you should see a green checkmark
 
 > **Where's my API key?** In Obsidian, go to Settings → Community Plugins → Local REST API → copy the "API Key" field.

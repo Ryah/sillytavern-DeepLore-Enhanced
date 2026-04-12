@@ -16,6 +16,8 @@ import { buildIndex } from '../vault/vault.js';
 import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession, pickFlavorIntro } from './librarian-session.js';
 import { getSessionActivityLog, buildLibrarianActivityFeed } from './librarian-tools.js';
 
+const emmaAvatarUrl = new URL('../../assets/companions/Emma-STChar.png', import.meta.url).href;
+
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers — Unified document format
 // ════════════════════════════════════════════════════════════════════════════
@@ -149,7 +151,7 @@ function buildPopupHTML(session) {
         </div>
         <div class="dle-lib-activity-log" id="dle-lib-activity" hidden aria-label="Tool use activity log"></div>
         <div class="dle-librarian-messages" id="dle-lib-messages" role="log" aria-live="polite">
-            <div class="dle-lib-msg dle-lib-msg-ai">${welcomeMsg}</div>
+            <div class="dle-lib-msg dle-lib-msg-ai"><img class="dle-lib-avatar" src="${emmaAvatarUrl}" alt=""><div class="dle-lib-msg-content">${welcomeMsg}</div></div>
             <div class="dle-lib-status-line" id="dle-lib-status-line" aria-live="polite" hidden></div>
         </div>
         ${(isReview || isAudit) && session.workQueue ? `<div class="dle-librarian-queue" id="dle-lib-queue"></div>` : ''}
@@ -367,7 +369,8 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
                     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
                     html = html.replace(/\n/g, '<br>');
-                    div.innerHTML = `<div class="dle-lib-msg-content">${html}</div>`
+                    div.innerHTML = `<img class="dle-lib-avatar" src="${emmaAvatarUrl}" alt="">`
+                        + `<div class="dle-lib-msg-content">${html}</div>`
                         + `<button class="dle-lib-msg-action dle-lib-msg-regen" title="Regenerate" aria-label="Regenerate response"><i class="fa-solid fa-rotate-right"></i></button>`;
                 } else {
                     div.innerHTML = `<div class="dle-lib-msg-content">${escapeHtml(content)}</div>`
@@ -895,7 +898,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 messagesDiv.innerHTML = '';
                 const welcomeDiv = document.createElement('div');
                 welcomeDiv.className = 'dle-lib-msg dle-lib-msg-ai';
-                welcomeDiv.innerHTML = `<em>*dusts off the desk*</em> Clean slate. What are we working on?`;
+                welcomeDiv.innerHTML = `<img class="dle-lib-avatar" src="${emmaAvatarUrl}" alt=""><div class="dle-lib-msg-content"><em>*dusts off the desk*</em> Clean slate. What are we working on?</div>`;
                 messagesDiv.appendChild(welcomeDiv);
 
                 // Remove any options cards or queue

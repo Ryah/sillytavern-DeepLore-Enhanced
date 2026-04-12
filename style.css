@@ -4432,7 +4432,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
        was getting squeezed below ~400px between the stack breakpoint and the
        two-col grid's minmax(320px, 380px) chat column. Let the popup size
        naturally inside ST's dialog. */
-    min-width: min(1100px, 95vw) !important;
+    min-width: min(1350px, 95vw) !important;
 }
 .dle-librarian-popup {
     display: grid;
@@ -4872,10 +4872,27 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     padding: 2px 6px;
 }
 .dle-lib-msg-ai {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--dle-space-2);
+    align-self: flex-start;
+    background: none;
+    border: none;
+    padding: 0;
+}
+.dle-lib-msg-ai .dle-lib-msg-content {
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 15%, transparent);
     border-left: 3px solid color-mix(in srgb, var(--SmartThemeQuoteColor) 40%, transparent);
     border-radius: var(--dle-radius-sm) var(--dle-radius-lg) var(--dle-radius-lg) var(--dle-radius-sm);
-    align-self: flex-start;
+    padding: var(--dle-space-2) var(--dle-space-3);
+}
+.dle-lib-avatar {
+    width: 50px;
+    height: 100px;
+    border-radius: var(--dle-radius-sm, 6px);
+    object-fit: cover;
+    object-position: top;
+    flex-shrink: 0;
 }
 .dle-lib-msg-user {
     background: color-mix(in srgb, var(--SmartThemeChatMesColorFill, #2a4a6a) 35%, transparent);

@@ -1,5 +1,57 @@
-node_modules/
-.DS_Store
-Thumbs.db
-.env*
-*.log
+# Ignore everything by default — whitelist only shipped files
+*
+
+# This file
+!.gitignore
+!.gitattributes
+
+# User-facing documentation
+!README.md
+!CHANGELOG.md
+!CONTRIBUTING.md
+!KNOWN_ISSUES.md
+!LICENSE
+!SECURITY.md
+
+# Extension source
+!index.js
+!settings.js
+!manifest.json
+!package.json
+!icon.svg
+!style.css
+!eslint.config.js
+
+# HTML
+!drawer.html
+!settings.html
+!settings-popup.html
+!setup-wizard.html
+
+# Source directories
+!src/
+!src/**
+!core/
+!core/**
+
+# Code-level docs
+!docs/
+!docs/**
+
+# Tests (CI)
+!test/
+!test/**
+!test-vault/
+!test-vault/**
+
+# Assets
+!assets/
+!assets/**
+
+# GitHub
+!.github/
+!.github/**
+
+# Wiki
+!wiki/
+!wiki/**

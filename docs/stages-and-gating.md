@@ -1,0 +1,262 @@
+# Stages and Gating Deep Dive
+
+All stage functions live in `src/stages.js`. They are called sequentially in `index.js` after `runPipeline()` returns. Each takes explicit inputs and returns outputs — no implicit global state reads.
+
+---
+
+## ExemptionPolicy
+
+```javascript
+buildExemptionPolicy(vaultSnapshot, pins, blocks)
+  → { forceInject: Set<string>, pins: Array<{title, vaultSource}>, blocks: Array<{title, vaultSource}> }
+```
+**Location:** `src/stages.js` L24-43
+
+`forceInject` is a Set of lowercased titles. An entry in `forceInject` skips:
+- Contextual gating (Stage 2)
+- Folder filtering (Stage 2b)
+- Re-injection cooldown (Stage 3)
+- Requires/excludes gating (Stage 4)
+- Strip dedup (Stage 5)
+
+**Only budget limits (Stage 6) can exclude a forceInject entry.**
+
+Entries added to `forceInject`:
+- All `constant` entries (lorebook-always)
+- All `seed` entries (lorebook-seed)
+- All `bootstrap` entries (lorebook-bootstrap)
+- All pinned entries (from `chat_metadata.deeplore_pins`)
+
+Pin/block normalization (L34-35): `normalizePinBlock()` converts bare title strings to `{title, vaultSource: null}` for backward compatibility.
+
+---
+
+## Stage 1: Pin/Block
+
+```javascript
+applyPinBlock(entries, vaultSnapshot, policy, matchedKeys)
+  → entries[] (modified)
+```
+**Location:** `src/stages.js` L62-111
+
+**Pins:**
+- Looks up pinned entries in `vaultSnapshot` (not just pipeline results)
+- Deep-clones array fields to prevent shared references with `vaultIndex` (BUG-030)
+- Shallow-clones `customFields` with array spread (BUG-AUDIT-P8)
+- Sets `constant=true, priority=10` on cloned entry
+- If entry already in results: replaces it. If not: appends.
+- Records `matchedKeys.set(title, '(pinned)')` for trace display
+
+**Blocks:**
+- Filters out any entry matching a block via `matchesPinBlock(pb, entry)` (L106-108)
+- Blocks override constants — a blocked constant is removed
+
+**Gotcha:** Uses O(1) `resultTitleIdx` Map for lookup (BUG-AUDIT-H15), not linear scan.
+
+---
+
+## Stage 2: Contextual Gating
+
+```javascript
+applyContextualGating(entries, context, policy, debugMode, settings, fieldDefs)
+  → entries[] (filtered)
+```
+**Location:** `src/stages.js` L131-188
+
+Driven by `fieldDefinitions` array (default 4 from `src/fields.js`: `era`, `location`, `scene_type`, `character_present`). Custom fields defined in `field-definitions.yaml`.
+
+**Logic per entry per field:**
+1. ForceInject → pass
+2. Entry has no value for field → pass (entry doesn't care)
+3. Entry has value, context has no value:
+   - `strict` tolerance → block (entry is out of context)
+   - `moderate`/`lenient` → pass
+4. Both have values → `evaluateOperator(operator, entryValue, activeValue)`
+
+**Operators** (from `src/fields.js` `evaluateOperator`):
+| Operator | Logic |
+|---|---|
+| `match_any` | Any entry value is in active values (OR) |
+| `match_all` | All entry values are in active values (AND) |
+| `not_any` | None of entry values are in active values |
+| `exists` | Entry has a non-empty value |
+| `not_exists` | Entry has no value |
+| `eq` | Entry value equals active value |
+| `gt` | Entry value > active value |
+| `lt` | Entry value < active value |
+
+**Tolerance levels:**
+- **Strict:** Entry with value + no context = blocked
+- **Moderate:** Entry with value + no context = passes
+- **Lenient:** Like moderate, plus `match_any`/`match_all` non-matches also pass. Precision operators (`eq`, `gt`, `lt`, `not_any`) always filter. (BUG-H8)
+
+**Short-circuit:** If no context dimension is set at all, returns entries unchanged (L142).
+
+---
+
+## Stage 2b: Folder Filter
+
+```javascript
+applyFolderFilter(entries, selectedFolders, policy, debugMode)
+  → entries[] (filtered)
+```
+**Location:** `src/stages.js` L206-221
+
+- Root-level entries (`!e.folderPath`) always pass (L212)
+- Subfolder matching: `e.folderPath === f || e.folderPath.startsWith(f + '/')` (L213)
+- ForceInject entries exempt (L211)
+- No-op if `selectedFolders` is null/empty (L207)
+
+**Note:** This stage is called inside `runPipeline()` (not in index.js's post-pipeline sequence), but is documented here because it shares the exemption policy pattern.
+
+---
+
+## Stage 3: Re-injection Cooldown
+
+```javascript
+applyReinjectionCooldown(entries, policy, injectionHistory, generationCount, reinjectionCooldown, debugMode)
+  → entries[] (filtered)
+```
+**Location:** `src/stages.js` L239-260
+
+- Checks `injectionHistory` Map: `trackerKey(entry) → lastInjectedGeneration`
+- Entry skipped if `generationCount - lastGen < reinjectionCooldown`
+- ForceInject entries exempt
+- No-op if `reinjectionCooldown <= 0`
+
+**Distinct from per-entry cooldown:** Re-injection cooldown is a global setting applied to all entries post-selection. Per-entry `cooldown` (frontmatter field) is tracked via `cooldownTracker` and applied during matching in `src/pipeline/match.js`.
+
+---
+
+## Stage 4: Requires/Excludes Gating
+
+```javascript
+applyRequiresExcludesGating(entries, policy, debugMode)
+  → { result: entries[], removed: entries[] }
+```
+**Location:** `src/stages.js` L275-350
+
+**Iterative loop** (max 10 iterations) until stable:
+1. Sort entries descending by priority number (higher number = lower priority, processed first) (BUG-029)
+2. For each entry:
+   - ForceInject → keep
+   - `requires`: ALL titles must be in the active set (AND logic). Missing any → remove.
+   - `excludes`: ANY title in the active set → remove (OR logic).
+3. Repeat if any entry was removed (cascading dependencies)
+
+**Re-sort on return** (L347): Ascending by priority (lower number = higher priority) so downstream `formatAndGroup` budget cap keeps the most important entries.
+
+**Contradiction detection** (L320-331): Warns if entry A requires B but B excludes A.
+
+**Dangling reference handling:** References to entries not in the vault are stripped at finalization time (`resolveLinks` in vault.js), with originals preserved on `_originalRequires`, `_originalExcludes`.
+
+---
+
+## Stage 5: Strip Dedup
+
+```javascript
+applyStripDedup(entries, policy, injectionLog, lookbackDepth, defaultSettings, debugMode)
+  → entries[] (filtered)
+```
+**Location:** `src/stages.js` L368-395
+
+- Reads `chat_metadata.deeplore_injection_log` (array of `{gen, entries[]}`)
+- Takes last `lookbackDepth` log entries
+- Builds dedup key: `title|position|depth|role|contentHash`
+- Entry matches recent log entry with same key → skip
+- ForceInject entries exempt
+- No-op if log empty
+
+---
+
+## Stage 6: Format and Group
+
+Not in `stages.js` — lives in `core/matching.js` as `formatAndGroup()`.
+
+```javascript
+formatAndGroup(entries, settings, promptTagPrefix)
+  → { groups: Array<{tag, text, position, depth, role}>, count, totalTokens, acceptedEntries }
+```
+
+**Budget enforcement:**
+- Expects entries pre-sorted by priority ascending (lower number = higher priority) — Stage 4 re-sorts before returning
+- Adds entries until `maxTokensBudget` or `maxEntries` is reached (unless `unlimited*` is set)
+- Truncates the last entry to fit budget if needed (`_truncated` flag, `_originalTokens` preserved)
+
+**Grouping:**
+- **Extension mode:** Groups by `(position, depth, role)` triplet. Tag: `deeplore_p{pos}_d{depth}_r{role}`
+- **Prompt List mode:** Two fixed tags: `deeplore_constants` and `deeplore_lore`. Per-entry overrides get their own `deeplore_override_p{pos}_d{depth}_r{role}` group (bypasses PM).
+- **Outlet entries:** Position `-1`, tag `customWIOutlet_{name}`. Bypass PM entirely for `{{outlet::name}}` macro.
+
+**Template rendering:** Each entry is wrapped per `settings.injectionTemplate` (default: `<{{title}}>\n{{content}}\n</{{title}}>`).
+
+---
+
+## Tracking Functions (Post-Commit)
+
+### trackGeneration (Stage 7)
+
+```javascript
+trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings)
+```
+**Location:** `src/stages.js` L412-427
+
+- Sets `cooldownTracker` for entries with per-entry `cooldown` field (value = `cooldown + 1` to compensate for immediate decrement)
+- Records `injectionHistory` entries for re-injection cooldown (if `reinjectionCooldown > 0`)
+
+### decrementTrackers (Finally Block)
+
+```javascript
+decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings, consecutiveInjections)
+```
+**Location:** `src/stages.js` L439-480
+
+**Always runs if `pipelineRan` is true** (even with zero matches). Without this, cooldown timers freeze permanently.
+
+1. **Cooldown:** Decrement all counters. Remove expired ones (≤1).
+2. **Decay:** Reset to 0 for injected entries. Increment by 1 for non-injected entries. Prune at `2 × decayBoostThreshold` (BUG-H10 off-by-one fix).
+3. **Consecutive injections:** Increment for injected entries. Delete non-injected entries (streak broken).
+
+### recordAnalytics (Stage 8)
+
+```javascript
+recordAnalytics(matchedEntries, injectedEntries, analyticsData)
+```
+**Location:** `src/stages.js` L489-524
+
+- Increments `matched` count for all selected entries (pre-budget)
+- Increments `injected` count for actually injected entries (post-budget)
+- Records `lastTriggered` timestamp
+- Prunes stale entries (>30 days since last trigger)
+- Caps at 500 entries (evicts oldest by `lastTriggered`)
+
+---
+
+## Field Definitions System
+
+**Source:** `src/fields.js`
+
+**Default fields:** `era`, `location`, `scene_type`, `character_present`
+
+**YAML source:** `field-definitions.yaml` in primary vault (path configurable via `fieldDefinitionsPath` setting, default `DeepLore/field-definitions.yaml`).
+
+**Field definition schema:**
+```javascript
+{
+  name: string,           // Internal name (used in frontmatter, snake_case)
+  label: string,          // Display name
+  type: 'string'|'number'|'boolean',  // Data type
+  multi: boolean,         // Whether this field holds an array of values
+  values: string[],       // Optional allowed values (empty = freeform)
+  contextKey: string,     // Key in chat_metadata.deeplore_context
+  gating: {
+    enabled: boolean,
+    operator: string,     // match_any, match_all, not_any, exists, not_exists, eq, gt, lt
+    tolerance: string,    // strict, moderate, lenient (overrides global setting)
+  }
+}
+```
+
+**`extractCustomFields(frontmatter, fieldDefs)`** — Called during `parseVaultFile()`. Extracts custom field values from entry frontmatter based on field definitions. Returns `{ [fieldName]: value }`.
+
+**Reserved field names** (enforced by `RESERVED_FIELD_NAMES` set in `src/fields.js`): `keys`, `priority`, `tags`, `requires`, `excludes`, `position`, `depth`, `role`, `scandepth`, `excluderecursion`, `refine_keys`, `cascade_links`, `cooldown`, `warmup`, `probability`, `summary`, `graph`, `enabled`, `constant`, `seed`, `bootstrap`, `type`, `fileclass`, `status`, `aliases`.

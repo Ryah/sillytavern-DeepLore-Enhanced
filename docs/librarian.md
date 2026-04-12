@@ -386,6 +386,20 @@ Runs after lock acquisition. Walks `chat[]` backward, splicing out:
 - Intermediate assistant messages within DLE tool-call turns (L270-272).
 - For mixed DLE+non-DLE tool messages: filters out only DLE invocations from the array (L262).
 
+### `_cleanupOrphanedDleIntermediates` (MESSAGE_DELETED, index.js)
+
+Runs on every `MESSAGE_DELETED` event. Scans for orphaned DLE intermediates — DLE system messages (all-`dle_` tool_invocations) that have no parent assistant message with `deeplore_tool_calls` in the same turn. Also removes hidden assistant intermediates preceding orphaned system messages.
+
+Two-pass approach:
+1. Find orphaned DLE system messages (no `deeplore_tool_calls` parent forward to next user message).
+2. Walk backwards from each orphaned system message, collecting hidden (`display:none`) assistant intermediates.
+
+Removes DOM elements, splices from `chat[]`, calls `updateViewMessageIds()` + `saveChatDebounced()`.
+
+**Why needed:** `stripDleSystemMessages` only runs on generation. If the user deletes the final tool-call message and reloads without generating, orphans would persist. This handler cleans them immediately.
+
+**Note:** ST fires `MESSAGE_DELETED` AFTER `chat.splice()`, passing `chat.length` (not the deleted index). The handler ignores the parameter and scans the full turn structure.
+
 ### Session stats vs chat stats
 
 | Variable | Scope | Reset trigger |

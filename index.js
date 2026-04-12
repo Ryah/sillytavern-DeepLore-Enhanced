@@ -13,6 +13,8 @@ import {
     chat_metadata,
     messageFormatting,
     saveMetadata,
+    saveChatDebounced,
+    updateViewMessageIds,
 } from '../../../../script.js';
 import { renderExtensionTemplateAsync, saveMetadataDebounced } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
@@ -1486,8 +1488,64 @@ jQuery(async function () {
             if (dirty) saveMetadataDebounced();
         };
 
-        _registerEs(event_types.MESSAGE_DELETED, (messageId) => {
-            try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_DELETED cleanup failed:', err.message); }
+        // BUG-006: Scan chat for orphaned DLE tool-call intermediates.
+        // When the user deletes a final assistant message that had deeplore_tool_calls,
+        // the hidden intermediate messages (DLE system messages + intermediate assistant
+        // messages) are left behind. stripDleSystemMessages cleans them on next generation,
+        // but if the user reloads without generating, the orphans persist. This scan removes
+        // them immediately after any message deletion.
+        // ST fires MESSAGE_DELETED AFTER chat.splice — the parameter is chat.length, not the
+        // deleted index. So we scan the whole turn structure instead of using the parameter.
+        const _cleanupOrphanedDleIntermediates = () => {
+            // Check if a DLE system message has a parent (assistant with deeplore_tool_calls) in its turn
+            const hasDleParent = (idx) => {
+                for (let j = idx + 1; j < chat.length; j++) {
+                    if (chat[j]?.is_user) return false;
+                    if (!chat[j]?.is_system && chat[j]?.extra?.deeplore_tool_calls) return true;
+                }
+                return false;
+            };
+
+            // Pass 1: find orphaned DLE system messages
+            const orphanedSysIndices = [];
+            for (let i = chat.length - 1; i >= 0; i--) {
+                const msg = chat[i];
+                if (msg?.is_system && Array.isArray(msg.extra?.tool_invocations)
+                    && msg.extra.tool_invocations.every(inv => inv.name?.startsWith('dle_'))
+                    && !hasDleParent(i)) {
+                    orphanedSysIndices.push(i);
+                }
+            }
+            if (orphanedSysIndices.length === 0) return;
+
+            // Pass 2: also find hidden assistant intermediates preceding each orphaned system message
+            const toRemove = new Set(orphanedSysIndices);
+            for (const sysIdx of orphanedSysIndices) {
+                for (let j = sysIdx - 1; j >= 0; j--) {
+                    const msg = chat[j];
+                    if (msg?.is_user) break;
+                    if (msg?.is_system) continue;
+                    // Hidden assistant intermediate — DLE hides these via inline display:none
+                    const mesEl = document.querySelector(`#chat .mes[mesid="${j}"]`);
+                    if (mesEl && mesEl.style.display === 'none') toRemove.add(j);
+                }
+            }
+
+            // Remove DOM elements while mesids are still valid, then splice from highest to lowest
+            for (const idx of toRemove) {
+                document.querySelector(`#chat .mes[mesid="${idx}"]`)?.remove();
+            }
+            const sorted = [...toRemove].sort((a, b) => b - a);
+            for (const idx of sorted) {
+                chat.splice(idx, 1);
+            }
+            updateViewMessageIds();
+            saveChatDebounced();
+            if (getSettings().debugMode) console.debug(`[DLE] Cleaned up ${sorted.length} orphaned tool-call intermediate(s)`);
+        };
+
+        _registerEs(event_types.MESSAGE_DELETED, () => {
+            try { _cleanupOrphanedDleIntermediates(); } catch (err) { console.warn('[DLE] MESSAGE_DELETED intermediate cleanup failed:', err.message); }
         });
 
         _registerEs(event_types.MESSAGE_SWIPE_DELETED, (messageId) => {

@@ -230,7 +230,7 @@ All registered via `_registerEs()` in init (L856+). Full list:
 | `GENERATION_ENDED` (Librarian) | Consume pending tool calls, consolidate into dropdown | L1235-1280 |
 | `CHARACTER_MESSAGE_RENDERED` | Cartographer sources, AI Notebook fallback, Scribe trigger, Auto-suggest | L1283-1373 |
 | `MESSAGE_SWIPED` | Clear tool calls/sources/notes on swiped message, rebuild counts | L1376-1447 |
-| `MESSAGE_DELETED` | Clean up per-message extras | L1489-1491 |
+| `MESSAGE_DELETED` | Scan and remove orphaned DLE tool-call intermediates | L1491-1543 |
 | `MESSAGE_SWIPE_DELETED` | Clean up per-message extras | L1493-1496 |
 | `CHAT_DELETED` / `GROUP_CHAT_DELETED` | Clear Librarian session state | L1502-1506 |
 | `CONNECTION_PROFILE_DELETED` | Null dangling profileIds, toast | L1518-1539 |

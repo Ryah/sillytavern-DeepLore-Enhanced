@@ -140,7 +140,18 @@ function pseudonymizeTrace(trace) {
         if (!Array.isArray(copy[key])) continue;
         copy[key] = copy[key].map(e => {
             if (!e || typeof e !== 'object') return e;
-            return { ...e, title: pseudonymizeTitle(e.title), filename: pseudonymizeTitle(e.filename) };
+            const out = { ...e, title: pseudonymizeTitle(e.title), filename: pseudonymizeTitle(e.filename) };
+            // Pseudonymize keyword triggers — these are often character/location names
+            if (out.matchedBy) out.matchedBy = pseudonymizeTitle(out.matchedBy);
+            // AI selection reasons may contain character names — scrub against known title map
+            if (typeof out.reason === 'string') {
+                for (const [real, pseudo] of _titleMap.entries()) {
+                    if (out.reason.includes(real)) {
+                        out.reason = out.reason.replaceAll(real, pseudo);
+                    }
+                }
+            }
+            return out;
         });
     }
     return copy;
@@ -407,6 +418,9 @@ export function captureStateSnapshot() {
             indexTimestamp: state.indexTimestamp,
             indexEverLoaded: state.indexEverLoaded,
             indexing: state.indexing,
+            buildPromiseActive: state.buildPromise !== null,
+            buildEpoch: state.buildEpoch,
+            syncActive: state.syncIntervalId !== null,
             avgTokens: state.vaultAvgTokens,
             constantCount: idx.filter(e => e.constant).length,
             seedCount: idx.filter(e => e.seed).length,
@@ -418,6 +432,10 @@ export function captureStateSnapshot() {
             // Per-entry metadata for the first ~200 entries (oldest-first arbitrary order — fine for diag)
             entries: idx.slice(0, 200).map(summarizeEntry),
             entriesTruncated: idx.length > 200,
+            folderDistribution: (state.folderList || []).map(f => ({
+                path: pseudonymizeTitle(f.path || '?'),
+                entryCount: f.entryCount ?? 0,
+            })),
         };
     } catch (e) { snap.vault = { __error: String(e) }; }
 
@@ -438,7 +456,14 @@ export function captureStateSnapshot() {
             lastWarningRatio: state.lastWarningRatio,
             notepadExtractInProgress: state.notepadExtractInProgress,
             scribeInProgress: state.scribeInProgress,
+            lastScribeChatLength: state.lastScribeChatLength ?? null,
+            hasLastScribeSummary: !!state.lastScribeSummary,
+            perSwipeInjectedKeysCount: state.perSwipeInjectedKeys?.size ?? 0,
             lastPipelineTrace: pseudonymizeTrace(state.lastPipelineTrace),
+            // Injection sources — count and epoch for verifying pipeline output vs actual injection
+            lastInjectionSourceCount: Array.isArray(state.lastInjectionSources) ? state.lastInjectionSources.length : 0,
+            lastInjectionEpoch: state.lastInjectionEpoch ?? null,
+            injectionEpochMatchesChatEpoch: state.lastInjectionEpoch === state.chatEpoch,
         };
     } catch (e) { snap.pipeline = { __error: String(e) }; }
 
@@ -509,6 +534,7 @@ export function captureStateSnapshot() {
             capturedDuringGeneration: !!state.generationLock,
             generationLockAgeMs: state.generationLock ? Date.now() - state.generationLockTimestamp : null,
             generationLockZombie: state.generationLock && (Date.now() - state.generationLockTimestamp > 60000),
+            capturedDuringIndexBuild: !!state.indexing || state.buildPromise !== null,
         };
     } catch {}
 
@@ -598,6 +624,34 @@ export function captureStateSnapshot() {
             snap.librarian.gapsDismissedCount = Array.isArray(dismissed) ? dismissed.length : 0;
         }
     } catch {}
+
+    // Actually-registered DLE extension prompts — verifies pipeline output vs prompt injection
+    try {
+        const ep = globalThis.extension_prompts || {};
+        const dlePrompts = Object.entries(ep)
+            .filter(([k]) => k.startsWith('deeplore'))
+            .map(([k, v]) => ({ tag: k, length: (v?.value || '').length, position: v?.position, depth: v?.depth, role: v?.role }));
+        snap.registeredPrompts = {
+            count: dlePrompts.length,
+            prompts: dlePrompts,
+        };
+    } catch (e) { snap.registeredPrompts = { __error: String(e) }; }
+
+    // Contextual gating state — era, location, sceneType, characterPresent, custom fields
+    // These are user-set metadata (not PII) and are critical for diagnosing "why didn't entry X fire?"
+    try {
+        const cm = globalThis.chat_metadata || {};
+        const gatingCtx = cm.deeplore_context;
+        if (gatingCtx && typeof gatingCtx === 'object') {
+            snap.gatingContext = { ...gatingCtx };
+            // Pseudonymize characterPresent values (could be character names)
+            if (Array.isArray(snap.gatingContext.characterPresent)) {
+                snap.gatingContext.characterPresent = snap.gatingContext.characterPresent.map(c => pseudonymizeTitle(c));
+            }
+        } else {
+            snap.gatingContext = null;
+        }
+    } catch (e) { snap.gatingContext = { __error: String(e) }; }
 
     // Health check
     try { snap.health = runHealthCheck(); } catch (e) { snap.health = { __error: String(e) }; }

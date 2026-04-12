@@ -79,12 +79,20 @@ export function dedupInfo(message, category, options = {}) {
  * @param {string} category
  * @returns {boolean} True if duplicate (should suppress)
  */
+/** @type {Map<string, number>} category → count of suppressed toasts since last shown */
+const suppressedCounts = new Map();
+/** Read-only access for diagnostics export */
+export function getSuppressedCounts() { return Object.fromEntries(suppressedCounts); }
+
 function _isDuplicate(category) {
     const now = Date.now();
     const last = recentToasts.get(category);
     if (last && now - last < DEDUP_WINDOW_MS) {
+        suppressedCounts.set(category, (suppressedCounts.get(category) || 0) + 1);
         return true;
     }
+    // Reset counter when a new toast is actually shown
+    suppressedCounts.delete(category);
     recentToasts.set(category, now);
     return false;
 }

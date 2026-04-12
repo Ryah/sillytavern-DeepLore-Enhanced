@@ -24,6 +24,7 @@ CHARACTER_MESSAGE_RENDERED
     → buildIndex()  (re-index to pick up new note)
     → setLastScribeChatLength(chat.length)
     → setLastScribeSummary(responseText)
+    → pushEvent('scribe', {status, chatLength, ...})  (on completion or error)
     → Persist both to chat_metadata
     → setScribeInProgress(false)  (in finally)
 ```
@@ -115,7 +116,7 @@ Injected as auxiliary prompt via `_injectAuxPrompt('deeplore_notebook', content,
 ```
 → runAutoSuggest()
     → Build context from recent chat
-    → callAI(suggestPrompt, context, resolveConnectionConfig('autoSuggest'))
+    → callAI(suggestPrompt, context, resolveConnectionConfig('autoSuggest'))  // caller: 'autoSuggest'
     → Parse response into entry suggestions
     → Return suggestions array
 → showSuggestionPopup(suggestions)
@@ -190,12 +191,31 @@ Custom Canvas-based force-directed graph visualization (no external library).
 First import in `index.js` (L7). Installs console/fetch/XHR/error interceptors and starts PerformanceObserver (long-task tracking) at **module-eval time** so DLE captures cold-start bugs in itself and other extensions. This runs before any other DLE code.
 
 ### flight-recorder.js
-Ring buffer of per-generation event summaries. Started in init (L882-887). Records pipeline runs, AI calls, errors, aborts. Used by `/dle-diagnostics` export.
+Ring buffer of per-generation event summaries (`generationBuffer`, size **50** — increased from 20). Started in init (L882-887). Records pipeline runs, AI calls, errors, aborts. Used by `/dle-diagnostics` export.
 
 **`recordAbort(msg)`** — called from onGenerate catch block (L807) on user abort.
 
+**Boot marker:** `{ kind: 'recorder_started' }` pushed on init.
+
+**Additional flight recorder entry types:**
+- `{ skipped: true, reason: 'lock_contention' }` — generation skipped because another pipeline holds the lock (< 30s)
+- `{ skipped: true, reason: 'tool_call_continuation' }` — generation skipped because last message has `tool_invocations`
+- `{ forceRelease: true, lockAgeMs, oldEpoch, newEpoch }` — stale lock force-released after 30s
+- `{ discarded: true, reason: 'chat_changed_during_index' }` — pipeline bailed during `ensureIndexFresh`
+- `{ discarded: true, reason: 'stale_pipeline_tracking_skipped' }` — post-commit tracking skipped due to epoch mismatch
+- `{ lockReleaseBlocked: true, reason: 'epoch_mismatch' }` — stale pipeline's `finally` skipped lock release
+
 ### state-snapshot.js
 `captureStateSnapshot()` — Returns sanitized copy of all state variables for diagnostic export. Removes sensitive data (API keys) via `scrubber.js`.
+
+**Additional snapshot fields:**
+- `snap.vault`: +`buildPromiseActive`, `buildEpoch`, `syncActive`, `folderDistribution`
+- `snap.pipeline`: +`lastScribeChatLength`, `hasLastScribeSummary`, `perSwipeInjectedKeysCount`, `lastInjectionSourceCount`, `lastInjectionEpoch`, `injectionEpochMatchesChatEpoch`
+- `snap.staleness`: +`capturedDuringIndexBuild`
+- `snap.registeredPrompts` — actual DLE `extension_prompts` metadata (what's currently registered with ST)
+- `snap.gatingContext` — active era/location/scene/character values (pseudonymized via `scrubber.js`)
+
+**Pseudonymization:** `pseudonymizeTrace()` now also pseudonymizes `matchedBy` fields and scrubs AI `reason` strings from pipeline trace data.
 
 ### performance.js
 `startPerformanceObservers()` — installs a `PerformanceObserver` for long tasks (>50ms) into a ring buffer (`longTaskBuffer`). Called from `boot.js` at module-eval time. `captureMemorySnapshot()` — one-shot snapshot of `performance.memory` + navigation timing, included in diagnostic exports.
@@ -203,11 +223,30 @@ Ring buffer of per-generation event summaries. Started in init (L882-887). Recor
 ### interceptors.js / ring-buffer.js
 Support infrastructure for the diagnostics system. Console interceptor monkey-patches all five levels (`log`, `warn`, `error`, `debug`, `info`) from all extensions (not just DLE) into `consoleBuffer`. Network interceptor patches `fetch` and `XHR` into `networkBuffer`. Error interceptor captures `window.onerror` and `unhandledrejection` into `errorBuffer`. Ring buffer (`RingBuffer`) keeps last N entries per buffer (fixed-size, oldest evicted on overflow).
 
+**Additional buffers and exports:**
+- **`eventBuffer`** (RingBuffer 100): Lifecycle event log. Tracks `chat_changed`, `ai_circuit`, `obsidian_circuit`, `index_build`, `init`, `teardown`, `cache_save`, `cache_load`, `scribe`, `enabled` events with timestamps.
+- **`aiCallBuffer`** (RingBuffer 20): Per-AI-call recording. Each entry captures: `caller`, `mode`, `model`, `systemLen`, `userLen`, `timeoutMs`, `durationMs`, `status`, `responseLen`, `tokens`, `error`.
+- **`pushEvent(kind, data)`**: Exported function for pushing lifecycle events to `eventBuffer`. Called throughout the codebase (circuit breaker transitions, vault operations, scribe, cache save/load).
+- **`installFailures[]`**: Tracks which interceptors failed to install during boot. Included in diagnostic exports.
+- **Console `dle` flag**: Console entries carry a `dle: true` flag when the message starts with `[DLE`, enabling the export to split DLE-only vs global console logs.
+- **Network `errorBody`**: Network entries capture `errorBody` (first 500 chars of response body) for non-2xx responses.
+
 ### scrubber.js
 `scrubDeep(value)` — Recursively walks a value and returns a scrubbed deep copy. Masks API keys (field-name matching via `SENSITIVE_KEY_RE`), auth tokens, IPs, emails, hostnames, user paths, and high-entropy token strings. Cardinality-preserving pseudonyms (same real value → same alias within one export). `scrubString(str, ctx)` handles individual string scrubbing.
+
+**`SENSITIVE_KEY_RE` expanded**: Now also matches `helicone_auth`, `cf_access`, `credential`, and `webhook` in addition to the original patterns.
 
 ### ui.js
 User-facing entry point: `triggerDiagnosticDownload()` builds the anonymized report + unanonymized reference file and triggers browser download via ephemeral `<a>` element.
 
+**BUG FIX:** Health check at ~line 145 previously referenced `entries` (undefined) instead of `vaultIndex` when running excludes checks, causing the health check to crash on vaults with exclude references. Fixed to use `vaultIndex`.
+
+**`diagnoseEntry()`** now reports 5 additional pipeline stages: `guide_entry` (entry is guide-only), `folder_filter` (filtered by active folder), `blocked` (per-chat block), `contextual_gating` (failed era/location/scene/character filter), `strip_dedup` (removed by strip dedup). These give more granular insight into why an entry wasn't injected.
+
+### toast-dedup.js
+`suppressedCounts` Map tracks the number of suppressed toasts per category. `getSuppressedCounts()` exported for diagnostics — included in diagnostic exports to show how often toast dedup is firing.
+
 ### export.js
 `buildDiagnosticReport()` — Assembles the full diagnostic markdown report. Captures state snapshot, drains all ring buffers (console, network, error, generation, long-task), runs `scrubDeep()`, compresses via gzip, and encodes as base64 data block.
+
+**Export format v2** (`dle-diagnostic-v2`): The verbose diagnostic blob now includes `eventLog` (from `eventBuffer`), `aiCallLog` (from `aiCallBuffer`), `globalConsoleLog` (non-DLE console entries, last 100), and `interceptorInstallFailures`. Console logs are split into `consoleLog` (DLE-only, entries with `dle: true`) and `globalConsoleLog` (everything else, capped at 100).

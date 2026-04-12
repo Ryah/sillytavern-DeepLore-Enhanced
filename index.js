@@ -55,6 +55,8 @@ import { resetAiThrottle, callAI } from './src/ai/ai.js';
 import { runPipeline } from './src/pipeline/pipeline.js';
 import { setupSyncPolling } from './src/vault/sync.js';
 import { runScribe } from './src/ai/scribe.js';
+import { pushEvent, consoleBuffer, networkBuffer, errorBuffer } from './src/diagnostics/interceptors.js';
+import { generationBuffer } from './src/diagnostics/flight-recorder.js';
 import { runAutoSuggest, showSuggestionPopup } from './src/ai/auto-suggest.js';
 import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/ui/cartographer.js';
 import { loadSettingsUI, bindSettingsEvents } from './src/ui/settings-ui.js';
@@ -90,7 +92,10 @@ function _registerEs(event, handler, { once = false } = {}) {
     else eventSource.on(event, handler);
 }
 
+let _dleInitCount = 0;
+
 function _teardownDleExtension() {
+    try { pushEvent('teardown', { listenerCount: _dleListeners.eventSource.length }); } catch { /* noop */ }
     // Remove every tracked eventSource listener
     for (const { event, handler } of _dleListeners.eventSource) {
         try { eventSource.removeListener?.(event, handler); } catch { /* ignore */ }
@@ -202,6 +207,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         const lastMsg = chat[chat.length - 1];
         if (lastMsg?.extra?.tool_invocations || lastMsg?.is_system) {
             if (settings.debugMode) console.debug('[DLE] Skipping pipeline for tool-call continuation');
+            try { generationBuffer.push({ t: Date.now(), skipped: true, reason: 'tool_call_continuation' }); } catch { /* noop */ }
             return;
         }
     }
@@ -227,11 +233,13 @@ async function onGenerate(chat, contextSize, abort, type) {
             // BUG-274: Bump lockEpoch so the stuck pipeline (if it ever unsticks) can't win
             // commit order against this new pipeline. Releasing without the epoch bump would
             // let its late writes pass every `lockEpoch === generationLockEpoch` guard.
+            try { generationBuffer.push({ t: Date.now(), forceRelease: true, lockAgeMs: lockAge, oldEpoch: generationLockEpoch, newEpoch: generationLockEpoch + 1 }); } catch { /* noop */ }
             setGenerationLockEpoch(generationLockEpoch + 1);
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Generation lock active — another pipeline is still running. Lore skipped for this generation.');
             dedupWarning('Lore from the last message is still loading — reusing what we had.', 'pipeline_lock');
+            try { generationBuffer.push({ t: Date.now(), skipped: true, reason: 'lock_contention', lockAgeMs: lockAge }); } catch { /* noop */ }
             return;
         }
     }
@@ -299,12 +307,12 @@ async function onGenerate(chat, contextSize, abort, type) {
     // Wired to GENERATION_STOPPED + CHAT_CHANGED; torn down in finally to avoid leaks.
     const pipelineAbort = new AbortController();
     const onStop = () => { try { pipelineAbort.abort(); } catch { /* noop */ } };
-    try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
-    try { eventSource.on(event_types.CHAT_CHANGED, onStop); } catch { /* noop */ }
+    try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { console.warn('[DLE] Could not register GENERATION_STOPPED abort handler'); }
+    try { eventSource.on(event_types.CHAT_CHANGED, onStop); } catch { console.warn('[DLE] Could not register CHAT_CHANGED abort handler'); }
 
     // Remove pipeline status on first streaming token (one-shot). Torn down in finally.
     const onFirstToken = () => { _removePipelineStatus(); };
-    try { eventSource.once(event_types.STREAM_TOKEN_RECEIVED, onFirstToken); } catch { /* noop */ }
+    try { eventSource.once(event_types.STREAM_TOKEN_RECEIVED, onFirstToken); } catch { console.warn('[DLE] Could not register STREAM_TOKEN_RECEIVED handler'); }
 
     try {
         // Tag sources with this generation's epoch so CHARACTER_MESSAGE_RENDERED
@@ -341,7 +349,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         // Bail before touching the swipe tracker snapshot so we don't tag a stale snapshot with
         // the new chat's swipe keys or pollute the new chat's cooldown/decay/injection maps.
         if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
-            if (settings.debugMode) console.debug('[DLE] Chat changed during index refresh — discarding pipeline');
+            console.debug('[DLE] Chat changed during index refresh — discarding pipeline');
+            try { generationBuffer.push({ t: Date.now(), discarded: true, reason: 'chat_changed_during_index' }); } catch { /* noop */ }
             return;
         }
 
@@ -825,6 +834,10 @@ async function onGenerate(chat, contextSize, abort, type) {
             if (pipelineRan && epoch === chatEpoch && lockEpoch === generationLockEpoch) {
                 setGenerationCount(generationCount + 1);
                 decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings, consecutiveInjections);
+            } else if (pipelineRan) {
+                // Stale pipeline — tracking skipped, cooldowns will freeze
+                console.debug('[DLE] Stale pipeline — generation tracking skipped');
+                try { generationBuffer.push({ t: Date.now(), discarded: true, reason: 'stale_pipeline_tracking_skipped' }); } catch { /* noop */ }
             }
         } catch (trackingErr) {
             console.error('[DLE] Error in generation tracking:', trackingErr);
@@ -833,6 +846,9 @@ async function onGenerate(chat, contextSize, abort, type) {
         // A force-released stale pipeline must NOT release the newer pipeline's lock.
         if (lockEpoch === generationLockEpoch) {
             setGenerationLock(false);
+        } else {
+            console.warn('[DLE] Stale pipeline did not release lock (epoch mismatch)');
+            try { generationBuffer.push({ t: Date.now(), lockReleaseBlocked: true, reason: 'epoch_mismatch', staleEpoch: lockEpoch, currentEpoch: generationLockEpoch }); } catch { /* noop */ }
         }
         // BUG-277: Only notify drawer if WE are still the active pipeline. A stale
         // force-released pipeline finishing here must not fire complete-notifications
@@ -1352,7 +1368,7 @@ jQuery(async function () {
                 if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
                     const newMessages = chat.length - lastScribeChatLength;
                     if (newMessages >= settings.scribeInterval && !scribeInProgress) {
-                        runScribe(); // fire-and-forget
+                        runScribe().catch(err => console.warn('[DLE] Scribe auto-trigger failed:', err?.message)); // fire-and-forget
                     }
                 }
             } catch (err) { console.warn('[DLE] Scribe render-handler failed:', err?.message); }
@@ -1651,6 +1667,12 @@ jQuery(async function () {
         _registerEs(event_types.CHAT_CHANGED, () => {
             // Increment epoch first so any in-flight onGenerate sees the mismatch
             setChatEpoch(chatEpoch + 1);
+            // Diagnostic breadcrumbs: mark chat boundary in ring buffers so exports are parseable
+            pushEvent('chat_changed', { chatEpoch: chatEpoch });
+            try {
+                consoleBuffer.push({ t: Date.now(), level: 'info', msg: `--- CHAT_CHANGED (epoch ${chatEpoch}) ---`, dle: true });
+                networkBuffer.push({ t: Date.now(), kind: 'marker', url: 'CHAT_CHANGED', chatEpoch: chatEpoch });
+            } catch { /* never block chat switch */ }
             _removePipelineStatus();
 
             // Release generation lock so the new chat isn't blocked by a stale in-flight pipeline.
@@ -1910,7 +1932,9 @@ jQuery(async function () {
         _dleBeforeUnloadHandler = () => { try { _teardownDleExtension(); } catch { /* ignore */ } };
         window.addEventListener('beforeunload', _dleBeforeUnloadHandler);
 
-        if (getSettings().debugMode) console.log('[DLE] DeepLore Enhanced client extension initialized');
+        _dleInitCount++;
+        pushEvent('init', { initCount: _dleInitCount, vaultCount: (getSettings().vaults || []).filter(v => v.enabled).length });
+        console.log('[DLE] DeepLore Enhanced client extension initialized');
     } catch (err) {
         console.error('[DLE] Failed to initialize:', err);
     }

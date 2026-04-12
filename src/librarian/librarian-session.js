@@ -773,7 +773,7 @@ export async function sendMessage(session, userMessage, options = {}) {
 
             let result;
             try {
-                result = await callAI(systemPrompt, messageToSend, connectionConfig);
+                result = await callAI(systemPrompt, messageToSend, { ...connectionConfig, caller: 'librarian' });
             } catch (err) {
                 if (err.name === 'AbortError' || signal?.aborted) {
                     return abortReturn();

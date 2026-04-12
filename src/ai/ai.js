@@ -16,6 +16,7 @@ import {
     fieldDefinitions,
 } from '../state.js';
 import { dedupWarning, dedupError } from '../toast-dedup.js';
+import { aiCallBuffer } from '../diagnostics/interceptors.js';
 // Re-export pure functions from helpers.js for consumers that import from ai.js
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch, LOREBOOK_INFRA_TAGS } from '../helpers.js';
 // buildCandidateManifest extracted to manifest.js for testability
@@ -250,22 +251,42 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
 
     // BUG-039 + BUG-H1: Set throttle timestamp only on SUCCESS.
     // Failed calls must not consume the throttle window (prevents blocking retries).
+    const _callStart = Date.now();
+    const _callEntry = {
+        t: _callStart, caller: connectionConfig.caller || 'unknown',
+        mode, model: model || null, timeoutMs: timeout,
+        systemLen: systemPrompt?.length ?? 0, userLen: userMessage?.length ?? 0,
+    };
     let result;
-    if (mode === 'profile') {
-        result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model, signal);
-    } else {
-        // Proxy mode
-        result = await callProxyViaCorsBridge(
-            proxyUrl,
-            model || 'claude-haiku-4-5-20251001',
-            systemPrompt,
-            userMessage,
-            maxTokens,
-            timeout,
-            cacheHints,
-            signal,
-        );
+    try {
+        if (mode === 'profile') {
+            result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model, signal);
+        } else {
+            // Proxy mode
+            result = await callProxyViaCorsBridge(
+                proxyUrl,
+                model || 'claude-haiku-4-5-20251001',
+                systemPrompt,
+                userMessage,
+                maxTokens,
+                timeout,
+                cacheHints,
+                signal,
+            );
+        }
+        _callEntry.durationMs = Date.now() - _callStart;
+        _callEntry.status = 'ok';
+        _callEntry.responseLen = result?.text?.length ?? 0;
+        _callEntry.inputTokens = result?.usage?.input_tokens ?? null;
+        _callEntry.outputTokens = result?.usage?.output_tokens ?? null;
+    } catch (err) {
+        _callEntry.durationMs = Date.now() - _callStart;
+        _callEntry.status = err.timedOut ? 'timeout' : err.userAborted ? 'aborted' : 'error';
+        _callEntry.error = (err?.message || String(err)).slice(0, 200);
+        try { aiCallBuffer.push(_callEntry); } catch { /* noop */ }
+        throw err;
     }
+    try { aiCallBuffer.push(_callEntry); } catch { /* noop */ }
     // Only stamp throttle on success, and only for non-skipped calls
     if (!connectionConfig.skipThrottle) {
         _lastAiCallTimestamp = Date.now();
@@ -337,6 +358,7 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
 
     try {
         const result = await callAI(categoryPrompt, categoryUserMessage, {
+            caller: 'hierarchicalPreFilter',
             mode: settings.aiSearchConnectionMode,
             profileId: settings.aiSearchProfileId,
             proxyUrl: settings.aiSearchProxyUrl,
@@ -665,6 +687,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
 
         const aiResult = await callAI(systemPrompt, effectiveUserMessage, {
+            caller: 'aiSearch',
             mode: settings.aiSearchConnectionMode,
             profileId: settings.aiSearchProfileId,
             proxyUrl: settings.aiSearchProxyUrl,

@@ -2,6 +2,19 @@
  * DeepLore Enhanced — Shared mutable state
  * All globals live here; modules import and read/write directly.
  */
+// Late-bound reference to pushEvent — avoids circular import at module eval time.
+// Populated lazily on first use; interceptors.js has no deps on state.js at eval time.
+let _pushEventRef = null;
+function pushEventSafe(kind, data) {
+    try {
+        if (!_pushEventRef) {
+            // Dynamic import returns a promise — fire-and-forget on first call, sync on subsequent
+            import('./diagnostics/interceptors.js').then(m => { _pushEventRef = m.pushEvent; });
+            return;
+        }
+        _pushEventRef(kind, data);
+    } catch { /* never block state mutations for diagnostic logging */ }
+}
 
 /** @type {import('../core/pipeline.js').VaultEntry[]} */
 export let vaultIndex = [];
@@ -136,7 +149,7 @@ export function setClaudeAutoEffortState(bad, detail) {
     claudeAutoEffortBad = !!bad;
     claudeAutoEffortDetail = detail || null;
     for (const cb of claudeAutoEffortObservers) {
-        try { cb(claudeAutoEffortBad, claudeAutoEffortDetail); } catch (e) { /* swallow */ }
+        try { cb(claudeAutoEffortBad, claudeAutoEffortDetail); } catch (e) { console.warn('[DLE] Claude auto-effort observer callback error:', e?.message); }
     }
 }
 export function onClaudeAutoEffortChanged(cb) { claudeAutoEffortObservers.add(cb); return () => claudeAutoEffortObservers.delete(cb); }
@@ -268,7 +281,10 @@ export function recordAiFailure() {
         aiCircuitOpenedAt = Date.now();
     }
     // Notify observers if state changed (closed → open)
-    if (wasClosed && aiCircuitOpen) notifyCircuitStateChanged();
+    if (wasClosed && aiCircuitOpen) {
+        pushEventSafe('ai_circuit', { from: 'closed', to: 'open', failures: aiCircuitFailures });
+        notifyCircuitStateChanged();
+    }
 }
 export function recordAiSuccess() {
     const wasOpen = aiCircuitOpen;
@@ -278,7 +294,10 @@ export function recordAiSuccess() {
     aiCircuitOpen = false;
     aiCircuitOpenedAt = 0;
     // Notify observers if state changed (open → closed)
-    if (wasOpen) notifyCircuitStateChanged();
+    if (wasOpen) {
+        pushEventSafe('ai_circuit', { from: 'open', to: 'closed' });
+        notifyCircuitStateChanged();
+    }
 }
 /** Release the half-open probe without recording success or failure.
  *  Used by hierarchicalPreFilter: its outcome shouldn't affect the circuit breaker

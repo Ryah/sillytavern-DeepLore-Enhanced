@@ -25,7 +25,7 @@ onGenerate(chat)
 ```
 
 1. **Quiet generations** (type `'quiet'`): Background API calls (e.g., summarization). No lore injection.
-2. **Tool-call continuations** (L196-205): When the last message has `extra.tool_invocations`, ST is re-calling Generate after a tool invocation. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics.
+2. **Tool-call continuations** (L196-205): When the last message has `extra.tool_invocations`, ST is re-calling Generate after a tool invocation. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics. Records `{ skipped: true, reason: 'tool_call_continuation' }` in the flight recorder.
 
 ---
 
@@ -44,7 +44,7 @@ onGenerate(chat)
 
 **Lock acquisition** (L219-236): `setGenerationLock(true)` increments `generationLockEpoch` (in the setter at `state.js` L190). This epoch is captured at L290 and checked at every commit point.
 
-**Force-release** (L221-229): After 30s, the lock is considered stuck. `generationLockEpoch` is bumped BEFORE releasing, so the stuck pipeline's late writes fail every `lockEpoch === generationLockEpoch` guard.
+**Force-release** (L221-229): After 30s, the lock is considered stuck. `generationLockEpoch` is bumped BEFORE releasing, so the stuck pipeline's late writes fail every `lockEpoch === generationLockEpoch` guard. Records `{ forceRelease: true, lockAgeMs, oldEpoch, newEpoch }` in the flight recorder. If lock contention is detected but under 30s, records `{ skipped: true, reason: 'lock_contention' }` and returns.
 
 ---
 
@@ -99,7 +99,7 @@ try {
 
 **Index timeout** (L323-336): `Promise.race` with 60s timer. If timeout wins and `vaultIndex.length > 0`, proceeds with stale data. If vault is empty, returns (no lore to inject).
 
-**Epoch re-check** (L341-344): `CHAT_CHANGED` may fire during the up-to-60s `ensureIndexFresh` await. Without this check, the pipeline would tag a stale snapshot with the new chat's swipe keys.
+**Epoch re-check** (L341-344): `CHAT_CHANGED` may fire during the up-to-60s `ensureIndexFresh` await. Without this check, the pipeline would tag a stale snapshot with the new chat's swipe keys. On mismatch, records `{ discarded: true, reason: 'chat_changed_during_index' }` in the flight recorder.
 
 **Guide entry filter** (L348): `getWriterVisibleEntries()` = `vaultIndex.filter(e => !e.guide)`. The writing AI must never see guide entries.
 
@@ -263,9 +263,9 @@ finally {
 
 **decrementTrackers** (L825): Always runs if `pipelineRan` is true, even with zero matches. Without this, cooldown timers freeze permanently.
 
-**Conditional lock release** (L832-834): `if (lockEpoch === generationLockEpoch)` — prevents a force-released stale pipeline from unlocking the newer pipeline.
+**Conditional lock release** (L832-834): `if (lockEpoch === generationLockEpoch)` — prevents a force-released stale pipeline from unlocking the newer pipeline. On mismatch, records `{ lockReleaseBlocked: true, reason: 'epoch_mismatch' }` in the flight recorder.
 
-**Conditional pipeline-complete notification** (L838-840): Both epoch AND lockEpoch must match. Prevents a stale pipeline from triggering drawer re-renders for the wrong chat.
+**Conditional pipeline-complete notification** (L838-840): Both epoch AND lockEpoch must match. Prevents a stale pipeline from triggering drawer re-renders for the wrong chat. On mismatch, records `{ discarded: true, reason: 'stale_pipeline_tracking_skipped' }`.
 
 ---
 

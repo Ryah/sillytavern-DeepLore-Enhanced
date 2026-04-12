@@ -436,14 +436,29 @@ export function classifyError(err) {
     if (/\b401\b|\b403\b|\bauth\b|unauthorized|forbidden/i.test(raw)) {
         return 'Authentication failed. Check your API key or connection profile.';
     }
+    if (/\b402\b|insufficient.?quota|billing|payment.?required|credit/i.test(raw)) {
+        return 'API quota exhausted or billing issue. Check your AI provider account for available credits.';
+    }
+    if (/CORS|Access-Control|Mixed Content/i.test(raw)) {
+        return 'Blocked by browser security (CORS). If using proxy mode, set enableCorsProxy: true in config.yaml.';
+    }
     if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch failed/i.test(raw)) {
         return 'Could not connect. Check that the service is running.';
     }
     if (/\b404\b|Not Found/i.test(raw)) {
         return 'Endpoint not found (404). Check that the URL is correct.';
     }
+    if (/model.*not.?found|model.*not.?exist|model.*not.?available|invalid.?model/i.test(raw)) {
+        return 'Model not found. Check the model name in your AI search settings or connection profile.';
+    }
     if (/\b429\b|Too Many Requests|rate.?limit/i.test(raw)) {
         return 'Rate limited (429). Wait a moment before retrying.';
+    }
+    if (/JSON|SyntaxError|Unexpected token/i.test(raw)) {
+        return 'Received an invalid response (not JSON). The server may be down or returning an error page.';
+    }
+    if (/\b529\b|overloaded/i.test(raw)) {
+        return 'The AI provider is overloaded. Wait a minute or try a different model.';
     }
     if (/\b5\d{2}\b|Internal Server Error|Bad Gateway|Service Unavailable/i.test(raw)) {
         return 'The server returned an error. Try again in a moment.';

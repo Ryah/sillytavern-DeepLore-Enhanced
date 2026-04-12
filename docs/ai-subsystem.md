@@ -53,10 +53,14 @@ Unified router. All AI features call this, never `callViaProfile`/`callProxyViaC
 
 ```js
 callAI(systemPrompt, userMessage, connectionConfig) -> {text, usage}
-// connectionConfig: { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints, signal, skipThrottle }
+// connectionConfig: { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints, signal, skipThrottle, caller }
 ```
 
 Dispatches to `callViaProfile()` when `mode === 'profile'`, or `callProxyViaCorsBridge()` when `mode === 'proxy'`. Proxy mode defaults model to `'claude-haiku-4-5-20251001'` if none specified (L266).
+
+**`caller` label**: All callers now pass a `caller` string (e.g. `'aiSearch'`, `'scribe'`, `'autoSuggest'`, `'hierarchicalPreFilter'`, `'aiNotepad'`, `'optimizeKeys'`). This label is recorded in the `aiCallBuffer` for per-call diagnostics.
+
+**`aiCallBuffer` recording**: `callAI()` wraps the actual dispatch in a recording layer that pushes to the `aiCallBuffer` (RingBuffer 20 in `src/diagnostics/interceptors.js`). Each entry captures: `caller`, `mode`, `model`, `systemLen` (system prompt length), `userLen` (user message length), `timeoutMs`, `durationMs`, `status` (success/error/timeout/abort), `responseLen`, `tokens` (usage object), `error` (truncated error message on failure).
 
 `skipThrottle: true` is used by `hierarchicalPreFilter` which chains with `aiSearch` -- both calls in one generation must not throttle each other.
 
@@ -323,6 +327,20 @@ Clears probe flag and timestamp without recording success or failure. Used by `h
 - Auth errors (HTTP 401/403)
 
 Only unclassified errors (typically 5xx, network failures, or persistent format drift) call `recordAiFailure()`.
+
+### Error Classification -- core/utils.js `classifyError()`
+
+`classifyError()` categorizes API errors for circuit breaker decisions and user-facing messages. In addition to the original types, 6 new error types have been added:
+
+| Type | Detection | Breaker trip? |
+|---|---|---|
+| `CORS` | Network error with CORS-related message patterns | No |
+| `QUOTA_BILLING` | HTTP 402 (Payment Required) | No |
+| `JSON_PARSE` | JSON parse/syntax errors in response | Yes (format drift) |
+| `MODEL_NOT_FOUND` | HTTP 404 + model-related message, or explicit model-not-found error | No |
+| `OVERLOADED` | HTTP 529 (service overloaded) | No |
+
+These complement the existing types (timeout, rate_limit, auth, user_abort, throttle, network, unknown).
 
 ---
 

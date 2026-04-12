@@ -84,7 +84,7 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
     } else if (mode === 'profile' || mode === 'proxy') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
         try {
-            const result = await callAI(systemPrompt, userMessage, resolved);
+            const result = await callAI(systemPrompt, userMessage, { ...resolved, caller: 'autoSuggest' });
             recordAiSuccess();
             return result;
         } catch (err) {

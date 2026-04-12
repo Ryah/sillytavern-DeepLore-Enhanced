@@ -187,3 +187,35 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Why (BUG-015/AUDIT-C05):** Without this, a zombie build (stuck in a slow Obsidian fetch) that unsticks after a force-release will commit a stale index on top of a fresh one, silently reverting vault changes.
 
 **Where:** `src/state.js` L176-179 (`buildEpoch` + setter). `src/vault/vault.js` L259-265 (`buildIndex` capture + zombie helper), L486 (commit guard), L593-596 (`buildIndexWithReuse` capture), L671 (mid-loop check), L776 (final check before commit). `src/vault/sync.js` L94 (force-release bump).
+
+---
+
+## 17. Health Check `entries` → `vaultIndex` Fix
+
+**Rule:** The health check in `src/ui/diagnostics.js` must use `vaultIndex` (the live state binding), not a local `entries` variable.
+
+**Why (BUG FIX):** At ~line 145, the health check was referencing `entries` (undefined in that scope) instead of `vaultIndex` when running exclude-reference validation. This caused the health check to crash on any vault that had entries with `excludes` references, silently swallowing the error and returning incomplete diagnostics.
+
+**Where:** `src/ui/diagnostics.js` ~L145.
+
+---
+
+## 18. `diagnoseEntry()` Pipeline Stage Coverage
+
+**Rule:** `diagnoseEntry()` must check all pipeline stages that can remove an entry, not just matching and budget.
+
+**Why:** Users running `/dle-health` need to know WHY a specific entry wasn't injected. Missing stages cause false "not matched" diagnoses when the entry was actually matched but filtered out by a later stage.
+
+**Additional stages now checked:** `guide_entry` (entry is guide-only, never reaches writing AI), `folder_filter` (filtered by active folder selection), `blocked` (per-chat block override), `contextual_gating` (failed era/location/scene/character/custom field filter), `strip_dedup` (removed by strip dedup — identical injection in recent context).
+
+**Where:** `src/ui/diagnostics.js` `diagnoseEntry()`.
+
+---
+
+## 19. `pseudonymizeTrace()` Must Scrub `matchedBy` and AI `reason`
+
+**Rule:** When pseudonymizing pipeline trace data for diagnostic export, `matchedBy` fields and AI `reason` strings must also be scrubbed.
+
+**Why:** `matchedBy` can contain entry titles and keyword matches that reveal vault content. AI `reason` strings contain the AI's rationale for selecting entries, which can quote vault content or character names. Without scrubbing these, the "anonymized" diagnostic export leaks user content.
+
+**Where:** `src/diagnostics/state-snapshot.js` `pseudonymizeTrace()`.

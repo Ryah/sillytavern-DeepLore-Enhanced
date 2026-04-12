@@ -6,6 +6,7 @@
 
 import { getSettings } from '../../settings.js';
 import { dedupWarning } from '../toast-dedup.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
 import { simpleHash } from '../../core/utils.js';
 // Re-export from extracted pure module for backward compatibility
 import { validateCachedEntry } from './cache-validate.js';
@@ -41,7 +42,8 @@ function getCacheKey() {
         const tag = settings.lorebookTag || 'lorebook';
         const conflict = settings.multiVaultConflictResolution || 'first';
         return fp ? `index_${tag}_${conflict}_${fp}` : 'primaryIndex';
-    } catch {
+    } catch (err) {
+        console.warn('[DLE] getCacheKey failed, using fallback key:', err?.message);
         return 'primaryIndex';
     }
 }
@@ -116,9 +118,11 @@ export async function saveIndexToCache(entries) {
             tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
         });
         _lastSaveSucceeded = true;
+        pushEvent('cache_save', { entryCount: entries.length, ok: true });
         return true;
     } catch (err) {
         _lastSaveSucceeded = false;
+        pushEvent('cache_save', { entryCount: entries.length, ok: false, error: err?.name || err?.message });
         if (err.name === 'QuotaExceededError' || (err.message && err.message.includes('quota'))) {
             console.warn('[DLE] IndexedDB storage quota exceeded — vault cache could not be saved. Consider clearing browser data.');
             try {
@@ -176,12 +180,15 @@ export async function loadIndexFromCache() {
         });
         if (validEntries.length === 0) return null;
 
+        const discarded = result.entries.length - validEntries.length;
+        pushEvent('cache_load', { hit: true, entryCount: validEntries.length, corruptDiscarded: discarded });
         return {
             entries: validEntries,
             timestamp: result.timestamp || 0,
         };
     } catch (err) {
         console.warn('[DLE] Failed to load index from IndexedDB:', err.message);
+        pushEvent('cache_load', { hit: false, error: err?.message });
         return null;
     } finally {
         if (db) db.close();

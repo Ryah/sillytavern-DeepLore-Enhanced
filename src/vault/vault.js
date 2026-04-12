@@ -27,6 +27,7 @@ import { takeIndexSnapshot, detectChanges } from '../../core/sync.js';
 import { showChangesToast } from './sync.js';
 import { saveIndexToCache, loadIndexFromCache, pruneOrphanedCacheKeys } from './cache.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
 // BM25 pure functions extracted to bm25.js for testability
 import { buildBM25Index } from './bm25.js';
 // bm25 functions imported for internal use; consumers should import directly from ./bm25.js
@@ -228,10 +229,13 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
 
     // Persist to IndexedDB for instant hydration on next page load
     if (!skipCacheSave) {
-        saveIndexToCache(entries).catch(() => {});
+        saveIndexToCache(entries).catch(err => console.warn('[DLE] Cache save failed:', err?.message));
         // H20: Clean up orphaned cache keys from previous vault configurations
-        pruneOrphanedCacheKeys().catch(() => {});
+        pruneOrphanedCacheKeys().catch(err => console.warn('[DLE] Cache prune failed:', err?.message));
     }
+
+    // Diagnostic breadcrumb: record index build completion
+    pushEvent('index_build', { entryCount: entries.length, skipCacheSave });
 
     // Notify UI layer (stats display, health check badge, etc.)
     // Callbacks are registered by settings-ui.js during init — this avoids
@@ -415,14 +419,19 @@ export async function buildIndex() {
         }
 
         // Compute accurate token counts using SillyTavern's tokenizer
+        let _tokenizerFailCount = 0;
         await Promise.all(entries.map(async (entry) => {
             try {
                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
             } catch {
                 // Fallback to rough estimate if tokenizer unavailable
                 entry.tokenEstimate = Math.ceil(entry.content.length / 4.0);
+                _tokenizerFailCount++;
             }
         }));
+        if (_tokenizerFailCount > 0) {
+            console.warn(`[DLE] Tokenizer failed for ${_tokenizerFailCount}/${entries.length} entries — using character-based estimates (budget accuracy degraded)`);
+        }
 
         // Warn about cross-vault duplicate titles (forbidden — causes Map key collisions)
         if (enabledVaults.length > 1) {
@@ -678,6 +687,7 @@ export async function buildIndexWithReuse() {
         let anyVaultFailed = false;
         let vaultFailCount = 0;
         let newCount = 0, modifiedCount = 0, removedCount = 0;
+        let _reuseTokenizerFailCount = 0;
         const allEntries = [];
         setLastVaultAttemptCount(enabledVaults.length);
 
@@ -732,6 +742,7 @@ export async function buildIndexWithReuse() {
                                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
                             } catch {
                                 entry.tokenEstimate = Math.ceil(entry.content.length / 4.0);
+                                _reuseTokenizerFailCount++;
                             }
                             allEntries.push(entry);
                             if (existing) modifiedCount++;
@@ -755,6 +766,9 @@ export async function buildIndexWithReuse() {
         }
 
         setLastVaultFailureCount(vaultFailCount);
+        if (_reuseTokenizerFailCount > 0) {
+            console.warn(`[DLE] Tokenizer failed for ${_reuseTokenizerFailCount} re-parsed entries — using character-based estimates (budget accuracy degraded)`);
+        }
 
         if (!hasChanges) {
             // If a vault failed, use a short-lived timestamp so retries happen sooner

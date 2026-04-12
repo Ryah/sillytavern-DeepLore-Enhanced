@@ -25,7 +25,7 @@
 
 // ── Field-name patterns: any object key matching one of these gets <redacted>.
 // (Keys are always replaced wholesale — no cardinality is meaningful for a secret.)
-const SENSITIVE_KEY_RE = /(api[_-]?key|apikey|access[_-]?token|secret|password|passwd|authorization|auth[_-]?header|bearer|x[_-]?api[_-]?key|obsidianapikey|proxy[_-]?key|cookie|session|refresh[_-]?token|oauth[_-]?token|private[_-]?key|client[_-]?id|app[_-]?key|encryption[_-]?key|master[_-]?key)/i;
+const SENSITIVE_KEY_RE = /(api[_-]?key|apikey|access[_-]?token|secret|password|passwd|authorization|auth[_-]?header|bearer|x[_-]?api[_-]?key|obsidianapikey|proxy[_-]?key|cookie|session|refresh[_-]?token|oauth[_-]?token|private[_-]?key|client[_-]?id|app[_-]?key|encryption[_-]?key|master[_-]?key|helicone[_-]?auth|cf[_-]?access|credential|webhook)/i;
 
 /**
  * Per-export context. Maps from real value → stable pseudonym.

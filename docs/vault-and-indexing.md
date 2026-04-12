@@ -142,6 +142,8 @@ Keyed by `"host:port"` string (e.g. `"127.0.0.1:27123"`). Each vault gets indepe
 
 **Half-open:** Exactly one probe request allowed through (`halfOpenProbe` flag). Success -> closed. Failure -> open (with fresh `openedAt` for recalculated backoff).
 
+**Circuit state events:** State transitions push `pushEvent('obsidian_circuit', {key, from, to})` to the `eventBuffer`. This tracks when individual vaults enter/exit open state for diagnostic timeline reconstruction.
+
 **Pruning:** `pruneCircuitBreakers(activeKeys)` removes entries for hosts no longer in config. Called from settings-ui when vault config changes.
 
 ### CORS proxy usage
@@ -201,7 +203,7 @@ Pipeline.js extracts these frontmatter fields (with type coercion):
 ### Token estimation
 
 `tokenEstimate` is initially set to `0` in `parseVaultFile()`. Actual estimation happens later:
-- **buildIndex():** `await getTokenCountAsync(entry.content)` with fallback `Math.ceil(content.length / 4.0)`.
+- **buildIndex():** `await getTokenCountAsync(entry.content)` with fallback `Math.ceil(content.length / 4.0)`. When the tokenizer is unavailable and the fallback is used, a warning is logged.
 - **buildIndexWithReuse():** Same for newly-parsed entries; reused entries keep their existing estimate.
 - **Merge dedup:** `Math.ceil(mergedContent.length / 4.0)` (rough estimate, not tokenizer).
 
@@ -232,6 +234,7 @@ finalizeIndex()
   -> showChangesToast()                     // if changes detected and toasts enabled
   -> setPreviousIndexSnapshot()
   -> setIndexEverLoaded(true)
+  -> pushEvent('index_build')               // lifecycle event for diagnostics
   -> prune analytics                        // settings.analyticsData
   -> saveIndexToCache(entries)              // unless skipCacheSave
   -> pruneOrphanedCacheKeys()
@@ -277,6 +280,8 @@ Removes `settings.analyticsData` keys that don't match any active `trackerKey(en
 ### IndexedDB cache save
 
 `saveIndexToCache(entries)` is called unless `skipCacheSave` is true (set when a vault fetch partially failed -- avoids caching a truncated index). `pruneOrphanedCacheKeys()` follows to clean up stale cache keys from previous vault configs. Both are fire-and-forget (`.catch(() => {})`).
+
+**Cache lifecycle events:** `saveIndexToCache()` pushes `pushEvent('cache_save', {entryCount, ...})` on completion. `loadIndexFromCache()` pushes `pushEvent('cache_load', {entryCount, ...})` on successful hydration. These events feed the `eventBuffer` for diagnostic exports. Cache save/prune operations also log at debug level.
 
 ---
 

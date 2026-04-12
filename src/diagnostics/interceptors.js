@@ -16,6 +16,23 @@ export const consoleBuffer = new RingBuffer(800);
 export const networkBuffer = new RingBuffer(300);
 export const errorBuffer = new RingBuffer(100);
 
+/** AI call buffer — per-call details for diagnosing AI failures without debugMode.
+ *  Populated by recordAiCall() from ai.js after each callAI invocation. */
+export const aiCallBuffer = new RingBuffer(20);
+
+/** Lifecycle event buffer — settings changes, chat switches, index builds, circuit transitions.
+ *  Populated by pushEvent() calls from various DLE modules. */
+export const eventBuffer = new RingBuffer(100);
+
+/**
+ * Record a DLE lifecycle event. Safe to call from anywhere — never throws.
+ * @param {string} kind - Event type (e.g., 'chat_changed', 'setting', 'index_build', 'ai_circuit', 'enabled')
+ * @param {object} [data] - Event-specific payload (kept small — no content/PII)
+ */
+export function pushEvent(kind, data) {
+    try { eventBuffer.push({ t: Date.now(), kind, ...data }); } catch { /* never throw */ }
+}
+
 // ── Single install guard (HMR / double-import safe).
 let installed = false;
 
@@ -45,12 +62,14 @@ function patchConsole() {
         ORIGINAL_CONSOLE[level] = orig;
         console[level] = function (...args) {
             try {
-                consoleBuffer.push({
-                    t: Date.now(),
-                    level,
-                    msg: safeStringify(args),
-                });
-            } catch { /* never throw */ }
+                const msg = safeStringify(args);
+                const entry = { t: Date.now(), level, msg };
+                // Tag DLE-originated entries so they can be filtered from global noise
+                if (msg.startsWith('"[DLE')) entry.dle = true;
+                consoleBuffer.push(entry);
+            } catch {
+                try { consoleBuffer.push({ t: Date.now(), level, msg: '[serialization failed]' }); } catch { /* last resort */ }
+            }
             try { return orig.apply(this, args); } catch { /* swallow */ }
         };
     }
@@ -76,6 +95,13 @@ function patchFetch() {
             entry.status = resp.status;
             entry.ok = resp.ok;
             entry.durMs = Date.now() - start;
+            // Capture error response body snippet for non-2xx responses (aids AI call debugging)
+            if (!resp.ok) {
+                try {
+                    const body = await resp.clone().text();
+                    entry.errorBody = body.slice(0, 500);
+                } catch { /* body read failed — ok, we still have status */ }
+            }
             networkBuffer.push(entry);
             maybeEcho('log', 'fetch', entry);
             return resp;
@@ -162,11 +188,16 @@ function patchErrors() {
 /**
  * Install all interceptors. Safe to call multiple times — second call is a no-op.
  */
+/** Tracks which interceptors failed to install (readable by export.js for diagnostics). */
+export const installFailures = [];
+
 export function installInterceptors() {
     if (installed) return;
     installed = true;
-    try { patchConsole(); } catch { /* noop */ }
-    try { patchFetch(); } catch { /* noop */ }
-    try { patchXHR(); } catch { /* noop */ }
-    try { patchErrors(); } catch { /* noop */ }
+    for (const [name, fn] of [['console', patchConsole], ['fetch', patchFetch], ['xhr', patchXHR], ['errors', patchErrors]]) {
+        try { fn(); } catch (e) {
+            installFailures.push({ target: name, error: e?.message || String(e), t: Date.now() });
+            try { errorBuffer.push({ t: Date.now(), kind: 'interceptor-install-failure', target: name, message: e?.message || String(e) }); } catch { /* last resort */ }
+        }
+    }
 }

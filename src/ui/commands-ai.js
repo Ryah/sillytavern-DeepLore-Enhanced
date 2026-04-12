@@ -273,6 +273,7 @@ export async function summarizeEntries(entries) {
             const userMsg = `Entry: ${entry.title}\n\nContent:\n${entry.content.substring(0, 3000)}`;
 
             const result = await callAI(systemPrompt, userMsg, {
+                caller: 'summaryGen',
                 mode: settings.aiSearchConnectionMode || 'profile',
                 profileId: settings.aiSearchProfileId,
                 proxyUrl: settings.aiSearchProxyUrl,

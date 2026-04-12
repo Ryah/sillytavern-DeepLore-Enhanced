@@ -22,6 +22,7 @@ import {
     isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure,
 } from '../state.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
 
 export const DEFAULT_SCRIBE_PROMPT = `Summarize this roleplay session segment. Write in past tense, third person.
 
@@ -49,7 +50,7 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     if (mode === 'profile' || mode === 'proxy') {
         if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
         try {
-            const result = await callAI(systemPrompt, userMessage, resolved);
+            const result = await callAI(systemPrompt, userMessage, { ...resolved, caller: 'scribe' });
             recordAiSuccess();
             return result.text || '';
         } catch (err) {
@@ -198,6 +199,7 @@ export async function runScribe(customPrompt) {
             // immediately even though the chat hadn't grown since the last successful scribe.
             chat_metadata.deeplore_lastScribeChatLength = chatLenAtWrite;
             saveMetadataDebounced();
+            pushEvent('scribe', { action: 'completed', chatLength: chatLenAtWrite });
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
             // Reindex so the newly-written note is immediately retrievable
             if (epoch !== chatEpoch) {
@@ -210,6 +212,7 @@ export async function runScribe(customPrompt) {
         }
     } catch (err) {
         console.error('[DLE] Session Scribe error:', err);
+        pushEvent('scribe', { action: 'error', error: err?.message });
         dedupError('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe_runtime_error', { hint: err && err.message });
     } finally {
         // BUG-275: Always release the flag — this scribe invocation owns it from

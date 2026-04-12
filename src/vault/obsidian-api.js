@@ -3,6 +3,8 @@
  * Direct browser → Obsidian communication (CORS enabled by Obsidian REST API plugin).
  */
 
+import { pushEvent } from '../diagnostics/interceptors.js';
+
 const DEFAULT_TIMEOUT = 30000;
 const OBSIDIAN_BATCH_SIZE = 50;
 
@@ -88,13 +90,16 @@ function _getCircuitStateForBreaker(cb) {
 
 function recordSuccess(port) {
     const cb = getCircuitBreaker(port);
+    const wasOpen = cb.state !== 'closed';
     cb.failures = 0;
     cb.state = 'closed';
     cb.halfOpenProbe = false;
+    if (wasOpen) pushEvent('obsidian_circuit', { port, from: 'open', to: 'closed' });
 }
 
 function recordFailure(port) {
     const cb = getCircuitBreaker(port);
+    const wasClosed = cb.state === 'closed';
     cb.failures++;
     cb.halfOpenProbe = false;
     if (cb.failures >= cb.maxFailures) {
@@ -102,6 +107,7 @@ function recordFailure(port) {
         // so exponential backoff recalculates from this failure, not the original one
         cb.openedAt = Date.now();
         cb.state = 'open';
+        if (wasClosed) pushEvent('obsidian_circuit', { port, from: 'closed', to: 'open', failures: cb.failures });
     }
 }
 

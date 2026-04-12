@@ -12,7 +12,7 @@
 
 import { RingBuffer } from './ring-buffer.js';
 
-export const generationBuffer = new RingBuffer(20);
+export const generationBuffer = new RingBuffer(50);
 
 let started = false;
 
@@ -88,8 +88,13 @@ export async function startFlightRecorder() {
     try {
         const stateMod = await import('../state.js');
         const { onPipelineComplete } = stateMod;
-        if (typeof onPipelineComplete !== 'function') return;
+        if (typeof onPipelineComplete !== 'function') {
+            console.warn('[DLE] Flight recorder: onPipelineComplete not found in state.js — generation recording disabled');
+            started = false;
+            return;
+        }
 
+        generationBuffer.push({ t: Date.now(), kind: 'recorder_started' });
         onPipelineComplete(() => {
             try {
                 const trace = stateMod.lastPipelineTrace;
@@ -101,9 +106,12 @@ export async function startFlightRecorder() {
                     aiCircuitFailures: stateMod.aiCircuitFailures ?? 0,
                     summary: summarizeTrace(trace),
                 });
-            } catch { /* never throw from observer */ }
+            } catch {
+                try { generationBuffer.push({ t: Date.now(), error: 'trace summary failed' }); } catch { /* last resort */ }
+            }
         });
-    } catch {
+    } catch (err) {
+        console.warn('[DLE] Flight recorder start failed, will retry:', err?.message);
         started = false; // allow retry on next call (import may succeed later)
     }
 }

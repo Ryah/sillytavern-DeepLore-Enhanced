@@ -103,6 +103,8 @@ No getter functions exist — other modules `import { vaultIndex } from './state
 | `aiCircuitHalfOpenProbe` | `boolean` (private) | Session |
 | `aiCircuitProbeTimestamp` | `number` (private) | Session |
 
+**`pushEventSafe()`** (state.js): Lazy-loaded wrapper for `pushEvent()` from `src/diagnostics/interceptors.js`. Used by the circuit breaker state machine so that open/close transitions push to the `eventBuffer` without creating a hard import dependency from state.js on the diagnostics module. Called from `recordAiFailure()` (on CLOSED -> OPEN) and `recordAiSuccess()` (on OPEN -> CLOSED).
+
 ---
 
 ## Observer Pattern

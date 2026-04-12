@@ -13,7 +13,7 @@
 
 import { scrubDeep, makeCtx } from './scrubber.js';
 import { captureStateSnapshot } from './state-snapshot.js';
-import { consoleBuffer, networkBuffer, errorBuffer } from './interceptors.js';
+import { consoleBuffer, networkBuffer, errorBuffer, eventBuffer, aiCallBuffer, installFailures } from './interceptors.js';
 import { generationBuffer } from './flight-recorder.js';
 import { longTaskBuffer, captureMemorySnapshot } from './performance.js';
 
@@ -626,6 +626,8 @@ export async function buildDiagnosticReport() {
     const rawConsole = consoleBuffer.drain();
     const rawNetwork = networkBuffer.drain();
     const rawErrors  = errorBuffer.drain();
+    const rawEvents  = eventBuffer.drain();
+    const rawAiCalls = aiCallBuffer.drain();
     const rawLong    = longTaskBuffer.drain();
     const rawMemory  = captureMemorySnapshot();
     const rawSnapshot = captureStateSnapshot();
@@ -643,16 +645,23 @@ export async function buildDiagnosticReport() {
     const summarySection = buildSummarySection(snapshot, scrubbedGens);
 
     // 4. Verbose payload — raw data, same ctx for consistent pseudonyms
+    // Split console log: DLE-only entries (privacy-safe) + global entries (may contain third-party content)
+    const dleConsoleLog = rawConsole.filter(e => e.dle);
+    const globalConsoleLog = rawConsole.filter(e => !e.dle).slice(-100); // keep last 100 non-DLE for cross-extension debugging
     let verboseInput = {
-        version: 1,
-        format: 'dle-diagnostic-v1',
+        version: 2,
+        format: 'dle-diagnostic-v2',
         snapshot: rawSnapshot,
         flightRecorder: rawGens,
-        consoleLog: rawConsole,
+        consoleLog: dleConsoleLog,
+        globalConsoleLog: globalConsoleLog,
         networkLog: rawNetwork,
         errorLog: rawErrors,
+        eventLog: rawEvents,
+        aiCallLog: rawAiCalls,
         longTasks: rawLong,
         memory: rawMemory,
+        interceptorInstallFailures: installFailures.length > 0 ? installFailures : undefined,
     };
 
     const verbose = scrubDeep(verboseInput, ctx);
@@ -661,8 +670,10 @@ export async function buildDiagnosticReport() {
     // 5. Size cap — truncate oldest entries if payload is too large
     if (json.length > MAX_VERBOSE_SIZE) {
         verbose.consoleLog = verbose.consoleLog?.slice(-200) ?? [];
+        verbose.globalConsoleLog = verbose.globalConsoleLog?.slice(-50) ?? [];
         verbose.networkLog = verbose.networkLog?.slice(-100) ?? [];
         verbose.errorLog = verbose.errorLog?.slice(-50) ?? [];
+        verbose.eventLog = verbose.eventLog?.slice(-50) ?? [];
         verbose.longTasks = verbose.longTasks?.slice(-50) ?? [];
         verbose.__truncated = true;
         json = JSON.stringify(verbose);

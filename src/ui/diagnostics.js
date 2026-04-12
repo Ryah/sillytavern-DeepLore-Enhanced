@@ -142,7 +142,7 @@ export function runHealthCheck() {
         // — force-injected entries are always present, so this entry will be permanently blocked.
         if (entry.excludes.length > 0) {
             for (const exc of entry.excludes) {
-                const target = entries.find(e => e.title.toLowerCase() === exc.toLowerCase());
+                const target = vaultIndex.find(e => e.title.toLowerCase() === exc.toLowerCase());
                 if (target && (target.constant || target.seed || target.bootstrap)) {
                     const kind = target.constant ? 'constant' : target.seed ? 'seed' : 'bootstrap';
                     issues.push({ type: 'Gating', severity: 'warning', entry: entry.title, detail: `Excludes "${exc}" which is a ${kind} (always injected) — this entry will always be blocked` });
@@ -414,7 +414,61 @@ export function diagnoseEntry(entry, chatMsgs) {
         }
     }
 
-    // Check 11: Budget/max cut
+    // Check 11: Guide exclusion — guide entries never reach the writing AI
+    if (entry.guide) {
+        result.stage = 'guide_entry';
+        result.detail = 'This is a lorebook-guide entry — it is only available to the Librarian, never injected into the writing AI prompt.';
+        result.suggestions.push('Remove the lorebook-guide tag if you want this entry to be injected normally.');
+        return result;
+    }
+
+    // Check 12: Folder filter — entry may be outside the active folder filter
+    try {
+        const cm = globalThis.chat_metadata || {};
+        const folderFilter = cm.deeplore_folder_filter;
+        if (Array.isArray(folderFilter) && folderFilter.length > 0 && entry.folderPath) {
+            if (!folderFilter.some(f => entry.folderPath.startsWith(f))) {
+                result.stage = 'folder_filter';
+                result.detail = `Entry is in folder "${entry.folderPath}" which is not in the active folder filter.`;
+                result.suggestions.push('Clear the folder filter or add this entry\'s folder to the filter.');
+                return result;
+            }
+        }
+    } catch { /* chat_metadata may not be available */ }
+
+    // Check 13: Explicit block — entry is blocked in this chat
+    try {
+        const cm = globalThis.chat_metadata || {};
+        const blocks = cm.deeplore_blocks;
+        if (Array.isArray(blocks) && blocks.some(b => (b?.title || b) === entry.title)) {
+            result.stage = 'blocked';
+            result.detail = 'Entry is explicitly blocked in this chat (via pin/block controls).';
+            result.suggestions.push('Unblock the entry using the drawer or /dle-unblock command.');
+            return result;
+        }
+    } catch { /* chat_metadata may not be available */ }
+
+    // Check 14: Contextual gating — era/location/scene/character fields may exclude this entry
+    if (lastPipelineTrace && Array.isArray(lastPipelineTrace.contextualGatingRemoved)) {
+        if (lastPipelineTrace.contextualGatingRemoved.some(e => e.title === entry.title)) {
+            result.stage = 'contextual_gating';
+            result.detail = 'Entry was removed by contextual gating (era, location, scene type, or character filter).';
+            result.suggestions.push('Check the entry\'s custom fields against the current gating state (/dle-context-state).');
+            return result;
+        }
+    }
+
+    // Check 15: Strip dedup — entry was already injected recently
+    if (lastPipelineTrace && Array.isArray(lastPipelineTrace.stripDedupRemoved)) {
+        if (lastPipelineTrace.stripDedupRemoved.some(e => e.title === entry.title)) {
+            result.stage = 'strip_dedup';
+            result.detail = 'Entry was already injected in a recent generation and was stripped as a duplicate.';
+            result.suggestions.push('This is normal behavior. Increase stripLookbackDepth if you want entries to re-inject sooner.');
+            return result;
+        }
+    }
+
+    // Check 16: Budget/max cut (fallback)
     result.stage = 'budget_cut';
     result.detail = 'Entry matched but was cut by budget limit or max entries cap.';
     result.suggestions.push('Increase token budget or max entries, or raise this entry\'s priority (lower number = higher priority).');

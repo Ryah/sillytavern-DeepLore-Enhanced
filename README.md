@@ -23,7 +23,7 @@
 
 <p align="center">
   <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/actions/workflows/tests.yml/badge.svg"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0--beta-blue">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.0.0--beta-blue">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
   <img alt="SillyTavern" src="https://img.shields.io/badge/SillyTavern-1.12.6%2B-purple">
 </p>

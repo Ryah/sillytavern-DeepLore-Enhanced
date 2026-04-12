@@ -94,48 +94,10 @@ const settingsConstraints = {
 };
 
 // ============================================================================
-// Test runner
+// Test runner (shared from helpers.mjs)
 // ============================================================================
 
-import { makeEntry } from './helpers.mjs';
-
-let passed = 0;
-let failed = 0;
-
-function assert(condition, message) {
-    if (condition) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-    }
-}
-
-function assertEqual(actual, expected, message) {
-    if (JSON.stringify(actual) === JSON.stringify(expected)) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-        console.error(`    expected: ${JSON.stringify(expected)}`);
-        console.error(`    actual:   ${JSON.stringify(actual)}`);
-    }
-}
-
-function assertNotEqual(actual, expected, message) {
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-        console.error(`    values should differ but both are: ${JSON.stringify(actual)}`);
-    }
-}
-
-function test(name, fn) {
-    console.log(`\n${name}`);
-    fn();
-}
+import { assert, assertEqual, assertNotEqual, test, summary, makeEntry } from './helpers.mjs';
 
 // ============================================================================
 // Tests: parseFrontmatter
@@ -5689,8 +5651,4 @@ test('uiCascadeState: every entry has a reason field', () => {
 // Results
 // ============================================================================
 
-console.log(`\n${'='.repeat(40)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-if (failed > 0) {
-    process.exit(1);
-}
+summary();

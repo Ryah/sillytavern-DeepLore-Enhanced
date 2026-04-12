@@ -4,7 +4,7 @@
  */
 
 // ============================================================================
-// Test Runner
+// Test Runner — Counters & Core Assertions
 // ============================================================================
 
 export let passed = 0;
@@ -55,6 +55,150 @@ export function assertThrows(fn, message) {
     }
 }
 
+// ============================================================================
+// Extended Assertions
+// ============================================================================
+
+/**
+ * Check that an array contains an item (deep equality via JSON.stringify).
+ */
+export function assertContains(array, item, message) {
+    const itemStr = JSON.stringify(item);
+    if (Array.isArray(array) && array.some(el => JSON.stringify(el) === itemStr)) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    array does not contain: ${itemStr}`);
+    }
+}
+
+/**
+ * Check that a string matches a regex.
+ */
+export function assertMatch(string, regex, message) {
+    if (typeof string === 'string' && regex instanceof RegExp && regex.test(string)) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    string: ${JSON.stringify(string)}`);
+        console.error(`    regex:  ${regex}`);
+    }
+}
+
+/**
+ * Floating-point approximate equality.
+ */
+export function assertApprox(actual, expected, epsilon, message) {
+    if (typeof actual === 'number' && typeof expected === 'number' && Math.abs(actual - expected) <= epsilon) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    expected: ${expected} ± ${epsilon}`);
+        console.error(`    actual:   ${actual}`);
+    }
+}
+
+/**
+ * Element-wise deep equality with better diff output (shows first mismatch index).
+ */
+export function assertArrayEquals(actual, expected, message) {
+    if (!Array.isArray(actual) || !Array.isArray(expected)) {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    not both arrays — actual isArray: ${Array.isArray(actual)}, expected isArray: ${Array.isArray(expected)}`);
+        return;
+    }
+    if (actual.length !== expected.length) {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    length mismatch — actual: ${actual.length}, expected: ${expected.length}`);
+        return;
+    }
+    for (let i = 0; i < expected.length; i++) {
+        if (JSON.stringify(actual[i]) !== JSON.stringify(expected[i])) {
+            failed++;
+            console.error(`  FAIL: ${message}`);
+            console.error(`    first mismatch at index ${i}:`);
+            console.error(`      expected: ${JSON.stringify(expected[i])}`);
+            console.error(`      actual:   ${JSON.stringify(actual[i])}`);
+            return;
+        }
+    }
+    passed++;
+}
+
+/**
+ * Check actual > expected.
+ */
+export function assertGreaterThan(actual, expected, message) {
+    if (actual > expected) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    expected ${actual} > ${expected}`);
+    }
+}
+
+/**
+ * Check actual < expected.
+ */
+export function assertLessThan(actual, expected, message) {
+    if (actual < expected) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    expected ${actual} < ${expected}`);
+    }
+}
+
+/**
+ * Check value is null or undefined.
+ */
+export function assertNull(value, message) {
+    if (value == null) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    expected null/undefined, got: ${JSON.stringify(value)}`);
+    }
+}
+
+/**
+ * Check value is NOT null/undefined.
+ */
+export function assertNotNull(value, message) {
+    if (value != null) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    expected non-null value, got: ${value}`);
+    }
+}
+
+/**
+ * Check value is an instance of the given constructor.
+ */
+export function assertInstanceOf(value, constructor, message) {
+    if (value instanceof constructor) {
+        passed++;
+    } else {
+        failed++;
+        console.error(`  FAIL: ${message}`);
+        console.error(`    expected instanceof ${constructor.name}, got: ${value?.constructor?.name ?? typeof value}`);
+    }
+}
+
+// ============================================================================
+// Test Runner — test/testAsync/section/summary
+// ============================================================================
+
 export function test(name, fn) {
     console.log(`\n${name}`);
     fn();
@@ -63,6 +207,33 @@ export function test(name, fn) {
 export async function testAsync(name, fn) {
     console.log(`\n${name}`);
     await fn();
+}
+
+/**
+ * Print a section header (visual separator between test groups).
+ */
+export function section(name) {
+    console.log(`\n${'='.repeat(76)}`);
+    console.log(`  ${name}`);
+    console.log(`${'='.repeat(76)}`);
+}
+
+/**
+ * Print the results summary and exit with code 1 if any failures.
+ * @param {string} [label] Optional label prefix (e.g. "Integration Tests")
+ */
+export function summary(label) {
+    const total = passed + failed;
+    console.log(`\n${'='.repeat(60)}`);
+    if (label) {
+        console.log(`${label}: ${passed} passed, ${failed} failed (${total} total)`);
+    } else {
+        console.log(`Results: ${passed} passed, ${failed} failed`);
+    }
+    console.log(`${'='.repeat(60)}`);
+    if (failed > 0) {
+        process.exit(1);
+    }
 }
 
 // ============================================================================

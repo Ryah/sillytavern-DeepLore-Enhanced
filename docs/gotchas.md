@@ -219,3 +219,15 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Why:** `matchedBy` can contain entry titles and keyword matches that reveal vault content. AI `reason` strings contain the AI's rationale for selecting entries, which can quote vault content or character names. Without scrubbing these, the "anonymized" diagnostic export leaks user content.
 
 **Where:** `src/diagnostics/state-snapshot.js` `pseudonymizeTrace()`.
+
+---
+
+## 20. Scrubber Pattern Callback Argument Counts
+
+**Rule:** Each pattern `fn` in `src/diagnostics/scrubber.js` MUST have parameter count = (1 match + N capture groups + offset + fullString + ctx). The wrapper appends `ctx` after `String.prototype.replace`'s standard args. A phantom parameter shifts `ctx` to a position that never gets filled → `ctx` is `undefined` → `TypeError` → silently caught → pattern does nothing.
+
+**Why (BUG found by test suite):** 7 of 10 scrubber patterns (Bearer tokens, URL tokens, OpenAI keys, IPv4, IPv6, emails, long tokens) had an extra `_gl` phantom parameter, causing `ctx` to always be `undefined`. The outer try/catch swallowed the TypeError. Result: diagnostic exports only scrubbed file paths and hostnames — IPs, emails, API keys, and bearer tokens passed through unredacted.
+
+**Pattern:** For a regex with N capture groups, the fn should have exactly `N + 4` parameters: `(match, ...Ngroups, offset, fullString, ctx)`.
+
+**Where:** `src/diagnostics/scrubber.js` L70-140 (PATTERNS array).

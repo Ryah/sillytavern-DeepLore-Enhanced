@@ -71,24 +71,24 @@ const PATTERNS = [
     // Bearer / Authorization header values inline in strings
     {
         re: /(Bearer\s+)[A-Za-z0-9._\-+/=]{8,}/gi,
-        fn: (m, _g1, _o, _s, _gl, ctx) => { ctx.stats.bearerTokens++; return m.replace(/(Bearer\s+).+/i, '$1<token>'); },
+        fn: (m, _g1, _o, _s, ctx) => { ctx.stats.bearerTokens++; return m.replace(/(Bearer\s+).+/i, '$1<token>'); },
     },
     // URL query-string tokens: ?key=abc... &token=... (expanded to cover more param names)
     {
         re: /([?&](?:key|token|access_token|api_key|auth|secret|password|jwt|bearer|authorization|oauth_token)=)[^&\s"']+/gi,
-        fn: (_m, g1, _o, _s, _gl, ctx) => { ctx.stats.urlTokens++; return `${g1}<token>`; },
+        fn: (_m, g1, _o, _s, ctx) => { ctx.stats.urlTokens++; return `${g1}<token>`; },
     },
     // OpenAI / Anthropic / Stripe key formats: sk-proj-..., sk_test_..., sk-ant-..., sk_live_...
     {
         re: /\bsk[-_][A-Za-z0-9_\-]{20,}\b/g,
-        fn: (_m, _o, _s, _gl, ctx) => { ctx.stats.openaiKeys++; return '<openai-key>'; },
+        fn: (_m, _o, _s, ctx) => { ctx.stats.openaiKeys++; return '<openai-key>'; },
     },
     // IPv4 (with optional port). Conservative — requires 0-255 range to avoid
     // false positives on version strings like 1.2.3.4 in changelogs (it'll still
     // match those, but they're rare in our log surface).
     {
         re: /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?::(\d{1,5}))?\b/g,
-        fn: (m, port, _o, _s, _gl, ctx) => {
+        fn: (m, port, _o, _s, ctx) => {
             ctx.stats.ips++;
             const ipPart = m.replace(/:\d+$/, '');
             // Keep first two octets visible for network-level tracking,
@@ -104,12 +104,12 @@ const PATTERNS = [
     // IPv6 (loose — any run of hex groups separated by colons, with at least two colons)
     {
         re: /\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b/g,
-        fn: (m, _o, _s, _gl, ctx) => { ctx.stats.ipv6s++; return pseudonym(ctx.ipv6, m, 'ipv6'); },
+        fn: (m, _o, _s, ctx) => { ctx.stats.ipv6s++; return pseudonym(ctx.ipv6, m, 'ipv6'); },
     },
     // Email
     {
         re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
-        fn: (m, _o, _s, _gl, ctx) => { ctx.stats.emails++; return pseudonym(ctx.email, m.toLowerCase(), 'email'); },
+        fn: (m, _o, _s, ctx) => { ctx.stats.emails++; return pseudonym(ctx.email, m.toLowerCase(), 'email'); },
     },
     // Windows user home paths: C:\Users\<name>\... → C:\Users\<user-N>\...
     {
@@ -135,7 +135,7 @@ const PATTERNS = [
     // Last so it can't clobber more specific patterns. No cardinality value — uniformly redact.
     {
         re: /\b[A-Za-z0-9_\-]{32,}\b/g,
-        fn: (_m, _o, _s, _gl, ctx) => { ctx.stats.longTokens++; return '<long-token>'; },
+        fn: (_m, _o, _s, ctx) => { ctx.stats.longTokens++; return '<long-token>'; },
     },
 ];
 

@@ -88,66 +88,10 @@ import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 import { buildScanText, validateSettings, simpleHash } from '../core/utils.js';
 
 // ============================================================================
-// Test Runner
+// Test Runner (shared from helpers.mjs)
 // ============================================================================
 
-import { makeEntry, makeSettings } from './helpers.mjs';
-
-let passed = 0;
-let failed = 0;
-let currentTest = '';
-
-function assert(condition, message) {
-    if (condition) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-    }
-}
-
-function assertEqual(actual, expected, message) {
-    if (JSON.stringify(actual) === JSON.stringify(expected)) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-        console.error(`    expected: ${JSON.stringify(expected)}`);
-        console.error(`    actual:   ${JSON.stringify(actual)}`);
-    }
-}
-
-function assertNotEqual(actual, expected, message) {
-    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-        console.error(`    should not equal: ${JSON.stringify(expected)}`);
-    }
-}
-
-function assertThrows(fn, message) {
-    try {
-        fn();
-        failed++;
-        console.error(`  FAIL: ${message} (did not throw)`);
-    } catch {
-        passed++;
-    }
-}
-
-function test(name, fn) {
-    currentTest = name;
-    console.log(`\n${name}`);
-    fn();
-}
-
-async function testAsync(name, fn) {
-    currentTest = name;
-    console.log(`\n${name}`);
-    await fn();
-}
+import { assert, assertEqual, assertNotEqual, assertThrows, test, testAsync, summary, makeEntry, makeSettings } from './helpers.mjs';
 
 // ============================================================================
 // State reset helper — reset all mutable state before each test group
@@ -1825,10 +1769,4 @@ test('Sync Integration: key changes detected separately', () => {
 // Summary
 // ============================================================================
 
-console.log(`\n${'='.repeat(60)}`);
-console.log(`Integration Tests: ${passed} passed, ${failed} failed (${passed + failed} total)`);
-console.log(`${'='.repeat(60)}`);
-
-if (failed > 0) {
-    process.exit(1);
-}
+summary('Integration Tests');

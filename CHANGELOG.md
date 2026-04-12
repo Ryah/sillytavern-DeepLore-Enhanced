@@ -2,25 +2,36 @@
 
 ## 2.0-beta (2026-04-11)
 
-> The Librarian update. Emma reads your vault so the AI writes with it.
+> The Librarian update. Emma ensures your lore stays alive -- the AI writes with your world in mind.
 
 ### The Librarian (Emma)
 
-DeepLore now has a built-in AI assistant named Emma. She uses SillyTavern's function calling to search your vault, flag missing lore, and fetch writing guides -- all automatically during generation, or on demand in chat.
+DeepLore now has a built-in AI assistant named Emma. She catches lore gaps and keeps your vault consistent with your story -- automatically as you write, or on demand through chat commands.
 
-- **Generation tools** -- Three tools the AI calls mid-generation: `search_lore` queries your vault for relevant entries, `flag_lore` silently flags gaps and outdated entries, and `get_writing_guide` fetches your style guides. You don't have to do anything -- they run automatically when the Librarian is enabled.
-- **Chat tools** -- Five tools available in conversation: retrieve full entry content, pull recent chat context, flag entries that need updating, compare an entry against what's happening in the story, and fetch writing guides. All work through SillyTavern's function calling.
-- **Lore gap detection** -- Emma flags entries your vault is missing or entries that have gone stale. Gaps are tracked in a two-tier dismiss system: hide a gap to suppress it, permanently dismiss to never see it again. Re-flagging a hidden gap resurfaces it.
-- **Vault audit** -- `/dle-librarian audit` sends Emma a comprehensive review prompt. She'll walk through your vault and flag gaps, inconsistencies, and entries that need updating.
-- **Tool call UX** -- During generation, intermediate tool-call system messages are hidden and replaced with a live status indicator. Once generation finishes, all results are consolidated into a single expandable dropdown on the final message with friendly tool names.
-- **Pipeline status** -- The chat area now shows what DeepLore is doing: "Choosing Lore..." during entry selection, "Consulting vault..." during tool calls, "Generating..." during the AI response. Cleans up automatically on completion, stop, or error.
-- **Session persistence** -- Emma's draft state (gaps, flags, session context) is saved to chat metadata and localStorage with a 4-hour TTL, so you can pick up where you left off.
-- **Dedicated drawer tab** -- The Librarian tab in the drawer shows your gap list, flag list, and session stats. Flat layout with quick-dismiss controls.
-- **Per-message activity mode** -- Opt-in setting (`librarianPerMessageActivity`). When on, gaps are cleared each generation and tool call dropdowns persist per-message instead of accumulating across the conversation.
+- **Automatic gap detection** -- Emma spots what you've forgotten to define so you can fill it in before it breaks your story. Gaps are tracked with two levels of dismissal: hide one to suppress it, dismiss to bury it for good. Re-flagging a hidden gap resurfaces it.
+- **Vault audits** -- `/dle-librarian audit` walks through your entire vault and flags gaps, inconsistencies, and entries that need updating.
+- **Generation tools** -- Three tools the AI calls automatically mid-generation: `search_lore` queries your vault for relevant entries, `flag_lore` silently flags gaps and stale entries, and `get_writing_guide` fetches your style references. You don't have to do anything -- they run in the background when the Librarian is enabled.
+- **Chat tools** -- A dozen on-demand commands available through AI tool use: search your vault, retrieve full entry content, pull recent context, browse links and backlinks, find similar entries, flag stale lore, compare entries against your story, and fetch writing guides.
 - **Writing guides** -- Tag any vault entry with `lorebook-guide` to make it a Librarian-only style reference. Emma can fetch these guides to inform her suggestions, but they never reach the writing AI through any path.
-- **Graph-aware search** -- When Emma searches your vault, results consider entry relationships from the relationship graph, not just keyword matches.
+- **Graph-aware search** -- When Emma searches your vault, results consider entry relationships from the relationship graph, not just keywords.
+- **Behind-the-scenes UX** -- Tool calls are hidden during generation and consolidated into a single expandable dropdown on the final message. Real-time status shows what Emma is doing ("Choosing Lore...", "Consulting vault...", "Generating...") and cleans up when done.
+- **Session continuity** -- Emma's draft state (gaps, flags, session context) persists across page reloads and chat switches, so you can pick up where you left off.
+- **Librarian drawer tab** -- See your gap list, flagged entries, and session stats at a glance with quick-dismiss controls.
+- **Customizable persona** -- Tweak Emma's personality and focus through an editable prompt. Make her chattier, more formal, or focused on specific aspects of your world.
 - **Auto-enables function calling** -- Turning on the Librarian automatically enables function calling on your active API connection, so you don't have to hunt for the setting.
-- **Emma persona** -- Emma's personality and instructions are defined in an editable frontmatter prompt. Customize how she talks and what she focuses on.
+
+### Drawer Polish
+
+- **Toolbar buttons** -- Librarian and Graph buttons added to the drawer header toolbar for quick access.
+- **Footer simplification** -- The footer now shows `totalUsed / maxContext` with a tooltip breakdown, replacing the verbose multi-line display.
+- **Librarian popup** -- Unified textarea replaces the old form-field layout. Chat auto-expands as you type, and tool names are shown in plain English.
+
+### Performance & Indexing
+
+- **BM25 inverted index** -- Fuzzy search now uses an inverted posting list, scoring only documents that contain query terms instead of scanning the full index.
+- **Multi-vault duplicate detection** -- Vaults with overlapping entries now detect duplicates via content hashing, preventing double-injection.
+- **Cache fingerprinting** -- Improved cache fingerprint logic for more reliable freshness detection across vault rebuilds.
+- **HTTPS support** -- Obsidian connections now support HTTPS for remote or secured setups.
 
 ### Settings Redesign
 
@@ -29,7 +40,6 @@ The settings popup has been reorganized for clarity and easier navigation.
 - **About tab** -- Redesigned as the landing tab with the DLE logo, master enable toggle, social links, diagnostics panel (moved from System), and a danger zone for destructive actions.
 - **Reference tab** -- The slash command quick-reference grid now lives in its own tab instead of being buried in another section.
 - **Grey-out audit** -- 43 disable patterns now correctly dim dependent settings when their parent feature is off. No more editing settings for features you've disabled.
-- **Easter egg** -- Click the logo in the About tab to download companion character cards (Kara, Nott, and Emma).
 
 ### Diagnostics
 
@@ -39,19 +49,6 @@ A new diagnostics subsystem for debugging issues and filing bug reports.
 - **State snapshots** -- Capture the current extension state for debugging without restarting.
 - **Diagnostics panel** -- View, export, and manage diagnostic data from the About tab in settings.
 - **IP masking** -- Diagnostic exports automatically mask IP addresses, preserving the first two octets for network-level debugging while protecting your identity.
-
-### Performance & Indexing
-
-- **BM25 inverted index** -- Fuzzy search now uses an inverted posting list, scoring only documents that contain query terms instead of scanning the full index.
-- **Multi-vault duplicate detection** -- Vaults with overlapping entries now detect duplicates via content hashing, preventing double-injection.
-- **Cache fingerprinting** -- Improved cache fingerprint logic for more reliable freshness detection across vault rebuilds.
-- **HTTPS support** -- Obsidian connections now support HTTPS for remote or secured setups.
-
-### Drawer Polish
-
-- **Toolbar buttons** -- Librarian and Graph buttons added to the drawer header toolbar for quick access.
-- **Footer simplification** -- The footer now shows `totalUsed / maxContext` with a tooltip breakdown, replacing the verbose multi-line display.
-- **Librarian popup** -- Unified textarea replaces the old form-field layout. Chat auto-expands as you type, and tool names are shown in plain English.
 
 ### New Slash Command
 
@@ -67,7 +64,7 @@ A new diagnostics subsystem for debugging issues and filing bug reports.
 
 ### Bug Fixes
 
-Fixed ~350 bugs across all severity levels identified through comprehensive code audits and stabilization work: ~9 critical (data loss prevention, generation lock hangs, abort/stop races, epoch guard isolation), ~80 high (vault sync, AI search fallback, settings persistence, swipe/regen snapshots, Librarian session lifecycle, tool call consumption timing), ~150 medium (chat lifecycle state resets, cache consistency, CSS/drawer rendering, gating edge cases, multi-vault path handling), and ~110 low (falsy-zero coalescing, dead code removal, DOM cleanup, accessibility attributes, analytics pruning).
+Fixed ~350 stability and correctness bugs across comprehensive code audits. Highlights include data integrity safeguards (multi-vault safety, cache consistency, vault sync reliability), AI selection robustness (timeout handling, search fallback logic, circuit breaker fixes), UI and state reliability (chat lifecycle resets, drawer rendering, gating field persistence, swipe/regen handling), and edge case hardening (special character support, abort/stop races, multi-vault path collisions, and more).
 
 ### Under the Hood
 

@@ -529,7 +529,12 @@ export async function createDrawerPanel() {
         if (drawerDestroyed) return;
         invalidateTemperatureCache();
         scheduleRender(renderStatusZone);
-        scheduleRender(renderInjectionTab);
+        // Only re-render injection tab on pipeline-complete when sources are
+        // empty — transitions "Choosing lore…" spinner to the empty guide.
+        // When sources ARE populated, onInjectionSourcesReady already rendered.
+        if (!lastInjectionSources || lastInjectionSources.length === 0) {
+            scheduleRender(renderInjectionTab);
+        }
         scheduleRender(renderBrowseTab);
         scheduleRender(renderTimers);
         scheduleRender(renderFooter);

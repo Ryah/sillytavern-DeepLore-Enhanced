@@ -60,6 +60,7 @@ import {
     setPipelinePhase,
     skipNextPipeline, setSkipNextPipeline,
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
+    buildPromise,
 } from './src/state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';

@@ -2,11 +2,14 @@
  * DeepLore Enhanced — Agentic Loop API Layer
  * Wraps ConnectionManagerRequestService for tool-calling requests.
  * Handles 4 provider formats: Claude, Google (Gemini/Vertex), OpenAI-compatible, Cohere.
+ * Supports proxy mode (direct Anthropic Messages API via CORS bridge).
  */
 import { ConnectionManagerRequestService } from '../../../../shared.js';
 import { oai_settings } from '../../../../../openai.js';
 import { main_api, amount_gen } from '../../../../../../script.js';
 import { getContext } from '../../../../../extensions.js';
+import { resolveConnectionConfig } from '../../settings.js';
+import { validateProxyUrl } from '../ai/proxy-api.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Provider Detection
@@ -18,10 +21,21 @@ const NO_TOOLS_SOURCES = new Set([
 ]);
 
 /**
- * Check if the current ST connection supports tool calling.
+ * Get the resolved Librarian connection mode.
+ * @returns {'proxy'|'profile'|'inherit'}
+ */
+function getLibrarianMode() {
+    return resolveConnectionConfig('librarian').mode;
+}
+
+/**
+ * Check if the current connection supports tool calling.
+ * Proxy mode always supports tools (Anthropic Messages API).
+ * Profile mode checks the main ST chat completion source.
  * @returns {boolean}
  */
 export function isToolCallingSupported() {
+    if (getLibrarianMode() === 'proxy') return true;
     if (main_api !== 'openai') return false;
     const source = oai_settings?.chat_completion_source;
     if (!source) return false;
@@ -29,10 +43,12 @@ export function isToolCallingSupported() {
 }
 
 /**
- * Get the provider message format based on chat_completion_source.
+ * Get the provider message format based on connection mode.
+ * Proxy mode always uses Claude format.
  * @returns {'claude'|'google'|'openai'}
  */
 export function getProviderFormat() {
+    if (getLibrarianMode() === 'proxy') return 'claude';
     const source = oai_settings?.chat_completion_source;
     if (source === 'claude') return 'claude';
     if (source === 'makersuite' || source === 'vertexai') return 'google';
@@ -40,10 +56,16 @@ export function getProviderFormat() {
 }
 
 /**
- * Get max response tokens from the active ST preset.
+ * Get max response tokens.
+ * Proxy mode uses the Librarian's configured maxTokens.
+ * Profile mode uses the active ST preset.
  * @returns {number}
  */
 export function getActiveMaxTokens() {
+    if (getLibrarianMode() === 'proxy') {
+        const config = resolveConnectionConfig('librarian');
+        return config.maxTokens || 4096;
+    }
     return main_api === 'openai'
         ? (oai_settings?.openai_max_tokens || 300)
         : (amount_gen || 300);
@@ -51,8 +73,7 @@ export function getActiveMaxTokens() {
 
 /**
  * Get the active ST connection profile ID (the user's main chat connection).
- * The agentic generation loop uses the same connection as the user's normal chat —
- * NOT the Librarian profile setting (which is for Emma's chat session only).
+ * Used only in profile mode — proxy mode bypasses ConnectionManagerRequestService.
  * @returns {string}
  * @throws {Error} If no profile is selected
  */
@@ -70,7 +91,143 @@ export function getActiveProfileId() {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Send a tool-calling request via ST's ConnectionManagerRequestService.
+ * Convert OpenAI function-calling tool definitions to Anthropic format.
+ * @param {Array<object>} tools - [{type:'function', function:{name, description, parameters}}]
+ * @returns {Array<object>} [{name, description, input_schema}]
+ */
+function toAnthropicTools(tools) {
+    return tools.map(t => ({
+        name: t.function.name,
+        description: t.function.description,
+        input_schema: t.function.parameters,
+    }));
+}
+
+/**
+ * Convert a tool_choice string to Anthropic format.
+ * @param {string|object|null} toolChoice
+ * @returns {object|undefined}
+ */
+function toAnthropicToolChoice(toolChoice) {
+    if (toolChoice == null) return undefined;
+    if (typeof toolChoice === 'string') {
+        const map = { auto: 'auto', required: 'any', none: 'none' };
+        return { type: map[toolChoice] || 'auto' };
+    }
+    return toolChoice;
+}
+
+/**
+ * Send a tool-calling request directly to an Anthropic-compatible proxy via CORS bridge.
+ * Used when the Librarian connection mode is 'proxy'.
+ * @param {object} connConfig - Resolved connection config {proxyUrl, model, maxTokens, timeout}
+ * @param {Array<{role: string, content: any}>} messages - Chat messages (may include system at [0])
+ * @param {Array<object>} tools - Tool definitions (OpenAI function calling format)
+ * @param {string|object|null} toolChoice - Tool choice
+ * @param {number} maxTokens - Max response tokens
+ * @param {AbortSignal} signal - Abort signal
+ * @returns {Promise<object>} Raw Anthropic API response
+ */
+async function callWithToolsViaProxy(connConfig, messages, tools, toolChoice, maxTokens, signal) {
+    const { proxyUrl, model, timeout = 120000 } = connConfig;
+    validateProxyUrl(proxyUrl);
+
+    if (!model) throw new Error('Librarian proxy mode requires a model name. Set it in DLE Librarian settings.');
+
+    // Extract system message(s) from the messages array
+    let systemContent = [];
+    const apiMessages = [];
+    for (const msg of messages) {
+        if (msg.role === 'system') {
+            systemContent.push({ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } });
+        } else {
+            apiMessages.push(msg);
+        }
+    }
+
+    const targetUrl = proxyUrl.replace(/\/+$/, '') + '/v1/messages';
+    const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    let onExternalAbort = null;
+
+    if (signal) {
+        if (signal.aborted) {
+            controller.abort();
+        } else {
+            onExternalAbort = () => controller.abort();
+            signal.addEventListener('abort', onExternalAbort, { once: true });
+        }
+    }
+
+    const body = {
+        model,
+        max_tokens: maxTokens,
+        ...(systemContent.length > 0 && { system: systemContent }),
+        messages: apiMessages,
+        tools: toAnthropicTools(tools),
+    };
+    const anthropicToolChoice = toAnthropicToolChoice(toolChoice);
+    if (anthropicToolChoice) body.tool_choice = anthropicToolChoice;
+
+    try {
+        const response = await fetch(corsProxyUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+        });
+
+        if (!response.ok) {
+            const text = await response.text();
+            if (response.status === 404 && text.includes('CORS proxy is disabled')) {
+                throw new Error('SillyTavern CORS proxy is not enabled. Set enableCorsProxy: true in config.yaml, or use a Connection Profile instead of Custom Proxy mode.');
+            }
+            const safeText = text.substring(0, 200)
+                .replace(/sk-[a-zA-Z0-9_-]{10,}/g, 'sk-***')
+                .replace(/Bearer\s+[A-Za-z0-9_\-./]{10,}/g, 'Bearer ***');
+            throw new Error(`Proxy returned HTTP ${response.status}: ${safeText}`);
+        }
+
+        const text = await response.text();
+        let parsed;
+        try {
+            parsed = JSON.parse(text);
+        } catch (e) {
+            throw new Error(`Failed to parse proxy response as JSON: ${e.message}`);
+        }
+        if (parsed.error) {
+            throw new Error(parsed.error.message || JSON.stringify(parsed.error));
+        }
+
+        // Return raw Anthropic response — parseToolCalls/getTextContent/getUsage handle Claude format
+        return parsed;
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            if (signal?.aborted) {
+                const abortErr = new Error('Request aborted by user');
+                abortErr.name = 'AbortError';
+                abortErr.userAborted = true;
+                throw abortErr;
+            }
+            const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`);
+            timeoutErr.name = 'AbortError';
+            timeoutErr.timedOut = true;
+            throw timeoutErr;
+        }
+        throw err;
+    } finally {
+        if (signal && onExternalAbort) signal.removeEventListener('abort', onExternalAbort);
+        clearTimeout(timer);
+    }
+}
+
+/**
+ * Send a tool-calling request. Routes to proxy or ConnectionManager based on Librarian config.
  * @param {Array<{role: string, content: any}>} messages - Chat messages array
  * @param {Array<object>} tools - Tool definitions (OpenAI function calling format)
  * @param {string|object|null} toolChoice - Tool choice ('auto', 'required', or provider-specific)
@@ -79,6 +236,13 @@ export function getActiveProfileId() {
  * @returns {Promise<object>} Raw API response (extractData: false)
  */
 export async function callWithTools(messages, tools, toolChoice, maxTokens, signal) {
+    // Proxy mode: direct Anthropic Messages API with native tool calling
+    const connConfig = resolveConnectionConfig('librarian');
+    if (connConfig.mode === 'proxy') {
+        return callWithToolsViaProxy(connConfig, messages, tools, toolChoice, maxTokens, signal);
+    }
+
+    // Profile mode: route through ST's ConnectionManagerRequestService
     const format = getProviderFormat();
 
     // Normalize tool_choice for provider-specific formats.

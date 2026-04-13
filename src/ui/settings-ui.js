@@ -1854,6 +1854,29 @@ function bindPopupEvents($container) {
         settings.librarianEnabled = enabled;
         $c('#dle-sp-librarian-sub').toggle(enabled);
         saveSettingsDebounced();
+        // Onboarding: when enabling, validate connection and warn about function calling
+        if (enabled) {
+            const config = resolveConnectionConfig('librarian');
+            if (config.mode === 'profile' && !config.profileId) {
+                toastr.warning('Librarian needs an AI connection profile. Opening settings...', 'DeepLore', { timeOut: 6000 });
+                // Navigate to Connection → AI Connections and flash the librarian accordion
+                requestAnimationFrame(() => {
+                    const $tab = $container.find('[data-settings-tab="connection"]');
+                    if ($tab.length) switchSettingsTab($tab);
+                    const $sub = $container.find('.dle-connection-subtab[data-connection-subtab="ai-connections"]');
+                    if ($sub.length) switchConnectionSubtab($sub);
+                    requestAnimationFrame(() => {
+                        const el = $container.find('[data-tool-key="librarian"]')[0];
+                        if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            el.classList.add('dle-pulse');
+                            setTimeout(() => el.classList.remove('dle-pulse'), 2000);
+                        }
+                    });
+                });
+            }
+            toastr.info('Librarian requires "Enable function calling" in SillyTavern\'s AI Response Configuration.', 'DeepLore', { timeOut: 8000 });
+        }
         // One-time cleanup: unregister stale ToolManager tools from pre-agentic-loop versions
         if (!enabled) {
             import('../../../../../../scripts/tool-calling.js')

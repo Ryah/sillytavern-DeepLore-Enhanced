@@ -5362,16 +5362,51 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
 }
 .dle-browse-related-chip:hover { background: var(--dle-bg-3, var(--dle-border)); }
 
-/* Pipeline status indicator shown during DLE lore retrieval + generation */
+/* Pipeline status toast — slides up from behind the input box */
+#form_sheld { position: relative; }
+#send_form  { position: relative; z-index: 2; }
+
 #dle-pipeline-status {
-    padding: 8px 16px;
-    margin: 4px 0;
-    font-size: 0.9em;
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    padding: 5px 16px;
+    font-size: 0.82em;
     font-style: italic;
-    color: var(--SmartThemeQuoteColor, #888);
+    color: var(--SmartThemeQuoteColor, #aaa);
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #222) 92%, white);
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor) 60%, transparent);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
     display: flex;
     align-items: center;
     gap: 8px;
-    opacity: 0.8;
+    z-index: 1;
+    pointer-events: none;
+    animation: dle-toast-in 0.3s ease-out forwards;
+}
+#dle-pipeline-status.dle-toast-out { animation: dle-toast-out 0.2s ease-in forwards; }
+#dle-pipeline-status i.fa-spinner { font-size: 0.85em; opacity: 0.7; }
+
+/* GOTCHA: translateY(%) is relative to element's own height, not parent's.
+   calc(100% + var(--bottomFormBlockSize)) ensures the toast hides behind the
+   variable-height send form (textarea can be resized). */
+@keyframes dle-toast-in {
+    from { transform: translateY(calc(100% + var(--bottomFormBlockSize, 50px))); opacity: 0; }
+    to   { transform: translateY(0); opacity: 1; }
+}
+@keyframes dle-toast-out {
+    from { transform: translateY(0); opacity: 1; }
+    to   { transform: translateY(calc(100% + var(--bottomFormBlockSize, 50px))); opacity: 0; }
+}
+
+/* Toggle-active state for one-shot action buttons (e.g. skip-tools) */
+.dle-action-btn.dle-toggle-active {
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor) 25%, transparent);
+    border-color: var(--SmartThemeQuoteColor);
+}
+.dle-action-btn.dle-toggle-active i {
+    color: var(--dle-warning, #e2a832);
 }
 

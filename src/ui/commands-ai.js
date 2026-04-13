@@ -14,7 +14,7 @@ import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
 import { classifyError, NO_ENTRIES_MSG, yamlEscape } from '../../core/utils.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
-import { vaultIndex, scribeInProgress, setIndexTimestamp } from '../state.js';
+import { vaultIndex, scribeInProgress, setIndexTimestamp, setSkipNextPipeline } from '../state.js';
 import { buildIndex, ensureIndexFresh, getMaxResponseTokens } from '../vault/vault.js';
 import { runScribe } from '../ai/scribe.js';
 import { runAutoSuggest, showSuggestionPopup } from '../ai/auto-suggest.js';
@@ -151,6 +151,7 @@ export function registerAiCommands() {
 
             toastr.info(`Sending ${vaultIndex.length} entries (~${totalTokens} tokens)...`, 'DeepLore Enhanced', { timeOut: 5000 });
 
+            setSkipNextPipeline(true); // Bypass DLE pipeline for this generation
             await sendMessageAsUser(message, '');
             await Generate('normal');
 

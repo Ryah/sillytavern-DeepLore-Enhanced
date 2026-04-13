@@ -49,7 +49,7 @@ import {
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock, setGenerationLockEpoch,
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch, setLastIndexGenerationCount,
-    setAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
+    aiSearchCache, setAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources,
     notepadExtractInProgress, setNotepadExtractInProgress,
     notifyPipelineComplete, notifyInjectionSourcesReady, notifyGatingChanged,
@@ -58,6 +58,8 @@ import {
     setLoreGaps, setLoreGapSearchCount, setLibrarianChatStats,
     setGenerationLockTimestamp,
     setPipelinePhase,
+    skipNextPipeline, setSkipNextPipeline,
+    suppressNextAgenticLoop, setSuppressNextAgenticLoop,
 } from './src/state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
@@ -162,21 +164,28 @@ function capNotepad(text) {
 // Pipeline Status Helpers (module scope — used by both onGenerate and init)
 // ============================================================================
 
-/** Show a pipeline status message in the chat area ("Choosing Lore…", etc.) */
+/** Show a pipeline status toast above the input box ("DeepLore: Choosing Lore…", etc.).
+ *  Slides up from behind the send form on first call; subsequent calls swap text in-place. */
 function _updatePipelineStatus(text) {
     let el = document.getElementById('dle-pipeline-status');
     if (!el) {
         el = document.createElement('div');
         el.id = 'dle-pipeline-status';
-        document.getElementById('chat')?.appendChild(el);
+        // Anchor inside #form_sheld — positioned absolutely above the send form
+        document.getElementById('form_sheld')?.prepend(el);
     }
-    el.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="opacity:0.6"></i> ${text}`;
-    el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    el.classList.remove('dle-toast-out');
+    el.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> DeepLore: ${text}`;
 }
 
-/** Remove the pipeline status element (no-op if it doesn't exist). */
+/** Remove the pipeline status toast with a slide-down animation. */
 function _removePipelineStatus() {
-    document.getElementById('dle-pipeline-status')?.remove();
+    const el = document.getElementById('dle-pipeline-status');
+    if (!el) return;
+    el.classList.add('dle-toast-out');
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+    // Safety: if animationend never fires (e.g. element detached), remove after timeout
+    setTimeout(() => el?.remove(), 500);
 }
 
 // ============================================================================
@@ -194,6 +203,13 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
     const settings = getSettings();
 
     if (type === 'quiet' || !settings.enabled) {
+        return;
+    }
+
+    // Vault review bypass: skip the full pipeline when commanded (e.g. /dle-review)
+    if (skipNextPipeline) {
+        setSkipNextPipeline(false);
+        if (settings.debugMode) console.debug('[DLE] Pipeline skipped (skipNextPipeline flag)');
         return;
     }
 
@@ -299,6 +315,15 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             }
         }
 
+        // Diagnostic breadcrumb: log pipeline entry state for first-gen investigation
+        if (settings.debugMode) {
+            console.debug('[DLE] Pipeline entry:', {
+                generationCount, vaultSize: vaultIndex.length, indexEverLoaded,
+                chatMsgCount: chatMessages.length, buildPending: !!buildPromise,
+                cacheEmpty: !aiSearchCache.hash, epoch, chatEpoch,
+            });
+        }
+
         // BUG-299: CHAT_CHANGED may have fired during the (up to 60s) ensureIndexFresh await.
         // Bail before touching the swipe tracker snapshot so we don't tag a stale snapshot with
         // the new chat's swipe keys or pollute the new chat's cooldown/decay/injection maps.
@@ -363,7 +388,8 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         const folderFilter = chat_metadata.deeplore_folder_filter || null;
 
         const _pipelineStartMs = performance.now();
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chatMessages, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal, onStatus: _updatePipelineStatus });
+        const _pipelineOnStatus = (text) => { _updatePipelineStatus(text); if (text.includes('Consulting')) setPipelinePhase('consulting'); };
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chatMessages, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal, onStatus: _pipelineOnStatus });
         trace.totalMs = Math.round(performance.now() - _pipelineStartMs);
         if (pipelineAbort.signal.aborted) {
             if (settings.debugMode) console.debug('[DLE] Pipeline aborted by user before commit');
@@ -775,7 +801,11 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         // own agentic loop instead of letting ST generate. This produces a single clean message
         // with no intermediate tool_invocation system messages.
         // Agentic loop produces complete responses — fall through to ST for continue/append.
-        if (settings.librarianEnabled && isToolCallingSupported()
+        // One-shot suppression: reset flag regardless of whether we enter the agentic branch
+        if (suppressNextAgenticLoop) {
+            setSuppressNextAgenticLoop(false);
+            if (settings.debugMode) console.debug('[DLE] Agentic loop suppressed for this generation (one-shot)');
+        } else if (settings.librarianEnabled && isToolCallingSupported()
             && type !== 'continue' && type !== 'append' && type !== 'appendFinal') {
             abort(); // Prevent ST from generating
 
@@ -912,6 +942,11 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             return; // Don't fall through to ST's generation
         }
         // === End Agentic Loop Dispatch ===
+
+        // Warn if Librarian is on but tools aren't supported (silent fallback to normal generation)
+        if (settings.librarianEnabled && !isToolCallingSupported() && !suppressNextAgenticLoop) {
+            dedupWarning('Librarian is on but your connection doesn\'t support function calling — falling back to normal generation. Check DLE Settings → Connection.', 'librarian_no_tools');
+        }
 
     } catch (err) {
         _removePipelineStatus();

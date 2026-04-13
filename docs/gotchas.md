@@ -333,3 +333,33 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Why:** `onProse` now calls `saveReply` + `saveChatConditional`, which are async operations. If not awaited, the FLAG phase starts before the message is fully created, events are processed, and data is saved to disk. This can cause race conditions where FLAG tool calls reference a message that doesn't exist yet.
 
 **Where:** `src/librarian/agentic-loop.js` (write tool handler → FLAG phase transition).
+
+---
+
+## 31. Vault Review Bypass Pattern
+
+**Rule:** `/dle-review` MUST set `skipNextPipeline = true` before calling `Generate('normal')`. The flag is consumed at the top of `onGenerate` (after quiet check, before tool-call check) and provides a clean early return.
+
+**Why:** The vault review runs its own generation with a custom system prompt. If the DLE pipeline runs on that generation, it injects lore (wasting tokens and confusing the review AI) and potentially triggers the Librarian agentic loop (which would abort the review generation entirely and run its own loop instead).
+
+**Where:** `src/commands/commands-ai.js` (`/dle-review` handler). `index.js` (consumption in `onGenerate` early guards). `src/state.js` (`skipNextPipeline` + setter).
+
+---
+
+## 32. Pipeline Status Toast Z-Index
+
+**Rule:** `_updatePipelineStatus` prepends to `#form_sheld` (not `#chat`). `#form_sheld` must have `position: relative`. `#send_form` must have `z-index: 2`. The toast sits at `z-index: 1`.
+
+**Why:** `translateY(100%)` is relative to the element's OWN height (~30px), not the parent's height. To fully hide the toast behind the variable-height send form, use `calc(100% + var(--bottomFormBlockSize))`. Without this, the toast peeks out below the send form on screens where `--bottomFormBlockSize` varies.
+
+**Where:** `index.js` (`_updatePipelineStatus`, `_removePipelineStatus`). CSS in the extension's stylesheet.
+
+---
+
+## 33. `suppressNextAgenticLoop` Reset Placement
+
+**Rule:** The `suppressNextAgenticLoop` flag MUST be reset in the `if (suppressNextAgenticLoop)` branch, BEFORE the `else if` agentic dispatch. Do NOT reset it in `finally`.
+
+**Why:** The flag is a one-shot consumed-on-use control. If reset in `finally`, it would be consumed regardless of whether the `if` branch ran. But more critically, if the flag is NOT reset in the `if` branch and is instead reset only in `finally`, there's a subtle ordering issue: the `else if` agentic dispatch block has its own `finally` (with `setSendButtonState(false)` + `activateSendButtons`). If the flag were reset after the agentic dispatch's `finally`, it would work — but placing it in onGenerate's outer `finally` means it runs AFTER the agentic loop's inner `finally`, which is correct timing but wrong semantics. The flag must be consumed at the decision point where it gates the behavior, not deferred.
+
+**Where:** `index.js` agentic dispatch section (Phase 8b). `src/state.js` (`suppressNextAgenticLoop` + setter).

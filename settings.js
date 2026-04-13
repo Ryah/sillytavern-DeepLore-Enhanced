@@ -243,7 +243,7 @@ export const defaultSettings = {
     librarianResultTokenBudget: 1500,   // token budget for search results
     librarianAutoSendOnGap: true,       // auto-send draft prompt when opening a gap
     librarianWriteFolder: '',           // destination folder for written entries
-    librarianConnectionMode: 'profile',  // 'inherit' | 'profile' | 'proxy' (default 'profile' — Librarian must NOT share channel with retrieval AI)
+    librarianConnectionMode: 'inherit',  // 'inherit' | 'profile' | 'proxy' (inherits from AI Search by default)
     librarianProfileId: '',
     librarianProxyUrl: 'http://localhost:42069',
     librarianModel: '',                  // override model (blank = inherit from AI Search)
@@ -262,7 +262,7 @@ export const defaultSettings = {
     // First-run setup wizard completed flag
     _wizardCompleted: false,
     // Settings version — increment to trigger migrations
-    settingsVersion: 2,
+    settingsVersion: 3,
 };
 
 /**
@@ -365,6 +365,15 @@ function runMigrations(settings, fromVersion, toVersion) {
         }
         delete settings.librarianSessionModel;
         // Do NOT auto-migrate other tools' connectionMode to 'inherit' — existing users keep explicit settings
+    }
+    // Migration 2 → 3: Librarian default from 'profile' to 'inherit'
+    if (fromVersion < 3) {
+        if (settings.debugMode) console.log('[DLE] Migrating settings to version 3 (Librarian inherit default)');
+        // Only migrate unconfigured Librarian connections (profile mode with no profile selected)
+        // Users who explicitly chose a profile and set a profileId are left alone
+        if (settings.librarianConnectionMode === 'profile' && !settings.librarianProfileId) {
+            settings.librarianConnectionMode = 'inherit';
+        }
     }
 }
 

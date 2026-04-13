@@ -62,6 +62,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         contextualGatingRemoved: [],
         stripDedupRemoved: [],
         bootstrapActive,
+        chatMessageCount: chat.length,
+        vaultSnapshotSize: vaultSnapshot.length,
+        generationNumber: generationCount,
         aiFallback: false,
         aiError: '', // BUG-004: Capture AI error message for toast enrichment
         fuzzyStats: null,

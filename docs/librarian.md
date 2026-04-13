@@ -4,7 +4,7 @@ Code-level reference for the Librarian tool-calling subsystem. Intended for Clau
 to avoid regressions when modifying Librarian-related code.
 
 Source files:
-- `src/librarian/agentic-api.js` -- provider detection, CMRS wrapper (`callWithTools`), response parsing (4 formats)
+- `src/librarian/agentic-api.js` -- provider detection, CMRS wrapper + proxy path (`callWithTools`), response parsing (4 formats)
 - `src/librarian/agentic-loop.js` -- state machine: SEARCH -> FLAG -> DONE
 - `src/librarian/agentic-messages.js` -- system prompt builder, chat message assembly
 - `src/librarian/librarian-tools.js` -- `searchLoreAction`, `flagLoreAction`, gap persistence
@@ -35,7 +35,7 @@ After the pipeline commits lore via `setExtensionPrompt` and `_updatePipelineSta
 6. On success: `saveReply` handles `chat.push`, `addOneMessage`, disk save. Post-loop: emit `MESSAGE_RECEIVED` + `CHARACTER_MESSAGE_RENDERED`
 7. Finally: `setSendButtonState(false)` + `activateSendButtons()`, emit `GENERATION_ENDED`, return (don't fall through to ST generation)
 
-If `isToolCallingSupported()` is false, falls through to ST's normal generation path.
+If `isToolCallingSupported()` is false, falls through to ST's normal generation path. A `dedupWarning` fires at runtime when `librarianEnabled && !isToolCallingSupported()` to warn the user that function calling is required.
 
 ### State Machine (agentic-loop.js)
 
@@ -68,7 +68,13 @@ Three tools in OpenAI function calling format:
 
 ### Provider Format Handling (agentic-api.js)
 
-`callWithTools()` wraps `ConnectionManagerRequestService.sendRequest()` using the active connection profile (`getActiveConnectionProfileId()`). Four provider response formats are handled:
+`callWithTools()` dispatches based on the Librarian's resolved connection mode (`resolveConnectionConfig('librarian')`):
+- **Proxy mode** (`mode === 'proxy'`): calls `callWithToolsViaProxy()` which sends directly to an Anthropic-compatible proxy (e.g. claude-code-proxy) via ST's CORS bridge. Tools are converted from OpenAI to Anthropic format (`toAnthropicTools`). Messages with `role: 'system'` are extracted into the `system` field. Response is raw Anthropic JSON — existing parsers handle it natively.
+- **Profile mode** (default): wraps `ConnectionManagerRequestService.sendRequest()` using the active connection profile (`getActiveProfileId()`).
+
+`isToolCallingSupported()` returns `true` in proxy mode (Anthropic API always supports tools). `getProviderFormat()` returns `'claude'` in proxy mode. `getActiveMaxTokens()` uses the Librarian's configured `maxTokens` in proxy mode.
+
+Four provider response formats are handled:
 
 | Provider | Detection | Tool call location | Text location |
 |---|---|---|---|
@@ -365,6 +371,18 @@ Callback-based observer pattern. `setLoreGaps()` calls it automatically. Also ca
 | `librarianChatStats` | Per-chat | `CHAT_CHANGED` (index.js L1695) |
 
 Both track `{ searchCalls, flagCalls, estimatedExtraTokens }`.
+
+### Connection Mode Default and Migration
+
+**`librarianConnectionMode` now defaults to `'inherit'`** (was `'profile'`). The `inherit` mode falls back to `aiSearch` connection settings.
+
+**Migration v2→v3** (`settingsVersion` bumped from 2 to 3): Unconfigured profile connections are auto-migrated to `inherit`. This runs in `getSettings()` when `settingsVersion < 3`.
+
+**Onboarding validation**: When the Librarian is enabled in settings, validation checks the connection config and shows a toastr warning if function calling is not supported by the current provider/model.
+
+**Runtime warning**: `dedupWarning` fires in `onGenerate` when `librarianEnabled && !isToolCallingSupported()`. This catches cases where the user enables the Librarian but their active connection doesn't support tool calling.
+
+---
 
 ### Activity feed: `buildLibrarianActivityFeed()`
 

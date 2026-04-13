@@ -14,6 +14,8 @@ The generation pipeline is DLE's core — most regressions originate here. This 
 
 **The entire function is guarded by `generationLock`** — only one pipeline can run at a time.
 
+**Pipeline status element:** `_updatePipelineStatus` prepends to `#form_sheld` (not `#chat`). `_removePipelineStatus` uses a slide-down animation (`dle-toast-out` class + `animationend` listener). Pipeline phases: `"Choosing Lore…"` → `"Consulting vault…"` (new `consulting` phase, triggered when onStatus text includes "Consulting") → `"Generating…"`.
+
 ---
 
 ## Phase 1: Early Guards (L188-205)
@@ -21,11 +23,13 @@ The generation pipeline is DLE's core — most regressions originate here. This 
 ```
 onGenerate(chatMessages)
   → Skip if type === 'quiet' or !settings.enabled
+  → Skip if skipNextPipeline (consume and clear flag, early return)
   → Skip if last message has tool_invocations or is_system (tool-call continuation from other extensions)
 ```
 
 1. **Quiet generations** (type `'quiet'`): Background API calls (e.g., summarization). No lore injection.
-2. **Tool-call continuations** (L215-222): When the last message has `extra.tool_invocations` or `is_system`, ST is re-calling Generate after a tool invocation from another extension using ST's ToolManager. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics. Records `{ skipped: true, reason: 'tool_call_continuation' }` in the flight recorder. DLE's own Librarian uses the agentic loop (not ToolManager), so DLE tool calls never trigger this guard.
+2. **`skipNextPipeline` bypass**: One-shot flag checked after the quiet check and before the tool-call continuation check. When true, the entire DLE pipeline is skipped (early return). The flag is consumed immediately (reset to `false`). Used by `/dle-review` to prevent the DLE pipeline from running on vault review generations — the review needs a clean generation with no lore injection.
+3. **Tool-call continuations** (L215-222): When the last message has `extra.tool_invocations` or `is_system`, ST is re-calling Generate after a tool invocation from another extension using ST's ToolManager. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics. Records `{ skipped: true, reason: 'tool_call_continuation' }` in the flight recorder. DLE's own Librarian uses the agentic loop (not ToolManager), so DLE tool calls never trigger this guard.
 
 ---
 
@@ -62,6 +66,12 @@ const lockEpoch = generationLockEpoch;
 These are checked after every `await` and before every state mutation.
 
 **AbortController** (L298-301): `pipelineAbort.signal` is passed to `runPipeline` and AI calls. The Stop button triggers `GENERATION_STOPPED` which aborts the controller.
+
+---
+
+## Phase 3b: Diagnostic Breadcrumb (after epoch capture)
+
+When `debugMode` is enabled, a diagnostic breadcrumb is logged at pipeline entry after `ensureIndexFresh` completes. Includes `chatMessageCount`, `vaultSnapshotSize`, and `generationNumber`. This is purely diagnostic — no state mutation.
 
 ---
 
@@ -209,7 +219,10 @@ After pipeline commit and `_updatePipelineStatus('Generating...')`, DLE fires `n
   → notifyInjectionSourcesReady()          // Drawer renders Why? tab early
   → Guard: type !== 'continue' && type !== 'append' && type !== 'appendFinal'
     → If any of those: fall through to ST's generation
-  → If librarianEnabled && isToolCallingSupported():
+  → If suppressNextAgenticLoop:
+    → Reset flag to false (consumed)
+    → Fall through to ST's normal generation
+  → Else if librarianEnabled && isToolCallingSupported():
     → abort()                              // Prevent ST from generating
     → setSendButtonState(true)             // C1: Re-entrancy guard (abort re-enables send)
     → deactivateSendButtons()
@@ -228,7 +241,12 @@ After pipeline commit and `_updatePipelineStatus('Generating...')`, DLE fires `n
       → emit GENERATION_ENDED
     → return (don't fall through to ST's generation)
   → Else: fall through to ST's normal generation
+  → Runtime warning: if librarianEnabled && !isToolCallingSupported(), dedupWarning fires
 ```
+
+**`suppressNextAgenticLoop`**: One-shot flag exposed via the skip-tools toggle button in the drawer status zone. When true, the Librarian agentic loop is skipped for that generation (lore is still injected via `setExtensionPrompt`, but the generation falls through to ST's normal path instead of DLE's agentic loop). The flag is reset in the `if (suppressNextAgenticLoop)` branch, BEFORE the `else if` agentic dispatch — see gotchas.md for why this placement matters.
+
+**Runtime warning**: After the agentic dispatch block, a `dedupWarning` fires when `librarianEnabled && !isToolCallingSupported()`. This warns the user that the Librarian requires function calling support, which the current provider/model does not offer.
 
 The agentic loop runs the state machine (SEARCH -> FLAG -> DONE), calling `searchLoreAction` and `flagLoreAction` directly. `onProse` is async and awaited — it calls `saveReply({ type })` + `saveChatConditional()` so the message is fully created, events processed, and saved to disk before the FLAG phase begins. `type` from `onGenerate` is forwarded to `saveReply` for correct swipe/regen behavior. Tool activity is stored directly on `message.extra.deeplore_tool_calls`.
 
@@ -301,6 +319,8 @@ finally {
 10. `notifyInjectionSourcesReady()` fires before the agentic loop dispatch, allowing the drawer to render the Why? tab early.
 11. `onProse` in the agentic loop is async and must be awaited — it runs `saveReply` + `saveChatConditional`.
 12. `type` from `onGenerate` is forwarded to `saveReply` for correct swipe/regen behavior. Continue/append/appendFinal types fall through to ST.
+13. `skipNextPipeline` is consumed before the tool-call continuation check — it provides a clean early exit for `/dle-review` without touching any pipeline state.
+14. `suppressNextAgenticLoop` is consumed in its own `if` branch before `else if` agentic dispatch — the reset MUST happen there, not in `finally`, to ensure it's consumed even when the agentic loop doesn't fire.
 
 ---
 
@@ -327,7 +347,8 @@ onGenerate(chatMessages, contextSize, abort, type)             [index.js L188]
   ├─ clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, ...)   [core/pipeline.js]
   ├─ setExtensionPrompt(tag, text, pos, depth, wiScan, role)   [ST API]
   ├─ notifyInjectionSourcesReady()                              [state.js — drawer Why? tab]
-  ├─ (Agentic Loop Dispatch — if librarianEnabled && isToolCallingSupported && not continue/append):
+  ├─ (suppressNextAgenticLoop check — if true, consume flag, fall through to ST)
+  ├─ (Agentic Loop Dispatch — else if librarianEnabled && isToolCallingSupported && not continue/append):
   │   ├─ abort()                                               [prevent ST generation]
   │   ├─ buildChatMessages(chatMessages, pipelineCtx, injTitles) [agentic-messages.js]
   │   ├─ runAgenticLoop(messages, signal, epoch, lockEpoch, onProse) [agentic-loop.js]
@@ -338,6 +359,7 @@ onGenerate(chatMessages, contextSize, abort, type)             [index.js L188]
   │   ├─ saveReply({ type, getMessage })                       [ST API — message lifecycle]
   │   ├─ saveChatConditional()                                 [ST API — disk save]
   │   └─ return (skip ST generation)
+  ├─ (Runtime warning: dedupWarning if librarianEnabled && !isToolCallingSupported)
   ├─ trackGeneration(entries, genCount, trackers, settings)     [src/stages.js]
   ├─ recordAnalytics(matched, injected, analyticsData)         [src/stages.js]
   └─ finally:

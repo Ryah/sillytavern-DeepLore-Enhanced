@@ -84,6 +84,12 @@ No getter functions exist — other modules `import { vaultIndex } from './state
 | `librarianSessionStats` | `{searchCalls, flagCalls, estimatedExtraTokens}` | **Session** (NOT reset) | librarian-tools.js | drawer footer |
 | `librarianChatStats` | `{searchCalls, flagCalls, estimatedExtraTokens}` | Chat (→zeroed) | librarian-tools.js, CHAT_CHANGED | drawer |
 
+### Pipeline Control Flags
+| Variable | Type | Reset scope | Writers | Readers |
+|---|---|---|---|---|
+| `skipNextPipeline` | `boolean` | Consumed on use (→false) | commands-ai.js (`/dle-review`) | onGenerate (early return before tool-call check) |
+| `suppressNextAgenticLoop` | `boolean` | Consumed on use (→false) | drawer-events.js (skip-tools toggle button) | onGenerate (agentic dispatch branch) |
+
 ### UI State
 | Variable | Type | Reset scope | Writers | Readers |
 |---|---|---|---|---|

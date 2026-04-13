@@ -10,7 +10,7 @@ import { callProxyViaCorsBridge } from './proxy-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
     trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
-    entityRegexVersion,
+    entityRegexVersion, generationCount,
     notifyAiStatsUpdated,
     isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe,
     fieldDefinitions,
@@ -555,6 +555,20 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             .map(r => ({ entry: titleMap.get(r.title.toLowerCase()), confidence: r.confidence, reason: r.reason }))
             .filter(r => r.entry);
     };
+
+    // Diagnostic breadcrumb: log AI search state for first-gen investigation
+    if (settings.debugMode) {
+        console.debug('[DLE] AI search entry:', {
+            manifestEntries: candidateEntries?.length ?? 0,
+            chatContextLen: chatContext.length,
+            chatForCacheLen: chatForCache.length,
+            isNewChat,
+            cacheHash: aiSearchCache.hash ? 'set' : 'empty',
+            cacheManifestHash: aiSearchCache.manifestHash ? 'set' : 'empty',
+            cacheChatLineCount: aiSearchCache.chatLineCount,
+            generationCount,
+        });
+    }
 
     if (aiSearchCache.hash === chatHash && aiSearchCache.manifestHash === manifestHash && aiSearchCache.chatLineCount > 0) {
         // Exact match — nothing changed at all (includes cached empty results)

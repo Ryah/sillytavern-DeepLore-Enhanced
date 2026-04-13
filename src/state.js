@@ -274,6 +274,17 @@ export function setFieldDefinitionsLoaded(v) { fieldDefinitionsLoaded = v; }
 export let mentionWeights = new Map();
 export function setMentionWeights(v) { mentionWeights = v; }
 
+// ── One-shot pipeline control flags ──
+// Consumed and cleared on use — no async race risk.
+
+/** Skip the entire DLE pipeline for the next generation (e.g. vault review). */
+export let skipNextPipeline = false;
+export function setSkipNextPipeline(v) { skipNextPipeline = v; }
+
+/** Suppress Librarian agentic loop for the next generation (one-shot toggle). */
+export let suppressNextAgenticLoop = false;
+export function setSuppressNextAgenticLoop(v) { suppressNextAgenticLoop = v; }
+
 // ── AI service circuit breaker ──
 // Prevents repeated full-timeout waits when AI services are down.
 // Mirrors the per-vault Obsidian circuit breaker pattern.

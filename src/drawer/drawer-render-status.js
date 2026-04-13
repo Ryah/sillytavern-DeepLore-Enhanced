@@ -10,6 +10,7 @@ import {
     generationLock, indexing, indexEverLoaded, computeOverallStatus,
     vaultAvgTokens, claudeAutoEffortBad, claudeAutoEffortDetail,
     pipelinePhase,
+    suppressNextAgenticLoop,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
 import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS } from './drawer-state.js';
@@ -54,10 +55,13 @@ export function renderStatusZone() {
     $dot.html(activitySvg);
     $dot.toggleClass('dle-status-active', isActive);
 
-    // Activity label (phase-driven: Indexing → Choosing Lore → Generating/Writing → Idle)
-    const PHASE_LABELS = { choosing: 'Choosing Lore...', generating: 'Generating...', writing: 'Writing...', searching: 'Searching...', flagging: 'Flagging...' };
+    // Activity label (phase-driven: Indexing → Choosing Lore → Consulting Vault → Generating/Writing → Idle)
+    const PHASE_LABELS = { choosing: 'Choosing Lore...', consulting: 'Consulting Vault...', generating: 'Generating...', writing: 'Writing...', searching: 'Searching...', flagging: 'Flagging...' };
     const pipelineText = indexing ? 'Indexing...' : PHASE_LABELS[pipelinePhase] || (ds.stGenerating ? 'Generating...' : 'Idle');
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
+
+    // Sync skip-tools toggle button visual state
+    $drawer.find('.dle-action-btn[data-action="skip-tools"]').toggleClass('dle-toggle-active', suppressNextAgenticLoop);
 
     // First-run setup banner (shown when no vaults configured and setup not dismissed)
     const $setupBanner = $drawer.find('.dle-setup-banner');

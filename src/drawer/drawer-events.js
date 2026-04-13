@@ -14,6 +14,8 @@ import {
     notifyGatingChanged, notifyPinBlockChanged,
     fieldDefinitions, folderList,
     loreGaps, setLoreGaps,
+    setAiSearchCache, setLastInjectionSources,
+    suppressNextAgenticLoop, setSuppressNextAgenticLoop,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { normalizePinBlock } from '../helpers.js';
@@ -196,6 +198,18 @@ export function wireStatusActions($drawer) {
             case 'newlore': executeCommand('/dle-newlore'); break;
             case 'librarian-chat': executeCommand('/dle-librarian'); break;
             case 'graph': executeCommand('/dle-graph'); break;
+            case 'clear-picks':
+                setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
+                setLastInjectionSources(null);
+                toastr.info('Search cache cleared — next generation will re-select lore.', 'DeepLore');
+                break;
+            case 'skip-tools': {
+                const newVal = !suppressNextAgenticLoop;
+                setSuppressNextAgenticLoop(newVal);
+                $(this).toggleClass('dle-toggle-active', newVal);
+                toastr.info(newVal ? 'Librarian tools will be skipped for the next generation.' : 'Librarian tools re-enabled.', 'DeepLore');
+                break;
+            }
         }
     });
 

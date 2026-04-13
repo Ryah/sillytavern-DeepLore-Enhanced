@@ -249,7 +249,7 @@ Populates `entry.resolvedLinks[]` by matching `entry.links[]` (wiki-link targets
 
 Strips `requires[]`, `excludes[]`, and `cascadeLinks[]` references that don't match any entry title in the current index. Originals preserved on `_originalRequires`, `_originalExcludes`, `_originalCascadeLinks` so the health check can still surface broken references.
 
-**Gotcha:** The `_original*` fields are included in the IndexedDB cache save (cache.js L104, explicit `_original*` allowlist in the private-field filter). This means cached entries retain the broken-ref information across reloads.
+**Gotcha:** The `_original*` fields are included in the IndexedDB cache save (cache.js L110, explicit `_original*` allowlist in the private-field filter). This means cached entries retain the broken-ref information across reloads.
 
 ### `computeDerivedIndexFields(entries, settings)` (vault.js L61-129)
 
@@ -351,7 +351,7 @@ Module-level: `null` (no save attempted), `true` (last save succeeded), `false` 
 
 Clears ALL keys in the `vaultCache` store (not just the current fingerprint). Called by manual cache clear in settings/danger zone.
 
-### IndexedDB blocked handling (cache.js L70-86)
+### IndexedDB blocked handling (cache.js L77-92)
 
 `openDB()` wraps `openDBOnce()` with a one-shot 250ms retry on `BLOCKED` error. Shows a deduped warning toast. Blocked state occurs when another SillyTavern tab has an older DB version open.
 
@@ -361,9 +361,9 @@ Clears ALL keys in the `vaultCache` store (not just the current fingerprint). Ca
 
 ### Source: `src/vault/bm25.js` (pure functions, no ST imports)
 
-### `buildBM25Index(entries)` (bm25.js L35-69)
+### `buildBM25Index(entries)` (bm25.js L35-78)
 
-Returns `{idf: Map<term, number>, docs: Map<docId, {tf, len, entry}>, avgDl: number}`.
+Returns `{idf: Map<term, number>, docs: Map<docId, {tf, len, entry}>, avgDl: number, invertedIndex: Map<term, Set<docId>>}`.
 
 **Document construction:** Each entry becomes one document = `"title keys.join(' ') content"`.
 
@@ -373,11 +373,11 @@ Returns `{idf: Map<term, number>, docs: Map<docId, {tf, len, entry}>, avgDl: num
 
 **IDF formula:** `log((N - df + 0.5) / (df + 0.5) + 1)`
 
-### `queryBM25(index, queryText, topK=20, minScore=0.5)` (bm25.js L79-111)
+### `queryBM25(index, queryText, topK=20, minScore=0.5)` (bm25.js L88-134)
 
 Returns `Array<{title, score, entry}>` sorted by score descending.
 
-**Scoring:** Standard BM25 with `k1=1.5`, `b=0.75`. Query tokens are deduplicated (BUG-042). H-12: Uses inverted posting list (`index.invertedIndex`) to score only docs containing at least one query term, instead of scanning all docs. Falls back to full scan for pre-H-12 indexes.
+**Scoring:** Standard BM25 with `k1=1.5`, `b=0.75`. Query tokens are deduplicated (BUG-042). H-12: Uses inverted posting list (`index.invertedIndex`) to score only docs containing at least one query term, instead of scanning all docs. Falls back to full scan if `index.invertedIndex` is undefined (indexes built before this version).
 
 **Returns `entry.title`** in results, not the map key (BUG-013).
 
@@ -428,7 +428,7 @@ Done inside `finalizeIndex()`, not in sync.js directly:
 
 ### Snapshot patching for failed vaults (BUG-368)
 
-In `buildIndexWithReuse()` (vault.js L792-818): After `finalizeIndex()` replaces `previousIndexSnapshot`, entries from vaults that failed during this sync cycle have their snapshot entries restored from the pre-sync snapshot. This prevents masking edits made while a vault was unreachable.
+In `buildIndexWithReuse()` (vault.js L837-863): After `finalizeIndex()` replaces `previousIndexSnapshot`, entries from vaults that failed during this sync cycle have their snapshot entries restored from the pre-sync snapshot. This prevents masking edits made while a vault was unreachable.
 
 ---
 
@@ -489,9 +489,9 @@ Writes entries to the primary vault one at a time.
 
 6. **BUG-366/367 carry-forward guards** in both `buildIndex()` and `buildIndexWithReuse()`: if a vault returns partial results or zero files but previously had entries, the prior entries for that vault are carried forward instead of being silently dropped.
 
-7. **`ensureIndexFresh()` respects three rebuild trigger modes** (vault.js L840-888): `ttl` (default, time-based), `generation` (every N generations), `manual` (only if index empty). The `generation` mode uses `generationCount` / `lastIndexGenerationCount` from state.js.
+7. **`ensureIndexFresh()` respects three rebuild trigger modes** (vault.js L885-933): `ttl` (default, time-based), `generation` (every N generations), `manual` (only if index empty). The `generation` mode uses `generationCount` / `lastIndexGenerationCount` from state.js.
 
-8. **The `finally` block asymmetry**: `buildIndex()` only clears indexing/buildPromise if epoch matches (vault.js L486). `buildIndexWithReuse()` always clears them in `finally` (vault.js L829-831). This is intentional -- `buildIndex` is the only path that can be zombie-killed by force-release, and a force-release immediately starts a new build that must own the lock.
+8. **The `finally` block asymmetry**: `buildIndex()` only clears indexing/buildPromise if epoch matches (vault.js L509). `buildIndexWithReuse()` always clears them in `finally` (vault.js L873-876). This is intentional -- `buildIndex` is the only path that can be zombie-killed by force-release, and a force-release immediately starts a new build that must own the lock.
 
 9. **`notifyIndexUpdated()`** fires registered callbacks (from settings-ui.js) without the vault module importing from the UI layer. This is the pub-sub bridge between data and presentation.
 

@@ -123,11 +123,20 @@ try {
 
 | Mode | Flow |
 |---|---|
-| `keywords-only` | `matchEntries(chat)` → keyword + BM25 matches |
-| `two-stage` | `matchEntries(chat)` → wiki-link expansion → optional `hierarchicalPreFilter()` → `buildCandidateManifest()` → `aiSearch(chat, manifest)` |
-| `ai-only` | Full vault → optional `hierarchicalPreFilter()` → `buildCandidateManifest()` → `aiSearch()` |
+| `keywords-only` | `matchEntries(chat)` → keyword + BM25 matches → `applyFolderFilter()` |
+| `two-stage` | `matchEntries(chat)` → wiki-link expansion → optional `hierarchicalPreFilter()` → `applyContextualGating()` → `applyFolderFilter()` → `buildCandidateManifest()` → `aiSearch(chat, manifest)` |
+| `ai-only` | Full vault → optional `hierarchicalPreFilter()` → `applyContextualGating()` → `applyFolderFilter()` → `buildCandidateManifest()` → `aiSearch()` |
 
-All modes apply folder filtering if `folderFilter` is set. See `stages-and-gating.md` for stage details.
+**Note:** `applyContextualGating()` and `applyFolderFilter()` run _inside_ `runPipeline()` as pre-filters (so the AI only sees candidates that can actually be injected), and again post-pipeline in Phase 7 (Stage 2 / Stage 2b) as the authoritative gate on final entries. See `stages-and-gating.md` for stage details.
+
+### Hierarchical Pre-Filter Toggle
+
+Controlled by `settings.hierarchicalPreFilter` (default: `false`, `settings.js` L196). When enabled and candidate count exceeds `HIERARCHICAL_THRESHOLD = 40` (`ai.js` L311), a lightweight AI call clusters candidates by category and asks which categories are relevant, returning a reduced candidate set before the main AI search.
+
+- **Returns:** `null` (skip, use all candidates) or a filtered array (may be empty — empty is a valid result meaning no categories matched)
+- **BUG-396 rescue:** Entries whose primary keywords are explicitly mentioned in the chat are re-added after filtering, preventing the pre-filter from silently dropping highly-relevant entries
+- **Circuit breaker:** Uses `tryAcquireHalfOpenProbe()` / `releaseHalfOpenProbe()` — its probe slot is independent of the main `aiSearch()` call
+- **Source:** `src/ai/ai.js` L321-450
 
 ---
 

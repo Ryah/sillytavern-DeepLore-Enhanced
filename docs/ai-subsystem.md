@@ -2,18 +2,18 @@
 
 Code-level reference for the DLE AI subsystem. For pipeline flow see `CLAUDE.md`; for generation ordering see `docs/generation-pipeline.md`.
 
-Source files: `src/ai/ai.js`, `src/ai/manifest.js`, `src/ai/proxy-api.js`, `src/ai/claude-adaptive-check.js`, `src/ai/models.js`, `settings.js` (L280-332), `src/state.js` (L246-350), `src/helpers.js` (L60-210), `src/librarian/agentic-api.js` (agentic loop API layer).
+Source files: `src/ai/ai.js`, `src/ai/manifest.js`, `src/ai/proxy-api.js`, `src/ai/claude-adaptive-check.js`, `src/ai/models.js`, `settings.js` (L300-349), `src/state.js` (L246-350), `src/helpers.js` (L60-210), `src/librarian/agentic-api.js` (agentic loop API layer).
 
 ---
 
 ## 1. Connection Routing
 
-### `resolveConnectionConfig(toolKey)` -- settings.js L301
+### `resolveConnectionConfig(toolKey)` -- settings.js L318
 
 Central dispatch that resolves any feature's AI connection settings into a uniform config object. Eliminates per-caller if/else routing.
 
 ```js
-// settings.js L283-290
+// settings.js L300-307
 const TOOL_SETTINGS_KEYS = {
     aiSearch:     { mode, profileId, proxyUrl, model, maxTokens, timeout },
     scribe:       { ... },
@@ -27,12 +27,12 @@ const TOOL_SETTINGS_KEYS = {
 resolveConnectionConfig(toolKey) -> config
 ```
 
-**Inherit fallback** (L312-322): When a tool's mode is `'inherit'` and `toolKey !== 'aiSearch'`, mode and profileId resolve from AI Search's settings. Model and proxyUrl cascade: tool's own value if set, else AI Search's. `maxTokens` and `timeout` always come from the tool's own settings (never inherited).
+**Inherit fallback** (L329-348): When a tool's mode is `'inherit'` and `toolKey !== 'aiSearch'`, mode and profileId resolve from AI Search's settings. Model and proxyUrl cascade: tool's own value if set, else AI Search's. `maxTokens` and `timeout` always come from the tool's own settings (never inherited).
 
 **Gotchas:**
 - AI Search itself cannot inherit (it IS the root). If `aiSearchConnectionMode === 'inherit'`, that value flows through unchanged -- callers treat it as the literal mode string.
 - `librarianConnectionMode` must NOT share with retrieval (per user feedback). Don't collapse them. The `librarian` connection config is used by the agentic loop (in proxy mode) and by Emma's chat session (the review popup).
-- When `mode === 'inherit'` resolves to `'proxy'`, the proxyUrl falls back to `toolProxyUrl || aiSearch.proxyUrl` -- but when mode is NOT inherit, proxyUrl falls back to `toolProxyUrl || defaultSettings[keys.proxyUrl]` (L327). These are different fallback chains.
+- When `mode === 'inherit'` resolves to `'proxy'`, the proxyUrl falls back to `toolProxyUrl || aiSearch.proxyUrl` -- but when mode is NOT inherit, proxyUrl falls back to `toolProxyUrl || defaultSettings[keys.proxyUrl]` (L344). These are different fallback chains.
 
 ### Agentic Loop Connection -- agentic-api.js
 
@@ -164,13 +164,13 @@ Bigram Dice coefficient similarity. Returns `{title, similarity}` for best match
 
 ## 3. Hierarchical Pre-Filter
 
-### `hierarchicalPreFilter(candidates, chat, signal)` -- ai.js L300
+### `hierarchicalPreFilter(candidates, chat, signal)` -- ai.js L321
 
 Two-phase AI search for large vaults. Called from the pipeline before `aiSearch()`.
 
 ```
-HIERARCHICAL_THRESHOLD = 40  // ai.js L290
-AI_PREFILTER_MAX_TOKENS = 512  // ai.js L29
+HIERARCHICAL_THRESHOLD = 40  // ai.js L311
+AI_PREFILTER_MAX_TOKENS = 512  // ai.js L30
 ```
 
 **Trigger conditions** (L303-313):
@@ -337,6 +337,19 @@ Clears probe flag and timestamp without recording success or failure. Used by `h
 
 Only unclassified errors (typically 5xx, network failures, or persistent format drift) call `recordAiFailure()`.
 
+### All Circuit Breaker Callers
+
+All three AI-calling functions use the same circuit breaker probe pattern:
+
+| Function | File | Modes | Notes |
+|---|---|---|---|
+| `aiSearch()` | `src/ai/ai.js` L497-500 | profile, proxy, st | Main caller; `recordAiSuccess/Failure()` |
+| `hierarchicalPreFilter()` | `src/ai/ai.js` L354-356 | profile, proxy | `releaseHalfOpenProbe()` only — never records success/failure |
+| `callAutoSuggest()` | `src/ai/auto-suggest.js` L45-46, L85 | st, profile, proxy | `recordAiSuccess/Failure()` |
+| `callScribe()` (internal) | `src/ai/scribe.js` L51-52, L65, L94-99 | st, profile | `recordAiSuccess/Failure()` |
+
+When adding a new AI caller, it must follow this pattern. When touching the circuit breaker, update this table.
+
 ### Error Classification -- core/utils.js `classifyError()`
 
 `classifyError()` categorizes API errors for circuit breaker decisions and user-facing messages. In addition to the original types, 6 new error types have been added:
@@ -472,3 +485,18 @@ Hits `{base}/v1/models` (OpenAI-compatible). Used to populate model dropdowns in
 - `'cors'`: CORS bridge only.
 
 `clearModelsCache(baseUrl)` (L127): Sweeps all fingerprint variants for a base URL, or all DLE model cache entries if no baseUrl given.
+
+---
+
+## 8. Auto-Suggest Connection Routing
+
+### `callAutoSuggest(systemPrompt, userMessage, toolKey)` -- auto-suggest.js L39
+
+Routes auto-suggest AI calls through the same connection-mode system as `callScribe`. Three modes:
+
+- **`st` mode**: Uses `generateQuietPrompt({ quietPrompt, skipWIAN, responseLength })`. Wraps a `Promise.race()` to handle GENERATION_STOPPED early-exit (BUG-244) and a configurable timeout. `recordAiSuccess/Failure()` integrations included; timeouts and user aborts do NOT trip the breaker.
+- **`profile` / `proxy` mode**: Delegates to `callAI()` with `{ ...resolved, caller: 'autoSuggest' }`. Circuit breaker probe acquired via `tryAcquireHalfOpenProbe()`.
+
+Default `toolKey = 'autoSuggest'` — callers can override to route through a different connection config (useful for testing).
+
+**Circuit breaker:** All three modes call `isAiCircuitOpen()` + `tryAcquireHalfOpenProbe()`. `recordAiSuccess()` on success; `recordAiFailure()` on error (skipped for throttled/abort/timeout).

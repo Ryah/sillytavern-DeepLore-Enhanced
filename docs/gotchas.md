@@ -304,13 +304,13 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 ---
 
-## 28. `CHARACTER_MESSAGE_RENDERED` Modifies `message.mes` During `saveReply`
+## 28. `CHARACTER_MESSAGE_RENDERED` Cleans `message.mes` Asynchronously After `saveReply`
 
-**Rule:** The `CHARACTER_MESSAGE_RENDERED` handler extracts AI notes from `message.mes` (cleaning the displayed text). This means `swipes[0]` captures the cleaned text, not the raw AI output. This is intentional — the raw text with notes is not what users see.
+**Rule:** Do NOT assume `message.mes` is clean immediately after `await saveReply(...)`. Cleaning happens in the CHARACTER_MESSAGE_RENDERED event handler (`index.js` L1372-1380), which fires asynchronously after saveReply resolves. Code that runs directly after `await saveReply(...)` may still see raw text with `<dle-notes>` tags.
 
-**Why:** `saveReply` emits `CHARACTER_MESSAGE_RENDERED` as part of its event chain. DLE's handler strips `<dle-notes>` tags from the message during this emission. If you read `message.mes` after `saveReply`, it will already be cleaned.
+**Why:** `saveReply` creates the message and emits `CHARACTER_MESSAGE_RENDERED`. However, ST's event dispatch resolves asynchronously — DLE's handler (which sets `message.mes = cleanedMessage`) runs after the current continuation. Swipes are written from the raw text by saveReply itself; the handler updates only `message.mes` and the DOM, not swipe slots. The raw text with notes is therefore preserved in swipes and only the in-memory `message.mes` / DOM are cleaned.
 
-**Where:** `index.js` `CHARACTER_MESSAGE_RENDERED` handler, agentic loop dispatch.
+**Where:** `index.js` `CHARACTER_MESSAGE_RENDERED` handler (`L1342-1387`), agentic loop dispatch (Phase 8b).
 
 ---
 
@@ -363,3 +363,23 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Why:** The flag is a one-shot consumed-on-use control. If reset in `finally`, it would be consumed regardless of whether the `if` branch ran. But more critically, if the flag is NOT reset in the `if` branch and is instead reset only in `finally`, there's a subtle ordering issue: the `else if` agentic dispatch block has its own `finally` (with `setSendButtonState(false)` + `activateSendButtons`). If the flag were reset after the agentic dispatch's `finally`, it would work — but placing it in onGenerate's outer `finally` means it runs AFTER the agentic loop's inner `finally`, which is correct timing but wrong semantics. The flag must be consumed at the decision point where it gates the behavior, not deferred.
 
 **Where:** `index.js` agentic dispatch section (Phase 8b). `src/state.js` (`suppressNextAgenticLoop` + setter).
+
+---
+
+## 34. `hierarchicalPreFilter` Uses an Independent Circuit Breaker Probe
+
+**Rule:** When touching the circuit breaker or adding new AI callers, be aware that `hierarchicalPreFilter` acquires and releases its own `tryAcquireHalfOpenProbe()` / `releaseHalfOpenProbe()` slot independently from `aiSearch()`.
+
+**Why:** `hierarchicalPreFilter` is optional and its success/failure should not affect the breaker state. It uses `releaseHalfOpenProbe()` on both success AND failure — it never calls `recordAiSuccess()` or `recordAiFailure()`. This means a hierarchical pre-filter failure doesn't trip the circuit, and a success doesn't clear it. Its probe slot is separate from the main `aiSearch()` call — both can be in-flight in the same pipeline pass (see `ai.js` L354-356 and L497-500 for the two separate `tryAcquireHalfOpenProbe()` calls).
+
+**Where:** `src/ai/ai.js` `hierarchicalPreFilter()` (L354-469) and `aiSearch()` (L497-500).
+
+---
+
+## 35. `librarianPerMessageActivity` Changes Gap and Dropdown Lifecycle
+
+**Rule:** Any code that reads `message.extra.deeplore_tool_calls` must account for whether `librarianPerMessageActivity` is ON or OFF. Its presence is NOT guaranteed.
+
+**Why:** When OFF (default), `deeplore_tool_calls` is deleted from `message.extra` on every swipe (`index.js` L1432-1436). Librarian dropdowns are always ephemeral. Gaps accumulate across messages. When ON, tool calls and gap records persist per-message across swipes, and gaps are cleared at generation start instead. This setting changes the entire gap and dropdown lifecycle.
+
+**Where:** `index.js` MESSAGE_SWIPED handler (L1432-1436), `onGenerate` gap clearing (L264-266). `src/state.js` (`librarianPerMessageActivity` read via `getSettings()`).

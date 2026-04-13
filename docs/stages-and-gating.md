@@ -1,6 +1,6 @@
 # Stages and Gating Deep Dive
 
-All stage functions live in `src/stages.js`. They are called sequentially in `index.js` after `runPipeline()` returns. Each takes explicit inputs and returns outputs — no implicit global state reads.
+Core stage functions live in `src/stages.js`. **Stages 1–5 and the Tracking Functions run in `index.js` after `runPipeline()` returns.** Folder filtering (`applyFolderFilter`) and the hierarchical pre-filter (`hierarchicalPreFilter`) are exceptions — they run _inside_ `runPipeline()` (`src/pipeline/pipeline.js`) as pre-filters before candidate manifest building, and then folder filter runs again post-pipeline (Stage 2b) as the authoritative gate. Each function takes explicit inputs and returns outputs — no implicit global state reads.
 
 ---
 
@@ -19,7 +19,7 @@ buildExemptionPolicy(vaultSnapshot, pins, blocks)
 - Requires/excludes gating (Stage 4)
 - Strip dedup (Stage 5)
 
-**Only budget limits (Stage 6) can exclude a forceInject entry.**
+**Pinned entries receive `priority=10` to give them the best chance of surviving budget truncation (Stage 6), but `formatAndGroup` is not exemption-aware — it applies budget limits equally to all entries.**
 
 Entries added to `forceInject`:
 - All `constant` entries (lorebook-always)
@@ -107,7 +107,22 @@ applyFolderFilter(entries, selectedFolders, policy, debugMode)
 - ForceInject entries exempt (L211)
 - No-op if `selectedFolders` is null/empty (L207)
 
-**Note:** This stage is called inside `runPipeline()` (not in index.js's post-pipeline sequence), but is documented here because it shares the exemption policy pattern.
+**Note:** `applyFolderFilter` runs at three points inside `runPipeline()` (one per search mode — ai-only: `pipeline.js` L102, two-stage: L233, keywords-only: L309) as a pre-filter before candidate manifest building. It also runs post-pipeline in `index.js` as Stage 2b (the authoritative gate). It is documented here because it shares the exemption policy pattern.
+
+---
+
+## Hierarchical Pre-Filter (Pre-pipeline, inside `runPipeline()`)
+
+**Source:** `src/ai/ai.js` L321-450
+
+**Controlled by:** `settings.hierarchicalPreFilter` (default: `false`, `settings.js` L196)
+
+Not a post-pipeline stage — runs inside `runPipeline()` _before_ `applyContextualGating()` and `buildCandidateManifest()`. When enabled and candidate count exceeds `HIERARCHICAL_THRESHOLD = 40` (`ai.js` L311), it makes a lightweight AI call to cluster candidates by category and ask which categories are relevant to the current chat, returning a reduced set.
+
+- **Returns:** `null` (skip — too few candidates or threshold not met) or a filtered array. An empty array is a valid return (AI selected zero relevant categories).
+- **BUG-396 rescue:** After filtering, entries whose primary keywords are explicitly mentioned in the chat are re-added, preventing high-relevance entries from being silently dropped.
+- **Circuit breaker:** Uses `tryAcquireHalfOpenProbe()` / `releaseHalfOpenProbe()` — its probe slot is independent from the main `aiSearch()` circuit breaker probe.
+- **Not exemption-aware:** ForceInject entries are not exempt from hierarchical pre-filtering (it runs before the exemption policy is computed for this phase).
 
 ---
 
@@ -193,6 +208,8 @@ formatAndGroup(entries, settings, promptTagPrefix)
 ---
 
 ## Tracking Functions (Post-Commit)
+
+**Note on numbering:** `stages.js` internally labels `trackGeneration` / `decrementTrackers` / `recordAnalytics` as "Stage 6: Tracking" in its comments (`stages.js` L398). This doc uses Stage 6 for `formatAndGroup` (which lives in `core/matching.js`, not `stages.js`) and labels the tracking functions as Stage 7/8 to reflect their call order in `index.js`. The two numbering schemes are both valid — they describe different slices of the pipeline.
 
 ### trackGeneration (Stage 7)
 

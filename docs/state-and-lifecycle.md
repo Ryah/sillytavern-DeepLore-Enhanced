@@ -93,6 +93,7 @@ No getter functions exist — other modules `import { vaultIndex } from './state
 ### UI State
 | Variable | Type | Reset scope | Writers | Readers |
 |---|---|---|---|---|
+| `pipelinePhase` | `'idle'\|'choosing'\|'generating'\|'writing'\|'searching'\|'flagging'` | Session | `setPipelinePhase()` (L217) | drawer status display |
 | `autoSuggestMessageCount` | `number` | Chat (→0) | CHARACTER_MESSAGE_RENDERED, CHAT_CHANGED | auto-suggest trigger |
 | `notepadExtractInProgress` | `boolean` | Chat (→false) | GENERATION_ENDED, CHAT_CHANGED | extract lock |
 | `lastHealthResult` | `{errors, warnings}\|null` | Session | /dle-health command | settings badge |
@@ -130,6 +131,7 @@ Each observable is a `Set<() => void>`. Registration returns an unsubscribe func
 | Indexing state | `onIndexingChanged` | `notifyIndexingChanged` | setIndexing | drawer status |
 | Lore gaps | `onLoreGapsChanged` | `notifyLoreGapsChanged` | setLoreGaps | drawer librarian tab |
 | Claude auto-effort | `onClaudeAutoEffortChanged` | (inline in setter) | setClaudeAutoEffortState | drawer chip, settings banner |
+| Pipeline phase | `onPipelinePhaseChanged` | `notifyPipelinePhase` (via `setPipelinePhase`) | `setPipelinePhase()` | drawer status display |
 
 **Side effects in notify functions:**
 - `notifyGatingChanged()` also resets `aiSearchCache` (gating changes invalidate cached AI results)

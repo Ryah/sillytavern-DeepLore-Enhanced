@@ -42,7 +42,7 @@ CHARACTER_MESSAGE_RENDERED
 
 ## 2. AI Notebook
 
-**Source:** `index.js` L1112-1187 (GENERATION_ENDED handler), L1324-1345 (CHARACTER_MESSAGE_RENDERED fallback)
+**Source:** `index.js` L1236-1335 (GENERATION_ENDED handler), L1365-1387 (CHARACTER_MESSAGE_RENDERED fallback)
 
 Two modes: `tag` and `extract`.
 
@@ -74,7 +74,7 @@ DLE strips visible note-taking prose, then fires an async API call to extract se
     → setNotepadExtractInProgress(true)
     → callAI(extractPrompt, context, resolveConnectionConfig('aiNotepad'))
     → POST-AWAIT: check extractEpoch === chatEpoch
-    → POST-AWAIT: check message.swipe_id === swipeIdAtStart (BUG-AUDIT-CNEW01)
+    → POST-AWAIT: check message.swipe_id === swipeIdAtStart (BUG-AUDIT-CNEW01 — prevents writing notes to wrong message if user swiped during async extraction)
     → If response !== 'NOTHING_TO_NOTE':
         → message.extra.deeplore_ai_notes = response
         → chat_metadata.deeplore_ai_notepad = capNotepad(existing + response)
@@ -82,7 +82,7 @@ DLE strips visible note-taking prose, then fires an async API call to extract se
 ```
 
 ### Fallback (CHARACTER_MESSAGE_RENDERED)
-Tag-mode extraction also runs here (L1324-1345) to catch notes missed by GENERATION_ENDED (e.g., swipe back to a response that has unextracted `<dle-notes>`).
+Tag-mode extraction also runs here (L1365-1387) to catch notes missed by GENERATION_ENDED (e.g., swipe back to a response that has unextracted `<dle-notes>`).
 
 ### Storage
 - **Per-message:** `message.extra.deeplore_ai_notes` — the extracted notes for this specific message
@@ -98,7 +98,7 @@ Same rollback pattern in `MESSAGE_DELETED`, `MESSAGE_SWIPE_DELETED`, and `MESSAG
 
 ## 3. Author's Notebook
 
-**Source:** `index.js` L629-639
+**Source:** `index.js` L627-637
 
 Simple user-written per-chat notes. Stored in `chat_metadata.deeplore_notebook`.
 
@@ -110,18 +110,21 @@ Injected as auxiliary prompt via `_injectAuxPrompt('deeplore_notebook', content,
 
 **Source:** `src/ai/auto-suggest.js`
 
-**Trigger:** Counter in `CHARACTER_MESSAGE_RENDERED` handler (L1359-1372). Increments `autoSuggestMessageCount` each render. When count reaches `settings.autoSuggestInterval`, resets counter and fires `runAutoSuggest()`.
+**Trigger:** Counter in `CHARACTER_MESSAGE_RENDERED` handler (L1400-1413). Increments `autoSuggestMessageCount` each render. When count reaches `settings.autoSuggestInterval`, resets counter and fires `runAutoSuggest()`.
 
 **Flow:**
 ```
 → runAutoSuggest()
     → Build context from recent chat
-    → callAI(suggestPrompt, context, resolveConnectionConfig('autoSuggest'))  // caller: 'autoSuggest'
+    → callAutoSuggest(systemPrompt, userMessage, 'autoSuggest')
+       (3-mode routing: st / profile / proxy — see ai-subsystem.md §8)
     → Parse response into entry suggestions
     → Return suggestions array
 → showSuggestionPopup(suggestions)
     → Modal with suggested entries for user review
 ```
+
+**Connection routing:** Auto-suggest has its own `callAutoSuggest()` function (`src/ai/auto-suggest.js` L39) with independent 3-mode routing (st/profile/proxy) and circuit breaker integration — it does NOT call `callAI()` directly.
 
 **State:** `autoSuggestMessageCount` — reset to 0 on CHAT_CHANGED.
 
@@ -129,7 +132,7 @@ Injected as auxiliary prompt via `_injectAuxPrompt('deeplore_notebook', content,
 
 ## 5. Context Cartographer
 
-**Source:** `src/ui/cartographer.js`, `index.js` L1069-1082 (delegation), L1307-1321 (render handler)
+**Source:** `src/ui/cartographer.js`, `index.js` L1221-1234 (click/keydown delegation), L1349-1363 (CHARACTER_MESSAGE_RENDERED render handler)
 
 Shows a "Sources" button on messages that had lore injected.
 
@@ -141,7 +144,7 @@ setLastInjectionSources(injectedEntries.map(e => ({
 setLastInjectionEpoch(epoch)
 ```
 
-### Source Consumption (CHARACTER_MESSAGE_RENDERED L1307-1321)
+### Source Consumption (CHARACTER_MESSAGE_RENDERED L1349-1363)
 ```
 → Check: lastInjectionSources exists and is non-empty
 → Check: lastInjectionEpoch === chatEpoch (epoch guard)
@@ -151,7 +154,7 @@ setLastInjectionEpoch(epoch)
 → injectSourcesButton(messageId)
 ```
 
-### Click Delegation (L1069-1082)
+### Click Delegation (L1221-1234)
 Namespaced as `.dle-carto` on `#chat` for clean teardown. Handles `click` and `keydown` (Enter/Space for a11y). Opens `showSourcesPopup(sources, { aiNotes })`.
 
 ### Diff Display

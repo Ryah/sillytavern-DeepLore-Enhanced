@@ -64,7 +64,7 @@ Three tools in OpenAI function calling format:
 | `write` | SEARCH | Submit final prose response — triggers SEARCH->FLAG transition |
 | `flag` | FLAG | Flag lore gaps/updates (delegates to `flagLoreAction`) |
 
-`write` is always available in SEARCH phase. When it is the only tool left (search limit reached), `toolChoice` is set to `'required'` (H1).
+`write` is always available in SEARCH phase. When it is the only tool left (search limit reached), the system prompt instructs the AI to call it — no `toolChoice` forcing needed (see H1 comment, `agentic-loop.js` L152-154: always `'auto'`).
 
 ### Provider Format Handling (agentic-api.js)
 

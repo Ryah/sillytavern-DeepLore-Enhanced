@@ -204,6 +204,28 @@ export function setGenerationLock(v) {
     notifyGenerationLockChanged();
 }
 export function setGenerationLockEpoch(v) { generationLockEpoch = v; }
+/** Update lock timestamp without toggling the lock itself (C9: agentic loop keepalive). */
+export function setGenerationLockTimestamp(v) { generationLockTimestamp = v; }
+
+/** Pipeline phase for drawer status display.
+ *  @type {'idle'|'choosing'|'generating'|'writing'|'searching'|'flagging'} */
+export let pipelinePhase = 'idle';
+
+/** @type {Set<() => void>} */
+const pipelinePhaseCallbacks = new Set();
+
+export function setPipelinePhase(phase) {
+    if (pipelinePhase === phase) return;
+    pipelinePhase = phase;
+    for (const cb of [...pipelinePhaseCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Pipeline phase callback error:', err.message); }
+    }
+}
+
+export function onPipelinePhaseChanged(cb) {
+    pipelinePhaseCallbacks.add(cb);
+    return () => pipelinePhaseCallbacks.delete(cb);
+}
 
 /** Pre-computed entity name Set for AI cache sliding window check */
 export let entityNameSet = new Set();
@@ -230,10 +252,6 @@ export function setLoreGaps(v) { loreGaps = v; notifyLoreGapsChanged(); }
 /** Librarian: per-generation search_lore call counter (reset at generation start) */
 export let loreGapSearchCount = 0;
 export function setLoreGapSearchCount(v) { loreGapSearchCount = v; }
-
-/** Librarian: whether tools are currently registered with ToolManager */
-export let librarianToolsRegistered = false;
-export function setLibrarianToolsRegistered(v) { librarianToolsRegistered = v; }
 
 /** Librarian: session-scoped stats (reset on page load, NOT persisted) */
 export let librarianSessionStats = { searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 };
@@ -449,6 +467,24 @@ export function clearPipelineCompleteCallbacks() { pipelineCompleteCallbacks.cle
 export function notifyPipelineComplete() {
     for (const cb of [...pipelineCompleteCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Pipeline complete callback error:', err.message); }
+    }
+}
+
+// ── Injection sources ready callbacks ──
+// Fires when lastInjectionSources is set, BEFORE notifyPipelineComplete.
+// Used by the drawer to populate the Why? tab early (before agentic loop / ST generation).
+
+/** @type {Set<() => void>} */
+const injectionSourcesReadyCallbacks = new Set();
+
+export function onInjectionSourcesReady(callback) {
+    injectionSourcesReadyCallbacks.add(callback);
+    return () => injectionSourcesReadyCallbacks.delete(callback);
+}
+
+export function notifyInjectionSourcesReady() {
+    for (const cb of [...injectionSourcesReadyCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Injection sources ready callback error:', err.message); }
     }
 }
 

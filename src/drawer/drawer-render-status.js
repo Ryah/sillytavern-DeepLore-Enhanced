@@ -9,6 +9,7 @@ import {
     vaultIndex, lastInjectionSources, lastPipelineTrace,
     generationLock, indexing, indexEverLoaded, computeOverallStatus,
     vaultAvgTokens, claudeAutoEffortBad, claudeAutoEffortDetail,
+    pipelinePhase,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
 import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS } from './drawer-state.js';
@@ -41,20 +42,21 @@ export function renderStatusZone() {
     $dot.attr('title', `System status: ${status} — ${statusDesc}`);
     $dot.attr('aria-label', `System status: ${status} — ${statusDesc}`);
 
-    // Activity state → mascot SVG icon
-    const isActive = !!indexing || !!generationLock || ds.stGenerating;
+    // Activity state → mascot SVG icon (driven by pipelinePhase, not generationLock)
+    const isActive = !!indexing || pipelinePhase !== 'idle' || ds.stGenerating;
     const activitySvg = indexing
         ? STATUS_SVG_CHOOSING   // indexing uses the choosing-lore mascot
-        : generationLock
+        : pipelinePhase === 'choosing'
             ? STATUS_SVG_CHOOSING
-            : ds.stGenerating
+            : (pipelinePhase !== 'idle' || ds.stGenerating)
                 ? STATUS_SVG_WRITING
                 : STATUS_SVG_IDLE;
     $dot.html(activitySvg);
     $dot.toggleClass('dle-status-active', isActive);
 
-    // Activity label (4-state: Indexing → Choosing Lore → Generating → Idle)
-    const pipelineText = indexing ? 'Indexing...' : generationLock ? 'Choosing Lore...' : ds.stGenerating ? 'Generating...' : 'Idle';
+    // Activity label (phase-driven: Indexing → Choosing Lore → Generating/Writing → Idle)
+    const PHASE_LABELS = { choosing: 'Choosing Lore...', generating: 'Generating...', writing: 'Writing...', searching: 'Searching...', flagging: 'Flagging...' };
+    const pipelineText = indexing ? 'Indexing...' : PHASE_LABELS[pipelinePhase] || (ds.stGenerating ? 'Generating...' : 'Idle');
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
 
     // First-run setup banner (shown when no vaults configured and setup not dismissed)

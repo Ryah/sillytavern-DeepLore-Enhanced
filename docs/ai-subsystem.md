@@ -2,7 +2,7 @@
 
 Code-level reference for the DLE AI subsystem. For pipeline flow see `CLAUDE.md`; for generation ordering see `docs/generation-pipeline.md`.
 
-Source files: `src/ai/ai.js`, `src/ai/manifest.js`, `src/ai/proxy-api.js`, `src/ai/claude-adaptive-check.js`, `src/ai/models.js`, `settings.js` (L280-332), `src/state.js` (L246-350), `src/helpers.js` (L60-210).
+Source files: `src/ai/ai.js`, `src/ai/manifest.js`, `src/ai/proxy-api.js`, `src/ai/claude-adaptive-check.js`, `src/ai/models.js`, `settings.js` (L280-332), `src/state.js` (L246-350), `src/helpers.js` (L60-210), `src/librarian/agentic-api.js` (agentic loop API layer).
 
 ---
 
@@ -31,8 +31,14 @@ resolveConnectionConfig(toolKey) -> config
 
 **Gotchas:**
 - AI Search itself cannot inherit (it IS the root). If `aiSearchConnectionMode === 'inherit'`, that value flows through unchanged -- callers treat it as the literal mode string.
-- `librarianConnectionMode` must NOT share with retrieval (per user feedback). Don't collapse them.
+- `librarianConnectionMode` must NOT share with retrieval (per user feedback). Don't collapse them. The `librarian` connection config is for **Emma's chat session only** (the review popup). The agentic loop uses the main ST connection via CMRS (`getActiveConnectionProfileId()`), not the Librarian profile setting.
 - When `mode === 'inherit'` resolves to `'proxy'`, the proxyUrl falls back to `toolProxyUrl || aiSearch.proxyUrl` -- but when mode is NOT inherit, proxyUrl falls back to `toolProxyUrl || defaultSettings[keys.proxyUrl]` (L327). These are different fallback chains.
+
+### Agentic Loop Connection -- agentic-api.js
+
+The Librarian's agentic generation loop uses a **separate API path** from `callAI()`. It calls `ConnectionManagerRequestService.sendRequest()` directly via `callWithTools()` in `agentic-api.js`, using the active connection profile (`getActiveConnectionProfileId()`). This is the same connection the user's main chat uses — NOT the Librarian's `resolveConnectionConfig('librarian')` profile.
+
+The Librarian profile setting (`librarianConnectionMode`, `librarianProfileId`, etc.) is used ONLY by Emma's conversation loop in `librarian-session.js` (the review popup). The agentic loop needs the main connection because it IS the generation — it replaces ST's normal generation path.
 
 ### AI Call Throttle -- ai.js L24-32
 

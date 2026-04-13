@@ -229,19 +229,7 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
 
     if (snapshot.librarian) {
         push('### Librarian');
-        push(`- Tools registered: ${snapshot.librarian.toolsRegistered}`);
-        // Tool presence validation
-        const tm = snapshot.librarian.toolsInToolManager;
-        if (tm && !tm.__error) {
-            const searchOk = tm.dleSearchLore ? '✓' : '**❌ MISSING**';
-            const flagOk = tm.dleFlagLore ? '✓' : '**❌ MISSING**';
-            push(`- Tools in ToolManager: dle_search_lore ${searchOk}, dle_flag_lore ${flagOk} (${tm.totalTools} total tools)`);
-            if (!tm.dleSearchLore || !tm.dleFlagLore) issues.warning.push('Librarian tools missing from ToolManager');
-            if (snapshot.librarian.functionCallingEnabled === false) {
-                push('  - **⚠ Function calling is DISABLED on active connection**');
-                issues.warning.push('Function calling disabled on active connection');
-            }
-        }
+        push(`- Mode: agentic loop (no ToolManager registration)`);
         push(`- Lore gaps: ${snapshot.librarian.loreGapsCount} (searches this session: ${snapshot.librarian.loreGapSearchCount})`);
         if (snapshot.librarian.gapsHiddenCount > 0 || snapshot.librarian.gapsDismissedCount > 0) {
             push(`  - Hidden: ${snapshot.librarian.gapsHiddenCount} | Permanently dismissed: ${snapshot.librarian.gapsDismissedCount}`);
@@ -444,7 +432,7 @@ diagnose what's wrong with the user's setup.
 
 \`snapshot.obsidianCircuitBreakers\` — Per-vault (keyed by host:port) circuit breaker state: state (closed/open/half-open), failures, backoffRemaining. Null if no vaults have been contacted.
 
-\`snapshot.librarian\` — Librarian subsystem state: tools registered, lore gap count, session/chat stats. \`toolsInToolManager\` shows whether DLE tools actually exist in ST's ToolManager (not just the registration flag). \`functionCallingEnabled\` shows if the active connection supports tool use. \`gapsHiddenCount\`/\`gapsDismissedCount\` show suppressed lore gaps.
+\`snapshot.librarian\` — Librarian subsystem state: lore gap count, session/chat stats. The agentic loop manages its own API calls (no ToolManager registration). \`gapsHiddenCount\`/\`gapsDismissedCount\` show suppressed lore gaps.
 
 \`snapshot.staleness.generationLockZombie\` — true if generation lock has been held >60s, indicating a stuck pipeline.
 
@@ -466,8 +454,7 @@ diagnose what's wrong with the user's setup.
 - **Wrong model for tool** -> \`profileModel\` in connections table doesn't match what user expects. Common when profile was edited after DLE was configured.
 - **Proxy with no CORS** -> tool mode is 'proxy' but calls fail. Check if \`enableCorsProxy\` is true in ST config (visible in network log 403 errors).
 - **Obsidian vault circuit breaker open** -> \`obsidianCircuitBreakers["host:port"].state === "open"\`. One vault being down can make all entries from that vault invisible. Check which vault is affected and whether Obsidian REST API plugin is running.
-- **Librarian tools missing from ToolManager** -> \`librarian.toolsInToolManager.dleSearchLore === false\`. Tools were registered but another extension rebuilt ToolManager, or function calling is disabled on the active connection profile.
-- **Function calling disabled** -> \`librarian.functionCallingEnabled === false\`. Librarian tools exist but the AI can't call them. User needs to enable function calling on their connection profile.
+- **Agentic loop active** -> Librarian uses its own API calls via \`callWithTools()\`. No ToolManager registration needed. If generation fails, check the active connection profile supports tool calling (most OpenAI-compatible APIs do).
 - **Zombie generation lock** -> \`staleness.generationLockZombie === true\`. Pipeline hung and lock wasn't released. Subsequent generations are blocked.
 - **Group chat entity confusion** -> \`chatContext.isGroupChat === true\` and entity matching shows unexpected character names. Group chats have multiple characters; entity regex may be matching the wrong character's lore.
 - **AI cache stale after regex rebuild** -> \`ai.cacheRegexVersionMatch === false\`. Cache was written before entity regexes were rebuilt (e.g. after vault re-index). Next generation will use stale entity matching data.

@@ -14,7 +14,16 @@ import {
     messageFormatting,
     saveMetadata,
     saveChatDebounced,
+    saveChatConditional,
     updateViewMessageIds,
+    addOneMessage,
+    saveReply,
+    name2,
+    setSendButtonState,
+    activateSendButtons,
+    deactivateSendButtons,
+    getGeneratingApi,
+    getGeneratingModel,
 } from '../../../../script.js';
 import { renderExtensionTemplateAsync, saveMetadataDebounced } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../events.js';
@@ -27,7 +36,7 @@ import {
     applyStripDedup, trackGeneration, decrementTrackers, recordAnalytics,
 } from './src/stages.js';
 import { clearPrompts } from './core/pipeline.js';
-import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache, resolveConnectionConfig } from './settings.js';
+import { getSettings, PROMPT_TAG_PREFIX, PROMPT_TAG, invalidateSettingsCache, resolveConnectionConfig, DEFAULT_AI_NOTEPAD_PROMPT } from './settings.js';
 import {
     vaultIndex, getWriterVisibleEntries, indexEverLoaded, indexing,
     lastInjectionSources, lastInjectionEpoch, lastScribeChatLength, scribeInProgress,
@@ -43,11 +52,12 @@ import {
     setAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources,
     notepadExtractInProgress, setNotepadExtractInProgress,
-    notifyPipelineComplete, notifyGatingChanged,
+    notifyPipelineComplete, notifyInjectionSourcesReady, notifyGatingChanged,
     fieldDefinitions,
     folderList,
     setLoreGaps, setLoreGapSearchCount, setLibrarianChatStats,
-    librarianToolsRegistered,
+    setGenerationLockTimestamp,
+    setPipelinePhase,
 } from './src/state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
@@ -65,10 +75,12 @@ import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState, destroyDrawerPanel } from './src/drawer/drawer.js';
 import { pushActivity } from './src/drawer/drawer-state.js';
 import { extractAiNotes, normalizeLoreGap } from './src/helpers.js';
-import { clearSessionActivityLog, consumePendingToolCalls, clearPendingToolCalls, persistGaps } from './src/librarian/librarian-tools.js';
+import { clearSessionActivityLog, persistGaps } from './src/librarian/librarian-tools.js';
 import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
-import { registerLibrarianTools, ensureFunctionCallingEnabled } from './src/librarian/librarian.js';
 import { clearSessionState as clearLibrarianSessionState } from './src/librarian/librarian-session.js';
+import { runAgenticLoop } from './src/librarian/agentic-loop.js';
+import { isToolCallingSupported, getActiveMaxTokens } from './src/librarian/agentic-api.js';
+import { buildChatMessages } from './src/librarian/agentic-messages.js';
 
 // ============================================================================
 // BUG-063: Lifecycle / teardown infrastructure
@@ -113,21 +125,7 @@ function _teardownDleExtension() {
     _dleInitialized = false;
 }
 
-/** Default instruction prompt for the AI Notebook feature. */
-const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
-You have a private notebook. After your roleplay response, you may append a <dle-notes> block. This block is AUTOMATICALLY HIDDEN from the reader — they will never see it. Your notes are saved and returned to you in future messages as "[Your previous session notes]" above.
-
-FORMAT — place this AFTER your entire response, on a new line:
-<dle-notes>
-- your notes here
-</dle-notes>
-
-RULES:
-- The <dle-notes> block must be the LAST thing you write, after all roleplay prose
-- Do NOT write notes as visible prose (no "Note to self:", "OOC:", or similar in your response)
-- Do NOT mention the notebook, notes, or <dle-notes> tags in your roleplay prose
-
-Use this space for anything you want to remember but can't put into the story right now — character motivations, unspoken thoughts, plot threads to revisit, world state, emotional arcs, planned callbacks, or anything else you find relevant.`;
+// DEFAULT_AI_NOTEPAD_PROMPT moved to settings.js
 
 /** Default extraction prompt for AI Notebook extract mode. */
 const DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT = `You are a session note-taker for a roleplay. Given the AI's latest response and (optionally) its previous session notes, extract anything worth remembering for future context.
@@ -187,12 +185,12 @@ function _removePipelineStatus() {
 
 /**
  * Called by SillyTavern's generation interceptor system.
- * @param {object[]} chat - Array of chat messages
+ * @param {object[]} chatMessages - Filtered chat messages (coreChat — NOT the global chat array)
  * @param {number} contextSize - Context size
  * @param {function} abort - Abort callback
  * @param {string} type - Generation type
  */
-async function onGenerate(chat, contextSize, abort, type) {
+async function onGenerate(chatMessages, contextSize, abort, type) {
     const settings = getSettings();
 
     if (type === 'quiet' || !settings.enabled) {
@@ -200,11 +198,11 @@ async function onGenerate(chat, contextSize, abort, type) {
     }
 
     // Skip full pipeline on tool-call continuations (ST re-calls Generate after each tool invocation).
-    // The last chat message will have extra.tool_invocations when this is a tool-call continuation.
-    // Lore from the original generation is still in context — re-running the pipeline would waste
-    // tokens (especially the AI search sidecar) and produce misleading analytics.
-    if (chat.length > 0) {
-        const lastMsg = chat[chat.length - 1];
+    // ST always pushes a system message with tool_invocations as the very last item in chatMessages[]
+    // before re-calling Generate(). A simple last-message check is the correct detection.
+    // See gotchas.md #21 for why a backwards walk is wrong here.
+    if (chatMessages.length > 0) {
+        const lastMsg = chatMessages[chatMessages.length - 1];
         if (lastMsg?.extra?.tool_invocations || lastMsg?.is_system) {
             if (settings.debugMode) console.debug('[DLE] Skipping pipeline for tool-call continuation');
             try { generationBuffer.push({ t: Date.now(), skipped: true, reason: 'tool_call_continuation' }); } catch { /* noop */ }
@@ -216,12 +214,6 @@ async function onGenerate(chat, contextSize, abort, type) {
     // check is moved here intentionally — see below. The actual chat splice now lives past the
     // generationLock guard so a contended-pipeline early return doesn't mutate `chat` and leak
     // the change to other ST interceptors.
-
-    // Lazy Librarian tool registration — ensures tools are registered even if init() ran
-    // before settings were fully loaded (race condition with ST's extension_settings hydration)
-    if (settings.librarianEnabled) {
-        try { registerLibrarianTools(); } catch { /* logged inside */ }
-    }
 
     // Prevent concurrent onGenerate runs — warn the user instead of silently dropping lore
     if (generationLock) {
@@ -244,46 +236,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
     }
     setGenerationLock(true);
+    setPipelinePhase('choosing');
     _updatePipelineStatus('Choosing Lore\u2026');
-
-    // BUG-058: Strip DLE tool-call messages from previous generations only AFTER acquiring the
-    // generation lock. Doing this before the lock allowed a contended early return (lock held)
-    // to mutate `chat` and leak the splice/filter to other ST interceptors with no rollback.
-    // Also strips intermediate assistant messages from DLE tool-call turns — the AI's text
-    // responses during tool rounds (e.g. "let me dig deeper") that shouldn't persist in chat.
-    {
-        let seenFinalAssistant = false;
-        let inDleToolTurn = false;
-        for (let i = chat.length - 1; i >= 0; i--) {
-            const msg = chat[i];
-            if (msg?.is_user) {
-                seenFinalAssistant = false;
-                inDleToolTurn = false;
-                continue;
-            }
-            // System message with tool_invocations
-            if (msg?.is_system && Array.isArray(msg.extra?.tool_invocations)) {
-                const invocations = msg.extra.tool_invocations;
-                const allDle = invocations.every(inv => inv.name?.startsWith('dle_'));
-                if (allDle) {
-                    inDleToolTurn = true;
-                    chat.splice(i, 1);
-                } else {
-                    msg.extra.tool_invocations = invocations.filter(inv => !inv.name?.startsWith('dle_'));
-                }
-                continue;
-            }
-            // Assistant message
-            if (!msg?.is_system) {
-                if (!seenFinalAssistant) {
-                    seenFinalAssistant = true; // Last assistant msg in turn = final response, keep it
-                } else if (inDleToolTurn) {
-                    // Intermediate assistant message from a DLE tool-call round — strip it
-                    chat.splice(i, 1);
-                }
-            }
-        }
-    }
 
     // Reset librarian per-generation search counter
     setLoreGapSearchCount(0);
@@ -378,8 +332,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         // alternate-swipe navigation (content changes → new hash → treated as fresh gen → drift)
         // and collided with delete+regen. The `${msgIdx}|${swipe_id}` key is stable across those.
         {
-            const earlyIdx = chat.length - 1;
-            const earlySwipeId = earlyIdx >= 0 ? (chat[earlyIdx]?.swipe_id ?? 0) : 0;
+            const earlyIdx = chatMessages.length - 1;
+            const earlySwipeId = earlyIdx >= 0 ? (chatMessages[earlyIdx]?.swipe_id ?? 0) : 0;
             const earlySwipeKey = `${earlyIdx}|${earlySwipeId}`;
             if (lastGenerationTrackerSnapshot && lastGenerationTrackerSnapshot.swipeKey === earlySwipeKey) {
                 const snap = lastGenerationTrackerSnapshot;
@@ -409,7 +363,7 @@ async function onGenerate(chat, contextSize, abort, type) {
         const folderFilter = chat_metadata.deeplore_folder_filter || null;
 
         const _pipelineStartMs = performance.now();
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chat, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal, onStatus: _updatePipelineStatus });
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chatMessages, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal, onStatus: _updatePipelineStatus });
         trace.totalMs = Math.round(performance.now() - _pipelineStartMs);
         if (pipelineAbort.signal.aborted) {
             if (settings.debugMode) console.debug('[DLE] Pipeline aborted by user before commit');
@@ -609,6 +563,8 @@ async function onGenerate(chat, contextSize, abort, type) {
                 vaultSource: e.vaultSource || '',
             })));
             setLastInjectionEpoch(epoch);
+            // Notify drawer early so Why? tab populates before agentic loop / ST generation
+            notifyInjectionSourcesReady();
         } else {
             // No lore groups — still clear stale prompts from previous generation
             clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
@@ -618,6 +574,10 @@ async function onGenerate(chat, contextSize, abort, type) {
                     if (pmEntry) pmEntry.content = '';
                 }
             }
+            // Clear stale sources so Why? tab doesn't show previous generation's data
+            setLastInjectionSources(null);
+            setLastInjectionEpoch(epoch);
+            notifyInjectionSourcesReady();
         }
 
         // BUG-147: Single fallback ladder for the four PM-or-extension_prompts inject paths
@@ -732,8 +692,8 @@ async function onGenerate(chat, contextSize, abort, type) {
         //   - alternate-swipe navigation (different swipe_id → different key → no false decrement)
         //   - reload between generations (perSwipeInjectedKeys is persisted)
         if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
-            const lastIdx = chat.length - 1;
-            const swipeId = lastIdx >= 0 ? (chat[lastIdx]?.swipe_id ?? 0) : 0;
+            const lastIdx = chatMessages.length - 1;
+            const swipeId = lastIdx >= 0 ? (chatMessages[lastIdx]?.swipe_id ?? 0) : 0;
             const swipeKey = `${lastIdx}|${swipeId}`;
 
             const priorKeys = perSwipeInjectedKeys.get(swipeKey);
@@ -754,7 +714,7 @@ async function onGenerate(chat, contextSize, abort, type) {
             perSwipeInjectedKeys.set(swipeKey, thisRoundKeys);
 
             // Prune: keep only recent message slots (bounded memory + metadata size).
-            const keepFromIdx = Math.max(0, chat.length - 10);
+            const keepFromIdx = Math.max(0, chatMessages.length - 10);
             for (const k of [...perSwipeInjectedKeys.keys()]) {
                 const mi = parseInt(k.split('|')[0], 10);
                 if (!Number.isFinite(mi) || mi < keepFromIdx) perSwipeInjectedKeys.delete(k);
@@ -807,7 +767,151 @@ async function onGenerate(chat, contextSize, abort, type) {
         }
 
         // Pipeline complete — show "Generating..." until first streaming token arrives.
+        setPipelinePhase('generating');
         _updatePipelineStatus('Generating\u2026');
+
+        // === Agentic Loop Dispatch ===
+        // When Librarian is enabled and the active API supports tool calling, DLE runs its
+        // own agentic loop instead of letting ST generate. This produces a single clean message
+        // with no intermediate tool_invocation system messages.
+        // Agentic loop produces complete responses — fall through to ST for continue/append.
+        if (settings.librarianEnabled && isToolCallingSupported()
+            && type !== 'continue' && type !== 'append' && type !== 'appendFinal') {
+            abort(); // Prevent ST from generating
+
+            // C1: Re-entrancy guard — abort() re-enables send via unblockGeneration(), lock it again
+            setSendButtonState(true);
+            deactivateSendButtons();
+
+            // C6: Reset search counter for this generation (searchLoreAction reads it internally)
+            setLoreGapSearchCount(0);
+
+            // H6: Clear extension prompts — lore is embedded in the agentic system prompt,
+            // so extension_prompts would duplicate it when CMRS.sendRequest builds the payload.
+            clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, PROMPT_TAG);
+            if (settings.injectionMode === 'prompt_list' && promptManager) {
+                for (const id of [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`]) {
+                    const pmEntry = promptManager.getPromptById(id);
+                    if (pmEntry) pmEntry.content = '';
+                }
+            }
+            // Also clear aux prompts (notebook, notepad) — they're in the agentic system prompt too
+            for (const auxId of ['deeplore_notebook', 'deeplore_ai_notepad']) {
+                if (extension_prompts[auxId]) delete extension_prompts[auxId];
+                if (promptManager) {
+                    const pmEntry = promptManager.getPromptById(auxId);
+                    if (pmEntry) pmEntry.content = '';
+                }
+            }
+
+            // H7: Declared outside try so catch can access it for save-on-error
+            let proseMsg = null;
+
+            try {
+                const pipelineContext = groups.map(g => g.text).join('\n\n');
+                const injTitles = new Set((acceptedEntries || []).map(e => (e.title || '').toLowerCase()));
+
+                const agenticMessages = buildChatMessages(chatMessages, pipelineContext, injTitles, settings);
+
+                const onProse = async (proseText) => {
+                    if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
+
+                    // saveReply operates on the global chat[] (not the shadowed chatMessages
+                    // parameter). It handles: message creation, chat.push, swipe_info setup,
+                    // MESSAGE_RECEIVED (awaited), addOneMessage, CHARACTER_MESSAGE_RENDERED (awaited).
+                    //
+                    // The CHARACTER_MESSAGE_RENDERED handler (L1315) will:
+                    //   - Attach deeplore_sources from lastInjectionSources
+                    //   - Inject sources button
+                    //   - Extract AI notes (modifies message.mes → cleaned text)
+                    //
+                    // After saveReply, swipes[0] = cleaned mes (AI notes stripped),
+                    // swipe_info[0].extra contains deeplore_sources + deeplore_ai_notes.
+                    await saveReply({ type, getMessage: proseText });
+
+                    // Capture reference for later tool_calls attachment (post-loop)
+                    proseMsg = chat[chat.length - 1];
+
+                    _removePipelineStatus();
+                    updateViewMessageIds();
+
+                    // saveReply does NOT save to disk — ST's Generate() normally does that,
+                    // but we called abort() so Generate returns without saving. Save immediately.
+                    await saveChatConditional();
+                };
+
+                setPipelinePhase('writing');
+                _updatePipelineStatus('Writing\u2026');
+                const onAgenticStatus = (text) => {
+                    _updatePipelineStatus(text);
+                    // Update drawer phase from agentic loop status text
+                    if (text.startsWith('Searching')) setPipelinePhase('searching');
+                    else if (text.startsWith('Writing') || text.startsWith('Generating')) setPipelinePhase('writing');
+                };
+                const result = await runAgenticLoop({
+                    messages: agenticMessages,
+                    maxSearches: settings.librarianMaxSearches || 2,
+                    searchEnabled: settings.librarianSearchEnabled !== false,
+                    flagEnabled: settings.librarianFlagEnabled !== false,
+                    maxTokens: getActiveMaxTokens(),
+                    signal: pipelineAbort.signal,
+                    epoch,
+                    lockEpoch,
+                    onStatus: onAgenticStatus,
+                    onProse,
+                    injectedTitles: injTitles,
+                    settings,
+                });
+
+                // Stale check after the loop completes
+                if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
+
+                if (proseMsg) {
+                    // Attach tool activity to the already-displayed message.
+                    // Lifecycle events already fired in onProse — just attach data and re-save.
+                    proseMsg.extra.deeplore_tool_calls = result.toolActivity;
+                    await saveChatConditional();
+
+                    if (settings.librarianShowToolCalls && result.toolActivity.length > 0) {
+                        injectLibrarianDropdown(chat.length - 1, result.toolActivity);
+                    }
+                } else if (result.prose) {
+                    // Fallback: onProse never fired (text-only response without write() tool call).
+                    // Use saveReply for proper message lifecycle (global chat, events, swipe_info).
+                    await saveReply({ type, getMessage: result.prose });
+                    const msg = chat[chat.length - 1];
+                    msg.extra.deeplore_tool_calls = result.toolActivity;
+                    updateViewMessageIds();
+                    await saveChatConditional();
+
+                    if (settings.librarianShowToolCalls && result.toolActivity.length > 0) {
+                        injectLibrarianDropdown(chat.length - 1, result.toolActivity);
+                    }
+                } else {
+                    dedupError('AI did not produce a response. Try again.', 'agentic_no_prose');
+                }
+            } catch (err) {
+                if (err?.name !== 'AbortError' && !pipelineAbort.signal.aborted) {
+                    console.error('[DLE] Agentic loop error:', err);
+                    // If prose was already shown, the error is from FLAG phase — save what we have
+                    if (proseMsg) {
+                        await saveChatConditional();
+                    } else {
+                        dedupError('Generation failed \u2014 try again or disable Librarian.', 'agentic_error');
+                    }
+                }
+            } finally {
+                // C1: Re-enable sends
+                setSendButtonState(false);
+                activateSendButtons();
+                _removePipelineStatus();
+                // Wrap in try/catch — errors here must not propagate to the outer catch
+                // (which would show a misleading "Couldn't load your lore" toast)
+                try { await eventSource.emit(event_types.GENERATION_ENDED, chat.length); } catch { /* noop */ }
+            }
+            return; // Don't fall through to ST's generation
+        }
+        // === End Agentic Loop Dispatch ===
 
     } catch (err) {
         _removePipelineStatus();
@@ -842,9 +946,10 @@ async function onGenerate(chat, contextSize, abort, type) {
         } catch (trackingErr) {
             console.error('[DLE] Error in generation tracking:', trackingErr);
         }
-        // Release lock FIRST so pipeline-complete renders see correct state.
+        // Release lock and phase FIRST so pipeline-complete renders see correct state.
         // A force-released stale pipeline must NOT release the newer pipeline's lock.
         if (lockEpoch === generationLockEpoch) {
+            setPipelinePhase('idle');
             setGenerationLock(false);
         } else {
             console.warn('[DLE] Stale pipeline did not release lock (epoch mismatch)');
@@ -902,13 +1007,6 @@ jQuery(async function () {
             startFlightRecorder();
         } catch (err) {
             console.warn('[DLE] Flight recorder failed to start:', err?.message);
-        }
-
-        // Register Librarian tools if enabled (also retried lazily in onGenerate)
-        try {
-            registerLibrarianTools();
-        } catch (err) {
-            console.warn('[DLE] Failed to initialize Librarian:', err.message);
         }
 
         // Apply Librarian visibility (hides drawer tab/panel when feature is off)
@@ -1110,9 +1208,6 @@ jQuery(async function () {
         _registerEs(event_types.GENERATION_STOPPED, () => {
             try {
                 _removePipelineStatus();
-                // BUG-AUDIT-CNEW04: Reset tool status counts on stop — otherwise they
-                // accumulate across stopped+restarted generations.
-                _removeDleToolStatus();
                 setGenerationLockEpoch(generationLockEpoch + 1);
                 if (generationLock) setGenerationLock(false);
                 // BUG-FIX-6: Clear stale prompts so they don't bleed into the next generation.
@@ -1204,120 +1299,13 @@ jQuery(async function () {
             }
         });
 
-        // Hide DLE tool-call system messages from the UI and show a clean status indicator.
-        // The messages stay in the chat array (so the AI can read search results in follow-up
-        // rounds), but are invisible to the user. onGenerate strips them from the array entirely
-        // at the start of the next generation.
-        let _dleToolStatusCounts = { search: 0, flag: 0 };
-        const _updateDleToolStatus = () => {
-            const { search, flag } = _dleToolStatusCounts;
-            if (search === 0 && flag === 0) return;
-            let existing = document.getElementById('dle-tool-status');
-            if (!existing) {
-                existing = document.createElement('div');
-                existing.id = 'dle-tool-status';
-                existing.style.cssText = 'padding:4px 12px;margin:4px 0;font-size:0.85em;color:var(--SmartThemeQuoteColor, #888);display:flex;align-items:center;gap:6px;';
-                const chatEl = document.getElementById('chat');
-                if (chatEl) chatEl.appendChild(existing);
-            }
-            const parts = [];
-            if (search > 0) parts.push(`${search} search${search !== 1 ? 'es' : ''}`);
-            if (flag > 0) parts.push(`${flag} flag${flag !== 1 ? 's' : ''}`);
-            existing.innerHTML = `<i class="fa-solid fa-book-open" style="opacity:0.6"></i> Consulting lore vault\u2026 ${parts.join(', ')}`;
-            existing.scrollIntoView({ behavior: 'smooth', block: 'end' });
-        };
-        const _removeDleToolStatus = () => {
-            _dleToolStatusCounts = { search: 0, flag: 0 };
-            document.getElementById('dle-tool-status')?.remove();
-        };
-
         // NOTE: _updatePipelineStatus and _removePipelineStatus are at module scope
         // (above onGenerate) so both onGenerate and init-block handlers can access them.
-
-        _registerEs(event_types.TOOL_CALLS_RENDERED, (invocations) => {
-            if (!Array.isArray(invocations)) return;
-            const allDle = invocations.every(inv => inv.name?.startsWith('dle_'));
-            if (!allDle) return;
-            // The system message is always the last one pushed to chat[]
-            const mesEl = document.querySelector(`#chat .mes[mesid="${chat.length - 1}"]`);
-            if (mesEl) mesEl.style.display = 'none';
-            // Update status counts
-            for (const inv of invocations) {
-                if (inv.name === 'dle_search_lore') _dleToolStatusCounts.search++;
-                else if (inv.name === 'dle_flag_lore') _dleToolStatusCounts.flag++;
-            }
-            _updateDleToolStatus();
-        });
-
-        // Librarian: consolidate tool calls at end of turn (GENERATION_ENDED fires once)
-        _registerEs(event_types.GENERATION_ENDED, () => {
-            // BUG-AUDIT-DP02: Capture epoch before any writes — chat switch during
-            // multi-round tool calls can persist results to the wrong chat.
-            const libEpoch = chatEpoch;
-            _removeDleToolStatus();
-            _removePipelineStatus();
-            try {
-                const settings = getSettings();
-                if (!settings.librarianEnabled) return;
-
-                const pendingCalls = consumePendingToolCalls();
-                if (pendingCalls.length === 0) return;
-                if (libEpoch !== chatEpoch) return;
-
-                // Find the last non-empty assistant message in the current turn.
-                // Skip empty intermediates left by tool-call rounds (their .mes is '' or '...').
-                let targetIdx = -1;
-                for (let i = chat.length - 1; i >= 0; i--) {
-                    if (chat[i].is_user) break; // turn boundary
-                    if (!chat[i].is_system && !chat[i].is_user && chat[i].mes?.trim() && chat[i].mes !== '...') {
-                        targetIdx = i;
-                        break;
-                    }
-                }
-                if (targetIdx < 0) return; // flag-only with no text — gap data is in drawer
-
-                const target = chat[targetIdx];
-                target.extra = target.extra || {};
-                target.extra.deeplore_tool_calls = pendingCalls;
-                saveMetadataDebounced();
-                injectLibrarianDropdown(targetIdx, pendingCalls);
-
-                // Hide intermediate assistant messages from tool-call rounds.
-                // These are the AI's text responses during tool rounds (e.g. "let me search...")
-                // that should not be visible. stripDleSystemMessages cleans them on next gen;
-                // this hides them from the DOM immediately.
-                for (let i = targetIdx - 1; i >= 0; i--) {
-                    if (chat[i].is_user) break; // turn boundary
-                    if (chat[i].is_system) continue; // system msgs already hidden by TOOL_CALLS_RENDERED
-                    const mesEl = document.querySelector(`#chat .mes[mesid="${i}"]`);
-                    if (mesEl) mesEl.style.display = 'none';
-                }
-            } catch (err) {
-                console.warn('[DLE] Librarian GENERATION_ENDED consolidation failed:', err?.message);
-            }
-        });
 
         // Context Cartographer + Session Scribe: post-render handler
         _registerEs(event_types.CHARACTER_MESSAGE_RENDERED, (messageId) => {
             const settings = getSettings();
             const message = chat[messageId];
-
-            // Skip intermediate empty messages created during tool-call sequences.
-            // ST renders an empty assistant message (with reasoning/thinking) before processing
-            // tool calls and recursing Generate(). If we consume data here, it ends up on the
-            // wrong message and the final reply gets nothing.
-            const isIntermediateToolMsg = message && !message.is_user && !message.mes?.trim();
-            if (isIntermediateToolMsg) {
-                // Hide empty intermediates during tool-call chains so the user sees a clean chat.
-                const mesEl = document.querySelector(`#chat .mes[mesid="${messageId}"]`);
-                if (mesEl && document.body.dataset.generating) mesEl.style.display = 'none';
-                // Still inject Cartographer buttons for messages that already have persisted sources
-                // (from previous non-tool-call generations on chat reload).
-                if (settings.showLoreSources) {
-                    injectSourcesButton(messageId);
-                }
-                return;
-            }
 
             // BUG-142: Each job is wrapped in try-catch so one failure doesn't abort the rest.
 
@@ -1399,9 +1387,8 @@ jQuery(async function () {
             const message = chat[idx];
             if (!message || message.is_user) return;
 
-            // BUG-FIX-2: Clean up any stale pipeline/tool status on swipe.
+            // BUG-FIX-2: Clean up any stale pipeline status on swipe.
             _removePipelineStatus();
-            _removeDleToolStatus();
 
             // Clear tool call dropdown data and DOM.
             // When perMessageActivity is enabled, keep dropdown data on swipe — it will be
@@ -1415,7 +1402,6 @@ jQuery(async function () {
             // Always remove dropdown DOM on swipe — new swipe may not have tool calls.
             // Data is preserved when perMessageActivity is on (will be replaced on next gen).
             removeLibrarianDropdown(messageId);
-            clearPendingToolCalls();
 
             // BUG-290: AI Notepad swipe rollback — remove only the LAST occurrence, anchored on
             // '\n' + notes (matching the append pattern in CHARACTER_MESSAGE_RENDERED). The old
@@ -1504,66 +1490,6 @@ jQuery(async function () {
             if (dirty) saveMetadataDebounced();
         };
 
-        // BUG-006: Scan chat for orphaned DLE tool-call intermediates.
-        // When the user deletes a final assistant message that had deeplore_tool_calls,
-        // the hidden intermediate messages (DLE system messages + intermediate assistant
-        // messages) are left behind. stripDleSystemMessages cleans them on next generation,
-        // but if the user reloads without generating, the orphans persist. This scan removes
-        // them immediately after any message deletion.
-        // ST fires MESSAGE_DELETED AFTER chat.splice — the parameter is chat.length, not the
-        // deleted index. So we scan the whole turn structure instead of using the parameter.
-        const _cleanupOrphanedDleIntermediates = () => {
-            // Check if a DLE system message has a parent (assistant with deeplore_tool_calls) in its turn
-            const hasDleParent = (idx) => {
-                for (let j = idx + 1; j < chat.length; j++) {
-                    if (chat[j]?.is_user) return false;
-                    if (!chat[j]?.is_system && chat[j]?.extra?.deeplore_tool_calls) return true;
-                }
-                return false;
-            };
-
-            // Pass 1: find orphaned DLE system messages
-            const orphanedSysIndices = [];
-            for (let i = chat.length - 1; i >= 0; i--) {
-                const msg = chat[i];
-                if (msg?.is_system && Array.isArray(msg.extra?.tool_invocations)
-                    && msg.extra.tool_invocations.every(inv => inv.name?.startsWith('dle_'))
-                    && !hasDleParent(i)) {
-                    orphanedSysIndices.push(i);
-                }
-            }
-            if (orphanedSysIndices.length === 0) return;
-
-            // Pass 2: also find hidden assistant intermediates preceding each orphaned system message
-            const toRemove = new Set(orphanedSysIndices);
-            for (const sysIdx of orphanedSysIndices) {
-                for (let j = sysIdx - 1; j >= 0; j--) {
-                    const msg = chat[j];
-                    if (msg?.is_user) break;
-                    if (msg?.is_system) continue;
-                    // Hidden assistant intermediate — DLE hides these via inline display:none
-                    const mesEl = document.querySelector(`#chat .mes[mesid="${j}"]`);
-                    if (mesEl && mesEl.style.display === 'none') toRemove.add(j);
-                }
-            }
-
-            // Remove DOM elements while mesids are still valid, then splice from highest to lowest
-            for (const idx of toRemove) {
-                document.querySelector(`#chat .mes[mesid="${idx}"]`)?.remove();
-            }
-            const sorted = [...toRemove].sort((a, b) => b - a);
-            for (const idx of sorted) {
-                chat.splice(idx, 1);
-            }
-            updateViewMessageIds();
-            saveChatDebounced();
-            if (getSettings().debugMode) console.debug(`[DLE] Cleaned up ${sorted.length} orphaned tool-call intermediate(s)`);
-        };
-
-        _registerEs(event_types.MESSAGE_DELETED, () => {
-            try { _cleanupOrphanedDleIntermediates(); } catch (err) { console.warn('[DLE] MESSAGE_DELETED intermediate cleanup failed:', err.message); }
-        });
-
         _registerEs(event_types.MESSAGE_SWIPE_DELETED, (messageId) => {
             // The swiped-away alternate is gone — its extras no longer apply.
             try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_SWIPE_DELETED cleanup failed:', err.message); }
@@ -1617,17 +1543,6 @@ jQuery(async function () {
         _registerEs(event_types.CONNECTION_PROFILE_DELETED, _onProfileDeleted);
         _registerEs(event_types.CONNECTION_PROFILE_UPDATED, _onProfileUpdated);
 
-        // BUG-083: ST resets oai_settings.function_calling when the chat completion
-        // source or model changes. Re-assert it so Librarian tools aren't silently
-        // dropped from outbound requests after the user switches providers.
-        const _onSourceOrModelChanged = () => {
-            try {
-                if (getSettings().librarianEnabled) ensureFunctionCallingEnabled();
-            } catch (err) { console.warn('[DLE] source/model change re-assert failed:', err.message); }
-        };
-        _registerEs(event_types.CHATCOMPLETION_SOURCE_CHANGED, _onSourceOrModelChanged);
-        _registerEs(event_types.MAIN_API_CHANGED, _onSourceOrModelChanged);
-
         // BUG-084: External mutations to extension_settings + saveSettingsDebounced() are
         // not observed by DLE's cache. Invalidate on every SETTINGS_UPDATED so the next
         // getSettings() call re-validates against the fresh store.
@@ -1679,6 +1594,7 @@ jQuery(async function () {
             // Bump the lock epoch to invalidate the old pipeline's commit phase.
             if (generationLock) {
                 setGenerationLockEpoch(generationLockEpoch + 1);
+                setPipelinePhase('idle');
                 setGenerationLock(false);
             }
 
@@ -1774,7 +1690,6 @@ jQuery(async function () {
             setLoreGapSearchCount(0);
             setLibrarianChatStats({ searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 });
             clearSessionActivityLog();
-            clearPendingToolCalls();
 
             // Reset drawer ephemeral state (browse filters, context tokens) and refresh
             resetDrawerState();

@@ -6,11 +6,11 @@ The generation pipeline is DLE's core — most regressions originate here. This 
 
 ## Overview
 
-`onGenerate(chat, contextSize, abort, type)` is the generation interceptor, called by SillyTavern's interceptor system before each generation. It is registered on `globalThis.deepLoreEnhanced_onGenerate` (L845).
+`onGenerate(chatMessages, contextSize, abort, type)` is the generation interceptor, called by SillyTavern's interceptor system before each generation. It is registered on `globalThis.deepLoreEnhanced_onGenerate` (L845).
 
-**Inputs:** `chat` (message array, mutable), `contextSize` (context window tokens), `abort` (unused), `type` (generation type string).
+**Inputs:** `chatMessages` (filtered copy of ST's chat array — NOT the global `chat`; pushing to it loses data), `contextSize` (context window tokens), `abort` (callback to prevent ST's generation — used by agentic loop dispatch), `type` (generation type string).
 
-**Side effects:** Calls `setExtensionPrompt()` to inject lore into the prompt. Mutates `chat[]` (strips DLE tool messages). Mutates `chat_metadata` (injection logs, counts, swipe keys). Mutates state variables (trackers, sources, trace).
+**Side effects:** Calls `setExtensionPrompt()` to inject lore into the prompt. When Librarian agentic loop is active: calls `abort()`, runs its own generation loop, and inserts a message via `addOneMessage()`. Mutates `chat_metadata` (injection logs, counts, swipe keys). Mutates state variables (trackers, sources, trace).
 
 **The entire function is guarded by `generationLock`** — only one pipeline can run at a time.
 
@@ -19,20 +19,19 @@ The generation pipeline is DLE's core — most regressions originate here. This 
 ## Phase 1: Early Guards (L188-205)
 
 ```
-onGenerate(chat)
+onGenerate(chatMessages)
   → Skip if type === 'quiet' or !settings.enabled
-  → Skip if last message has tool_invocations (tool-call continuation)
+  → Skip if last message has tool_invocations or is_system (tool-call continuation from other extensions)
 ```
 
 1. **Quiet generations** (type `'quiet'`): Background API calls (e.g., summarization). No lore injection.
-2. **Tool-call continuations** (L196-205): When the last message has `extra.tool_invocations`, ST is re-calling Generate after a tool invocation. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics. Records `{ skipped: true, reason: 'tool_call_continuation' }` in the flight recorder.
+2. **Tool-call continuations** (L215-222): When the last message has `extra.tool_invocations` or `is_system`, ST is re-calling Generate after a tool invocation from another extension using ST's ToolManager. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics. Records `{ skipped: true, reason: 'tool_call_continuation' }` in the flight recorder. DLE's own Librarian uses the agentic loop (not ToolManager), so DLE tool calls never trigger this guard.
 
 ---
 
 ## Phase 2: Pre-Lock Setup (L212-236)
 
 ```
-  → Lazy Librarian tool registration (if enabled)
   → Check generationLock
     → If locked >30s: force-release with lockEpoch bump (BUG-274)
     → If locked <30s: warn and return (skip this generation)
@@ -40,31 +39,13 @@ onGenerate(chat)
   → Show status: "Choosing Lore…"
 ```
 
-**Lazy Librarian registration** (L214-216): `registerLibrarianTools()` is retried here because `init()` may run before ST's `extension_settings` are fully hydrated.
-
 **Lock acquisition** (L219-236): `setGenerationLock(true)` increments `generationLockEpoch` (in the setter at `state.js` L190). This epoch is captured at L290 and checked at every commit point.
 
 **Force-release** (L221-229): After 30s, the lock is considered stuck. `generationLockEpoch` is bumped BEFORE releasing, so the stuck pipeline's late writes fail every `lockEpoch === generationLockEpoch` guard. Records `{ forceRelease: true, lockAgeMs, oldEpoch, newEpoch }` in the flight recorder. If lock contention is detected but under 30s, records `{ skipped: true, reason: 'lock_contention' }` and returns.
 
 ---
 
-## Phase 3: Tool Message Stripping (L244-276)
-
-**After lock acquisition** (critical — see gotchas.md #8):
-
-```
-  → Strip DLE tool_invocation system messages from chat[]
-  → Strip intermediate assistant messages from DLE tool-call rounds
-```
-
-Walks `chat[]` backwards. For each message:
-- System messages with `extra.tool_invocations` where all invocations are `dle_*`: splice out entirely
-- System messages with mixed invocations: filter out only the `dle_*` entries
-- Intermediate assistant messages in DLE tool turns (not the final response): splice out
-
----
-
-## Phase 4: Epoch Capture & Abort Setup (L288-306)
+## Phase 3: Epoch Capture & Abort Setup (L288-306)
 
 ```
   → Capture chatEpoch and generationLockEpoch
@@ -84,7 +65,7 @@ These are checked after every `await` and before every state mutation.
 
 ---
 
-## Phase 5: Index Refresh (L307-361)
+## Phase 4: Index Refresh (L307-361)
 
 ```
 try {
@@ -105,7 +86,7 @@ try {
 
 ---
 
-## Phase 6: Swipe Rollback (L366-391)
+## Phase 5: Swipe Rollback (L366-391)
 
 ```
   → Compute swipeKey: `${msgIdx}|${swipe_id}`
@@ -119,11 +100,11 @@ try {
 
 ---
 
-## Phase 7: Pipeline Execution (L393-406)
+## Phase 6: Pipeline Execution (L393-406)
 
 ```
   → Gather context: ctx, pins, blocks, folderFilter from chat_metadata
-  → runPipeline(chat, vaultSnapshot, ctx, {pins, blocks, folderFilter, signal, onStatus})
+  → runPipeline(chatMessages, vaultSnapshot, ctx, {pins, blocks, folderFilter, signal, onStatus})
   → Returns: { finalEntries, matchedKeys, trace }
   → Check abort signal
 ```
@@ -140,7 +121,7 @@ All modes apply folder filtering if `folderFilter` is set. See `stages-and-gatin
 
 ---
 
-## Phase 8: Post-Pipeline Stages (L407-536)
+## Phase 7: Post-Pipeline Stages (L407-536)
 
 These run in `index.js`, not in `runPipeline()`. Each has its own trace recording.
 
@@ -192,7 +173,7 @@ Enriches `trace` with gating/budget/dedup details. **Epoch-guarded** (L520): onl
 
 ---
 
-## Phase 9: Commit Phase (L538-610)
+## Phase 8: Commit Phase (L538-610)
 
 ```
   → FINAL EPOCH CHECK (L540, L548)
@@ -220,7 +201,44 @@ Enriches `trace` with gating/budget/dedup details. **Epoch-guarded** (L520): onl
 
 ---
 
-## Phase 10: Post-Commit Tracking (L670-761)
+## Phase 8b: Agentic Loop Dispatch (L776-866)
+
+After pipeline commit and `_updatePipelineStatus('Generating...')`, DLE fires `notifyInjectionSourcesReady()` (so the drawer can render the Why? tab early, before generation completes), then checks whether to run its own generation loop:
+
+```
+  → notifyInjectionSourcesReady()          // Drawer renders Why? tab early
+  → Guard: type !== 'continue' && type !== 'append' && type !== 'appendFinal'
+    → If any of those: fall through to ST's generation
+  → If librarianEnabled && isToolCallingSupported():
+    → abort()                              // Prevent ST from generating
+    → setSendButtonState(true)             // C1: Re-entrancy guard (abort re-enables send)
+    → deactivateSendButtons()
+    → setLoreGapSearchCount(0)             // C6: Reset search counter
+    → buildChatMessages(chatMessages, pipelineContext, injectedTitles, settings)
+    → runAgenticLoop(messages, signal, epoch, lockEpoch, ..., onProse)
+      → During loop: onProse(prose) fires on write() tool call (PRIMARY path)
+        → saveReply({ type, getMessage })  // Message lifecycle (events, swipe handling)
+        → saveChatConditional()            // Disk save (abort() prevents ST's post-gen save)
+    → POST-AWAIT EPOCH CHECK
+    → If result.prose (FALLBACK — AI returned text without write() tool):
+      → saveReply + saveChatConditional    // Same as above, but post-loop
+    → injectLibrarianDropdown (if enabled)
+    → finally:
+      → setSendButtonState(false) + activateSendButtons()
+      → emit GENERATION_ENDED
+    → return (don't fall through to ST's generation)
+  → Else: fall through to ST's normal generation
+```
+
+The agentic loop runs the state machine (SEARCH -> FLAG -> DONE), calling `searchLoreAction` and `flagLoreAction` directly. `onProse` is async and awaited — it calls `saveReply({ type })` + `saveChatConditional()` so the message is fully created, events processed, and saved to disk before the FLAG phase begins. `type` from `onGenerate` is forwarded to `saveReply` for correct swipe/regen behavior. Tool activity is stored directly on `message.extra.deeplore_tool_calls`.
+
+**C9 keepalive:** The agentic loop calls `setGenerationLockTimestamp(Date.now())` before every API call and before tool processing. Without this, the 30s stale-lock detector in Phase 2 would force-release the lock mid-loop, causing epoch mismatch on the next iteration.
+
+**C1 re-entrancy:** `abort()` calls ST's `unblockGeneration()`, which re-enables the send button. The dispatch immediately locks it again via `setSendButtonState(true)`. Restored in `finally`.
+
+---
+
+## Phase 9: Post-Commit Tracking (L670-761)
 
 All epoch-guarded and lock-guarded.
 
@@ -245,7 +263,7 @@ If `stripDuplicateInjections` enabled, records entries with position/depth/role/
 
 ---
 
-## Phase 11: Finally Block (L812-841)
+## Phase 10: Finally Block (L812-841)
 
 **Always runs** — even on errors and early returns.
 
@@ -278,22 +296,25 @@ finally {
 5. Tool-call continuations skip the pipeline entirely
 6. Guide entries are filtered out at L348 via `getWriterVisibleEntries()` — they never reach the writing AI
 7. `pipelineRan` controls whether `decrementTrackers` runs in `finally` — set to `true` at L364 only after the vault snapshot is confirmed non-empty
+8. When Librarian is enabled + tool calling supported, DLE aborts ST's generation and runs its own agentic loop. The loop calls `setGenerationLockTimestamp` as keepalive (C9) and uses `setSendButtonState` as re-entrancy guard (C1).
+9. `onGenerate`'s first parameter is `chatMessages` (a filtered copy), NOT the global `chat`. Never push to it — use the global `chat` import for message creation.
+10. `notifyInjectionSourcesReady()` fires before the agentic loop dispatch, allowing the drawer to render the Why? tab early.
+11. `onProse` in the agentic loop is async and must be awaited — it runs `saveReply` + `saveChatConditional`.
+12. `type` from `onGenerate` is forwarded to `saveReply` for correct swipe/regen behavior. Continue/append/appendFinal types fall through to ST.
 
 ---
 
 ## Call Graph Summary
 
 ```
-onGenerate(chat, contextSize, abort, type)                    [index.js L188]
-  ├─ registerLibrarianTools()                                  [lazy, L214]
+onGenerate(chatMessages, contextSize, abort, type)             [index.js L188]
   ├─ setGenerationLock(true)                                   [L236]
-  ├─ (strip DLE tool messages from chat[])                     [L244-276]
   ├─ ensureIndexFresh()                                        [L326, with 60s timeout]
   ├─ getWriterVisibleEntries()                                 [L348]
   ├─ (swipe rollback from lastGenerationTrackerSnapshot)       [L369-391]
-  ├─ runPipeline(chat, vaultSnapshot, ctx, opts)               [L401]
-  │   ├─ matchEntries(chat, snapshot)                          [src/pipeline/pipeline.js]
-  │   ├─ hierarchicalPreFilter(entries, chat, signal)           [optional, ai-only + two-stage modes]
+  ├─ runPipeline(chatMessages, vaultSnapshot, ctx, opts)        [L401]
+  │   ├─ matchEntries(chatMessages, snapshot)                   [src/pipeline/pipeline.js]
+  │   ├─ hierarchicalPreFilter(entries, chatMessages, signal)   [optional, ai-only + two-stage modes]
   │   ├─ buildCandidateManifest(entries)                       [src/ai/ai.js → manifest.js]
   │   └─ aiSearch(chat, manifest, header, snapshot, cands, signal) [src/ai/ai.js]
   ├─ buildExemptionPolicy(vaultSnapshot, pins, blocks)         [src/stages.js]
@@ -305,6 +326,18 @@ onGenerate(chat, contextSize, abort, type)                    [index.js L188]
   ├─ formatAndGroup(entries, settings, PROMPT_TAG_PREFIX)       [core/matching.js]
   ├─ clearPrompts(extension_prompts, PROMPT_TAG_PREFIX, ...)   [core/pipeline.js]
   ├─ setExtensionPrompt(tag, text, pos, depth, wiScan, role)   [ST API]
+  ├─ notifyInjectionSourcesReady()                              [state.js — drawer Why? tab]
+  ├─ (Agentic Loop Dispatch — if librarianEnabled && isToolCallingSupported && not continue/append):
+  │   ├─ abort()                                               [prevent ST generation]
+  │   ├─ buildChatMessages(chatMessages, pipelineCtx, injTitles) [agentic-messages.js]
+  │   ├─ runAgenticLoop(messages, signal, epoch, lockEpoch, onProse) [agentic-loop.js]
+  │   │   ├─ callWithTools(messages, tools, toolChoice, ...)   [agentic-api.js → CMRS]
+  │   │   ├─ searchLoreAction(args)                            [librarian-tools.js]
+  │   │   ├─ flagLoreAction(args)                              [librarian-tools.js]
+  │   │   └─ await onProse?.(prose)                            [async — saveReply + saveChatConditional]
+  │   ├─ saveReply({ type, getMessage })                       [ST API — message lifecycle]
+  │   ├─ saveChatConditional()                                 [ST API — disk save]
+  │   └─ return (skip ST generation)
   ├─ trackGeneration(entries, genCount, trackers, settings)     [src/stages.js]
   ├─ recordAnalytics(matched, injected, analyticsData)         [src/stages.js]
   └─ finally:

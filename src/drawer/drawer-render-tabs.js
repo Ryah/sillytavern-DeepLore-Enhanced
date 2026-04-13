@@ -413,7 +413,7 @@ export function renderBrowseTab() {
         ds.browseExpandedEntry = null; // collapse any expanded entry on filter change
         ds.browseExpandedIdx = null;
         ds.browseExpandedExtraHeight = 0;
-        _cachedExpandedPreviewTitle = null;
+        _cachedExpandedPreviewKey = null;
         _cachedExpandedPreviewHtml = null;
     }
 

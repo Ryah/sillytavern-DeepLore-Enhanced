@@ -492,7 +492,6 @@ export function captureStateSnapshot() {
     // Librarian subsystem
     try {
         snap.librarian = {
-            toolsRegistered: state.librarianToolsRegistered,
             sessionStats: state.librarianSessionStats,
             chatStats: state.librarianChatStats,
             loreGapsCount: Array.isArray(state.loreGaps) ? state.loreGaps.length : 0,
@@ -580,28 +579,7 @@ export function captureStateSnapshot() {
         }
     } catch (e) { snap.chatContext = { __error: String(e) }; }
 
-    // Librarian tool presence — do tools actually exist in ToolManager, not just the flag?
-    try {
-        const ctx = (typeof globalThis.SillyTavern?.getContext === 'function')
-            ? globalThis.SillyTavern.getContext() : null;
-        const tm = ctx?.ToolManager;
-        const tools = Array.isArray(tm?.tools) ? tm.tools : [];
-        const toolNames = tools.map(t => t?.toFunctionOpenAI?.()?.function?.name).filter(Boolean);
-        snap.librarian.toolsInToolManager = {
-            totalTools: toolNames.length,
-            dleSearchLore: toolNames.includes('dle_search_lore'),
-            dleFlagLore: toolNames.includes('dle_flag_lore'),
-        };
-        // Also check if function calling is enabled on active connection
-        const oai = ctx?.chatCompletionSettings;
-        if (oai) {
-            snap.librarian.functionCallingEnabled = oai.function_calling !== false && oai.function_calling !== 'none';
-        }
-    } catch (e) {
-        if (snap.librarian && typeof snap.librarian === 'object') {
-            snap.librarian.toolsInToolManager = { __error: String(e) };
-        }
-    }
+    // Note: Agentic loop manages its own API calls — no ToolManager registration needed.
 
     // AI cache version mismatch detection
     try {

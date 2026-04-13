@@ -1854,11 +1854,16 @@ function bindPopupEvents($container) {
         settings.librarianEnabled = enabled;
         $c('#dle-sp-librarian-sub').toggle(enabled);
         saveSettingsDebounced();
-        // Register/unregister tools dynamically
-        if (enabled) {
-            import('../librarian/librarian.js').then(m => m.registerLibrarianTools()).catch(err => console.warn('[DLE] Librarian tool registration error:', err));
-        } else {
-            import('../librarian/librarian.js').then(m => m.unregisterLibrarianTools()).catch(err => console.warn('[DLE] Librarian tool unregistration error:', err));
+        // One-time cleanup: unregister stale ToolManager tools from pre-agentic-loop versions
+        if (!enabled) {
+            import('../../../../../../scripts/tool-calling.js')
+                .then(({ ToolManager }) => {
+                    if (ToolManager?.unregisterFunctionTool) {
+                        ToolManager.unregisterFunctionTool('dle_search_lore');
+                        ToolManager.unregisterFunctionTool('dle_flag_lore');
+                    }
+                })
+                .catch(() => { /* tools may not exist — safe to ignore */ });
         }
         // Toggle drawer tab/panel visibility + strip per-message dropdowns
         import('../librarian/visibility.js').then(m => m.applyLibrarianVisibility(enabled)).catch(err => console.warn('[DLE] Librarian visibility error:', err));

@@ -69,11 +69,11 @@ if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
 
 ## 6. Tool-Call Continuations
 
-**Rule:** When `lastMsg.extra.tool_invocations` exists, skip the pipeline entirely.
+**Rule:** When `lastMsg.extra.tool_invocations` exists or `lastMsg.is_system`, skip the pipeline entirely.
 
-**Why:** ST re-calls Generate after each tool invocation. Lore from the original generation is still in context. Re-running the pipeline wastes tokens (especially the AI search sidecar), produces misleading analytics, and can corrupt tracker state.
+**Why:** Other extensions may use ST's ToolManager. ST re-calls Generate after each tool invocation. Lore from the original generation is still in context. Re-running the pipeline wastes tokens. DLE's own Librarian uses the agentic loop (not ToolManager), so DLE tool calls never trigger this guard.
 
-**Where:** `index.js` L196-205.
+**Where:** `index.js` L215-222.
 
 ---
 
@@ -92,13 +92,13 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 ---
 
-## 8. DLE System Message Stripping
+## 8. No DLE Intermediate Messages
 
-**Rule:** Strip DLE tool-call messages from `chat[]` AFTER lock acquisition, never before.
+**Rule:** The agentic loop produces NO intermediate messages in `chat[]`. It runs its own multi-turn conversation internally, then inserts a single clean message via `addOneMessage()`.
 
-**Why:** Stripping before the lock means a contended early return (lock held by another pipeline) still mutates `chat[]`. The splice leaks to other ST interceptors with no rollback path.
+**Why (historical):** The old ToolManager approach created `tool_invocation` system messages and intermediate assistant messages that needed post-hoc stripping. The agentic loop eliminates this entire class of bugs — no `stripDleSystemMessages`, no `_cleanupOrphanedDleIntermediates`, no GENERATION_ENDED consolidation.
 
-**Where:** `index.js` L207-210 (comment explaining the placement), L244-276 (actual strip logic, after `setGenerationLock(true)` at L236).
+**Where:** `index.js` L822-844 (single `addOneMessage` call after loop completes).
 
 ---
 
@@ -231,3 +231,105 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Pattern:** For a regex with N capture groups, the fn should have exactly `N + 4` parameters: `(match, ...Ngroups, offset, fullString, ctx)`.
 
 **Where:** `src/diagnostics/scrubber.js` L70-140 (PATTERNS array).
+
+---
+
+## 21. Agentic Loop Epoch Guards
+
+**Rule:** The agentic loop MUST check `epoch !== chatEpoch || lockEpoch !== generationLockEpoch` at the TOP of every iteration, before any API call or state mutation. Also check `signal.aborted`.
+
+**Why:** The agentic loop runs multiple iterations (up to 15) with awaits between each. A chat switch or stop-button press during any iteration must bail the loop immediately. Without this, a stale loop writes tool results and creates messages in the wrong chat.
+
+**Where:** `src/librarian/agentic-loop.js` L123-132 (epoch + abort check at iteration start).
+
+---
+
+## 22. Agentic Loop Stale-Lock Keepalive (C9)
+
+**Rule:** Call `setGenerationLockTimestamp(Date.now())` before every `callWithTools()` call and before tool processing in the agentic loop.
+
+**Why:** The generation lock has a 30s stale detection (`lockAge > 30_000` in onGenerate L233). The agentic loop can run for much longer than 30s (multiple search + API round trips). Without keepalive, the stale-lock detector force-releases the lock mid-loop, bumping `generationLockEpoch`. The loop's next epoch check sees a mismatch and bails, silently dropping the generation.
+
+**Where:** `src/librarian/agentic-loop.js` L157 (before API call), L187 (before tool processing). `src/state.js` L208 (`setGenerationLockTimestamp` — updates timestamp without toggling the lock).
+
+---
+
+## 23. Agentic Loop Re-Entrancy Guard (C1)
+
+**Rule:** After `abort()`, immediately call `setSendButtonState(true)` + `deactivateSendButtons()`. Restore in `finally`.
+
+**Why:** `abort()` calls ST's `unblockGeneration()`, which re-enables the send button. Without the guard, the user can trigger a new generation while the agentic loop is still running, causing race conditions with `chat.push` and `addOneMessage`.
+
+**Where:** `index.js` L783-785 (lock), L858-860 (restore in finally).
+
+---
+
+## 24. Tool Result Batching (C4)
+
+**Rule:** When building tool result messages for the agentic loop, ALL tool results from one assistant turn MUST be batched into the format the provider expects. Claude requires all `tool_result` blocks in a single `user` message. OpenAI/Cohere uses separate `tool` role messages.
+
+**Why:** Claude returns an API error if tool results arrive as separate messages. Google expects `functionResponse` parts in a single `function` role message. Sending results in the wrong format causes a 400 error and breaks the loop.
+
+**Where:** `src/librarian/agentic-api.js` `buildToolResults()` — handles all 4 provider formats.
+
+---
+
+## 25. Provider Format Handling
+
+**Rule:** The agentic loop must preserve provider-native message format for multi-turn conversations. `buildAssistantMessage()` returns the raw response structure (not normalized), and `buildToolResults()` uses the provider-specific format.
+
+**Why:** CMRS passes messages through to the provider API. If DLE normalizes assistant messages to OpenAI format but the provider is Claude, the next API call fails because Claude doesn't understand `tool_calls` in the OpenAI format — it expects `content[]` with `tool_use` blocks. Each provider has its own wire format for tool-calling conversations.
+
+**Where:** `src/librarian/agentic-api.js` — `buildAssistantMessage()`, `buildToolResults()`, `parseToolCalls()`, `getTextContent()` all handle 4 formats (Claude, Google, OpenAI-compatible, Cohere).
+
+---
+
+## 26. `onGenerate` Parameter Must Not Shadow Global `chat`
+
+**Rule:** The `onGenerate` parameter is named `chatMessages` (NOT `chat`). It is a filtered copy (`coreChat`) from ST's interceptor — pushing to it loses data. Always use the global `chat` import from `script.js` for message creation and index lookups.
+
+**Why:** The parameter was previously named `chat`, which shadowed the global `chat` array imported from `script.js`. Code that called `chat.push(msg)` inside `onGenerate` was pushing onto the filtered copy instead of the real chat array, silently losing messages.
+
+**Where:** `index.js` `onGenerate(chatMessages, ...)`.
+
+---
+
+## 27. `saveReply` Does NOT Save to Disk
+
+**Rule:** After calling `saveReply({ type, getMessage })`, you MUST call `saveChatConditional()` to persist the message to disk.
+
+**Why:** `saveReply` handles the message lifecycle (creating the message object, emitting events like `MESSAGE_RECEIVED` and `CHARACTER_MESSAGE_RENDERED`), but it does NOT write to disk. In the agentic loop, `abort()` prevents ST's post-generation save from running, so the message would be lost on reload without an explicit `saveChatConditional()` call.
+
+**Where:** `index.js` agentic loop dispatch (Phase 8b).
+
+---
+
+## 28. `CHARACTER_MESSAGE_RENDERED` Modifies `message.mes` During `saveReply`
+
+**Rule:** The `CHARACTER_MESSAGE_RENDERED` handler extracts AI notes from `message.mes` (cleaning the displayed text). This means `swipes[0]` captures the cleaned text, not the raw AI output. This is intentional — the raw text with notes is not what users see.
+
+**Why:** `saveReply` emits `CHARACTER_MESSAGE_RENDERED` as part of its event chain. DLE's handler strips `<dle-notes>` tags from the message during this emission. If you read `message.mes` after `saveReply`, it will already be cleaned.
+
+**Where:** `index.js` `CHARACTER_MESSAGE_RENDERED` handler, agentic loop dispatch.
+
+---
+
+## 29. `type` Must Be Forwarded to `saveReply`
+
+**Rule:** The `type` parameter from `onGenerate(chatMessages, contextSize, abort, type)` must be forwarded to `saveReply({ type })` for correct swipe and regen behavior.
+
+**Why:** `saveReply` uses `type` to determine whether to create a new message or update an existing swipe. Without forwarding, regens and swipes create duplicate messages instead of replacing the current swipe.
+
+**Guard:** `type !== 'continue' && type !== 'append' && type !== 'appendFinal'` — these types fall through to ST's generation (DLE does not handle continuation types in the agentic loop).
+
+**Where:** `index.js` agentic loop dispatch (Phase 8b).
+
+---
+
+## 30. `onProse` in the Agentic Loop Is Async
+
+**Rule:** `onProse` in the agentic loop is async and MUST be awaited: `await onProse?.(prose)`.
+
+**Why:** `onProse` now calls `saveReply` + `saveChatConditional`, which are async operations. If not awaited, the FLAG phase starts before the message is fully created, events are processed, and data is saved to disk. This can cause race conditions where FLAG tool calls reference a message that doesn't exist yet.
+
+**Where:** `src/librarian/agentic-loop.js` (write tool handler → FLAG phase transition).

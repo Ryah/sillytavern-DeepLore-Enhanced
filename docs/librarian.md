@@ -4,52 +4,99 @@ Code-level reference for the Librarian tool-calling subsystem. Intended for Clau
 to avoid regressions when modifying Librarian-related code.
 
 Source files:
-- `src/librarian/librarian.js` -- tool registration + lifecycle
-- `src/librarian/librarian-tools.js` -- `searchLoreAction`, `flagLoreAction`, pending buffer, gap persistence
+- `src/librarian/agentic-api.js` -- provider detection, CMRS wrapper (`callWithTools`), response parsing (4 formats)
+- `src/librarian/agentic-loop.js` -- state machine: SEARCH -> FLAG -> DONE
+- `src/librarian/agentic-messages.js` -- system prompt builder, chat message assembly
+- `src/librarian/librarian-tools.js` -- `searchLoreAction`, `flagLoreAction`, gap persistence
 - `src/librarian/librarian-ui.js` -- per-message dropdown injection
 - `src/librarian/librarian-session.js` -- Emma conversation engine, session persistence
-- `src/librarian/librarian-chat-tools.js` -- tools available inside Emma's conversation loop (NOT ToolManager)
+- `src/librarian/librarian-chat-tools.js` -- tools available inside Emma's conversation loop
 - `src/librarian/librarian-prompts.js` -- bootstrap system prompts for guide-mode sessions
 - `src/librarian/librarian-review.js` -- two-panel popup UI (editor + chat)
 - `src/librarian/visibility.js` -- show/hide all Librarian surfaces
-- `index.js` -- event handlers: `TOOL_CALLS_RENDERED`, `GENERATION_ENDED`, `MESSAGE_SWIPED`, `CHAT_CHANGED`
-- `src/state.js` -- state variables
+- `index.js` -- agentic loop dispatch in `onGenerate`, event handlers: `MESSAGE_SWIPED`, `CHAT_CHANGED`
+- `src/state.js` -- state variables (including `setGenerationLockTimestamp` for keepalive)
 
 ---
 
-## 1. Tool Registration
+## 1. Agentic Loop Architecture
 
-**File:** `src/librarian/librarian.js`
+DLE owns the entire tool-calling loop. No ST ToolManager, no intermediate system messages, no splicing.
 
-### `registerLibrarianTools()`
+### Dispatch (index.js, after pipeline commit)
 
-Registers two tools with SillyTavern's `ToolManager`:
+After the pipeline commits lore via `setExtensionPrompt` and `_updatePipelineStatus('Generating...')`:
 
-| Tool name | Action fn | `stealth` | `shouldRegister` guard |
+1. Guard: `settings.librarianEnabled && isToolCallingSupported()`
+2. `abort()` — prevents ST from generating (the interceptor's abort callback)
+3. `setSendButtonState(true)` + `deactivateSendButtons()` — C1: re-entrancy guard (abort re-enables send via `unblockGeneration`)
+4. Build messages: `buildChatMessages(chatMessages, pipelineContext, injectedTitles, settings)` — 9-section system prompt + chat history
+5. `runAgenticLoop(options)` — core state machine (onProse callback → `saveReply` during loop)
+6. On success: `saveReply` handles `chat.push`, `addOneMessage`, disk save. Post-loop: emit `MESSAGE_RECEIVED` + `CHARACTER_MESSAGE_RENDERED`
+7. Finally: `setSendButtonState(false)` + `activateSendButtons()`, emit `GENERATION_ENDED`, return (don't fall through to ST generation)
+
+If `isToolCallingSupported()` is false, falls through to ST's normal generation path.
+
+### State Machine (agentic-loop.js)
+
+```
+SEARCH phase:
+  Available tools: search + write (search capped by maxSearches)
+  write() call → captures prose → transitions to FLAG phase
+
+FLAG phase:
+  Available tools: flag (capped at MAX_FLAG_CALLS = 5)
+  AI ends turn (no tool calls) → DONE
+
+DONE:
+  Return { prose, toolActivity, usage }
+```
+
+Constants: `MAX_ITERATIONS = 15`, `MAX_FLAG_CALLS = 5`.
+
+### Tool Definitions (agentic-loop.js)
+
+Three tools in OpenAI function calling format:
+
+| Tool | Phase | Purpose |
+|---|---|---|
+| `search` | SEARCH | BM25 vault search (delegates to `searchLoreAction`) |
+| `write` | SEARCH | Submit final prose response — triggers SEARCH->FLAG transition |
+| `flag` | FLAG | Flag lore gaps/updates (delegates to `flagLoreAction`) |
+
+`write` is always available in SEARCH phase. When it is the only tool left (search limit reached), `toolChoice` is set to `'required'` (H1).
+
+### Provider Format Handling (agentic-api.js)
+
+`callWithTools()` wraps `ConnectionManagerRequestService.sendRequest()` using the active connection profile (`getActiveConnectionProfileId()`). Four provider response formats are handled:
+
+| Provider | Detection | Tool call location | Text location |
 |---|---|---|---|
-| `dle_search_lore` | `searchLoreAction` | (absent) | `librarianEnabled && librarianSearchEnabled && isToolCallingSupported()` |
-| `dle_flag_lore` | `flagLoreAction` | `true` | `librarianEnabled && librarianFlagEnabled && isToolCallingSupported()` |
+| Claude | `chat_completion_source === 'claude'` | `data.content[].type === 'tool_use'` | `data.content[].type === 'text'` |
+| Google (Gemini/Vertex) | `makersuite` or `vertexai` | `data.responseContent.parts[].functionCall` | `data.responseContent.parts[].text` |
+| OpenAI-compatible | default | `data.choices[0].message.tool_calls` | `data.choices[0].message.content` |
+| Cohere | (via OpenAI path) | `data.message.tool_calls` | `data.message.content[0].text` |
 
-Both tools set `formatMessage: () => null` (suppress default tool-result system message).
+`isToolCallingSupported()` returns false for `main_api !== 'openai'` or sources in `NO_TOOLS_SOURCES` (ai21, perplexity, nanogpt, pollinations, moonshot).
 
-**Call sites:** `init()` at boot, lazy re-check inside `onGenerate()` (L214), and settings toggle handler.
+Google Gemini `tool_choice` normalization (G6): string values mapped to `{ mode: 'AUTO'|'ANY'|'NONE' }`.
 
-**State read:** `librarianToolsRegistered` (state.js L222).
-**State written:** `setLibrarianToolsRegistered(true)` on success.
+### Message Assembly (agentic-messages.js)
 
-### BUG-086: Re-verification on every call
+`buildChatMessages()` produces a `[{role, content}]` array:
 
-Other extensions (or HMR cycles) can rebuild `ToolManager`'s internal `#tools` map, silently evicting DLE's tools. The local `librarianToolsRegistered` flag would still be `true`. Fix: every call to `registerLibrarianTools()` reads `ToolManager.tools`, checks both tool names are present, and force-re-registers if either is missing (L36-44).
+1. System message: 9-section prompt (role, character context, pipeline lore, injected title list, notebook, notepad, scribe summary, tool instructions, custom prompt)
+2. Chat history: last 40 non-system messages from `chat[]`, strict role alternation enforced, last message must be `user`
 
-### `ensureFunctionCallingEnabled()`
+`buildToolResults()` handles provider-native format (C4): Claude requires all `tool_result` blocks in ONE user message; Google uses `functionResponse` parts; OpenAI/Cohere use separate `tool` role messages.
 
-Called after successful registration (L136). Lazy-imports `openai.js`, sets `oai_settings.function_calling = true`, syncs the visible checkbox, and saves. Without this, ST silently drops registered tools from outbound requests.
+### Key Guards
 
-**Gotcha:** If the user manually disables function calling elsewhere after Librarian enables it, tools stop working silently. There is no automatic re-assertion handler — the user must re-enable Librarian or function calling manually.
-
-### `unregisterLibrarianTools()`
-
-Calls `ToolManager.unregisterFunctionTool()` for both names, sets `librarianToolsRegistered = false`. Called from the settings toggle handler when Librarian is disabled.
+- **Epoch guards:** Checked at top of every iteration: `epoch !== chatEpoch || lockEpoch !== generationLockEpoch` → break
+- **Abort signal:** Checked at top of every iteration → throws `AbortError`
+- **C9 keepalive:** `setGenerationLockTimestamp(Date.now())` before every API call and before tool processing, preventing the 30s stale-lock detector from force-releasing mid-loop
+- **C1 re-entrancy:** `setSendButtonState(true)` after `abort()` (which calls `unblockGeneration`), restored in finally
+- **H4 double-write guard:** `writeDone` flag prevents multiple `write()` calls
 
 ---
 
@@ -85,7 +132,6 @@ Queries are trimmed, filtered, capped to 4 (L371).
 |---|---|---|
 | Gap record creation | `loreGaps` via `persistGaps()` | No-result queries only |
 | Gap record removal | `loreGaps` via `persistGaps()` | Query now has results but had a prior gap |
-| `pendingToolCalls.push(logEntry)` | Module-local buffer | `genAtStart === generationCount && lockEpochAtStart === generationLockEpoch && epoch === chatEpoch` |
 | `sessionActivityLog.push(logEntry)` | Module-local array | Always |
 | Analytics | `settings.analyticsData._librarian.totalGapSearches` | Always |
 | Stats | `librarianSessionStats`, `librarianChatStats` | Always |
@@ -95,10 +141,6 @@ Queries are trimmed, filtered, capped to 4 (L371).
 { type: 'search', query: string, resultCount: number, resultTitles: string[],
   tokens: number, timestamp: number, generation: number }
 ```
-
-### BUG-295: Generation/epoch guards on pendingToolCalls
-
-Snapshots `chatEpoch` (L357), `generationCount` (L364), and `generationLockEpoch` (L365) at call start. Only pushes to `pendingToolCalls` if all three still match at push time (L529). Prevents a swipe that clears the buffer from having its fresh buffer polluted by a late-resolving tool call from the previous generation.
 
 ### Token estimation (BUG-AUDIT-H19)
 
@@ -134,9 +176,9 @@ Uses accumulated `totalTokens` from real `entry.tokenEstimate` values. Falls bac
   frequency: 1, urgency, hadResults: false, resultTitles: null }
 ```
 
-**Side effects:** Same pattern as searchLoreAction -- pushes to `pendingToolCalls` and `sessionActivityLog` with generation/epoch guards. Tokens estimated at 10 (minimal overhead).
+**Side effects:** Same pattern as searchLoreAction -- pushes to `sessionActivityLog` with epoch guards. Tokens estimated at 10 (minimal overhead).
 
-**Return text:** Includes "Do not acknowledge this flag -- continue seamlessly." to prevent the AI from narrating what it flagged.
+**Return text:** Includes instructions to not acknowledge the flag and continue.
 
 ### Overlap detection: `findSimilarGap()`
 
@@ -146,76 +188,13 @@ Tokenizes both queries via `tokenize()` (from BM25 module), computes Jaccard-lik
 
 **Gotcha:** Uses `>` not `>=`, so exactly 60% overlap does NOT merge.
 
-### Stealth flag
-
-`dle_flag_lore` is registered with `stealth: true` (librarian.js L120). This tells ST to skip creating system messages and skip triggering a follow-up generation for flag tool calls. Without this, every flag would cause a visible "tool_invocations" system message and an empty continuation generation.
-
-**Known limitation:** When the AI returns both `search_lore` and `flag_lore` in the same response, both are processed during the same `GENERATION_ENDED` consolidation pass. Ordering follows tool-call invocation order, not separate rounds.
-
 ---
 
-## 4. Tool-Call Consolidation (GENERATION_ENDED)
+## 4. Tool Call Persistence
 
-**File:** `index.js`, L1234-1280
+Tool call data (search and flag activity records) is stored on `message.extra.deeplore_tool_calls` (per-message), NOT in `chat_metadata`. This is different from `deeplore_lore_gaps` which is in `chat_metadata`.
 
-### Event handler: `GENERATION_ENDED`
-
-Fires once per completed generation turn. Responsible for:
-
-1. `consumePendingToolCalls()` -- returns and clears the module-local `pendingToolCalls` buffer (librarian-tools.js L55-59).
-2. Early return if buffer empty or if `chatEpoch` changed (BUG-AUDIT-DP02, L1247).
-3. Find target message: walks backward from end of `chat[]`, skips system messages and user messages, finds the last non-empty assistant message whose `.mes` is not `''` or `'...'` (L1252-1258).
-4. Persist: `target.extra.deeplore_tool_calls = pendingCalls` + `saveMetadataDebounced()` (L1263-1264).
-5. `injectLibrarianDropdown(targetIdx, pendingCalls)` -- DOM injection (L1265).
-6. Hide intermediate assistant messages from tool-call rounds by setting `mesEl.style.display = 'none'` for all assistant messages between the target and the previous user message (L1271-1276).
-
-### `consumePendingToolCalls()` (librarian-tools.js L55-59)
-
-```js
-export function consumePendingToolCalls() {
-    const calls = pendingToolCalls;
-    pendingToolCalls = [];
-    return calls;
-}
-```
-
-Returns the buffer by reference, then replaces it with a fresh empty array. Not a copy -- callers own the returned array.
-
-### Persistence location
-
-Tool call data lives on `message.extra.deeplore_tool_calls` (per-message), NOT in `chat_metadata`. This is different from `deeplore_lore_gaps` which is in `chat_metadata`.
-
-### Cleanup on status elements
-
-Also calls `_removeDleToolStatus()` (removes the "Consulting lore vault..." counter) and `_removePipelineStatus()` (removes "Choosing Lore..." status).
-
----
-
-## 5. TOOL_CALLS_RENDERED Handler
-
-**File:** `index.js`, L1219-1232
-
-### Event handler: `TOOL_CALLS_RENDERED`
-
-Fires each time ST renders tool invocation results in the chat. Receives `invocations` array.
-
-**Logic:**
-
-1. Guard: if not ALL invocations are DLE tools (`inv.name?.startsWith('dle_')`), return (L1221-1222). This means mixed DLE+non-DLE tool calls are not hidden.
-2. Hide the system message DOM element for the last chat message (`chat.length - 1`) by setting `display: none` (L1224-1225).
-3. Increment `_dleToolStatusCounts.search` or `.flag` per invocation (L1227-1229).
-4. Call `_updateDleToolStatus()` to show/update the "Consulting lore vault..." counter element.
-
-### `_updateDleToolStatus()` (index.js L1194-1210)
-
-Creates or updates a `#dle-tool-status` div appended to `#chat`. Shows count like "Consulting lore vault... 2 searches, 1 flag". Auto-scrolls into view.
-
-### `_removeDleToolStatus()` (index.js L1211-1214)
-
-Resets counters to zero, removes the DOM element. Called by:
-- `GENERATION_ENDED` handler
-- `GENERATION_STOPPED` handler
-- `MESSAGE_SWIPED` handler
+In the agentic loop, tool activity is returned as `result.toolActivity` and stored directly on the message object during construction in `onGenerate`. No intermediate buffer or GENERATION_ENDED consolidation needed -- the loop completes before the message is created.
 
 ---
 
@@ -242,7 +221,7 @@ Resets counters to zero, removes the DOM element. Called by:
 |---|---|---|
 | `CHAT_DELETED` | `clearLibrarianSessionState()` | Clears session from chat_metadata + localStorage |
 | `GROUP_CHAT_DELETED` | `clearLibrarianSessionState()` | Same |
-| `CHAT_CHANGED` | (index.js L1696) | `clearSessionActivityLog()` + `clearPendingToolCalls()` (session state itself is per-chat, so it persists within the chat) |
+| `CHAT_CHANGED` | (index.js L1696) | `clearSessionActivityLog()` (session state itself is per-chat, so it persists within the chat) |
 
 ### Session creation: `createSession(entryPoint, options)`
 
@@ -267,7 +246,7 @@ Outer loop (tool_call -> re-enter AI) with inner loop (validation retries).
 
 **Abort handling (BUG-237/253/303):** Snapshots `session.messages` before mutation. On abort or epoch mismatch, restores the snapshot so the session is not left with a one-sided user turn or orphan tool_results.
 
-**Tool execution:** Calls `executeToolCall(name, args, session)` from `librarian-chat-tools.js`. These are the Emma-internal tools (search_vault, get_entry, etc.), NOT the ToolManager-registered tools.
+**Tool execution:** Calls `executeToolCall(name, args, session)` from `librarian-chat-tools.js`. These are Emma's internal tools (search_vault, get_entry, etc.), distinct from the agentic loop's tools (search, write, flag).
 
 ---
 
@@ -275,7 +254,7 @@ Outer loop (tool_call -> re-enter AI) with inner loop (validation retries).
 
 **File:** `src/librarian/librarian-chat-tools.js`
 
-These tools are available ONLY inside Emma's conversation loop (`sendMessage`). They are NOT registered with SillyTavern's `ToolManager`. Executed locally via `executeToolCall()`.
+These tools are available ONLY inside Emma's conversation loop (`sendMessage`). They are NOT the agentic loop's tools — they are executed locally via `executeToolCall()`.
 
 ### Tool list
 
@@ -341,11 +320,10 @@ if (!getSettings().librarianPerMessageActivity) {
     }
 }
 removeLibrarianDropdown(messageId);  // always
-clearPendingToolCalls();              // always
 ```
 
 **CHAT_CHANGED hydration (index.js L1689-1697):**
-Regardless of this setting, `CHAT_CHANGED` always hydrates `loreGaps` from `chat_metadata.deeplore_lore_gaps` (normalizing legacy statuses), resets `loreGapSearchCount`, resets `librarianChatStats`, clears `sessionActivityLog`, and clears `pendingToolCalls`.
+Regardless of this setting, `CHAT_CHANGED` always hydrates `loreGaps` from `chat_metadata.deeplore_lore_gaps` (normalizing legacy statuses), resets `loreGapSearchCount`, resets `librarianChatStats`, and clears `sessionActivityLog`.
 
 **Dropdown re-render on chat load (index.js L1830-1833):**
 After migration, if `librarianEnabled && librarianShowToolCalls`, iterates all messages and calls `injectLibrarianDropdown(i, chat[i].extra.deeplore_tool_calls)` for any message that has stored tool call data.
@@ -377,28 +355,7 @@ Functions: `hideGap()`, `unhideGap()`, `dismissGap()`, `undismissGap()`.
 
 **File:** `src/state.js`, L527-541
 
-Callback-based observer pattern. `setLoreGaps()` calls it automatically. Also called explicitly by `searchLoreAction` and `flagLoreAction` after pushing to pending buffer (to update the Activity sub-tab even when `persistGaps` was not called).
-
-### `stripDleSystemMessages` (onGenerate, index.js L244-276)
-
-Runs after lock acquisition. Walks `chat[]` backward, splicing out:
-- System messages where ALL `tool_invocations` are DLE tools (L257-260).
-- Intermediate assistant messages within DLE tool-call turns (L270-272).
-- For mixed DLE+non-DLE tool messages: filters out only DLE invocations from the array (L262).
-
-### `_cleanupOrphanedDleIntermediates` (MESSAGE_DELETED, index.js)
-
-Runs on every `MESSAGE_DELETED` event. Scans for orphaned DLE intermediates — DLE system messages (all-`dle_` tool_invocations) that have no parent assistant message with `deeplore_tool_calls` in the same turn. Also removes hidden assistant intermediates preceding orphaned system messages.
-
-Two-pass approach:
-1. Find orphaned DLE system messages (no `deeplore_tool_calls` parent forward to next user message).
-2. Walk backwards from each orphaned system message, collecting hidden (`display:none`) assistant intermediates.
-
-Removes DOM elements, splices from `chat[]`, calls `updateViewMessageIds()` + `saveChatDebounced()`.
-
-**Why needed:** `stripDleSystemMessages` only runs on generation. If the user deletes the final tool-call message and reloads without generating, orphans would persist. This handler cleans them immediately.
-
-**Note:** ST fires `MESSAGE_DELETED` AFTER `chat.splice()`, passing `chat.length` (not the deleted index). The handler ignores the parameter and scans the full turn structure.
+Callback-based observer pattern. `setLoreGaps()` calls it automatically. Also called explicitly by `searchLoreAction` and `flagLoreAction` after pushing to `sessionActivityLog` (to update the Activity sub-tab even when `persistGaps` was not called).
 
 ### Session stats vs chat stats
 

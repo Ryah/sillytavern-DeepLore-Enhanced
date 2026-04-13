@@ -59,6 +59,22 @@ Respond with a JSON array of objects. Each object has:
 Example: [{"title": "Eris", "confidence": "high", "reason": "directly mentioned by name"}, {"title": "The Dark Council", "confidence": "medium", "reason": "linked from Eris, thematically relevant"}]
 If no entries are relevant, respond with: []`;
 
+/** Default instruction prompt for the AI Notebook feature. */
+export const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
+You have a private notebook. After your roleplay response, you may append a <dle-notes> block. This block is AUTOMATICALLY HIDDEN from the reader — they will never see it. Your notes are saved and returned to you in future messages as "[Your previous session notes]" above.
+
+FORMAT — place this AFTER your entire response, on a new line:
+<dle-notes>
+- your notes here
+</dle-notes>
+
+RULES:
+- The <dle-notes> block must be the LAST thing you write, after all roleplay prose
+- Do NOT write notes as visible prose (no "Note to self:", "OOC:", or similar in your response)
+- Do NOT mention the notebook, notes, or <dle-notes> tags in your roleplay prose
+
+Use this space for anything you want to remember but can't put into the story right now — character motivations, unspoken thoughts, plot threads to revisit, world state, emotional arcs, planned callbacks, or anything else you find relevant.`;
+
 export const defaultSettings = {
     enabled: false,
     obsidianPort: 27124,

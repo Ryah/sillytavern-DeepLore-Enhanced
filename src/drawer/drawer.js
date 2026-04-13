@@ -17,8 +17,8 @@ import {
     vaultIndex,
     lastInjectionSources, loreGaps, librarianChatStats,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
-    onPipelineComplete, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
-    onIndexingChanged, onLoreGapsChanged, onClaudeAutoEffortChanged,
+    onPipelineComplete, onInjectionSourcesReady, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
+    onIndexingChanged, onLoreGapsChanged, onClaudeAutoEffortChanged, onPipelinePhaseChanged,
 } from '../state.js';
 
 // ─── Drawer sub-modules ───
@@ -520,6 +520,11 @@ export async function createDrawerPanel() {
         scheduleRender(renderStatusZone);
     }));
 
+    drawerListeners.stateObservers.push(onPipelinePhaseChanged(() => {
+        if (drawerDestroyed) return;
+        scheduleRender(renderStatusZone);
+    }));
+
     drawerListeners.stateObservers.push(onPipelineComplete(() => {
         if (drawerDestroyed) return;
         invalidateTemperatureCache();
@@ -531,6 +536,14 @@ export async function createDrawerPanel() {
         if (lastInjectionSources !== null) {
             announceToScreenReader(`Pipeline complete: ${lastInjectionSources.length} entries injected.`);
         }
+    }));
+
+    // Early Why? tab population — fires when injection sources are ready,
+    // before the agentic loop or ST generation starts. Only renders the
+    // injection tab; other tabs update on notifyPipelineComplete.
+    drawerListeners.stateObservers.push(onInjectionSourcesReady(() => {
+        if (drawerDestroyed) return;
+        scheduleRender(renderInjectionTab);
     }));
 
     drawerListeners.stateObservers.push(onGatingChanged(() => {

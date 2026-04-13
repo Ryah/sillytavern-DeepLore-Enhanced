@@ -47,7 +47,7 @@ No getter functions exist — other modules `import { vaultIndex } from './state
 | Variable | Type | Reset scope | Writers | Readers |
 |---|---|---|---|---|
 | `generationLock` | `boolean` | Chat (released) | onGenerate, CHAT_CHANGED | onGenerate lock check |
-| `generationLockTimestamp` | `number` (ms) | Chat (released) | setGenerationLock | stale lock detection |
+| `generationLockTimestamp` | `number` (ms) | Chat (released) | setGenerationLock, setGenerationLockTimestamp | stale lock detection |
 | `generationLockEpoch` | `number` (counter) | Chat (bumped) | setGenerationLock, CHAT_CHANGED, GENERATION_STOPPED | epoch guards |
 | `chatEpoch` | `number` (counter) | Never (monotonic) | CHAT_CHANGED (+1) | all epoch guards |
 | `generationCount` | `number` | Chat (→0) | finally block, CHAT_CHANGED | cooldown, analytics, rebuild trigger |
@@ -80,8 +80,7 @@ No getter functions exist — other modules `import { vaultIndex } from './state
 | Variable | Type | Reset scope | Writers | Readers |
 |---|---|---|---|---|
 | `loreGaps` | `array` | Chat (hydrated) | persistGaps, CHAT_CHANGED | drawer librarian tab |
-| `loreGapSearchCount` | `number` | Generation (→0) | onGenerate, flagLoreAction | max search limit |
-| `librarianToolsRegistered` | `boolean` | Session | registerLibrarianTools | registration guard |
+| `loreGapSearchCount` | `number` | Generation (→0) | onGenerate (agentic dispatch), searchLoreAction | max search limit |
 | `librarianSessionStats` | `{searchCalls, flagCalls, estimatedExtraTokens}` | **Session** (NOT reset) | librarian-tools.js | drawer footer |
 | `librarianChatStats` | `{searchCalls, flagCalls, estimatedExtraTokens}` | Chat (→zeroed) | librarian-tools.js, CHAT_CHANGED | drawer |
 
@@ -116,6 +115,7 @@ Each observable is a `Set<() => void>`. Registration returns an unsubscribe func
 | Index updated | `onIndexUpdated` | `notifyIndexUpdated` | finalizeIndex in vault.js | drawer, settings-ui |
 | AI stats | `onAiStatsUpdated` | `notifyAiStatsUpdated` | aiSearch, scribe calls | drawer footer |
 | Circuit state | `onCircuitStateChanged` | `notifyCircuitStateChanged` | recordAiSuccess/Failure | drawer, settings-ui |
+| Injection sources ready | `onInjectionSourcesReady` | `notifyInjectionSourcesReady` | `setLastInjectionSources()` commit (before `notifyPipelineComplete`) | drawer (Why? tab only) |
 | Pipeline complete | `onPipelineComplete` | `notifyPipelineComplete` | onGenerate finally, CHAT_CHANGED | drawer (all tabs) |
 | Gating changed | `onGatingChanged` | `notifyGatingChanged` | context/field changes, CHAT_CHANGED | drawer gating tab |
 | Pin/block changed | `onPinBlockChanged` | `notifyPinBlockChanged` | pin/block commands | drawer injection tab |
@@ -199,7 +199,6 @@ setLoreGaps(metadata.deeplore_lore_gaps?.map(normalizeLoreGap) || [])
 setLoreGapSearchCount(0)
 setLibrarianChatStats({...zeroed...})
 clearSessionActivityLog()
-clearPendingToolCalls()
 ```
 
 ### 9. UI Reset + Notifications (L1700-1702)
@@ -226,18 +225,15 @@ All registered via `_registerEs()` in init (L856+). Full list:
 
 | Event | Handler | Location |
 |---|---|---|
-| `GENERATION_STOPPED` | Release lock, clear status + tool status, bump lockEpoch, clear prompts | L1092-1110 |
+| `GENERATION_STOPPED` | Release lock, clear status, bump lockEpoch, clear prompts | L1092-1110 |
 | `GENERATION_ENDED` (AI Notebook) | Extract `<dle-notes>` (tag mode) or async extract (extract mode) | L1112-1187 |
-| `TOOL_CALLS_RENDERED` | Hide DLE system messages, show tool status counter | L1219-1232 |
-| `GENERATION_ENDED` (Librarian) | Consume pending tool calls, consolidate into dropdown | L1235-1280 |
 | `CHARACTER_MESSAGE_RENDERED` | Cartographer sources, AI Notebook fallback, Scribe trigger, Auto-suggest | L1283-1373 |
 | `MESSAGE_SWIPED` | Clear tool calls/sources/notes on swiped message, rebuild counts | L1376-1447 |
-| `MESSAGE_DELETED` | Scan and remove orphaned DLE tool-call intermediates | L1491-1543 |
+| ~~`MESSAGE_DELETED`~~ | *(Removed — agentic loop produces no intermediates to clean up)* | — |
 | `MESSAGE_SWIPE_DELETED` | Clean up per-message extras | L1493-1496 |
 | `CHAT_DELETED` / `GROUP_CHAT_DELETED` | Clear Librarian session state | L1502-1506 |
 | `CONNECTION_PROFILE_DELETED` | Null dangling profileIds, toast | L1518-1539 |
 | `CONNECTION_PROFILE_UPDATED` | Invalidate settings cache | L1540-1542 |
-| `CHATCOMPLETION_SOURCE_CHANGED` / `MAIN_API_CHANGED` | Re-assert function calling for Librarian | L1549-1555 |
 | `SETTINGS_UPDATED` | Invalidate settings cache | L1560-1562 |
 | `MESSAGE_EDITED` | Remove AI notes from edited message | L1564-1590 |
 | `CHAT_CHANGED` | Full reset sequence (see above) | L1593-1847 |

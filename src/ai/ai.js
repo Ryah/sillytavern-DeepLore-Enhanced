@@ -320,6 +320,7 @@ const HIERARCHICAL_THRESHOLD = 40;
  */
 export async function hierarchicalPreFilter(candidates, chat, signal) {
     const settings = getSettings();
+    if (!settings.hierarchicalPreFilter) return null; // Disabled by default — let the AI see all candidates
     const bootstrapActive = chat.length <= settings.newChatThreshold;
     let selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive }));
 
@@ -422,24 +423,39 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
         };
         const filtered = selectable.filter(entry => selectedCategories.has(pickCategory(entry)));
 
+        // BUG-396: Rescue entries whose primary keywords are explicitly mentioned in chat.
+        // The pre-filter selects by category, but categories are broad — an entry whose keyword
+        // literally appears in conversation should always reach the AI for evaluation.
+        const filteredSet = new Set(filtered);
+        const chatTextLower = chatContext.toLowerCase();
+        const rescued = [];
+        for (const entry of selectable) {
+            if (filteredSet.has(entry)) continue; // Already included
+            if (entry.keys && entry.keys.some(k => k && chatTextLower.includes(k.toLowerCase()))) {
+                rescued.push(entry);
+            }
+        }
+
         // Always include force-injected entries
         const forceInjected = candidates.filter(e => isForceInjected(e, { bootstrapActive }));
-        const filteredResult = [...forceInjected, ...filtered];
+        const filteredResult = [...forceInjected, ...filtered, ...rescued];
 
         if (settings.debugMode) {
-            console.log(`[DLE] Hierarchical pre-filter: ${clusters.size} categories → ${selectedCategories.size} selected, ${selectable.length} → ${filtered.length} entries`);
+            console.log(`[DLE] Hierarchical pre-filter: ${clusters.size} categories → ${selectedCategories.size} selected, ${selectable.length} → ${filtered.length} entries` + (rescued.length > 0 ? ` (+${rescued.length} keyword-rescued: ${rescued.map(e => e.title).join(', ')})` : ''));
         }
 
         // If filtering removed too many entries (>80% by default), skip — the AI was probably too aggressive
+        // BUG-396: Use filteredResult count (category + rescued) for retention check
+        const effectiveFiltered = filtered.length + rescued.length;
         const minRetention = 1 - (settings.hierarchicalAggressiveness ?? 0.8);
-        if (filtered.length < selectable.length * minRetention) {
+        if (effectiveFiltered < selectable.length * minRetention) {
             if (settings.debugMode) console.log('[DLE] Hierarchical pre-filter too aggressive, using full manifest');
             return null;
         }
 
         // BUG-H3: Warn when pre-filter drops >50% of candidates (even if within threshold)
-        if (filtered.length < selectable.length * 0.5 && settings.debugMode) {
-            console.warn(`[DLE] Hierarchical pre-filter dropped ${selectable.length - filtered.length}/${selectable.length} candidates — consider lowering aggressiveness`);
+        if (effectiveFiltered < selectable.length * 0.5 && settings.debugMode) {
+            console.warn(`[DLE] Hierarchical pre-filter dropped ${selectable.length - effectiveFiltered}/${selectable.length} candidates — consider lowering aggressiveness`);
         }
 
         // Release the half-open probe without affecting circuit state —

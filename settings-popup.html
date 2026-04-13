@@ -665,6 +665,15 @@
                 </div>
                 <div class="dle-advanced-section" data-section="sp_ai_filtering" style="display: none;">
                     <div class="flex-container">
+                        <div class="flex1" title="When enabled, large candidate sets (40+ keyword matches) are narrowed by category before AI selection. This uses an extra AI call. When disabled (default), all keyword-matched entries go directly to the AI for selection.">
+                            <label class="checkbox_label" for="dle-sp-hierarchical-prefilter">
+                                <input id="dle-sp-hierarchical-prefilter" type="checkbox" />
+                                <small>Category Pre-filter</small>
+                            </label>
+                            <span class="dle-text-xs dle-muted">Narrow candidates by category before AI selection (extra AI call)</span>
+                        </div>
+                    </div>
+                    <div class="flex-container" id="dle-sp-hierarchical-options">
                         <div class="flex1" title="Controls how aggressively categories are pruned for large vaults (40+ entries). Higher = more categories can be cut before AI selection. 0 = keep all categories.">
                             <label for="dle-sp-hierarchical-aggressiveness"><small>Category Filtering Strength</small></label>
                             <input id="dle-sp-hierarchical-aggressiveness" type="range" min="0" max="0.8" step="0.1" class="dle-w-full" />

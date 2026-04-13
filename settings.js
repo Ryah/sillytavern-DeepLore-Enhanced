@@ -193,6 +193,7 @@ export const defaultSettings = {
     advancedVisible: {},
     // AI Search advanced
     aiConfidenceThreshold: 'low',          // E1: low (all), medium (medium+high), high (high only)
+    hierarchicalPreFilter: false,             // E2a: enable hierarchical category pre-filter for large candidate sets
     hierarchicalAggressiveness: 0.8,       // E2: 0.0 (keep all) to 0.8 (aggressive); min retention = 1 - this
     manifestSummaryMode: 'prefer_summary', // E8: prefer_summary, summary_only, content_only
     // AI Fallback Strategy

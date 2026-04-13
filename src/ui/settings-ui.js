@@ -1255,6 +1255,8 @@ function loadPopupSettings($container) {
     $c('#dle-sp-ai-force-user-role').prop('checked', settings.aiForceUserRole);
     $c('#dle-sp-scribe-informed-retrieval').prop('checked', settings.scribeInformedRetrieval);
     $c('#dle-sp-ai-confidence-threshold').val(settings.aiConfidenceThreshold);
+    $c('#dle-sp-hierarchical-prefilter').prop('checked', settings.hierarchicalPreFilter);
+    $c('#dle-sp-hierarchical-options').toggle(!!settings.hierarchicalPreFilter);
     $c('#dle-sp-hierarchical-aggressiveness').val(settings.hierarchicalAggressiveness);
     $c('#dle-sp-hierarchical-value').text(settings.hierarchicalAggressiveness);
     $c('#dle-sp-manifest-summary-mode').val(settings.manifestSummaryMode);
@@ -1822,6 +1824,7 @@ function bindPopupEvents($container) {
     $c('#dle-sp-ai-force-user-role').on('change', function () { settings.aiForceUserRole = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-scribe-informed-retrieval').on('change', function () { settings.scribeInformedRetrieval = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-ai-confidence-threshold').on('change', function () { settings.aiConfidenceThreshold = String($(this).val()); saveSettingsDebounced(); });
+    $c('#dle-sp-hierarchical-prefilter').on('change', function () { settings.hierarchicalPreFilter = $(this).prop('checked'); $c('#dle-sp-hierarchical-options').toggle(settings.hierarchicalPreFilter); saveSettingsDebounced(); });
     $c('#dle-sp-hierarchical-aggressiveness').on('input', function () { const v = parseFloat($(this).val()); settings.hierarchicalAggressiveness = v; $c('#dle-sp-hierarchical-value').text(v.toFixed(1)); saveSettingsDebounced(); });
     $c('#dle-sp-manifest-summary-mode').on('change', function () { settings.manifestSummaryMode = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle-sp-ai-error-fallback').on('change', function () { settings.aiErrorFallback = String($(this).val()); saveSettingsDebounced(); });

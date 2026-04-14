@@ -636,23 +636,44 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // or equal to cached count (e.g. user deleted messages, or scanDepth changed).
     // After the trailing-assistant strip above, normal swipe/regen should already
     // hit the exact-match branch — this is a safety net.
+    // BUG-396b: Also verify prefix content — if the user edited a message mid-chat
+    // and the line count happened to stay the same or shrink, we must not cache-hit.
     if (aiSearchCache.manifestHash === manifestHash
         && aiSearchCache.chatLineCount > 0
         && getChatLines().length <= aiSearchCache.chatLineCount) {
-        aiSearchStats.cachedHits++;
-        notifyAiStatsUpdated();
-        if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-swipe-regen HIT (${getChatLines().length} lines vs cached ${aiSearchCache.chatLineCount})`);
-        return { results: resolveCachedResults(aiSearchCache.results), error: false };
+        // Verify content integrity: hash the current lines and compare to stored prefix
+        const currentContentHash = simpleHash(getChatLines().join('\n'));
+        if (aiSearchCache.prefixHash && currentContentHash !== aiSearchCache.prefixHash) {
+            if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-swipe-regen MISS — content changed (edit detected)');
+        } else {
+            aiSearchStats.cachedHits++;
+            notifyAiStatsUpdated();
+            if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-swipe-regen HIT (${getChatLines().length} lines vs cached ${aiSearchCache.chatLineCount})`);
+            return { results: resolveCachedResults(aiSearchCache.results), error: false };
+        }
     }
-    if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-swipe-regen MISS');
+    if (settings.debugMode && !(aiSearchCache.manifestHash === manifestHash && aiSearchCache.chatLineCount > 0 && getChatLines().length <= aiSearchCache.chatLineCount)) {
+        console.debug('[DLE][DIAG] ai-cache-swipe-regen MISS');
+    }
 
     // Sliding window: manifest unchanged + only newest message(s) differ.
     // BUG-394: If entityShortNameRegexes was rebuilt since the cache was written,
     // the sliding-window entity-mention scan would use a stale regex set — skip.
+    // BUG-396b: Also verify the prefix content hasn't changed (edit-in-place detection).
+    // Without this, editing a message mid-chat causes a stale cache hit because the
+    // sliding window only checks NEW lines at the end, not changes within existing lines.
     if (aiSearchCache.manifestHash === manifestHash
         && aiSearchCache.chatLineCount > 0
         && getChatLines().length > aiSearchCache.chatLineCount
         && (aiSearchCache.entityRegexVersion ?? -1) === entityRegexVersion) {
+        // Verify prefix content integrity — if existing lines changed, this is NOT
+        // a simple append and the cache is stale.
+        const prefixLines = getChatLines().slice(0, aiSearchCache.chatLineCount);
+        const prefixHash = simpleHash(prefixLines.join('\n'));
+        if (aiSearchCache.prefixHash && prefixHash !== aiSearchCache.prefixHash) {
+            if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-sliding-window MISS — prefix content changed (edit detected)');
+            // Fall through to full AI call
+        } else {
         // Extract only the new lines added since last cache
         const newLines = getChatLines().slice(aiSearchCache.chatLineCount);
         const newText = newLines.join(' ').toLowerCase();
@@ -677,6 +698,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             return { results: resolveCachedResults(aiSearchCache.results), error: false };
         }
         if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-sliding-window MISS — new entity mention found in new lines');
+        } // end prefix-intact else
     }
 
     if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-full-miss — all 4 tiers missed, calling AI');
@@ -859,6 +881,10 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             hash: chatHash,
             manifestHash,
             chatLineCount: getChatLines().length,
+            // BUG-396b: Store prefix hash for sliding-window content integrity check.
+            // If existing chat lines are edited in-place, the prefix hash will differ
+            // and the sliding window will correctly miss instead of returning stale results.
+            prefixHash: simpleHash(getChatLines().join('\n')),
             results: filteredResults.map(r => ({ title: r.entry.title, confidence: r.confidence, reason: r.reason })),
             matchedEntrySet,
             // BUG-394: stamp regex version so sliding-window hits are skipped when

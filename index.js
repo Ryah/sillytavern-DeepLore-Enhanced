@@ -401,6 +401,14 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                 setConsecutiveInjections(new Map(snap.consecutive));
                 setInjectionHistory(new Map(snap.injectionHistory));
                 setGenerationCount(snap.generationCount);
+                // BUG-396b: Clear the injection log on swipe/regen so strip-dedup
+                // doesn't filter entries that were injected into the message being
+                // regenerated. The old message's injections are no longer in context.
+                if (chat_metadata.deeplore_injection_log?.length > 0) {
+                    if (settings.debugMode) console.debug('[DLE][DIAG] swipe-restore-clear-log — clearing injection log (%d entries) because swipe/regen replaces the prior generation', chat_metadata.deeplore_injection_log.length);
+                    chat_metadata.deeplore_injection_log = [];
+                    saveMetadataDebounced();
+                }
                 if (settings.debugMode) console.debug('[DLE][DIAG] swipe-restore', {
                     restoredGenerationCount: snap.generationCount,
                     cooldownKeys: [...snap.cooldown.keys()],

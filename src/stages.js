@@ -366,7 +366,19 @@ export function applyRequiresExcludesGating(entries, policy, debugMode) {
  * @returns {Array} Filtered entries
  */
 export function applyStripDedup(entries, policy, injectionLog, lookbackDepth, defaultSettings, debugMode) {
-    if (!injectionLog || injectionLog.length === 0) return entries;
+    if (debugMode) {
+        console.debug('[DLE][DIAG] strip-dedup-fn-entry', {
+            logExists: !!injectionLog,
+            logIsArray: Array.isArray(injectionLog),
+            logLength: injectionLog?.length ?? 0,
+            lookbackDepth,
+            entryCount: entries.length,
+        });
+    }
+    if (!injectionLog || injectionLog.length === 0) {
+        if (debugMode) console.debug('[DLE][DIAG] strip-dedup-fn-early-return — log empty or missing, returning all entries');
+        return entries;
+    }
 
     const recentEntries = new Set();
     const recentLogs = injectionLog.slice(-lookbackDepth);
@@ -374,21 +386,32 @@ export function applyStripDedup(entries, policy, injectionLog, lookbackDepth, de
         recentEntries.add(`${logEntry.title}|${logEntry.pos}|${logEntry.depth}|${logEntry.role}|${logEntry.contentHash || ''}`);
     }
 
+    if (debugMode) {
+        console.debug('[DLE][DIAG] strip-dedup-set', {
+            recentLogCount: recentLogs.length,
+            recentLogGens: recentLogs.map(l => l.gen),
+            dedupSetSize: recentEntries.size,
+            dedupTitles: [...recentEntries].map(k => k.split('|')[0]),
+        });
+    }
+
     const before = entries.length;
     const result = entries.filter(e => {
-        if (policy.forceInject.has(e.title.toLowerCase())) return true;
-        const key = `${e.title}|${e.injectionPosition ?? defaultSettings.injectionPosition}|${e.injectionDepth ?? defaultSettings.injectionDepth}|${e.injectionRole ?? defaultSettings.injectionRole}|${e._contentHash || ''}`;
-        if (recentEntries.has(key)) {
-            if (debugMode) {
-                console.debug(`[DLE] Strip: "${e.title}" already injected in recent ${lookbackDepth} gen(s) — skipping`);
-            }
-            return false;
+        const forceExempt = policy.forceInject.has(e.title.toLowerCase());
+        if (forceExempt) {
+            if (debugMode) console.debug(`[DLE][DIAG] strip-dedup-entry-check EXEMPT "${e.title}" (forceInject)`);
+            return true;
         }
-        return true;
+        const key = `${e.title}|${e.injectionPosition ?? defaultSettings.injectionPosition}|${e.injectionDepth ?? defaultSettings.injectionDepth}|${e.injectionRole ?? defaultSettings.injectionRole}|${e._contentHash || ''}`;
+        const matched = recentEntries.has(key);
+        if (debugMode) {
+            console.debug(`[DLE][DIAG] strip-dedup-entry-check "${e.title}" — ${matched ? 'STRIPPED' : 'KEPT'}`, { key });
+        }
+        return !matched;
     });
 
     if (debugMode && result.length < before) {
-        console.log(`[DLE] Strip dedup removed ${before - result.length} entries`);
+        console.log(`[DLE][DIAG] strip-dedup-summary: removed ${before - result.length}/${before} entries`);
     }
 
     return result;

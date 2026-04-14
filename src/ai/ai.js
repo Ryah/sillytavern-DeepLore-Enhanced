@@ -586,13 +586,28 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         });
     }
 
+    if (settings.debugMode) {
+        console.debug('[DLE][DIAG] ai-cache-pre-check', {
+            chatHash: chatHash?.substring(0, 12),
+            manifestHash: manifestHash?.substring(0, 12),
+            cachedHash: aiSearchCache.hash?.substring(0, 12) || 'EMPTY',
+            cachedManifestHash: aiSearchCache.manifestHash?.substring(0, 12) || 'EMPTY',
+            cachedChatLineCount: aiSearchCache.chatLineCount,
+            cachedResultCount: aiSearchCache.results?.length ?? 0,
+            cachedResultTitles: aiSearchCache.results?.map(r => r.title) ?? [],
+            hashMatch: aiSearchCache.hash === chatHash,
+            manifestMatch: aiSearchCache.manifestHash === manifestHash,
+        });
+    }
+
     if (aiSearchCache.hash === chatHash && aiSearchCache.manifestHash === manifestHash && aiSearchCache.chatLineCount > 0) {
         // Exact match — nothing changed at all (includes cached empty results)
         aiSearchStats.cachedHits++;
         notifyAiStatsUpdated();
-        if (settings.debugMode) console.debug('[DLE] AI search cache hit (exact)');
+        if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-exact HIT — returning %d cached results', aiSearchCache.results?.length);
         return { results: resolveCachedResults(aiSearchCache.results), error: false };
     }
+    if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-exact MISS');
 
     // Keyword-set stability check: manifest unchanged and current keyword-matched
     // candidate set is a subset of the cached one. Catches typo fixes, prose edits,
@@ -611,9 +626,10 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         if (isSubset) {
             aiSearchStats.cachedHits++;
             notifyAiStatsUpdated();
-            if (settings.debugMode) console.debug('[DLE] AI search cache hit (keyword-stable)');
+            if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-keyword-stable HIT');
             return { results: resolveCachedResults(aiSearchCache.results), error: false };
         }
+        if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-keyword-stable MISS — new candidates not subset of cached set');
     }
 
     // Defensive sliding-window degenerate case: manifest unchanged and chat shorter
@@ -625,9 +641,10 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         && getChatLines().length <= aiSearchCache.chatLineCount) {
         aiSearchStats.cachedHits++;
         notifyAiStatsUpdated();
-        if (settings.debugMode) console.debug(`[DLE] AI search cache hit (swipe/regen: ${getChatLines().length} lines vs cached ${aiSearchCache.chatLineCount})`);
+        if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-swipe-regen HIT (${getChatLines().length} lines vs cached ${aiSearchCache.chatLineCount})`);
         return { results: resolveCachedResults(aiSearchCache.results), error: false };
     }
+    if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-swipe-regen MISS');
 
     // Sliding window: manifest unchanged + only newest message(s) differ.
     // BUG-394: If entityShortNameRegexes was rebuilt since the cache was written,
@@ -656,10 +673,13 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         if (!hasNewEntityMention) {
             aiSearchStats.cachedHits++;
             notifyAiStatsUpdated();
-            if (settings.debugMode) console.debug(`[DLE] AI search cache hit (sliding window: ${newLines.length} new lines, no entity mentions)`);
+            if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-sliding-window HIT (${newLines.length} new lines, no entity mentions)`);
             return { results: resolveCachedResults(aiSearchCache.results), error: false };
         }
+        if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-sliding-window MISS — new entity mention found in new lines');
     }
+
+    if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-full-miss — all 4 tiers missed, calling AI');
 
     try {
         // Resolve system prompt with {{maxEntries}} placeholder
@@ -835,7 +855,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         const matchedEntrySet = Array.isArray(candidateEntries)
             ? new Set(candidateEntries.map(e => (e?.title || '').toLowerCase()).filter(Boolean))
             : null;
-        setAiSearchCache({
+        const _cachePayload = {
             hash: chatHash,
             manifestHash,
             chatLineCount: getChatLines().length,
@@ -844,7 +864,17 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             // BUG-394: stamp regex version so sliding-window hits are skipped when
             // entityShortNameRegexes has been rebuilt since this cache entry was written.
             entityRegexVersion,
-        });
+        };
+        setAiSearchCache(_cachePayload);
+        if (settings.debugMode) {
+            console.debug('[DLE][DIAG] ai-cache-write', {
+                hash: chatHash?.substring(0, 12),
+                manifestHash: manifestHash?.substring(0, 12),
+                chatLineCount: _cachePayload.chatLineCount,
+                resultCount: _cachePayload.results.length,
+                resultTitles: _cachePayload.results.map(r => r.title),
+            });
+        }
 
         if (settings.debugMode) {
             console.log(`[DLE] AI search found ${aiResults.length} titles, matched ${results.length} entries${threshold !== 'low' ? `, ${filteredResults.length} after confidence threshold (${threshold})` : ''}`);

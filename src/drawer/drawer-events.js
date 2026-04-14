@@ -15,6 +15,8 @@ import {
     fieldDefinitions, folderList,
     loreGaps, setLoreGaps,
     setAiSearchCache, setLastInjectionSources,
+    aiSearchCache, lastGenerationTrackerSnapshot,
+    generationCount, chatEpoch,
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
@@ -198,7 +200,36 @@ export function wireStatusActions($drawer) {
             case 'newlore': executeCommand('/dle-newlore'); break;
             case 'librarian-chat': executeCommand('/dle-librarian'); break;
             case 'graph': executeCommand('/dle-graph'); break;
-            case 'clear-picks':
+            case 'clear-picks': {
+                const settings = getSettings();
+                if (settings.debugMode) {
+                    const snap = lastGenerationTrackerSnapshot;
+                    const log = chat_metadata.deeplore_injection_log;
+                    console.debug('[DLE][DIAG] clear-picks-start', {
+                        aiCache: {
+                            hashEmpty: !aiSearchCache.hash,
+                            manifestHashEmpty: !aiSearchCache.manifestHash,
+                            resultCount: aiSearchCache.results?.length ?? 0,
+                            resultTitles: aiSearchCache.results?.map(r => r.title) ?? [],
+                        },
+                        injectionLog: {
+                            exists: !!log,
+                            length: log?.length ?? 0,
+                            entries: log?.map(e => ({ gen: e.gen, titles: e.entries?.map(x => x.title) })) ?? [],
+                        },
+                        snapshot: snap ? {
+                            swipeKey: snap.swipeKey,
+                            generationCount: snap.generationCount,
+                            cooldownSize: snap.cooldown?.size ?? 0,
+                            decaySize: snap.decay?.size ?? 0,
+                            consecutiveSize: snap.consecutive?.size ?? 0,
+                            historySize: snap.injectionHistory?.size ?? 0,
+                        } : null,
+                        lastInjectionSources: lastInjectionSources ? 'set' : 'null',
+                        generationCount,
+                        chatEpoch,
+                    });
+                }
                 setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
                 setLastInjectionSources(null);
                 // BUG-396: Also clear the injection log so strip-dedup doesn't remove
@@ -207,8 +238,15 @@ export function wireStatusActions($drawer) {
                     chat_metadata.deeplore_injection_log = [];
                     saveMetadataDebounced();
                 }
+                if (settings.debugMode) {
+                    console.debug('[DLE][DIAG] clear-picks-done', {
+                        logAfterClear: chat_metadata.deeplore_injection_log,
+                        cacheAfterClear: { hashEmpty: !aiSearchCache.hash, resultCount: aiSearchCache.results?.length ?? 0 },
+                    });
+                }
                 toastr.info('Search cache cleared — next generation will re-select lore.', 'DeepLore');
                 break;
+            }
             case 'skip-tools': {
                 const newVal = !suppressNextAgenticLoop;
                 setSuppressNextAgenticLoop(newVal);

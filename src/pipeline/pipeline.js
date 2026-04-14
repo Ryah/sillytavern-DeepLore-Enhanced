@@ -71,6 +71,21 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         refineKeyBlocked: [],
     };
 
+    if (settings.debugMode) {
+        console.debug('[DLE][DIAG] pipeline-run', {
+            mode: trace.mode,
+            vaultSnapshotSize: vaultSnapshot.length,
+            chatLength: chat.length,
+            bootstrapActive,
+            generationCount,
+            aiSearchEnabled: settings.aiSearchEnabled,
+            aiSearchMode: settings.aiSearchMode,
+            pinCount: pins.length,
+            blockCount: blocks.length,
+            folderFilter: folderFilter?.length ?? 'none',
+        });
+    }
+
     let finalEntries;
     let matchedKeys = new Map();
 

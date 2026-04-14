@@ -297,6 +297,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         // On first generation after hydration, clear stale dedup logs
         // (cached _contentHash values may not match current Obsidian content)
         if (!indexEverLoaded && vaultIndex.length > 0 && chat_metadata?.deeplore_injection_log?.length > 0) {
+            if (settings.debugMode) console.debug('[DLE][DIAG] hydration-clear — wiping injection log (indexEverLoaded=false, vaultSize=%d, logLen=%d)', vaultIndex.length, chat_metadata.deeplore_injection_log.length);
             chat_metadata.deeplore_injection_log = [];
         }
 
@@ -318,10 +319,32 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
 
         // Diagnostic breadcrumb: log pipeline entry state for first-gen investigation
         if (settings.debugMode) {
-            console.debug('[DLE] Pipeline entry:', {
+            const _diagLog = chat_metadata.deeplore_injection_log;
+            const _diagSnap = lastGenerationTrackerSnapshot;
+            console.debug('[DLE][DIAG] pipeline-entry', {
                 generationCount, vaultSize: vaultIndex.length, indexEverLoaded,
                 chatMsgCount: chatMessages.length, buildPending: !!buildPromise,
-                cacheEmpty: !aiSearchCache.hash, epoch, chatEpoch,
+                epoch, chatEpoch,
+                aiCache: {
+                    hashEmpty: !aiSearchCache.hash,
+                    manifestHashEmpty: !aiSearchCache.manifestHash,
+                    resultCount: aiSearchCache.results?.length ?? 0,
+                    resultTitles: aiSearchCache.results?.map(r => r.title) ?? [],
+                },
+                injectionLog: {
+                    exists: !!_diagLog,
+                    isArray: Array.isArray(_diagLog),
+                    length: _diagLog?.length ?? 0,
+                    entries: _diagLog?.map(e => ({ gen: e.gen, count: e.entries?.length, titles: e.entries?.map(x => x.title) })) ?? [],
+                },
+                snapshot: _diagSnap ? {
+                    swipeKey: _diagSnap.swipeKey,
+                    generationCount: _diagSnap.generationCount,
+                    cooldownSize: _diagSnap.cooldown?.size ?? 0,
+                    decaySize: _diagSnap.decay?.size ?? 0,
+                    consecutiveSize: _diagSnap.consecutive?.size ?? 0,
+                    historySize: _diagSnap.injectionHistory?.size ?? 0,
+                } : 'NO_SNAPSHOT',
             });
         }
 
@@ -361,14 +384,28 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             const earlyIdx = chatMessages.length - 1;
             const earlySwipeId = earlyIdx >= 0 ? (chatMessages[earlyIdx]?.swipe_id ?? 0) : 0;
             const earlySwipeKey = `${earlyIdx}|${earlySwipeId}`;
-            if (lastGenerationTrackerSnapshot && lastGenerationTrackerSnapshot.swipeKey === earlySwipeKey) {
+            const _snapMatch = lastGenerationTrackerSnapshot && lastGenerationTrackerSnapshot.swipeKey === earlySwipeKey;
+            if (settings.debugMode) {
+                console.debug('[DLE][DIAG] swipe-check', {
+                    earlyIdx, earlySwipeId, earlySwipeKey,
+                    snapshotSwipeKey: lastGenerationTrackerSnapshot?.swipeKey ?? 'NO_SNAPSHOT',
+                    snapshotGenCount: lastGenerationTrackerSnapshot?.generationCount ?? 'N/A',
+                    match: _snapMatch ? 'SWIPE_DETECTED' : 'NO_MATCH',
+                    generationCountBefore: generationCount,
+                });
+            }
+            if (_snapMatch) {
                 const snap = lastGenerationTrackerSnapshot;
                 setCooldownTracker(new Map(snap.cooldown));
                 setDecayTracker(new Map(snap.decay));
                 setConsecutiveInjections(new Map(snap.consecutive));
                 setInjectionHistory(new Map(snap.injectionHistory));
                 setGenerationCount(snap.generationCount);
-                if (settings.debugMode) console.debug('[DLE] Swipe detected — restored tracker snapshot');
+                if (settings.debugMode) console.debug('[DLE][DIAG] swipe-restore', {
+                    restoredGenerationCount: snap.generationCount,
+                    cooldownKeys: [...snap.cooldown.keys()],
+                    historyKeys: [...snap.injectionHistory.keys()],
+                });
             }
             // Take a fresh snapshot for THIS generation (tagged with the CURRENT swipe key).
             setLastGenerationTrackerSnapshot({
@@ -379,6 +416,12 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                 injectionHistory: new Map(injectionHistory),
                 generationCount: generationCount,
             });
+            if (settings.debugMode) {
+                console.debug('[DLE][DIAG] swipe-snapshot-taken', {
+                    swipeKey: earlySwipeKey,
+                    snapshotGenerationCount: generationCount,
+                });
+            }
         }
 
         // Contextual gating context: passed to both pipeline (pre-filter) and post-pipeline stages
@@ -477,7 +520,30 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         // Stage 5: Strip duplicate injections
         let postDedup = gated;
         if (settings.stripDuplicateInjections) {
+            if (settings.debugMode) {
+                const _sLog = chat_metadata.deeplore_injection_log;
+                console.debug('[DLE][DIAG] strip-dedup-input', {
+                    gatedCount: gated.length,
+                    gatedTitles: gated.map(e => e.title),
+                    lookbackDepth: settings.stripLookbackDepth,
+                    injectionLog: {
+                        ref: _sLog === null ? 'NULL' : _sLog === undefined ? 'UNDEFINED' : 'OBJECT',
+                        isArray: Array.isArray(_sLog),
+                        length: _sLog?.length ?? 0,
+                        entries: _sLog?.map(e => ({ gen: e.gen, count: e.entries?.length, titles: e.entries?.map(x => x.title) })) ?? [],
+                    },
+                });
+            }
             postDedup = applyStripDedup(gated, policy, chat_metadata.deeplore_injection_log, settings.stripLookbackDepth, settings, settings.debugMode);
+            if (settings.debugMode) {
+                const _removed = gated.filter(e => !postDedup.some(p => p.title === e.title));
+                console.debug('[DLE][DIAG] strip-dedup-result', {
+                    keptCount: postDedup.length,
+                    keptTitles: postDedup.map(e => e.title),
+                    removedCount: _removed.length,
+                    removedTitles: _removed.map(e => e.title),
+                });
+            }
             if (trace) {
                 const postDedupTitles = new Set(postDedup.map(e => e.title));
                 trace.stripDedupRemoved = gated.filter(e => !postDedupTitles.has(e.title)).map(e => e.title);
@@ -683,6 +749,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             if (!chat_metadata.deeplore_injection_log) {
                 chat_metadata.deeplore_injection_log = [];
             }
+            const _logLenBefore = chat_metadata.deeplore_injection_log.length;
             chat_metadata.deeplore_injection_log.push({
                 gen: generationCount + 1,
                 entries: injectedEntries.map(e => ({
@@ -694,10 +761,28 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                 })),
             });
             const maxHistory = settings.stripLookbackDepth + 1;
-            if (chat_metadata.deeplore_injection_log.length > maxHistory) {
+            const _trimmed = chat_metadata.deeplore_injection_log.length > maxHistory;
+            if (_trimmed) {
                 chat_metadata.deeplore_injection_log = chat_metadata.deeplore_injection_log.slice(-maxHistory);
             }
+            if (settings.debugMode) {
+                console.debug('[DLE][DIAG] injection-log-write', {
+                    genRecorded: generationCount + 1,
+                    injectedTitles: injectedEntries.map(e => e.title),
+                    injectedCount: injectedEntries.length,
+                    logLenBefore: _logLenBefore,
+                    logLenAfter: chat_metadata.deeplore_injection_log.length,
+                    trimmed: _trimmed,
+                    maxHistory,
+                });
+            }
             saveMetadataDebounced();
+        } else if (settings.debugMode) {
+            console.debug('[DLE][DIAG] injection-log-write-SKIPPED', {
+                stripDuplicateInjections: settings.stripDuplicateInjections,
+                epochMatch: epoch === chatEpoch,
+                epoch, chatEpoch,
+            });
         }
 
         // Stage 8: Analytics (use postDedup — entries that passed all gating — as "matched")

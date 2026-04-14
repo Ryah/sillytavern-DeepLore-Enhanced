@@ -383,3 +383,13 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Why:** When OFF (default), `deeplore_tool_calls` is deleted from `message.extra` on every swipe (`index.js` L1432-1436). Librarian dropdowns are always ephemeral. Gaps accumulate across messages. When ON, tool calls and gap records persist per-message across swipes, and gaps are cleared at generation start instead. This setting changes the entire gap and dropdown lifecycle.
 
 **Where:** `index.js` MESSAGE_SWIPED handler (L1432-1436), `onGenerate` gap clearing (L264-266). `src/state.js` (`librarianPerMessageActivity` read via `getSettings()`).
+
+---
+
+## 36. Clear Picks Must Reset All Pipeline Caches
+
+**Rule:** The "Clear Picks" action must clear the AI search cache AND the injection log (`deeplore_injection_log`). If a new cache is added that influences entry selection, Clear Picks must clear it too.
+
+**Why (BUG-396):** Strip-dedup uses `deeplore_injection_log` to suppress entries "already in context." If a user deletes a message and clears picks, the log still contains entries from the deleted message — strip-dedup removes them as duplicates even though the injected content is gone. The user sees entries vanish despite their keywords appearing in chat.
+
+**Where:** `src/drawer/drawer-events.js` Clear Picks handler. The three things it must clear: (1) `aiSearchCache` — AI selection results, (2) `lastInjectionSources` — drawer display, (3) `chat_metadata.deeplore_injection_log` — strip-dedup history.

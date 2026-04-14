@@ -14,7 +14,7 @@ import { accountStorage } from '../../../../../util/AccountStorage.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
 import {
-    vaultIndex,
+    vaultIndex, generationLock,
     lastInjectionSources, loreGaps, librarianChatStats,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onInjectionSourcesReady, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
@@ -565,7 +565,10 @@ export async function createDrawerPanel() {
     drawerListeners.stateObservers.push(onGenerationLockChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
-        scheduleRender(renderInjectionTab);
+        // Only re-render Why? tab on lock ACQUIRE (to show "Choosing lore..." spinner).
+        // On lock release, onInjectionSourcesReady already populated it — re-rendering
+        // here just causes a visible flicker from the full DOM replacement.
+        if (generationLock) scheduleRender(renderInjectionTab);
     }));
 
     drawerListeners.stateObservers.push(onIndexingChanged(() => {

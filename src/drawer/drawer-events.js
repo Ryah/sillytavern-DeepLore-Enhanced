@@ -205,6 +205,7 @@ export function wireStatusActions($drawer) {
                 // entries that were in deleted/regenerated messages.
                 if (chat_metadata.deeplore_injection_log) {
                     chat_metadata.deeplore_injection_log = [];
+                    saveMetadataDebounced();
                 }
                 toastr.info('Search cache cleared — next generation will re-select lore.', 'DeepLore');
                 break;

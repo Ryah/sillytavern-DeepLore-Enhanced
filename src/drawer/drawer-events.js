@@ -201,6 +201,11 @@ export function wireStatusActions($drawer) {
             case 'clear-picks':
                 setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
                 setLastInjectionSources(null);
+                // BUG-396: Also clear the injection log so strip-dedup doesn't remove
+                // entries that were in deleted/regenerated messages.
+                if (chat_metadata.deeplore_injection_log) {
+                    chat_metadata.deeplore_injection_log = [];
+                }
                 toastr.info('Search cache cleared — next generation will re-select lore.', 'DeepLore');
                 break;
             case 'skip-tools': {

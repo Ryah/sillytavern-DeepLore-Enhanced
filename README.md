@@ -1,5 +1,9 @@
 <p align="center">
-  <img alt="DeepLore Enhanced" src="wiki/images/full-logo.png">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="wiki/images/full-logo-darkmode.png">
+    <source media="(prefers-color-scheme: light)" srcset="wiki/images/full-logo-lightmode.png">
+    <img alt="DeepLore Enhanced" src="wiki/images/full-logo-lightmode.png">
+  </picture>
 </p>
 
 <p align="center">

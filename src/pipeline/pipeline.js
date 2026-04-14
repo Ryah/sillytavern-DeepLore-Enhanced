@@ -135,6 +135,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const _aiStart = performance.now();
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates, signal);
             trace.aiSearchMs = Math.round(performance.now() - _aiStart);
+            trace.aiCached = aiResult.cached ?? false; // BUG-396c: thread cache-hit flag for injection log staleness detection
             if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
@@ -257,6 +258,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const _aiStart2 = performance.now();
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates, signal);
             trace.aiSearchMs = Math.round(performance.now() - _aiStart2);
+            trace.aiCached = aiResult.cached ?? false; // BUG-396c
             if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;

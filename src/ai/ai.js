@@ -498,7 +498,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     if (!tryAcquireHalfOpenProbe()) {
         if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
         dedupWarning('AI search is resting after errors — using keywords for now.', 'ai_circuit', { timeOut: 8000, hint: 'Circuit breaker tripped after 2 consecutive failures; retrying in ~30s.' });
-        return { results: [], error: true, errorMessage: 'AI search temporarily paused' };
+        return { results: [], error: true, cached: false, errorMessage: 'AI search temporarily paused' };
     }
 
     // BUG-CACHE-FIX: Strip trailing assistant slot before hashing.
@@ -515,7 +515,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
     }
     let chatContext = buildAiChatContext(chatForCache, settings.aiSearchScanDepth);
-    if (!chatContext.trim()) return { results: [], error: false };
+    if (!chatContext.trim()) return { results: [], error: false, cached: false };
 
     // Prepend seed entry content as story context on new chats.
     // BUG-390: compute from chatForCache (same source as the sliding-window cache)
@@ -605,7 +605,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         aiSearchStats.cachedHits++;
         notifyAiStatsUpdated();
         if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-exact HIT — returning %d cached results', aiSearchCache.results?.length);
-        return { results: resolveCachedResults(aiSearchCache.results), error: false };
+        return { results: resolveCachedResults(aiSearchCache.results), error: false, cached: true };
     }
     if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-exact MISS');
 
@@ -627,7 +627,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             aiSearchStats.cachedHits++;
             notifyAiStatsUpdated();
             if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-keyword-stable HIT');
-            return { results: resolveCachedResults(aiSearchCache.results), error: false };
+            return { results: resolveCachedResults(aiSearchCache.results), error: false, cached: true };
         }
         if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-keyword-stable MISS — new candidates not subset of cached set');
     }
@@ -649,7 +649,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             aiSearchStats.cachedHits++;
             notifyAiStatsUpdated();
             if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-swipe-regen HIT (${getChatLines().length} lines vs cached ${aiSearchCache.chatLineCount})`);
-            return { results: resolveCachedResults(aiSearchCache.results), error: false };
+            return { results: resolveCachedResults(aiSearchCache.results), error: false, cached: true };
         }
     }
     if (settings.debugMode && !(aiSearchCache.manifestHash === manifestHash && aiSearchCache.chatLineCount > 0 && getChatLines().length <= aiSearchCache.chatLineCount)) {
@@ -695,7 +695,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             aiSearchStats.cachedHits++;
             notifyAiStatsUpdated();
             if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-sliding-window HIT (${newLines.length} new lines, no entity mentions)`);
-            return { results: resolveCachedResults(aiSearchCache.results), error: false };
+            return { results: resolveCachedResults(aiSearchCache.results), error: false, cached: true };
         }
         if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-sliding-window MISS — new entity mention found in new lines');
         } // end prefix-intact else
@@ -912,7 +912,7 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
 
         recordAiSuccess();
-        return { results: filteredResults, error: false };
+        return { results: filteredResults, error: false, cached: false };
     } catch (err) {
         // BUG-005: Detect timeouts from both profile mode (AbortError) and proxy mode (message-based)
         // BUG-252: user aborts are distinct from timeouts — both skip circuit-break, but user
@@ -942,6 +942,6 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             console.error('[DLE] AI search error:', err);
         }
         // BUG-004: Include error message for pipeline trace enrichment
-        return { results: [], error: true, errorMessage: err.message || String(err) };
+        return { results: [], error: true, cached: false, errorMessage: err.message || String(err) };
     }
 }

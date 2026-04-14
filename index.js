@@ -380,11 +380,13 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         // BUG-291/292: Swipe rollback by slot+swipe_id, not content hash. Content-hashing missed
         // alternate-swipe navigation (content changes → new hash → treated as fresh gen → drift)
         // and collided with delete+regen. The `${msgIdx}|${swipe_id}` key is stable across those.
+        // BUG-396c: _snapMatch hoisted so it's accessible at strip-dedup time for injection log clearing.
+        let _snapMatch = false;
         {
             const earlyIdx = chatMessages.length - 1;
             const earlySwipeId = earlyIdx >= 0 ? (chatMessages[earlyIdx]?.swipe_id ?? 0) : 0;
             const earlySwipeKey = `${earlyIdx}|${earlySwipeId}`;
-            const _snapMatch = lastGenerationTrackerSnapshot && lastGenerationTrackerSnapshot.swipeKey === earlySwipeKey;
+            _snapMatch = !!(lastGenerationTrackerSnapshot && lastGenerationTrackerSnapshot.swipeKey === earlySwipeKey);
             if (settings.debugMode) {
                 console.debug('[DLE][DIAG] swipe-check', {
                     earlyIdx, earlySwipeId, earlySwipeKey,
@@ -526,6 +528,20 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         }
 
         // Stage 5: Strip duplicate injections
+        // BUG-396c: Clear stale injection log when context changed, BEFORE strip-dedup reads it.
+        // Two signals: (1) swipe/regen detected — old injections were for the message being replaced,
+        // (2) AI cache missed all tiers — chat content changed enough that old dedup entries are stale.
+        // This is done here (not at swipe-restore time) because chat_metadata may be reassigned
+        // by SillyTavern during the async AI search, making the swipe-restore clear unreliable.
+        if (settings.stripDuplicateInjections && (_snapMatch || !trace.aiCached)) {
+            if (chat_metadata.deeplore_injection_log?.length > 0) {
+                if (settings.debugMode) console.debug('[DLE][DIAG] strip-dedup-log-clear — %s, clearing %d stale injection log entries',
+                    _snapMatch ? 'swipe/regen detected' : 'AI cache missed (context changed)',
+                    chat_metadata.deeplore_injection_log.length);
+                chat_metadata.deeplore_injection_log = [];
+                saveMetadataDebounced();
+            }
+        }
         let postDedup = gated;
         if (settings.stripDuplicateInjections) {
             if (settings.debugMode) {

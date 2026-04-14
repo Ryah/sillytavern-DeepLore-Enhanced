@@ -1,12 +1,6 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/icon-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/icon-light.svg">
-    <img alt="DeepLore Enhanced" src="docs/icon-light.svg" width="96">
-  </picture>
+  <img alt="DeepLore Enhanced" src="wiki/images/full-logo.png">
 </p>
-
-<h1 align="center">DeepLore Enhanced</h1>
 
 <p align="center">
   <strong>AI-Powered Obsidian Vault Lorebook for SillyTavern</strong><br>

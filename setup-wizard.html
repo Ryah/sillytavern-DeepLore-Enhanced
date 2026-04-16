@@ -90,7 +90,7 @@
             <div class="dle-wizard-row">
                 <div class="dle-wizard-field" style="flex: 1;">
                     <label for="dle-wiz-port">Port</label>
-                    <input id="dle-wiz-port" class="text_pole" type="number" value="27124" />
+                    <input id="dle-wiz-port" class="text_pole" type="number" value="27123" />
                 </div>
                 <div class="dle-wizard-field" style="flex: 2;">
                     <label for="dle-wiz-api-key">API Key</label>
@@ -99,13 +99,17 @@
             </div>
             <div class="dle-wizard-field">
                 <label class="checkbox_label">
-                    <input id="dle-wiz-https" type="checkbox" checked />
+                    <input id="dle-wiz-https" type="checkbox" />
                     <span>Use HTTPS</span>
-                    <small class="dle-wizard-muted">(recommended — default port 27124)</small>
+                    <small class="dle-wizard-muted">(port 27124 — see note below)</small>
                 </label>
                 <a id="dle-wiz-trust-cert" href="#" class="dle-wizard-muted" style="font-size: 0.85em; display: none;">
                     <i class="fa-solid fa-shield-halved"></i> Trust Certificate (open in new tab)
                 </a>
+                <p class="dle-wizard-muted" style="font-size: 0.85em; margin-top: 4px;">
+                    <i class="fa-solid fa-circle-info"></i> <strong>HTTP is recommended.</strong> HTTPS requires trusting a self-signed certificate, which DLE does not provide support for. If you need HTTPS, see the
+                    <a href="https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F" target="_blank" rel="noopener">Local REST API author's guide</a>.
+                </p>
             </div>
 
             <button id="dle-wiz-test-conn" class="menu_button dle-wizard-action-btn">

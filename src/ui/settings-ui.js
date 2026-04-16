@@ -74,7 +74,7 @@ function renderVaultList(settings, container = null) {
 
     for (let i = 0; i < vaults.length; i++) {
         const v = vaults[i];
-        const useHttps = v.https !== false; // default true for new vaults
+        const useHttps = !!v.https;
         html += `<div class="dle-vault-row" data-index="${i}">
             <div class="flex-container" style="gap: 6px; align-items: center;">
                 <label class="checkbox_label" style="flex: 0 0 auto;" title="Enable/disable this vault">
@@ -84,7 +84,7 @@ function renderVaultList(settings, container = null) {
                 <input type="text" class="dle-vault-host text_pole" placeholder="Host" value="${escapeHtml(v.host || '127.0.0.1')}" style="flex: 0 0 100px;" aria-label="Vault host" />
                 <input type="number" class="dle-vault-port text_pole" placeholder="Port" value="${v.port}" min="1" max="65535" style="flex: 0 0 80px;" aria-label="Vault port" />
                 <input type="password" class="dle-vault-key text_pole" placeholder="API Key" value="${escapeHtml(v.apiKey)}" style="flex: 2; min-width: 100px;" aria-label="API key" />
-                <label class="checkbox_label" style="flex: 0 0 auto;" title="Use HTTPS (recommended — Obsidian REST API uses HTTPS by default on port 27124)">
+                <label class="checkbox_label" style="flex: 0 0 auto;" title="Use HTTPS (port 27124). HTTP is recommended — see wiki for HTTPS setup.">
                     <input type="checkbox" class="dle-vault-https checkbox" ${useHttps ? 'checked' : ''} />
                     <span class="dle-text-sm">HTTPS</span>
                 </label>
@@ -98,6 +98,7 @@ function renderVaultList(settings, container = null) {
             <div class="flex-container" style="gap: 8px; align-items: center;">
                 <span class="dle-vault-status dle-status dle-text-sm"></span>
                 <a class="dle-vault-trust-cert dle-text-sm" href="https://${escapeHtml(v.host || '127.0.0.1')}:${v.port}" target="_blank" rel="noopener noreferrer" style="display: ${useHttps ? 'inline' : 'none'}; white-space: nowrap;" title="Open Obsidian REST API URL to trust the self-signed certificate"><i class="fa-solid fa-shield-halved"></i> Trust Certificate</a>
+                <span class="dle-text-sm dle-vault-https-note" style="display: ${useHttps ? 'inline' : 'none'}; opacity: 0.7;"><i class="fa-solid fa-circle-info"></i> HTTP is recommended. For HTTPS help, see the <a href="https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F" target="_blank" rel="noopener">Local REST API author's guide</a>.</span>
             </div>
         </div>`;
     }
@@ -181,14 +182,17 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
             portInput.val(27123);
             settings.vaults[idx].port = 27123;
         }
-        // Show/hide trust cert link and update its URL
+        // Show/hide trust cert link, HTTPS note, and update URL
         const trustLink = row.find('.dle-vault-trust-cert');
+        const httpsNote = row.find('.dle-vault-https-note');
         if (useHttps) {
             const host = settings.vaults[idx].host || '127.0.0.1';
             const port = settings.vaults[idx].port;
             trustLink.attr('href', `https://${host}:${port}`).show();
+            httpsNote.show();
         } else {
             trustLink.hide();
+            httpsNote.hide();
         }
         saveSettingsDebounced();
     });
@@ -259,7 +263,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     // Add vault button
     const $addButton = $addBtn || $('#dle-add-vault');
     $addButton.on('click', function () {
-        settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27124, apiKey: '', enabled: true, https: true });
+        settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27123, apiKey: '', enabled: true, https: false });
         saveSettingsDebounced();
         renderVaultList(settings, container[0]);
     });

@@ -100,7 +100,7 @@ function prefillFromSettings() {
     if (v.host) $wizard.find('#dle-wiz-host').val(v.host);
     if (v.port) $wizard.find('#dle-wiz-port').val(v.port);
     if (v.apiKey) $wizard.find('#dle-wiz-api-key').val(v.apiKey);
-    $wizard.find('#dle-wiz-https').prop('checked', v.https !== false);
+    $wizard.find('#dle-wiz-https').prop('checked', !!v.https);
 
     // Page 3: Tags
     $wizard.find('#dle-wiz-lorebook-tag').val(s.lorebookTag || 'lorebook');
@@ -276,7 +276,7 @@ function wireConnectionTest() {
         const $result = $wizard.find('#dle-wiz-conn-result');
 
         const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
-        const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27124;
+        const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
         const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
         const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
@@ -674,7 +674,7 @@ function wireVaultStructurePage() {
 
 async function runVaultStructureCreation() {
     const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
-    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27124;
+    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
     const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
     const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
@@ -954,7 +954,7 @@ async function applyWizardSettings() {
     // Connection
     const vaultName = $wizard.find('#dle-wiz-vault-name').val().trim() || 'Primary';
     const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
-    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27124;
+    const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
     const apiKey = $wizard.find('#dle-wiz-api-key').val().trim();
     const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 

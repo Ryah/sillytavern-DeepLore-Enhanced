@@ -77,7 +77,7 @@ Use this space for anything you want to remember but can't put into the story ri
 
 export const defaultSettings = {
     enabled: false,
-    obsidianPort: 27124,
+    obsidianPort: 27123,
     obsidianApiKey: '',
     lorebookTag: 'lorebook',
     constantTag: 'lorebook-always',
@@ -550,8 +550,7 @@ export function getSettings() {
  */
 export function getPrimaryVault(settings) {
     const s = settings || getSettings();
-    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', host: '127.0.0.1', port: 27124, apiKey: '', https: true, enabled: false };
-    // BUG-339: port 27124 is the Obsidian Local REST API HTTPS default — legacy migration below matches.
+    return (s.vaults && s.vaults.find(v => v.enabled)) || s.vaults?.[0] || { name: 'Default', host: '127.0.0.1', port: 27123, apiKey: '', https: false, enabled: false };
 }
 
 /**

@@ -167,7 +167,7 @@ export async function runScribe(customPrompt) {
         if (!charName) charName = 'Unknown';
         const filename = `${settings.scribeFolder}/${charName} - ${dateStr} ${timeStr}.md`;
 
-        const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: "${charName.replace(/"/g, '\\"')}"\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${sanitizedSummary.trim()}\n`;
+        const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: "${charName.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${sanitizedSummary.trim()}\n`;
 
         // Bail if chat changed during async scribe work
         if (epoch !== chatEpoch) {

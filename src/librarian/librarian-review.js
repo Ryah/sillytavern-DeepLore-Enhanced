@@ -453,7 +453,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     textarea.replaceWith(newContent);
                     editBtn.style.display = '';
                     btnRow.remove();
-                    newContent.parentElement.querySelector('.dle-lib-msg-content').textContent = newText;
+                    // (redundant write removed — newContent already has textContent set above)
 
                     // Send edited message
                     sending = true;

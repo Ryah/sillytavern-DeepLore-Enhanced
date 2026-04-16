@@ -202,8 +202,8 @@ export function renderLibrarianTab() {
         const selClass = isSelected ? 'dle-gap-selected' : '';
 
         html += `<div class="dle-librarian-entry ${tintClass} ${subtypeClass} ${selClass}" style="--dle-gap:${score.toFixed(2)}" `
-            + `data-gap-id="${escapeHtml(gap.id)}" data-subtype="${gap.subtype || 'gap'}" ${entryTitleAttr} `
-            + `data-urgency="${gap.urgency || 'medium'}" role="listitem" `
+            + `data-gap-id="${escapeHtml(gap.id)}" data-subtype="${escapeHtml(gap.subtype || 'gap')}" ${entryTitleAttr} `
+            + `data-urgency="${escapeHtml(gap.urgency || 'medium')}" role="listitem" `
             + `aria-expanded="false" aria-label="${title}, ${statusInfo.label}" tabindex="0">`;
         html += `<input type="checkbox" class="dle-gap-check" ${isSelected ? 'checked' : ''} aria-label="Select ${title}" tabindex="-1">`;
         // Update flags get a pen icon; gaps get the status icon

@@ -125,7 +125,7 @@ export function deduplicateMultiVault(entries, mode) {
                     for (const [k, val] of Object.entries(entry.customFields)) {
                         if (Array.isArray(val) && val.length > 0) {
                             existing.customFields[k] = [...new Set([...(existing.customFields[k] || []), ...val])];
-                        } else if (!existing.customFields[k] && val != null) {
+                        } else if (existing.customFields[k] == null && val != null) {
                             existing.customFields[k] = val;
                         }
                     }

@@ -23,7 +23,7 @@ const TOKENIZE_SPLIT_RE = /[^\p{L}\p{N}]+/u;
  *  Note: CJK text without spaces will produce long unsplit tokens — a proper CJK
  *  tokenizer would need n-gram splitting, which is out of scope. */
 export function tokenize(text) {
-    return text.toLowerCase().split(TOKENIZE_SPLIT_RE).filter(t => t.length >= 2);
+    return text.normalize('NFC').toLowerCase().split(TOKENIZE_SPLIT_RE).filter(t => t.length >= 2);
 }
 
 /**

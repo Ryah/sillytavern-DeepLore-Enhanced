@@ -30,7 +30,7 @@ export const eventBuffer = new RingBuffer(100);
  * @param {object} [data] - Event-specific payload (kept small — no content/PII)
  */
 export function pushEvent(kind, data) {
-    try { eventBuffer.push({ t: Date.now(), kind, ...data }); } catch { /* never throw */ }
+    try { eventBuffer.push({ ...data, t: Date.now(), kind }); } catch { /* never throw */ }
 }
 
 // ── Single install guard (HMR / double-import safe).
@@ -65,7 +65,7 @@ function patchConsole() {
                 const msg = safeStringify(args);
                 const entry = { t: Date.now(), level, msg };
                 // Tag DLE-originated entries so they can be filtered from global noise
-                if (msg.startsWith('"[DLE')) entry.dle = true;
+                if (msg.startsWith('[DLE') || msg.startsWith('"[DLE')) entry.dle = true;
                 consoleBuffer.push(entry);
             } catch {
                 try { consoleBuffer.push({ t: Date.now(), level, msg: '[serialization failed]' }); } catch { /* last resort */ }

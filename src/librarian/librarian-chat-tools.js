@@ -214,7 +214,7 @@ function toolGetEntry(args) {
     ].filter(Boolean).join('\n');
 
     const raw = entry.content || '(no content)';
-    const maxLen = TOOL_RESULT_MAX_CHARS - meta.length - 100;
+    const maxLen = Math.max(TOOL_RESULT_MAX_CHARS - meta.length - 100, 200);
     const content = truncate(raw, maxLen);
     const wasTruncated = raw.length > maxLen;
     const footer = wasTruncated ? '\n\n[Content truncated — use get_full_content to see the complete entry]' : '';

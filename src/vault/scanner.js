@@ -75,7 +75,7 @@ export async function scanVaults(opts = {}) {
             const authed = res.status !== 401 && (info.authenticated === true || res.ok);
             return {
                 scheme, host, port,
-                vaultName: info.versions?.self || info.name || info.vault || '(unknown)',
+                vaultName: info.name || info.vault || '(unknown)',
                 version: info.versions?.self || info.versions?.api || null,
                 authenticated: authed,
                 status: res.status,

@@ -46,11 +46,17 @@ export function registerVaultCommands() {
         callback: async () => {
             // Don't pre-clear vaultIndex — buildIndex replaces it atomically.
             // Pre-clearing would give zero entries to any generation during rebuild.
-            setIndexTimestamp(0);
-            await buildIndex();
-            const msg = `Indexed ${vaultIndex.length} entries.`;
-            toastr.success(msg, 'DeepLore Enhanced');
-            return msg;
+            try {
+                setIndexTimestamp(0);
+                await buildIndex();
+                const msg = `Indexed ${vaultIndex.length} entries.`;
+                toastr.success(msg, 'DeepLore Enhanced');
+                return msg;
+            } catch (err) {
+                console.warn('[DLE] /dle-refresh failed:', err);
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
+                return '';
+            }
         },
         helpString: 'Rebuild the vault index by re-fetching all entries from Obsidian.',
         returns: ARGUMENT_TYPE.STRING,

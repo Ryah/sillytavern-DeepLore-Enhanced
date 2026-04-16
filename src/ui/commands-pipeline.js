@@ -83,7 +83,14 @@ export function registerPipelineCommands() {
             const cmdPins = chat_metadata.deeplore_pins || [];
             const cmdBlocks = chat_metadata.deeplore_blocks || [];
             const folderFilter = chat_metadata?.deeplore_folder_filter || null;
-            const { finalEntries, matchedKeys } = await runPipeline(chat, getWriterVisibleEntries(), gatingContext, { pins: cmdPins, blocks: cmdBlocks, folderFilter });
+            let finalEntries, matchedKeys;
+            try {
+                ({ finalEntries, matchedKeys } = await runPipeline(chat, getWriterVisibleEntries(), gatingContext, { pins: cmdPins, blocks: cmdBlocks, folderFilter }));
+            } catch (err) {
+                console.warn('[DLE] /dle-why pipeline failed:', err);
+                toastr.error(classifyError(err), 'DeepLore Enhanced');
+                return '';
+            }
 
             // Apply re-injection cooldown (matches onGenerate order)
             let filtered = finalEntries;

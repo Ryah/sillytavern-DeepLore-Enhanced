@@ -152,8 +152,12 @@ export function registerAiCommands() {
             toastr.info(`Sending ${vaultIndex.length} entries (~${totalTokens} tokens)...`, 'DeepLore Enhanced', { timeOut: 5000 });
 
             setSkipNextPipeline(true); // Bypass DLE pipeline for this generation
-            await sendMessageAsUser(message, '');
-            await Generate('normal');
+            try {
+                await sendMessageAsUser(message, '');
+                await Generate('normal');
+            } finally {
+                setSkipNextPipeline(false);
+            }
 
             return '';
             } catch (err) {

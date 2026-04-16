@@ -6,9 +6,9 @@
 <div id="dle-drawer-status" class="dle-drawer-zone dle-zone-status" role="status" aria-label="DeepLore status">
 
     <!-- Status + stats row -->
-    <div class="dle-status-row">
+    <div class="dle-status-row" aria-live="assertive" aria-atomic="true">
         <span class="dle-status-dot" title="System status" role="img" aria-label="System status: loading"></span>
-        <span class="dle-pipeline-label" aria-label="Activity">Idle</span>
+        <span class="dle-pipeline-label" aria-label="Activity" aria-live="polite">Idle</span>
         <span class="dle-stat-divider" aria-hidden="true">|</span>
         <span class="dle-stat" data-stat="entries" title="Vault entries indexed" aria-label="0 vault entries indexed">0</span>
         <span class="dle-stat" data-stat="mode" title="AI search mode" aria-label="Search mode: loading">—</span>
@@ -152,7 +152,7 @@
     <div class="dle-tab-panel" id="dle-panel-browse" data-tab="browse"
          role="tabpanel" aria-labelledby="dle-tab-browse">
         <div class="dle-panel-toolbar">
-            <input type="text" class="text_pole dle-browse-input" placeholder="Search entries..." aria-label="Search vault entries" />
+            <input type="text" class="text_pole dle-browse-input" placeholder="Search entries... (/)" aria-label="Search vault entries" />
             <i class="fa-solid fa-spinner fa-spin dle-browse-refresh-spinner" aria-hidden="true" title="Refreshing vault index..."></i>
             <button class="dle-tab-expand" data-expand="browse" title="Open full Browse popup" aria-label="Open full Browse popup">
                 Full View <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>

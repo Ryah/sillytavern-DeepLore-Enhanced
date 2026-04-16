@@ -21,6 +21,7 @@ import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS
 
 let _lastAnnouncedStatus = null;
 let _lastStatusKey = null;
+let _lastSkipToolsState = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Status Zone — Mascot SVG Icons
@@ -85,8 +86,18 @@ export function renderStatusZone() {
     const pipelineText = indexing ? 'Indexing…' : PHASE_LABELS[pipelinePhase] || (ds.stGenerating ? 'Generating…' : 'Idle');
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
 
-    // Sync skip-tools toggle button visual state
-    $drawer.find('.dle-action-btn[data-action="skip-tools"]').toggleClass('dle-toggle-active', suppressNextAgenticLoop);
+    // Sync skip-tools toggle button visual state; pulse on change
+    const $skipBtn = $drawer.find('.dle-action-btn[data-action="skip-tools"]');
+    $skipBtn.toggleClass('dle-toggle-active', suppressNextAgenticLoop);
+    if (_lastSkipToolsState !== null && _lastSkipToolsState !== suppressNextAgenticLoop) {
+        $skipBtn.removeClass('dle-skip-tools-pulse');
+        requestAnimationFrame(() => {
+            $skipBtn.addClass('dle-skip-tools-pulse').off('animationend.skiptoolspulse').one('animationend.skiptoolspulse', function () {
+                $(this).removeClass('dle-skip-tools-pulse');
+            });
+        });
+    }
+    _lastSkipToolsState = suppressNextAgenticLoop;
 
     // First-run setup banner (shown when no vaults configured and setup not dismissed)
     const $setupBanner = $drawer.find('.dle-setup-banner');
@@ -122,7 +133,9 @@ export function renderStatusZone() {
         const $eStat = $entries.closest('.dle-stat');
         $eStat.removeClass('dle-stat-changed');
         $eStat[0]?.offsetWidth; // force reflow to restart animation
-        $eStat.addClass('dle-stat-changed').off('animationend').one('animationend', function () { $(this).removeClass('dle-stat-changed'); });
+        const _eStatEl = $eStat[0];
+        $eStat.addClass('dle-stat-changed').off('animationend.statclean').one('animationend.statclean', function () { $(this).removeClass('dle-stat-changed'); });
+        setTimeout(() => { if (_eStatEl) $(_eStatEl).removeClass('dle-stat-changed'); }, 600);
     }
     const vaultCount = settings.vaults?.filter(v => v.enabled !== false).length || 1;
     const entryTitle = indexing
@@ -199,6 +212,7 @@ export function renderStatusZone() {
             ? Math.min(100, Math.round((injectedNum / vaultIndex.length) * 100)) || 1
             : 0;
     const $entriesBarContainer = $drawer.find('.dle-entries-bar-container');
+    $entriesBarContainer.toggleClass('dle-indexing-shimmer', !!indexing);
     $entriesBarContainer.attr('aria-valuenow', injectedNum).attr('aria-valuemax', maxEntries);
     $entriesBarContainer.removeClass('dle-budget-high dle-budget-critical');
     if (entriesPct >= 95) $entriesBarContainer.addClass('dle-budget-critical');

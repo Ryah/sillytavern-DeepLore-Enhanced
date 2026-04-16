@@ -9,7 +9,7 @@ import {
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
-import { ds, formatTokensCompact, activityLog } from './drawer-state.js';
+import { ds, formatTokensCompact, activityLog, announceToScreenReader } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Footer Zone — Health Icons + AI Stats + Context Bar
@@ -39,9 +39,11 @@ export function renderFooter() {
     const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
     const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
     const contextUsed = ds.contextTokens || 0;
+    const libExtra = librarianChatStats.estimatedExtraTokens || 0;
+    const totalUsed = contextUsed + libExtra;
 
     if (maxContext > 0) {
-        const contextPct = Math.min(100, (contextUsed / maxContext) * 100);
+        const contextPct = Math.min(100, (totalUsed / maxContext) * 100);
         const responsePct = Math.min(100 - contextPct, (responseTokens / maxContext) * 100);
 
         $footer.find('.dle-context-bar-context').css('width', `${contextPct}%`);
@@ -50,10 +52,8 @@ export function renderFooter() {
             width: `${responsePct}%`,
         });
 
-        const libExtra = librarianChatStats.estimatedExtraTokens || 0;
-        const totalUsed = contextUsed + libExtra;
         const label = totalUsed
-            ? `${formatTokensCompact(totalUsed)} / ${formatTokensCompact(maxContext)}`
+            ? `${formatTokensCompact(totalUsed)} / ${formatTokensCompact(maxContext)}${libExtra > 0 ? ` (+${formatTokensCompact(libExtra)} lib)` : ''}`
             : `— / ${formatTokensCompact(maxContext)}`;
         $footer.find('.dle-context-bar-label').text(label);
 
@@ -190,4 +190,16 @@ export function renderFooter() {
     $footer.find('[data-ai-stat="cached"]').text(`${aiSearchStats.cachedHits} cached`);
     const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
     $footer.find('[data-ai-stat="tokens"]').text(`${formatTokensCompact(totalTok)} tokens`);
+
+    // Input/output split tooltip + clickable breakdown (items 5 & 6)
+    const $aiStats = $footer.find('.dle-ai-stats');
+    if ($aiStats.length && (aiSearchStats.totalInputTokens > 0 || aiSearchStats.totalOutputTokens > 0)) {
+        const splitTitle = `${formatTokensCompact(aiSearchStats.totalInputTokens)} input tokens · ${formatTokensCompact(aiSearchStats.totalOutputTokens)} output tokens`;
+        $aiStats.attr('title', splitTitle).attr('role', 'button').attr('tabindex', '0');
+        $aiStats.off('click.aistats keydown.aistats').on('click.aistats', function () {
+            announceToScreenReader(`AI search: ${aiSearchStats.calls} calls, ${aiSearchStats.cachedHits} cached. ${splitTitle}`);
+        }).on('keydown.aistats', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+        });
+    }
 }

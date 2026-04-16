@@ -100,7 +100,7 @@ export function renderLibrarianTab() {
         if (feed.length === 0) {
             $list.empty();
             const $text = $empty.find('.dle-librarian-empty-text');
-            $text.text('No tool activity recorded yet. Activity appears when Librarian searches the vault or flags gaps during a reply.');
+            $text.text('No tool activity recorded yet. Activity appears when Librarian searches the vault or flags gaps during a reply. Requires tool-calling model.');
             $empty.find('.dle-librarian-empty-actions').css('display', '');
             $empty.addClass('dle-visible');
             $toolbarBottom.css('display', 'none');
@@ -237,6 +237,9 @@ export function renderLibrarianTab() {
     const allSelected = selCount > 0 && gaps.every(g => ds.librarianSelected.has(g.id));
     $selectAllBar.find('.dle-librarian-select-all').prop('checked', allSelected);
     $selectAllBar.find('.dle-librarian-select-count').text(selCount > 0 ? `${selCount} item${selCount === 1 ? '' : 's'} selected` : '');
+    if (!$selectAllBar.find('.dle-librarian-clear-btn').length) {
+        $selectAllBar.append('<button class="dle-librarian-clear-btn" type="button" aria-label="Clear selection">×</button><button class="dle-librarian-invert-btn" type="button" aria-label="Invert selection">Invert</button>');
+    }
 
     // Action buttons: act on selection only; disable when empty
     const hasSelection = selCount > 0;

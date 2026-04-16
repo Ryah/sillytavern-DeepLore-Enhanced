@@ -5633,3 +5633,127 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
     opacity: var(--dle-opacity-muted, 0.7);
 }
 
+/* ============================================================================
+ * P3 Polish — Status, Footer, Browse, Gating, Librarian
+ * ============================================================================ */
+
+/* Item 7: skip-tools state-change pulse (1 iter, 600ms, subtle scale+fade) */
+@keyframes dle-skip-tools-pulse {
+    0%   { transform: scale(1);    opacity: 1; }
+    40%  { transform: scale(1.18); opacity: 0.75; }
+    100% { transform: scale(1);    opacity: 1; }
+}
+.dle-skip-tools-pulse {
+    animation: dle-skip-tools-pulse 600ms ease-out 1;
+}
+
+/* Item 8: indexing shimmer on entries-bar-container (infinite while active) */
+@keyframes dle-indexing-shimmer {
+    0%   { background-position: -200% center; }
+    100% { background-position: 200% center; }
+}
+.dle-indexing-shimmer {
+    background: linear-gradient(90deg,
+        transparent 25%,
+        color-mix(in srgb, var(--dle-accent) 30%, transparent) 50%,
+        transparent 75%) center / 200% auto;
+    animation: dle-indexing-shimmer 1.4s linear infinite;
+}
+
+/* Item 9: browse copy-title ghost button matching .dle-browse-pin */
+button.dle-browse-copy-title-btn {
+    font-size: var(--dle-text-base);
+    cursor: pointer;
+    opacity: var(--dle-opacity-muted);
+    background: none;
+    border: none;
+    color: inherit;
+    padding: 6px;
+    min-width: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+button.dle-browse-copy-title-btn:hover {
+    opacity: 1;
+    background: var(--dle-bg-hover);
+    border-radius: var(--dle-radius-sm);
+}
+button.dle-browse-copy-title-btn:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    border-radius: var(--dle-radius-sm);
+}
+
+/* Item 10: gating-clear-btn — × dismiss matching chip dismiss style */
+.dle-gating-clear-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--dle-text-muted);
+    font-size: var(--dle-text-sm);
+    padding: 0 var(--dle-space-1);
+    border-radius: var(--dle-radius-sm);
+    line-height: 1;
+    opacity: var(--dle-opacity-muted);
+}
+.dle-gating-clear-btn:hover {
+    opacity: 1;
+    color: var(--dle-error);
+    background: color-mix(in srgb, var(--dle-error) 12%, transparent);
+}
+.dle-gating-clear-btn:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
+
+/* Item 11: librarian clear + invert buttons matching .dle-librarian-select-all-bar style */
+.dle-librarian-clear-btn,
+.dle-librarian-invert-btn {
+    font-size: var(--dle-text-xs);
+    padding: 2px var(--dle-space-2);
+    background: none;
+    border: 1px solid var(--dle-border);
+    border-radius: var(--dle-radius-sm);
+    color: var(--dle-text-muted);
+    cursor: pointer;
+    opacity: var(--dle-opacity-muted);
+    transition: opacity 0.15s, border-color 0.15s;
+}
+.dle-librarian-clear-btn:hover,
+.dle-librarian-invert-btn:hover {
+    opacity: 1;
+    border-color: var(--dle-accent);
+    color: var(--dle-accent);
+}
+.dle-librarian-clear-btn:focus-visible,
+.dle-librarian-invert-btn:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
+
+/* Item 12: why-clear-filter-pill inline pill matching .dle-browse-clear-filters */
+.dle-why-clear-filter-pill {
+    display: inline-block;
+    padding: 2px var(--dle-space-2);
+    background: transparent;
+    border: 1px solid var(--dle-accent);
+    color: var(--dle-accent);
+    border-radius: var(--dle-radius-pill);
+    cursor: pointer;
+    font-size: var(--dle-text-xs);
+    line-height: 1.4;
+    vertical-align: middle;
+}
+.dle-why-clear-filter-pill:hover {
+    background: color-mix(in srgb, var(--dle-accent) 15%, transparent);
+}
+.dle-why-clear-filter-pill:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
+

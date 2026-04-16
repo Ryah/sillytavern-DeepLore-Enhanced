@@ -202,11 +202,19 @@ export function wireStatusActions($drawer) {
             case 'refresh': {
                 if (ds.refreshing) return;
                 ds.refreshing = true;
-                buildIndex().catch(err => console.warn('[DLE] Manual refresh failed:', err.message)).finally(() => { ds.refreshing = false; });
+                const $refreshBtn = $(this);
+                $refreshBtn.prop('disabled', true).find('i').removeClass('fa-sync').addClass('fa-spin fa-spinner');
+                buildIndex().catch(err => console.warn('[DLE] Manual refresh failed:', err.message)).finally(() => {
+                    ds.refreshing = false;
+                    $refreshBtn.prop('disabled', false).find('i').removeClass('fa-spin fa-spinner').addClass('fa-sync');
+                });
                 break;
             }
             case 'scribe': {
                 if (generationLock) { toastr.warning('Generation in progress.', 'DeepLore Enhanced', { timeOut: 2000 }); return; }
+                const $scribeBtn = $(this);
+                $scribeBtn.prop('disabled', true).find('i').addClass('fa-spin');
+                setTimeout(() => $scribeBtn.prop('disabled', false).find('i').removeClass('fa-spin'), 15000);
                 executeCommand('/dle-scribe');
                 break;
             }
@@ -356,6 +364,10 @@ export function wireBrowseTab($drawer) {
             $drawer.find('.dle-browse-refresh-spinner').css('visibility', '');
             ds.browseQuery = val;
             scheduleRender(renderBrowseTab);
+            requestAnimationFrame(() => {
+                const n = ds.browseFilteredEntries?.length ?? 0;
+                announceToScreenReader(`${n} result${n !== 1 ? 's' : ''}`);
+            });
         }, 250);
     });
 
@@ -381,6 +393,7 @@ export function wireBrowseTab($drawer) {
     $drawer.find('[data-sort]').on('change', function () {
         ds.browseSort = $(this).val();
         try { accountStorage.setItem('dle-browse-sort', ds.browseSort); } catch { /* noop */ }
+        toastr.info(`Sorted by ${$(this).find('option:selected').text()}`, 'DeepLore Enhanced', { timeOut: 1500 });
         scheduleRender(renderBrowseTab);
     });
 
@@ -442,6 +455,7 @@ export function wireBrowseTab($drawer) {
                 });
             }
             announceToScreenReader(`Pinned ${title}`);
+            toastr.info(`Pinned: ${title}`, 'DeepLore Enhanced', { timeOut: 2000 });
         }
         saveMetadataDebounced();
         notifyPinBlockChanged();
@@ -476,6 +490,7 @@ export function wireBrowseTab($drawer) {
                 });
             }
             announceToScreenReader(`Blocked ${title}`);
+            toastr.info(`Blocked: ${title}`, 'DeepLore Enhanced', { timeOut: 2000 });
         }
         saveMetadataDebounced();
         notifyPinBlockChanged();
@@ -1066,6 +1081,38 @@ export function wireLibrarianTab($drawer) {
             if (dismissN) parts.push(`${dismissN} dismissed`);
             announceToScreenReader(parts.join(', '));
             scheduleRender(renderLibrarianTab);
+        }
+    });
+
+    // Invert selection
+    $drawer.on('click keydown', '.dle-librarian-invert-btn', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.type === 'keydown') e.preventDefault();
+        const allIds = $drawer.find('.dle-librarian-list .dle-librarian-entry').map(function () { return $(this).data('gap-id'); }).get();
+        const inverted = allIds.filter(id => !ds.librarianSelected.has(id));
+        ds.librarianSelected = new Set(inverted);
+        scheduleRender(renderLibrarianTab);
+    });
+}
+
+/** Wire global drawer keyboard shortcuts (r=refresh, s=scribe, n=newlore, g=graph, /=focus search) */
+export function wireGlobalShortcuts($drawer) {
+    $drawer.on('keydown.dle-shortcuts', function (e) {
+        if (e.target.matches('input, textarea, [contenteditable]')) return;
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
+        switch (e.key) {
+            case 'r': e.preventDefault(); $drawer.find('.dle-action-btn[data-action="refresh"]').trigger('click'); break;
+            case 's': e.preventDefault(); $drawer.find('.dle-action-btn[data-action="scribe"]').trigger('click'); break;
+            case 'n': { const $n = $drawer.find('.dle-action-btn[data-action="newlore"]'); if ($n.length) { e.preventDefault(); $n.trigger('click'); } break; }
+            case 'g': e.preventDefault(); $drawer.find('.dle-action-btn[data-action="graph"]').trigger('click'); break;
+            case '/': {
+                const $panel = $drawer.find('#dle-panel-browse');
+                if ($panel.hasClass('active')) {
+                    e.preventDefault();
+                    $drawer.find('.dle-browse-input').trigger('focus');
+                }
+                break;
+            }
         }
     });
 }

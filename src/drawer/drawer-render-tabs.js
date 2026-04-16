@@ -83,6 +83,7 @@ export function renderInjectionTab() {
     const diff = computeSourcesDiff(sources, prev);
 
     // Diff header
+    $diff.attr('aria-live', 'polite');
     const diffParts = [];
     if (diff.added.length) diffParts.push(`<span class="dle-diff-add">+${diff.added.length} new</span>`);
     if (diff.removed.length) diffParts.push(`<span class="dle-diff-remove">-${diff.removed.length} removed</span>`);
@@ -487,6 +488,7 @@ export function renderBrowseTab() {
     // Update filter summary line
     const $summary = $drawer.find('.dle-browse-summary');
     const isFiltered = query || statusFilter !== 'all' || tagFilter || ds.browseFolderFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
+    $summary.attr('aria-live', 'polite');
     if (isFiltered && entries.length !== vaultIndex.length) {
         $summary.text(`Showing ${entries.length} of ${vaultIndex.length} entries`).show();
     } else {
@@ -663,7 +665,7 @@ export function renderBrowseWindow() {
         if (e.keys && e.keys.length) _hoverParts.push(`Keys: ${escapeHtml(e.keys.join(', '))}`);
         if (e.tokenEstimate) _hoverParts.push(`Tokens: ${e.tokenEstimate}`);
         const _hoverTitle = _hoverParts.length ? ` title="${_hoverParts.join('&#10;&#10;')}"` : '';
-        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}" aria-describedby="${previewId}"${_hoverTitle}>`;
+        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)} (Enter or click)" aria-describedby="${previewId}"${_hoverTitle}>`;
         html += `<span class="dle-browse-title">${escapeHtml(e.title)}${e.guide ? ' <span class="dle-browse-guide-pill" title="Writing guide — read by the Librarian (Emma) only, never sent to the writing AI. Add \'lorebook-guide\' tag to create one."><i class="fa-solid fa-book-open-reader" aria-hidden="true"></i> Guide</span>' : ''}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
@@ -678,6 +680,7 @@ export function renderBrowseWindow() {
         html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected. Set via #lorebook-always tag.' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
         html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isPinned ? 'Unpin' : 'Pin'}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
         html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isBlocked ? 'Unblock' : 'Block'}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;
+        html += `<button class="dle-browse-copy-title-btn" data-action="copy-title" data-title="${escapeHtml(e.title)}" aria-label="Copy title" title="Copy title"><i class="fa-solid fa-copy" aria-hidden="true"></i></button>`;
         html += `</div>`;
         html += `</div>`;
     }
@@ -772,7 +775,7 @@ export function renderGatingTab() {
         if (hasFolders) {
             let chipsHtml = '';
             for (const f of activeFolders) {
-                chipsHtml += `<span class="dle-chip">${escapeHtml(f)} <button class="dle-chip-x dle-folder-chip-x" data-folder="${escapeHtml(f)}" aria-label="Remove ${escapeHtml(f)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`;
+                chipsHtml += `<span class="dle-chip" title="${escapeHtml(f)}">${escapeHtml(f)} <button class="dle-chip-x dle-folder-chip-x" data-folder="${escapeHtml(f)}" aria-label="Remove ${escapeHtml(f)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`;
             }
             // Exclusion count
             const excluded = vaultIndex.filter(e => {
@@ -838,11 +841,11 @@ export function renderGatingTab() {
         const $setBtn = $value.find('.dle-gating-set');
 
         // Remove everything except the set button
-        $value.find('.dle-chip, .dle-gating-empty, .dle-gating-count').remove();
+        $value.find('.dle-chip, .dle-gating-empty, .dle-gating-count, .dle-gating-clear-btn').remove();
 
         if (!fd.multi) {
             if (value) {
-                $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
+                $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span><button class="dle-gating-clear-btn" type="button" data-action="clear-gating-field" data-field="${escapeHtml(fd.name)}" aria-label="Clear ${escapeHtml(fd.label)}">×</button>`);
                 // Impact count: entries with this field set but don't match
                 const filtered = vaultIndex.filter(e => {
                     const val = e.customFields?.[fd.name];
@@ -871,6 +874,7 @@ export function renderGatingTab() {
                 if (filtered > 0) {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
+                $setBtn.before(`<button class="dle-gating-clear-btn" type="button" data-action="clear-gating-field-all" data-field="${escapeHtml(fd.name)}" aria-label="Clear all ${escapeHtml(fd.label)}">Clear all</button>`);
             } else {
                 $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: none set">None set — click + to add</span>`);
             }

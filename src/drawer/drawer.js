@@ -35,7 +35,7 @@ import { renderLibrarianTab } from './drawer-render-librarian.js';
 import {
     switchTab,
     wireToolsTab, wireTabExpand, wireStatusActions, wireInjectionTab, wireBrowseTab, wireGatingTab, wireHealthIcons,
-    wireLibrarianTab,
+    wireLibrarianTab, wireGlobalShortcuts,
 } from './drawer-events.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -392,6 +392,7 @@ export async function createDrawerPanel() {
     wireGatingTab($drawer);
     wireLibrarianTab($drawer);
     wireHealthIcons($drawer);
+    wireGlobalShortcuts($drawer);
 
     // Wire browse navigation buttons (Why? tab → Browse tab)
     // Delegated here to avoid circular imports (drawer-events.js ← drawer.js)
@@ -606,9 +607,9 @@ export async function createDrawerPanel() {
     drawerListeners.stateObservers.push(onLoreGapsChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderLibrarianTab);
-        // Update footer context bar with librarian extra tokens
-        if (ds.contextBarAvailable && ds.promptManagerRef?.tokenUsage != null) {
-            ds.contextTokens = ds.promptManagerRef.tokenUsage + (librarianChatStats.estimatedExtraTokens || 0);
+        // Librarian tokens changed — re-render footer so label suffix reflects new total.
+        // ds.contextTokens stays as raw PM tokens; footer adds librarianChatStats.estimatedExtraTokens at display time.
+        if (ds.contextBarAvailable) {
             scheduleRender(renderFooter);
         }
         // Debounced screen reader announcement for new gaps (500ms during generation bursts)

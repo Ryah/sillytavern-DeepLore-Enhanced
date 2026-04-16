@@ -171,9 +171,10 @@ export function renderLibrarianTab() {
             $emptyActions.css('display', 'none');
         } else {
             $text.text('No flagged issues yet. The AI will flag missing or stale lore during replies. Requires a tool-calling capable model.');
-            $text.after('<p style="font-size: var(--dle-text-xs); opacity: 0.7; margin-top: var(--dle-space-1);">Check Settings → Features → Librarian to enable.</p>');
             $emptyActions.css('display', '');
         }
+        // Clean up any stale hint paragraphs appended by earlier renders (pre-fix dup bug)
+        $text.nextAll('p').remove();
         $empty.addClass('dle-visible');
         $toolbarBottom.css('display', 'none');
         updateLibrarianBadge();

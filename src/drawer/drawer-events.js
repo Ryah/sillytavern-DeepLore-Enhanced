@@ -150,6 +150,10 @@ export function wireToolsTab($drawer) {
         }
         executeCommand(cmd);
     });
+
+    $drawer.on('keydown', '#dle-panel-tools .dle-tool-btn[data-action]', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
 }
 
 /** Wire tab expand buttons */
@@ -257,6 +261,10 @@ export function wireStatusActions($drawer) {
         }
     });
 
+    $drawer.on('keydown', '.dle-action-btn[data-action]', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
+
     // First-run setup banner actions
     $drawer.on('click', '.dle-setup-banner-btn', async () => {
         try {
@@ -280,11 +288,14 @@ export function wireStatusActions($drawer) {
 export function wireInjectionTab($drawer) {
     $drawer.on('click', '.dle-why-filter-btn', function () {
         ds.whyTabFilter = $(this).data('filter') || 'both';
+        $drawer.find('.dle-why-filter-btn').attr('aria-checked', 'false');
+        $(this).attr('aria-checked', 'true');
         scheduleRender(renderInjectionTab);
     });
 
     // BUG-AUDIT-C11: Roving tabindex for Why? filter radiogroup — matches Librarian sub-tab pattern.
     $drawer.on('keydown', '.dle-why-filter-btn', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); $(this).trigger('click'); return; }
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
         e.preventDefault();
         const $btns = $drawer.find('.dle-why-filter-btn');
@@ -400,6 +411,10 @@ export function wireBrowseTab($drawer) {
         notifyPinBlockChanged();
     });
 
+    $drawer.find('.dle-browse-list').on('keydown', '.dle-browse-pin', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
+
     $drawer.find('.dle-browse-list').on('click', '.dle-browse-block', function () {
         const title = $(this).data('entry');
         const vaultSource = $(this).data('vault') || null;
@@ -429,8 +444,17 @@ export function wireBrowseTab($drawer) {
         notifyPinBlockChanged();
     });
 
+    $drawer.find('.dle-browse-list').on('keydown', '.dle-browse-block', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
+
     // Click/keyboard-to-expand entry preview (click on entry info area, not buttons)
     $drawer.find('.dle-browse-list').on('click keydown', '.dle-browse-info', function (e) {
+        if (e.type === 'keydown' && e.key === 'Escape' && $(this).attr('aria-expanded') === 'true') {
+            e.preventDefault();
+            $(this).trigger('click'); // collapse
+            return;
+        }
         if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
         if (e.type === 'keydown') e.preventDefault();
         const $entry = $(this).closest('.dle-browse-entry');
@@ -556,6 +580,10 @@ export function wireGatingTab($drawer) {
         setTimeout(once, 200); // safety timeout
     });
 
+    $drawer.find('#dle-panel-gating').on('keydown', '.dle-chip-x', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
+
     // Set buttons via event delegation — uses generic /dle-set-field for custom fields
     $drawer.find('#dle-panel-gating').on('click', '.dle-gating-set', async function () {
         const $group = $(this).closest('.dle-gating-group');
@@ -623,7 +651,14 @@ export function wireGatingTab($drawer) {
         setTimeout(apply, 200);
     });
 
+    $drawer.find('#dle-panel-gating').on('keydown', '.dle-gating-set', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
+
     // Folder "Set" button — open folder selection popup
+    $drawer.find('.dle-folder-set-btn').on('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
     $drawer.find('.dle-folder-set-btn').on('click', async function () {
         const { callGenericPopup, POPUP_TYPE } = await import('../../../../../popup.js');
         const current = chat_metadata?.deeplore_folder_filter || [];
@@ -749,8 +784,8 @@ export function wireLibrarianTab($drawer) {
     // Sub-tab buttons (Flags / Activity) — selection NOT persisted across tab entries
     $drawer.on('click', '.dle-librarian-sub-tab', function () {
         ds.librarianFilter = $(this).data('filter') || 'flag';
-        $drawer.find('.dle-librarian-sub-tab').attr('tabindex', '-1');
-        $(this).attr('tabindex', '0');
+        $drawer.find('.dle-librarian-sub-tab').attr('tabindex', '-1').attr('aria-checked', 'false');
+        $(this).attr('tabindex', '0').attr('aria-checked', 'true');
         // Sub-tab change clears selection (a different list is now displayed)
         ds.librarianSelected.clear();
         ds.librarianLastClicked = null;
@@ -870,6 +905,9 @@ export function wireLibrarianTab($drawer) {
             ds.librarianSelected.add(gapId);
         }
         ds.librarianLastClicked = gapId;
+        const total = $drawer.find('.dle-librarian-list .dle-librarian-entry').length;
+        const selected = ds.librarianSelected.size;
+        $drawer.find('.dle-librarian-select-all').prop('indeterminate', selected > 0 && selected < total);
         scheduleRender(renderLibrarianTab);
     });
 
@@ -883,6 +921,7 @@ export function wireLibrarianTab($drawer) {
             $entries.each(function () { ds.librarianSelected.delete($(this).data('gap-id')); });
             ds.librarianLastClicked = null;
         }
+        $(this).prop('indeterminate', false);
         scheduleRender(renderLibrarianTab);
     });
 

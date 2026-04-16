@@ -56,7 +56,7 @@ export function renderInjectionTab() {
         } else {
             $empty.html(
                 '<i class="fa-solid fa-circle-question" aria-hidden="true"></i>'
-                + '<p>No entries injected yet.</p>'
+                + '<p>No entries injected yet. Send a message mentioning entry keywords, or check Obsidian connection.</p>'
                 + '<div class="dle-empty-guide">'
                 + '<p>To see lore injection in action:</p>'
                 + '<ol>'
@@ -625,6 +625,7 @@ export function renderBrowseWindow() {
                 }
 
                 $entry.append(_cachedExpandedPreviewHtml);
+                $entry.find('.dle-browse-info').attr('aria-expanded', 'true');
                 $entry.css({ height: 'auto' });
                 const expandedHeight = $entry[0].scrollHeight;
                 ds.browseExpandedIdx = parseInt($entry.data('idx'), 10);

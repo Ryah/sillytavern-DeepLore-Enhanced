@@ -224,6 +224,13 @@ export async function createDrawerPanel() {
         });
     });
 
+    $drawer.find('#deeploreDrawerIcon').on('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $drawer.find('.drawer-toggle').trigger('click');
+        }
+    });
+
     // ═══════════════════════════════════════════════════════════════════════
     // Overlay mode
     // ═══════════════════════════════════════════════════════════════════════
@@ -354,6 +361,15 @@ export async function createDrawerPanel() {
             case 'ArrowLeft': newIdx = (idx - 1 + $tabs.length) % $tabs.length; break;
             case 'Home': newIdx = 0; break;
             case 'End': newIdx = $tabs.length - 1; break;
+            case 'Escape': {
+                // Close drawer if open (overlay mode especially)
+                const $pnl = $drawer.find('#deeplore-panel');
+                if ($pnl.hasClass('openDrawer') && !$pnl.hasClass('pinnedOpen')) {
+                    doNavbarIconClick.call($drawer.find('.drawer-toggle')[0]);
+                    return;
+                }
+                return;
+            }
             default: return;
         }
 

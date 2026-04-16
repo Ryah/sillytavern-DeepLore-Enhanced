@@ -13,7 +13,13 @@ import {
     suppressNextAgenticLoop,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
-import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS } from './drawer-state.js';
+import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS, announceToScreenReader } from './drawer-state.js';
+
+// ════════════════════════════════════════════════════════════════════════════
+// Module State — a11y
+// ════════════════════════════════════════════════════════════════════════════
+
+let _lastAnnouncedStatus = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Status Zone — Mascot SVG Icons
@@ -36,6 +42,13 @@ export function renderStatusZone() {
 
     // Status dot — health color
     const status = computeOverallStatus(getCircuitState());
+
+    // Announce status changes to screen reader (skip initial baseline set)
+    if (_lastAnnouncedStatus !== null && _lastAnnouncedStatus !== status) {
+        announceToScreenReader(`Status: ${status}`);
+    }
+    _lastAnnouncedStatus = status;
+
     const $dot = $drawer.find('.dle-status-dot');
     $dot.removeClass('dle-status-ok dle-status-degraded dle-status-limited dle-status-offline');
     $dot.addClass(STATUS_CLASSES[status] || 'dle-status-offline');

@@ -705,6 +705,10 @@ dle-notes { display: none !important; }
 .dle-browse-table-row:hover {
     background: var(--dle-bg-hover);
 }
+.dle-browse-table-row:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: -2px;
+}
 .dle-browse-table-row td {
     padding: 4px 6px;
     border-bottom: 1px solid color-mix(in srgb, var(--dle-border) 40%, transparent);
@@ -791,12 +795,17 @@ dle-notes { display: none !important; }
     cursor: pointer;
     opacity: 0.7;
     transition: opacity 120ms ease;
-    padding: 2px;
+    padding: 8px;
     font-size: inherit;
     font-family: inherit;
     line-height: 1;
 }
 .dle-drawer-close:hover {
+    opacity: 1;
+}
+.dle-drawer-close:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
     opacity: 1;
 }
 .dle-drawer-settings {
@@ -807,7 +816,7 @@ dle-notes { display: none !important; }
     cursor: pointer;
     opacity: 0.5;
     transition: opacity 120ms ease;
-    padding: 2px;
+    padding: 8px;
     font-size: inherit;
     font-family: inherit;
     line-height: 1;
@@ -815,6 +824,11 @@ dle-notes { display: none !important; }
 .dle-drawer-settings:hover {
     opacity: 1;
     color: var(--dle-info);
+}
+.dle-drawer-settings:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    opacity: 1;
 }
 .dle-drawer-help {
     background: none;
@@ -824,7 +838,7 @@ dle-notes { display: none !important; }
     cursor: pointer;
     opacity: 0.5;
     transition: opacity 120ms ease;
-    padding: 2px;
+    padding: 8px;
     font-size: inherit;
     font-family: inherit;
     line-height: 1;
@@ -832,6 +846,11 @@ dle-notes { display: none !important; }
 .dle-drawer-help:hover {
     opacity: 1;
     color: var(--dle-info);
+}
+.dle-drawer-help:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    opacity: 1;
 }
 
 /* --- Two-zone architecture --- */
@@ -969,6 +988,11 @@ dle-notes { display: none !important; }
     border-bottom-color: var(--dle-accent);
 }
 
+.dle-tab:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: -2px;
+}
+
 /* (tab icons inherit font-size from .dle-tab) */
 
 /* Tab count badges — small pill next to icon */
@@ -1080,6 +1104,12 @@ dle-notes { display: none !important; }
 .dle-tab-expand:hover {
     opacity: 1;
     color: var(--SmartThemeBodyColor, #eee);
+}
+
+.dle-tab-expand:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    opacity: 1;
 }
 
 /* --- Token bar (drawer version) --- */
@@ -1244,6 +1274,11 @@ button.dle-chip-x:hover {
     justify-content: center;
 }
 
+.dle-action-btn:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
+
 /* --- Collapsible section headers --- */
 .dle-section-header {
     display: flex;
@@ -1313,6 +1348,11 @@ button.dle-chip-x:hover {
 }
 .dle-why-filter-btn:hover:not(.active) {
     background: var(--dle-bg-hover);
+}
+
+.dle-why-filter-btn:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
 }
 
 /* --- Why? tab entries --- */
@@ -1393,8 +1433,9 @@ button.dle-chip-x:hover {
     color: var(--dle-info);
 }
 
-/* Match type differentiation — semantic colors by how the entry was matched */
-.dle-why-match[data-match-type="keyword"] {
+/* Match type differentiation — semantic colors by how the entry was matched.
+   Selectors match actual lowercased label output from getMatchLabel(). */
+.dle-why-match[data-match-type="key"] {
     background: color-mix(in srgb, var(--dle-success) 20%, transparent);
     color: var(--dle-success);
 }
@@ -1404,16 +1445,22 @@ button.dle-chip-x:hover {
     border-left: 2px solid var(--dle-accent);
     padding-left: 6px;
 }
-.dle-why-match[data-match-type="constant"] {
+.dle-why-match[data-match-type="key+ai"] {
+    background: color-mix(in srgb, var(--dle-accent) 25%, transparent);
+    color: var(--dle-accent);
+    border-left: 2px solid var(--dle-success);
+    padding-left: 6px;
+}
+.dle-why-match[data-match-type="const"] {
     background: color-mix(in srgb, var(--dle-text-muted) 15%, transparent);
     color: var(--dle-text-muted);
     font-style: italic;
 }
-.dle-why-match[data-match-type="pinned"] {
+.dle-why-match[data-match-type="pin"] {
     background: color-mix(in srgb, var(--dle-info) 20%, transparent);
     color: var(--dle-info);
 }
-.dle-why-match[data-match-type="bootstrap"],
+.dle-why-match[data-match-type="init"],
 .dle-why-match[data-match-type="seed"] {
     background: color-mix(in srgb, var(--dle-success) 20%, transparent);
     color: var(--dle-success);
@@ -2177,8 +2224,8 @@ button.dle-browse-block.dle-block-active {
     align-items: center;
     justify-content: center;
     position: relative;
-    width: 20px;
-    height: 20px;
+    width: 28px;
+    height: 28px;
     font-size: var(--dle-text-base);
     cursor: pointer;
     text-decoration: none;
@@ -2193,6 +2240,11 @@ button.dle-browse-block.dle-block-active {
 
 .dle-health-icon:hover {
     filter: brightness(1.3);
+}
+
+.dle-health-icon:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
 }
 
 .dle-health-icon.dle-health-ok {

@@ -60,7 +60,7 @@ export function resetDrawerState() {
     ds.browseQuery = '';
     ds.browseStatusFilter = 'all';
     ds.browseTagFilter = '';
-    ds.browseSort = 'priority_asc';
+    // Note: ds.browseSort is a user UI pref — NOT reset on chat change (accountStorage persisted)
     ds.browseFilteredEntries = [];
     ds.browseLastRangeStart = -1;
     ds.browseLastRangeEnd = -1;
@@ -75,7 +75,7 @@ export function resetDrawerState() {
     // Note: ds.stGenerating is NOT reset here — it tracks ST's generation state
     // which persists across chat switches. GENERATION_ENDED clears it.
     ds.librarianFilter = 'flag';
-    ds.librarianSort = 'newest';
+    // Note: ds.librarianSort is a user UI pref — NOT reset on chat change (accountStorage persisted)
     ds.librarianSelected.clear();
     ds.librarianLastClicked = null;
     if (ds.browseSearchTimeout) { clearTimeout(ds.browseSearchTimeout); ds.browseSearchTimeout = null; }
@@ -88,8 +88,7 @@ export function resetDrawerState() {
     if ($tag.length) $tag.val('');
     const $folder = $(`#${DRAWER_ID} [data-filter="folder"]`);
     if ($folder.length) $folder.val('');
-    const $sort = $(`#${DRAWER_ID} [data-sort]`);
-    if ($sort.length) $sort.val('priority_asc');
+    // Note: [data-sort] NOT reset here — browseSort is a user UI pref (accountStorage persisted)
     // Re-render librarian tab to clear stale gaps from previous chat
     scheduleRender(renderLibrarianTab);
 }
@@ -478,20 +477,25 @@ export async function createDrawerPanel() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // E10: Restore last viewed drawer tab
+    // E10: Restore last viewed drawer tab — always open to Why? (injection) on open
+    // ═══════════════════════════════════════════════════════════════════════
+    // Default tab on drawer open is always Why? — do not restore last tab.
+    // (accountStorage write in switchTab is kept for other potential consumers,
+    //  but on open we always override to injection.)
+    try { switchTab($drawer, 'injection'); } catch { /* noop */ }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // C: Restore persistent UI prefs from accountStorage
     // ═══════════════════════════════════════════════════════════════════════
     try {
-        // BUG-042: accountStorage first, fall back to legacy localStorage for migration
-        let lastTab = accountStorage.getItem('dle-last-drawer-tab');
-        if (!lastTab) {
-            const legacy = localStorage.getItem('dle-last-drawer-tab');
-            if (legacy) {
-                accountStorage.setItem('dle-last-drawer-tab', legacy);
-                localStorage.removeItem('dle-last-drawer-tab');
-                lastTab = legacy;
-            }
-        }
-        if (lastTab) switchTab($drawer, lastTab);
+        const savedWhyFilter = accountStorage.getItem('dle-why-filter');
+        if (savedWhyFilter) ds.whyTabFilter = savedWhyFilter;
+
+        const savedLibSort = accountStorage.getItem('dle-librarian-sort');
+        if (savedLibSort) ds.librarianSort = savedLibSort;
+
+        const savedBrowseSort = accountStorage.getItem('dle-browse-sort');
+        if (savedBrowseSort) ds.browseSort = savedBrowseSort;
     } catch { /* noop */ }
 
     // ═══════════════════════════════════════════════════════════════════════

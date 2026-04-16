@@ -13,13 +13,14 @@ import {
     suppressNextAgenticLoop,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
-import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS, announceToScreenReader } from './drawer-state.js';
+import { ds, MODE_LABELS, MODE_DESCRIPTIONS, STATUS_CLASSES, STATUS_DESCRIPTIONS, announceToScreenReader, formatTokensCompact } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Module State — a11y
 // ════════════════════════════════════════════════════════════════════════════
 
 let _lastAnnouncedStatus = null;
+let _lastStatusKey = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Status Zone — Mascot SVG Icons
@@ -53,6 +54,16 @@ export function renderStatusZone() {
     $dot.attr('aria-live', 'status');
     $dot.removeClass('dle-status-ok dle-status-degraded dle-status-limited dle-status-offline');
     $dot.addClass(STATUS_CLASSES[status] || 'dle-status-offline');
+
+    // F13: pulse on status transition — add class, remove on animationend
+    if (_lastStatusKey !== null && _lastStatusKey !== status) {
+        $dot.removeClass('dle-status-changed');
+        $dot[0]?.offsetWidth; // force reflow to restart animation
+        $dot.addClass('dle-status-changed').off('animationend.statuschange').one('animationend.statuschange', function () {
+            $(this).removeClass('dle-status-changed');
+        });
+    }
+    _lastStatusKey = status;
     const statusDesc = STATUS_DESCRIPTIONS[status] || status;
     $dot.attr('title', `System status: ${status} — ${statusDesc}`);
     $dot.attr('aria-label', `System status: ${status} — ${statusDesc}`);
@@ -82,7 +93,7 @@ export function renderStatusZone() {
     const hasEnabledVaults = (settings.vaults || []).some(v => v.enabled);
     if (!hasEnabledVaults && !settings._wizardCompleted && !indexEverLoaded) {
         if (!$setupBanner.length) {
-            const banner = `<div class="dle-setup-banner" role="alert" style="padding: var(--dle-space-2) var(--dle-space-3); background: color-mix(in srgb, var(--dle-info) 15%, transparent); border-radius: 4px; margin: var(--dle-space-2) 0; display: flex; align-items: center; gap: var(--dle-space-2); font-size: var(--dle-text-sm);">
+            const banner = `<div class="dle-setup-banner" role="status" style="padding: var(--dle-space-2) var(--dle-space-3); background: color-mix(in srgb, var(--dle-info) 15%, transparent); border-radius: 4px; margin: var(--dle-space-2) 0; display: flex; align-items: center; gap: var(--dle-space-2); font-size: var(--dle-text-sm);">
                 <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--dle-info);"></i>
                 <span>New to DeepLore?</span>
                 <button class="dle-setup-banner-btn menu_button" style="padding: 4px 12px; min-height: 28px; font-size: var(--dle-text-xs);" title="Run the setup wizard">Run Setup</button>
@@ -145,9 +156,9 @@ export function renderStatusZone() {
     else if (pct >= 80) $barContainer.addClass('dle-budget-high');
     $drawer.find('.dle-token-bar').css('width', `${pct}%`);
     const budgetLabel = budget
-        ? `Budget: ${used.toLocaleString()} / ${budget.toLocaleString()}`
+        ? `Budget: ${formatTokensCompact(used)} / ${formatTokensCompact(budget)}`
         : settings.unlimitedBudget
-            ? `Budget: ${used.toLocaleString()} / \u221E`
+            ? `Budget: ${formatTokensCompact(used)} / \u221E`
             : 'Budget: waiting';
     $drawer.find('.dle-token-bar-label').text(budgetLabel);
     // Build budget breakdown from trace for tooltip
@@ -164,17 +175,17 @@ export function renderStatusZone() {
             else if (reason.includes('fuzzy') || reason.includes('keyword') || reason.includes('(')) keywordTokens += e.tokens;
             else otherTokens += e.tokens;
         }
-        if (constTokens) breakdownParts.push(`Constants: ${constTokens}`);
-        if (keywordTokens) breakdownParts.push(`Keyword: ${keywordTokens}`);
-        if (aiTokens) breakdownParts.push(`AI: ${aiTokens}`);
-        if (pinTokens) breakdownParts.push(`Pinned: ${pinTokens}`);
-        if (otherTokens) breakdownParts.push(`Other: ${otherTokens}`);
+        if (constTokens) breakdownParts.push(`Constants: ${formatTokensCompact(constTokens)}`);
+        if (keywordTokens) breakdownParts.push(`Keyword: ${formatTokensCompact(keywordTokens)}`);
+        if (aiTokens) breakdownParts.push(`AI: ${formatTokensCompact(aiTokens)}`);
+        if (pinTokens) breakdownParts.push(`Pinned: ${formatTokensCompact(pinTokens)}`);
+        if (otherTokens) breakdownParts.push(`Other: ${formatTokensCompact(otherTokens)}`);
     }
     const breakdownStr = breakdownParts.length ? `\n${breakdownParts.join(' | ')}` : '';
     const tokenTitle = budget
-        ? `Lore budget: ${used.toLocaleString()} of ${budget.toLocaleString()} tokens used${breakdownStr}`
+        ? `Lore budget: ${formatTokensCompact(used)} of ${formatTokensCompact(budget)} tokens used${breakdownStr}`
         : settings.unlimitedBudget
-            ? `Lore budget: ${used.toLocaleString()} tokens used (unlimited)${breakdownStr}`
+            ? `Lore budget: ${formatTokensCompact(used)} tokens used (unlimited)${breakdownStr}`
             : 'Lore budget: waiting for first generation';
     $barContainer.attr('title', tokenTitle);
 
@@ -220,18 +231,19 @@ export function renderStatusZone() {
         for (const [key, val] of Object.entries(ctx)) {
             if (val == null || val === '') continue;
             if (Array.isArray(val)) {
-                for (const v of val) chips.push(`<span class="dle-chip dle-chip-sm">${escapeHtml(v)}</span>`);
+                for (const v of val) chips.push(`<span class="dle-chip dle-chip-sm dle-gating-value-chip" role="button" tabindex="0" data-action="goto-gating" aria-label="${escapeHtml(key)}: ${escapeHtml(v)} — click to open Filters tab">${escapeHtml(v)}</span>`);
             } else {
-                chips.push(`<span class="dle-chip dle-chip-sm">${escapeHtml(val)}</span>`);
+                chips.push(`<span class="dle-chip dle-chip-sm dle-gating-value-chip" role="button" tabindex="0" data-action="goto-gating" aria-label="${escapeHtml(key)}: ${escapeHtml(val)} — click to open Filters tab">${escapeHtml(val)}</span>`);
             }
         }
     }
     // Claude adaptive-thinking misconfiguration warning chip — persistent
     // signal so the user always sees the issue without spammy toasts.
-    if (claudeAutoEffortBad && claudeAutoEffortDetail) {
+    // Session-dismissed flag suppresses until next reload.
+    if (claudeAutoEffortBad && claudeAutoEffortDetail && !ds.reasoningWarningDismissed) {
         const d = claudeAutoEffortDetail;
         const tip = `${d.modelName || 'Claude'} on profile "${d.profileName || '?'}" needs reasoning_effort set on preset "${d.presetName || '?'}" (Low/Medium/High). Click to open settings.`;
-        chips.push(`<span class="dle-chip dle-chip-sm dle-chip-warn" title="${escapeHtml(tip)}" data-action="goto-ai-connections" style="cursor:pointer;background:color-mix(in srgb, var(--dle-warning, #d97706) 20%, transparent);color:var(--dle-warning, #d97706);"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>Reasoning Effort</span>`);
+        chips.push(`<button type="button" class="dle-chip dle-chip-sm dle-chip-warn dle-reasoning-warning-btn" title="${escapeHtml(tip)}" data-action="goto-ai-connections" aria-label="Reasoning Effort misconfigured — click to open settings" style="background:color-mix(in srgb, var(--dle-warning, #d97706) 20%, transparent);color:var(--dle-warning, #d97706);display:inline-flex;align-items:center;gap:3px;cursor:pointer;border:none;"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true" style="font-size:0.8em;"></i>Reasoning Effort<span class="dle-chip-dismiss" role="button" tabindex="0" aria-label="Dismiss warning" style="margin-left:4px;opacity:0.7;font-size:1em;line-height:1;">×</span></button>`);
     }
 
     if (chips.length > 0) {

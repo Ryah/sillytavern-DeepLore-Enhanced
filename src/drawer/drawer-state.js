@@ -144,6 +144,9 @@ export const ds = {
     librarianLastClicked: null,
     /** Last-viewed timestamps per sub-tab — used to compute "new since last view" badge */
     librarianLastViewed: { flag: 0, activity: 0 },
+
+    /** P13: session-local flag — user dismissed the reasoning warning chip */
+    reasoningWarningDismissed: false,
 };
 
 // ─── Activity Feed ───

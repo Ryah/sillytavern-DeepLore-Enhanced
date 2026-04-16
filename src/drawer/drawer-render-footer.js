@@ -53,14 +53,14 @@ export function renderFooter() {
         const libExtra = librarianChatStats.estimatedExtraTokens || 0;
         const totalUsed = contextUsed + libExtra;
         const label = totalUsed
-            ? `${totalUsed.toLocaleString()} / ${maxContext.toLocaleString()}`
-            : `— / ${maxContext.toLocaleString()}`;
+            ? `${formatTokensCompact(totalUsed)} / ${formatTokensCompact(maxContext)}`
+            : `— / ${formatTokensCompact(maxContext)}`;
         $footer.find('.dle-context-bar-label').text(label);
 
-        const tooltipParts = [`${contextUsed.toLocaleString()} prompt tokens`];
-        if (libExtra > 0) tooltipParts.push(`${libExtra.toLocaleString()} librarian tokens`);
-        tooltipParts.push(`${responseTokens.toLocaleString()} response reserve`);
-        tooltipParts.push(`${maxContext.toLocaleString()} max context`);
+        const tooltipParts = [`${formatTokensCompact(contextUsed)} prompt tokens`];
+        if (libExtra > 0) tooltipParts.push(`${formatTokensCompact(libExtra)} librarian tokens`);
+        tooltipParts.push(`${formatTokensCompact(responseTokens)} response reserve`);
+        tooltipParts.push(`${formatTokensCompact(maxContext)} max context`);
         const contextTitle = tooltipParts.join(' · ');
         $barContainer.attr('aria-valuenow', totalUsed + responseTokens).attr('aria-valuemax', maxContext);
         $barContainer.attr('title', contextTitle);
@@ -86,7 +86,7 @@ export function renderFooter() {
             feedHtml += `<span class="dle-activity-mode">${a.mode}</span>`;
             let detail = `${a.injected} entr${a.injected === 1 ? 'y' : 'ies'}, ${formatTokensCompact(a.tokens)} tok`;
             if (a.folderFilter?.length) detail += ` [${a.folderFilter.length} folder${a.folderFilter.length !== 1 ? 's' : ''}]`;
-            feedHtml += `<span class="dle-activity-detail">${detail}</span>`;
+            feedHtml += `<span>${detail}</span>`;
             feedHtml += `</div>`;
         }
         $activityFeed.html(feedHtml);
@@ -122,10 +122,10 @@ export function renderFooter() {
         $conn.attr('aria-label', 'Obsidian: connected — click for full status').attr('title', 'Obsidian: connected — click for full status');
     } else if (circuit.state === 'half-open') {
         $conn.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
-        $conn.attr('aria-label', 'Obsidian: recovering — probing vault').attr('title', 'Obsidian: recovering — click to retry');
+        $conn.attr('aria-label', 'Obsidian: recovering — probing vault').attr('title', 'Obsidian: recovering — click to view connection status');
     } else {
         $conn.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
-        $conn.attr('aria-label', `Obsidian: unreachable (${circuit.failures} failures) — click to retry`).attr('title', `Obsidian: unreachable (${circuit.failures} failures) — click to retry`);
+        $conn.attr('aria-label', `Obsidian: unreachable (${circuit.failures} failures) — click to view connection status`).attr('title', `Obsidian: unreachable (${circuit.failures} failures) — click to view connection status`);
     }
 
     // Pipeline
@@ -156,7 +156,7 @@ export function renderFooter() {
             $cache.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
             $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
         } else {
-            const cacheLabel = `Cache: stale (${ageSecs} seconds old, ${vaultIndex.length} entries) — click to refresh`;
+            const cacheLabel = `Cache: stale (${ageSecs} seconds old, ${vaultIndex.length} entries) — click to view cache status`;
             $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
             $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
         }

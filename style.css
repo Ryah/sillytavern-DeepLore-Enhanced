@@ -1076,8 +1076,8 @@ dle-notes { display: none !important; }
     color: var(--dle-text-muted);
     cursor: pointer;
     padding: 4px;
-    font-size: 0.75rem;
-    opacity: 0.6;
+    font-size: var(--dle-text-xs);
+    opacity: var(--dle-opacity-muted);
     transition: opacity 0.15s;
     line-height: 1;
 }
@@ -1095,8 +1095,8 @@ dle-notes { display: none !important; }
     color: var(--dle-text-muted);
     cursor: pointer;
     padding: 4px;
-    font-size: 0.75rem;
-    opacity: 0.6;
+    font-size: var(--dle-text-xs);
+    opacity: var(--dle-opacity-muted);
     transition: opacity 0.15s;
     line-height: 1;
 }
@@ -1687,7 +1687,7 @@ button.dle-chip-x:hover {
     display: inline-block;
     margin-left: 6px;
     padding: 1px 6px;
-    font-size: 0.75em;
+    font-size: var(--dle-text-xs);
     font-weight: 600;
     border-radius: 8px;
     background: var(--dle-guide-bg);
@@ -1858,19 +1858,6 @@ button.dle-browse-block.dle-block-active {
     margin-right: 2px;
     font-size: 0.85em;
 }
-/* Folder badge chip in status zone */
-.dle-folder-badge-chip {
-    cursor: pointer;
-}
-.dle-folder-badge-chip:hover {
-    opacity: 0.8;
-}
-/* BUG-188: focus ring for keyboard users */
-.dle-folder-badge-chip:focus-visible {
-    outline: 2px solid var(--dle-accent);
-    outline-offset: 2px;
-}
-
 /* --- Entry Timers (cooldown / decay / warmup) --- */
 .dle-gating-divider {
     border-top: 1px solid var(--dle-border);
@@ -1954,7 +1941,7 @@ button.dle-browse-block.dle-block-active {
 
 /* --- Tools tab --- */
 .dle-tools-group {
-    margin-bottom: 6px;
+    margin-bottom: var(--dle-space-2);
 }
 
 .dle-tools-group:last-child {
@@ -1983,7 +1970,7 @@ button.dle-browse-block.dle-block-active {
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 0.78rem;
+    font-size: var(--dle-text-xs);
     padding: 3px 6px;
     justify-content: flex-start;
     white-space: nowrap;
@@ -2130,13 +2117,25 @@ button.dle-browse-block.dle-block-active {
 }
 
 /* --- Pipeline activity animation --- */
+/* F13: amplitude halved — opacity swing from 1.0→0.7 (was 1.0→0.4) */
 @keyframes dle-pulse {
     0%, 100% { opacity: 1; }
-    50% { opacity: var(--dle-opacity-disabled); }
+    50% { opacity: var(--dle-opacity-muted); }
+}
+
+/* F13: brief strong flash on status transitions — JS adds/removes .dle-status-changed */
+@keyframes dle-status-flash {
+    0%   { transform: scale(1);    box-shadow: 0 0 0 currentColor; }
+    50%  { transform: scale(1.15); box-shadow: 0 0 12px currentColor; }
+    100% { transform: scale(1);    box-shadow: 0 0 4px currentColor; }
 }
 
 .dle-status-dot.dle-status-active {
     animation: dle-pulse 1.5s ease-in-out infinite;
+}
+
+.dle-status-dot.dle-status-changed {
+    animation: dle-status-flash 400ms ease-out 1;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2161,7 +2160,7 @@ button.dle-browse-block.dle-block-active {
     position: relative;
     background: var(--dle-border);
     border-radius: var(--dle-radius-sm);
-    height: 16px;
+    height: 18px;
     overflow: hidden;
 }
 
@@ -2193,7 +2192,7 @@ button.dle-browse-block.dle-block-active {
     right: 0;
     text-align: center;
     font-size: var(--dle-text-xs);
-    line-height: 16px;
+    line-height: 18px;
     color: var(--SmartThemeBodyColor, #ccc);
     text-shadow: 0 1px 2px rgba(0,0,0,0.9);
     pointer-events: none;
@@ -2276,7 +2275,7 @@ button.dle-browse-block.dle-block-active {
     color: var(--dle-success, #4caf50);
 }
 .dle-health-icon.dle-health-warn::after {
-    content: '\2013'; /* en-dash / minus */
+    content: '\26A0'; /* warning triangle ⚠ */
     color: var(--dle-warning, #ff9800);
 }
 .dle-health-icon.dle-health-error::after {
@@ -4059,7 +4058,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     display: flex;
     gap: 0;
     border-bottom: 2px solid var(--SmartThemeBorderColor);
-    margin-bottom: 6px;
+    margin-bottom: var(--dle-space-2);
 }
 .dle-librarian-sub-tab {
     flex: 1;
@@ -4082,7 +4081,7 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
 }
 .dle-librarian-sub-tab.active {
     opacity: 1;
-    border-bottom-color: var(--SmartThemeQuoteColor);
+    border-bottom-color: var(--dle-accent);
     color: var(--SmartThemeBodyColor);
 }
 .dle-sub-tab-count {
@@ -4100,14 +4099,14 @@ button.dle-chip-x:focus-visible { outline: 2px solid var(--dle-accent); outline-
     display: flex;
     gap: 4px;
     align-items: center;
-    margin-bottom: 6px;
+    margin-bottom: var(--dle-space-2);
 }
 /* --- Librarian select-all bar --- */
 .dle-librarian-select-all-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 6px;
+    gap: var(--dle-space-2);
+    padding: 4px var(--dle-space-2);
     font-size: var(--dle-text-xs);
     border-bottom: 1px solid var(--dle-border);
 }
@@ -5460,5 +5459,177 @@ textarea.dle-librarian-frontmatter-code:focus-visible {
 }
 .dle-action-btn.dle-toggle-active i {
     color: var(--dle-warning, #e2a832);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   F18 — Temperature legend gradient line (browse tab)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.dle-browse-temp-legend {
+    height: 3px;
+    background: linear-gradient(to right,
+        color-mix(in srgb, #4dabf7 70%, transparent) 0%,
+        transparent 50%,
+        color-mix(in srgb, #ff8787 70%, transparent) 100%
+    );
+    border-radius: 2px;
+    margin: var(--dle-space-1) 0 var(--dle-space-2);
+    position: relative;
+}
+.dle-browse-temp-legend::before,
+.dle-browse-temp-legend::after {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    position: absolute;
+    top: -14px;
+}
+.dle-browse-temp-legend::before {
+    content: 'rarely injected';
+    left: 0;
+}
+.dle-browse-temp-legend::after {
+    content: 'frequently injected';
+    right: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   New agent classes
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Chip warn variant — base chip styling applies; this adds warn tinting */
+.dle-chip-warn {
+    background: color-mix(in srgb, var(--dle-warning) 20%, transparent);
+    border-color: color-mix(in srgb, var(--dle-warning) 40%, transparent);
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+/* Reasoning warning button — button reset, chip classes paint */
+.dle-reasoning-warning-btn {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--dle-space-1);
+}
+.dle-reasoning-warning-btn:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Chip dismiss × button */
+.dle-chip-dismiss {
+    font-size: var(--dle-text-sm);
+    opacity: var(--dle-opacity-muted);
+    cursor: pointer;
+    margin-left: var(--dle-space-1);
+    padding: 0 var(--dle-space-1);
+    background: none;
+    border: none;
+    color: inherit;
+    line-height: 1;
+    border-radius: 2px;
+}
+.dle-chip-dismiss:hover,
+.dle-chip-dismiss:focus-visible {
+    opacity: 1;
+    outline: 1px solid var(--dle-accent);
+}
+
+/* Gating value chip — interactive, mirrors .dle-folder-badge-chip */
+.dle-folder-badge-chip,
+.dle-gating-value-chip {
+    cursor: pointer;
+}
+.dle-folder-badge-chip:hover,
+.dle-gating-value-chip:hover {
+    opacity: 0.8;
+}
+/* BUG-188: focus ring for keyboard users */
+.dle-folder-badge-chip:focus-visible,
+.dle-gating-value-chip:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
+
+/* Browse quick-filter toolbar container */
+.dle-browse-quick-filters {
+    display: flex;
+    gap: var(--dle-space-2);
+    flex-wrap: wrap;
+    padding: var(--dle-space-1) var(--dle-space-2);
+}
+.dle-browse-quick-filters:empty {
+    display: none;
+}
+
+/* Browse quick-filter pill — chip style + pressed state */
+.dle-browse-quick-filter-pill,
+.dle-qf-pill {
+    font-size: var(--dle-text-xs);
+    padding: 2px var(--dle-space-2);
+    border: 1px solid var(--dle-border, var(--SmartThemeBorderColor));
+    border-radius: 999px;
+    cursor: pointer;
+    user-select: none;
+    background: transparent;
+    color: var(--dle-text-muted);
+    transition: background 150ms, color 150ms;
+}
+.dle-browse-quick-filter-pill:hover,
+.dle-qf-pill:hover {
+    color: var(--SmartThemeBodyColor, #eee);
+}
+.dle-browse-quick-filter-pill:focus-visible,
+.dle-qf-pill:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
+.dle-browse-quick-filter-pill[aria-pressed="true"],
+.dle-browse-quick-filter-pill.dle-qf-active,
+.dle-qf-pill[aria-pressed="true"],
+.dle-qf-pill.dle-qf-active {
+    background: color-mix(in srgb, var(--dle-accent) 20%, transparent);
+    color: var(--dle-accent);
+    border-color: var(--dle-accent);
+}
+
+/* Browse clear-filters button (inside empty state) */
+.dle-browse-clear-filters {
+    margin-top: var(--dle-space-2);
+    padding: 4px var(--dle-space-3);
+    background: transparent;
+    border: 1px solid var(--dle-accent);
+    color: var(--dle-accent);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--dle-text-sm);
+}
+.dle-browse-clear-filters:hover {
+    background: color-mix(in srgb, var(--dle-accent) 15%, transparent);
+}
+.dle-browse-clear-filters:focus-visible {
+    outline: 2px solid var(--dle-accent);
+    outline-offset: 2px;
+}
+
+/* Browse active filters summary paragraph */
+.dle-browse-active-filters-list {
+    font-size: var(--dle-text-sm);
+    color: var(--dle-text-muted);
+    margin: var(--dle-space-1) 0;
+}
+.dle-browse-active-filters-list:empty {
+    display: none;
+}
+
+/* P50 legend in empty-no-data state */
+.dle-empty-legend {
+    font-size: var(--dle-text-xs);
+    color: var(--dle-text-muted);
+    margin-top: var(--dle-space-2);
+    opacity: var(--dle-opacity-muted, 0.7);
 }
 

@@ -214,6 +214,10 @@ export function wireStatusActions($drawer) {
             case 'librarian-chat': executeCommand('/dle-librarian'); break;
             case 'graph': executeCommand('/dle-graph'); break;
             case 'clear-picks': {
+                if (generationLock) {
+                    toastr.warning('Cannot clear AI picks during generation — wait for it to finish.', 'DeepLore Enhanced', { timeOut: 2500 });
+                    return;
+                }
                 const settings = getSettings();
                 if (settings.debugMode) {
                     const snap = lastGenerationTrackerSnapshot;
@@ -299,6 +303,7 @@ export function wireInjectionTab($drawer) {
         ds.whyTabFilter = $(this).data('filter') || 'both';
         $drawer.find('.dle-why-filter-btn').attr('aria-checked', 'false');
         $(this).attr('aria-checked', 'true');
+        try { accountStorage.setItem('dle-why-filter', ds.whyTabFilter); } catch { /* noop */ }
         scheduleRender(renderInjectionTab);
     });
 
@@ -375,6 +380,7 @@ export function wireBrowseTab($drawer) {
 
     $drawer.find('[data-sort]').on('change', function () {
         ds.browseSort = $(this).val();
+        try { accountStorage.setItem('dle-browse-sort', ds.browseSort); } catch { /* noop */ }
         scheduleRender(renderBrowseTab);
     });
 
@@ -389,6 +395,22 @@ export function wireBrowseTab($drawer) {
         }
         updateFilterActiveIndicators($drawer);
         scheduleRender(renderBrowseTab);
+    });
+
+    // B: Clear all browse filters button (in empty-no-results state)
+    $drawer.on('click', '.dle-browse-clear-filters', function () {
+        ds.browseQuery = '';
+        ds.browseStatusFilter = 'all';
+        ds.browseTagFilter = '';
+        ds.browseFolderFilter = '';
+        ds.browseCustomFieldFilters = {};
+        $drawer.find('.dle-browse-input').val('');
+        $drawer.find('[data-filter="status"]').val('all');
+        $drawer.find('[data-filter="tag"]').val('');
+        $drawer.find('[data-filter="folder"]').val('');
+        updateFilterActiveIndicators($drawer);
+        scheduleRender(renderBrowseTab);
+        toastr.info('Filters cleared.', 'DeepLore Enhanced', { timeOut: 2000 });
     });
 
     // BUG-AUDIT-3: Pin/block buttons via event delegation
@@ -737,15 +759,34 @@ export function wireGatingTab($drawer) {
         });
     });
 
-    // Folder badge in status zone → switch to gating tab (BUG-188: keyboard)
-    $drawer.on('click', '.dle-folder-badge-chip', function () {
+    // Folder badge in status zone + gating value chips → switch to gating tab (BUG-188: keyboard)
+    $drawer.on('click', '.dle-folder-badge-chip, .dle-gating-value-chip', function () {
         switchTab($drawer, 'gating');
     });
-    $drawer.on('keydown', '.dle-folder-badge-chip', function (e) {
+    $drawer.on('keydown', '.dle-folder-badge-chip, .dle-gating-value-chip', function (e) {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             switchTab($drawer, 'gating');
         }
+    });
+
+    // Reasoning chip → open AI Connections settings (P13: goto-ai-connections)
+    $drawer.on('click', '[data-action="goto-ai-connections"]', function (e) {
+        e.stopPropagation();
+        toastr.info('Open Settings → Connection → AI Connections', 'DeepLore Enhanced', { timeOut: 4000 });
+    });
+    $drawer.on('keydown', '[data-action="goto-ai-connections"]', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
+
+    // Reasoning warning dismiss button (P13: .dle-chip-dismiss)
+    $drawer.on('click', '.dle-chip-dismiss', function (e) {
+        e.stopPropagation();
+        ds.reasoningWarningDismissed = true;
+        scheduleRender(renderStatusZone);
+    });
+    $drawer.on('keydown', '.dle-chip-dismiss', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 }
 
@@ -821,6 +862,7 @@ export function wireLibrarianTab($drawer) {
     // Sort select
     $drawer.on('change', '.dle-librarian-sort', function () {
         ds.librarianSort = $(this).val() || 'newest';
+        try { accountStorage.setItem('dle-librarian-sort', ds.librarianSort); } catch { /* noop */ }
         scheduleRender(renderLibrarianTab);
     });
 
@@ -872,6 +914,18 @@ export function wireLibrarianTab($drawer) {
             // Space: toggle expand only (not checkbox)
             e.preventDefault();
             $(this).trigger('click');
+        } else if (e.key === 'd' && document.activeElement && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+            // d: mark selected as written (P14)
+            if (ds.librarianSelected.size > 0) {
+                e.preventDefault();
+                $drawer.find('.dle-librarian-action[data-librarian-action="done"]').trigger('click');
+            }
+        } else if ((e.key === 'Delete' || e.key === 'Backspace') && document.activeElement && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+            // Delete/Backspace: remove selected (P14)
+            if (ds.librarianSelected.size > 0) {
+                e.preventDefault();
+                $drawer.find('.dle-librarian-action[data-librarian-action="remove"]').trigger('click');
+            }
         }
     });
 

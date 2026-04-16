@@ -131,9 +131,9 @@ export function renderInjectionTab() {
             const tokHue = Math.max(0, 120 - (tokVal / 5000) * 120); // 120=green, 0=red
             h += `<span class="dle-why-tokens" style="color: hsl(${Math.round(tokHue)}, 80%, 50%)" aria-label="${tokVal} tokens">${tokVal} tokens</span>`;
             const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
-            if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
+            if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} times this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
             h += `<span class="dle-why-match" data-match-type="${matchLabel.toLowerCase()}" title="Matched via ${escapeHtml(src.matchedBy || '?')}">${matchLabel}</span>`;
-            if (isNew) h += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
+            if (isNew) h += `<span class="dle-why-new-badge" title="New this message — not injected in previous response" aria-label="New this message — not injected in previous response">NEW</span>`;
             h += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(src.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button>`;
             h += `</span>`;
             h += `</div>`;
@@ -236,7 +236,10 @@ export function renderBrowseTab() {
             $emptyNoData.removeClass('dle-visible');
         } else {
             $emptyLoading.removeClass('dle-visible');
-            $emptyNoData.addClass('dle-visible');
+            $emptyNoData.html(
+                '<p>No vault entries indexed yet. Connect Obsidian and run <code>/dle-setup</code> to get started.</p>' +
+                '<p class="dle-empty-legend">Entries show P50 priority (lower wins) or CONST (always injected).</p>'
+            ).addClass('dle-visible');
         }
         $emptyNoResults.removeClass('dle-visible');
         return;
@@ -267,6 +270,30 @@ export function renderBrowseTab() {
         if (ds.browseFolderFilter && ds.cachedFolderSet && !ds.cachedFolderSet.has(ds.browseFolderFilter)) {
             ds.browseFolderFilter = '';
         }
+    }
+
+    // P8: Rebuild tag + folder options with entry counts (done each render; fast Map pass)
+    if ($tagSelect.length && ds.cachedTagSet) {
+        const tagCounts = new Map();
+        for (const e of vaultIndex) {
+            if (e.tags) for (const t of e.tags) tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+        }
+        $tagSelect.html('<option value="">Tags</option>' +
+            [...ds.cachedTagSet].sort().map(t => `<option value="${escapeHtml(t)}"${ds.browseTagFilter === t ? ' selected' : ''}>${escapeHtml(t)} (${tagCounts.get(t) || 0})</option>`).join(''));
+    }
+    if ($folderSelect.length && ds.cachedFolderSet) {
+        const folderCounts = new Map();
+        for (const e of vaultIndex) {
+            if (e.folderPath) {
+                const parts = e.folderPath.split('/');
+                for (let i = 1; i <= parts.length; i++) {
+                    const seg = parts.slice(0, i).join('/');
+                    if (ds.cachedFolderSet.has(seg)) folderCounts.set(seg, (folderCounts.get(seg) || 0) + 1);
+                }
+            }
+        }
+        $folderSelect.html('<option value="">Folder</option>' +
+            [...ds.cachedFolderSet].sort().map(f => `<option value="${escapeHtml(f)}"${ds.browseFolderFilter === f ? ' selected' : ''}>${escapeHtml(f)} (${folderCounts.get(f) || 0})</option>`).join(''));
     }
 
     // Populate custom field filter dropdowns (cached — only rebuilt when index size changes)
@@ -332,13 +359,54 @@ export function renderBrowseTab() {
         for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
+    // Parse field-qualified search prefixes: tag:x folder:x key:x summary:x field:name=val
+    // Multiple tokens ANDed. Bare tokens = title+keys substring match.
+    const _queryTokens = query ? query.split(/\s+/).filter(Boolean) : [];
+    const _prefixFilters = [];
+    const _bareTokens = [];
+    for (const tok of _queryTokens) {
+        const colonIdx = tok.indexOf(':');
+        if (colonIdx > 0) {
+            const prefix = tok.slice(0, colonIdx);
+            const val = tok.slice(colonIdx + 1);
+            if (val) _prefixFilters.push({ prefix, val });
+        } else {
+            _bareTokens.push(tok);
+        }
+    }
+
     // Filter
     let entries = vaultIndex.filter(e => {
-        // Search
-        if (query) {
-            const titleMatch = e.title.toLowerCase().includes(query);
-            const keyMatch = e.keys && e.keys.some(k => k.toLowerCase().includes(query));
-            if (!titleMatch && !keyMatch) return false;
+        // Search — bare tokens: title+keys substring; prefix tokens: field-specific
+        if (_bareTokens.length) {
+            for (const bt of _bareTokens) {
+                const titleMatch = e.title.toLowerCase().includes(bt);
+                const keyMatch = e.keys && e.keys.some(k => k.toLowerCase().includes(bt));
+                if (!titleMatch && !keyMatch) return false;
+            }
+        }
+        for (const { prefix, val } of _prefixFilters) {
+            const lv = val.toLowerCase();
+            if (prefix === 'tag') {
+                if (!e.tags || !e.tags.some(t => t.toLowerCase().includes(lv))) return false;
+            } else if (prefix === 'folder') {
+                if (!e.folderPath || !e.folderPath.toLowerCase().includes(lv)) return false;
+            } else if (prefix === 'key') {
+                if (!e.keys || !e.keys.some(k => k.toLowerCase().includes(lv))) return false;
+            } else if (prefix === 'summary') {
+                if (!e.summary || !e.summary.toLowerCase().includes(lv)) return false;
+            } else if (prefix === 'field') {
+                // field:name=value — exact field value match
+                const eqIdx = val.indexOf('=');
+                if (eqIdx < 0) return false;
+                const fname = val.slice(0, eqIdx).toLowerCase();
+                const fval = val.slice(eqIdx + 1).toLowerCase();
+                const ev = e.customFields?.[fname] ?? e.customFields?.[Object.keys(e.customFields || {}).find(k => k.toLowerCase() === fname) || ''];
+                if (ev == null) return false;
+                const evStr = Array.isArray(ev) ? ev.map(v => String(v).toLowerCase()) : [String(ev).toLowerCase()];
+                if (!evStr.includes(fval)) return false;
+            }
+            // Unknown prefixes: pass through (don't filter)
         }
 
         // Status filter
@@ -392,6 +460,30 @@ export function renderBrowseTab() {
         default: entries.sort((a, b) => (a.priority || 50) - (b.priority || 50));
     }
 
+    // P10: Quick-filter pills — "Since last gen" and "Never injected"
+    // ds.browseQuickFilter = null | 'since-gen' | 'never-injected' (state agent owns key; undefined = off)
+    let $quickFilters = $drawer.find('.dle-browse-quick-filters');
+    if (!$quickFilters.length) {
+        const $browsePanel = $drawer.find('#dle-panel-browse');
+        $browsePanel.find('.dle-browse-controls-row, .dle-browse-toolbar').first().after('<div class="dle-browse-quick-filters" role="group" aria-label="Quick filters"></div>');
+        $quickFilters = $drawer.find('.dle-browse-quick-filters');
+    }
+    const activeQF = ds.browseQuickFilter ?? null;
+    const sinceGenActive = activeQF === 'since-gen';
+    const neverInjectedActive = activeQF === 'never-injected';
+    $quickFilters.html(
+        `<span class="dle-qf-pill${sinceGenActive ? ' dle-qf-active' : ''}" role="button" tabindex="0" aria-pressed="${sinceGenActive}" data-qf="since-gen">Since last gen</span>` +
+        `<span class="dle-qf-pill${neverInjectedActive ? ' dle-qf-active' : ''}" role="button" tabindex="0" aria-pressed="${neverInjectedActive}" data-qf="never-injected">Never injected</span>`
+    );
+    // Apply quick filter on top of existing filtered entries
+    if (sinceGenActive && lastInjectionSources && previousSources) {
+        const diff = computeSourcesDiff(lastInjectionSources, previousSources);
+        const addedKeys = new Set(diff.added.map(s => s.title.toLowerCase()));
+        entries = entries.filter(e => addedKeys.has(e.title.toLowerCase()));
+    } else if (neverInjectedActive) {
+        entries = entries.filter(e => !chatInjectionCounts.has(trackerKey(e)) || chatInjectionCounts.get(trackerKey(e)) === 0);
+    }
+
     // Update filter summary line
     const $summary = $drawer.find('.dle-browse-summary');
     const isFiltered = query || statusFilter !== 'all' || tagFilter || ds.browseFolderFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
@@ -430,7 +522,21 @@ export function renderBrowseTab() {
 
     // Render visible window
     renderBrowseWindow();
-    $emptyNoResults.toggleClass('dle-visible', entries.length === 0);
+
+    // B: No-results state — show active filters and clear button
+    if (entries.length === 0) {
+        const filterDesc = [];
+        if (statusFilter && statusFilter !== 'all') filterDesc.push(`status=${escapeHtml(statusFilter)}`);
+        if (tagFilter) filterDesc.push(`tag=${escapeHtml(tagFilter)}`);
+        if (ds.browseFolderFilter) filterDesc.push(`folder=${escapeHtml(ds.browseFolderFilter)}`);
+        if (query) filterDesc.push(`search=${escapeHtml(query)}`);
+        for (const [k, v] of Object.entries(ds.browseCustomFieldFilters)) { if (v) filterDesc.push(`${escapeHtml(k)}=${escapeHtml(v)}`); }
+        if (activeQF) filterDesc.push(`quick=${escapeHtml(activeQF)}`);
+        const filterMsg = filterDesc.length ? `No entries match: ${filterDesc.join(', ')}` : 'No entries match your filters';
+        $emptyNoResults.html(`<p>${filterMsg}</p><button class="dle-browse-clear-filters" type="button">Clear all filters</button>`).addClass('dle-visible');
+    } else {
+        $emptyNoResults.removeClass('dle-visible');
+    }
 }
 
 /**
@@ -552,8 +658,13 @@ export function renderBrowseWindow() {
 
         const previewId = `dle-preview-${CSS.escape(trackerKey(e))}`;
         html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" aria-controls="${previewId}" aria-setsize="${entries.length}" aria-posinset="${i + 1}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
-        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}" aria-describedby="${previewId}">`;
-        html += `<span class="dle-browse-title">${escapeHtml(e.title)}${e.guide ? ' <span class="dle-browse-guide-pill" title="Writing guide — read by the Librarian (Emma) only, never sent to the writing AI"><i class="fa-solid fa-book-open-reader" aria-hidden="true"></i> Guide</span>' : ''}</span>`;
+        const _hoverParts = [];
+        if (e.summary) _hoverParts.push(escapeHtml(e.summary));
+        if (e.keys && e.keys.length) _hoverParts.push(`Keys: ${escapeHtml(e.keys.join(', '))}`);
+        if (e.tokenEstimate) _hoverParts.push(`Tokens: ${e.tokenEstimate}`);
+        const _hoverTitle = _hoverParts.length ? ` title="${_hoverParts.join('&#10;&#10;')}"` : '';
+        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}" aria-describedby="${previewId}"${_hoverTitle}>`;
+        html += `<span class="dle-browse-title">${escapeHtml(e.title)}${e.guide ? ' <span class="dle-browse-guide-pill" title="Writing guide — read by the Librarian (Emma) only, never sent to the writing AI. Add \'lorebook-guide\' tag to create one."><i class="fa-solid fa-book-open-reader" aria-hidden="true"></i> Guide</span>' : ''}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
         html += `<div class="dle-browse-controls">`;
@@ -563,8 +674,8 @@ export function renderBrowseWindow() {
             html += `<span class="dle-browse-why-not" title="${escapeHtml(rejection.label)}: ${escapeHtml(rejection.reason)}" aria-label="${escapeHtml(rejection.label)}"><i class="fa-solid ${escapeHtml(rejection.icon)}" aria-hidden="true"></i></span>`;
         }
         const browseCount = chatInjectionCounts.get(trackerKey(e)) || 0;
-        if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat" aria-label="injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat">${browseCount}×</span>`;
-        html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
+        if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} times this chat" aria-label="Injected ${browseCount} times this chat">${browseCount}×</span>`;
+        html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected. Set via #lorebook-always tag.' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
         html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isPinned ? 'Unpin' : 'Pin'}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
         html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isBlocked ? 'Unblock' : 'Block'}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;
         html += `</div>`;
@@ -743,7 +854,7 @@ export function renderGatingTab() {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
             } else {
-                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: not set">Not set</span>`);
+                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: not set">Not set — click + to filter</span>`);
             }
         } else {
             // Array field
@@ -761,7 +872,7 @@ export function renderGatingTab() {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
             } else {
-                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: none set">None set</span>`);
+                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: none set">None set — click + to add</span>`);
             }
         }
     }

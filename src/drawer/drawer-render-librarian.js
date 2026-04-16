@@ -100,7 +100,7 @@ export function renderLibrarianTab() {
         if (feed.length === 0) {
             $list.empty();
             const $text = $empty.find('.dle-librarian-empty-text');
-            $text.text('No tool activity recorded yet.');
+            $text.text('No tool activity recorded yet. Activity appears when Librarian searches the vault or flags gaps during a reply.');
             $empty.find('.dle-librarian-empty-actions').css('display', '');
             $empty.addClass('dle-visible');
             $toolbarBottom.css('display', 'none');
@@ -170,7 +170,7 @@ export function renderLibrarianTab() {
             $text.text('Librarian is disabled. Enable it in Settings \u2192 Features \u2192 Librarian.');
             $emptyActions.css('display', 'none');
         } else {
-            $text.text('No flagged issues yet. The AI will flag missing or stale lore during replies.');
+            $text.text('No flagged issues yet. The AI will flag missing or stale lore during replies. Requires a tool-calling capable model.');
             $text.after('<p style="font-size: var(--dle-text-xs); opacity: 0.7; margin-top: var(--dle-space-1);">Check Settings → Features → Librarian to enable.</p>');
             $emptyActions.css('display', '');
         }

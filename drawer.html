@@ -186,6 +186,7 @@
                 <option value="injections_desc">Injections &#x2193;</option>
             </select>
         </div>
+        <div class="dle-browse-quick-filters" role="toolbar" aria-label="Quick filters"></div>
         <div class="dle-browse-summary dle-text-sm dle-muted" aria-live="polite"></div>
         <div class="dle-browse-list" role="list" aria-label="Vault entries"></div>
         <!-- Empty state: loading vault entries -->
@@ -209,7 +210,11 @@
         <!-- Empty state: filters returned no results -->
         <div class="dle-empty-state" id="dle-browse-empty-no-results">
             <i class="fa-solid fa-filter-circle-xmark" aria-hidden="true"></i>
-            <p>No entries match your filters. Try adjusting your search or criteria.</p>
+            <div class="dle-browse-empty-no-results">
+                <p>No entries match your filters.</p>
+                <p class="dle-browse-active-filters-list"></p>
+                <button type="button" class="dle-browse-clear-filters">Clear all filters</button>
+            </div>
         </div>
     </div>
 

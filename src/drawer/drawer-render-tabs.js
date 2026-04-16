@@ -84,8 +84,8 @@ export function renderInjectionTab() {
 
     // Diff header
     const diffParts = [];
-    if (diff.added.length) diffParts.push(`<span class="dle-diff-add" aria-label="${diff.added.length} new entries added">+${diff.added.length} new</span>`);
-    if (diff.removed.length) diffParts.push(`<span class="dle-diff-remove" aria-label="${diff.removed.length} entries removed">-${diff.removed.length} removed</span>`);
+    if (diff.added.length) diffParts.push(`<span class="dle-diff-add">+${diff.added.length} new</span>`);
+    if (diff.removed.length) diffParts.push(`<span class="dle-diff-remove">-${diff.removed.length} removed</span>`);
     $diff.html(diffParts.join(' '));
 
     // Build entries
@@ -112,11 +112,11 @@ export function renderInjectionTab() {
             const { uri } = resolveEntryVault(src, settings.vaults);
             const matchLabel = getMatchLabel(src.matchedBy);
 
-            const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens || '?'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
+            const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens != null ? src.tokens : 'unknown'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
             h += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}" data-title="${escapeHtml(src.title)}">`;
             h += `<span class="dle-why-title">`;
             if (uri) {
-                h += `<a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
+                h += `<a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">${escapeHtml(src.title)}</a>`;
             } else {
                 h += escapeHtml(src.title);
             }
@@ -132,7 +132,7 @@ export function renderInjectionTab() {
             h += `<span class="dle-why-tokens" style="color: hsl(${Math.round(tokHue)}, 80%, 50%)" aria-label="${tokVal} tokens">${tokVal} tokens</span>`;
             const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
             if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
-            h += `<span class="dle-why-match" data-match-type="${matchLabel.toLowerCase()}" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
+            h += `<span class="dle-why-match" data-match-type="${matchLabel.toLowerCase()}" title="Matched via ${escapeHtml(src.matchedBy || '?')}">${matchLabel}</span>`;
             if (isNew) h += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
             h += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(src.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button>`;
             h += `</span>`;
@@ -179,16 +179,16 @@ export function renderInjectionTab() {
             let whyNotHtml = '';
             for (const group of nonEmpty) {
                 // Group sub-header
-                whyNotHtml += `<div class="dle-why-not-group-header" role="heading" aria-level="4">`;
+                whyNotHtml += `<div class="dle-why-not-group-header" role="heading" aria-level="4" aria-label="Filtered entries — ${escapeHtml(group.label)}">`;
                 whyNotHtml += `<span class="dle-why-not-group-icon">${group.icon}</span> `;
                 whyNotHtml += `<span class="dle-why-not-group-label">${escapeHtml(group.label)}</span>`;
                 whyNotHtml += `<span class="dle-why-not-group-count">${group.entries.length}</span>`;
                 whyNotHtml += `</div>`;
                 // Entries under this group
                 for (const e of group.entries) {
-                    whyNotHtml += `<div class="dle-why-entry dle-why-not-entry dle-why-not-grouped" role="listitem" aria-label="${escapeHtml(e.title)}, filtered: ${escapeHtml(e.reason)}">`;
+                    whyNotHtml += `<div class="dle-why-entry dle-why-not-entry dle-why-not-grouped" role="listitem" aria-label="Filtered out: ${escapeHtml(e.reason)}">`;
                     whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(e.title)}</span>`;
-                    whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(e.reason)}">${escapeHtml(e.reason)}</span>`;
+                    whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(e.reason)}" aria-label="${escapeHtml(e.reason)}">${escapeHtml(e.reason)}</span>`;
                     whyNotHtml += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(e.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(e.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
                     whyNotHtml += `</div>`;
                 }
@@ -534,7 +534,7 @@ export function renderBrowseWindow() {
         const prioClass = e.constant ? ' dle-browse-constant' : '';
 
         const statusParts = [];
-        if (isInjected) statusParts.push('currently injected');
+        if (isInjected) statusParts.push('Injected');
         if (isPinned) statusParts.push('pinned');
         if (isBlocked) statusParts.push('blocked');
         if (e.constant) statusParts.push('constant');
@@ -550,8 +550,9 @@ export function renderBrowseWindow() {
         const tempStyle = temp && temp.hue !== 'neutral' ? `--dle-temp:${temp.tempScore.toFixed(2)};--dle-temp-hue:${temp.hue};` : '';
         const tempClass = temp && temp.hue !== 'neutral' ? ` dle-temp-${temp.hue}` : '';
 
-        html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" aria-setsize="${entries.length}" aria-posinset="${i + 1}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
-        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}">`;
+        const previewId = `dle-preview-${CSS.escape(trackerKey(e))}`;
+        html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" aria-controls="${previewId}" aria-setsize="${entries.length}" aria-posinset="${i + 1}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
+        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}" aria-describedby="${previewId}">`;
         html += `<span class="dle-browse-title">${escapeHtml(e.title)}${e.guide ? ' <span class="dle-browse-guide-pill" title="Writing guide — read by the Librarian (Emma) only, never sent to the writing AI"><i class="fa-solid fa-book-open-reader" aria-hidden="true"></i> Guide</span>' : ''}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
@@ -559,13 +560,13 @@ export function renderBrowseWindow() {
         // "Why not?" rejection indicator for non-injected entries
         const rejection = !isInjected ? rejectionMap.get(tl) : null;
         if (rejection) {
-            html += `<span class="dle-browse-why-not" title="${escapeHtml(rejection.label)}: ${escapeHtml(rejection.reason)}" aria-label="Not injected: ${escapeHtml(rejection.reason)}"><i class="fa-solid ${escapeHtml(rejection.icon)}" aria-hidden="true"></i></span>`;
+            html += `<span class="dle-browse-why-not" title="${escapeHtml(rejection.label)}: ${escapeHtml(rejection.reason)}" aria-label="${escapeHtml(rejection.label)}"><i class="fa-solid ${escapeHtml(rejection.icon)}" aria-hidden="true"></i></span>`;
         }
         const browseCount = chatInjectionCounts.get(trackerKey(e)) || 0;
-        if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat">${browseCount}×</span>`;
+        if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat" aria-label="injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat">${browseCount}×</span>`;
         html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
-        html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(e.title)}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
-        html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(e.title)}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;
+        html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isPinned ? 'Unpin' : 'Pin'}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
+        html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isBlocked ? 'Unblock' : 'Block'}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;
         html += `</div>`;
         html += `</div>`;
     }
@@ -620,7 +621,7 @@ export function renderBrowseWindow() {
                         }
                         relatedHtml += `</div>`;
                     }
-                    _cachedExpandedPreviewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}${relatedHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
+                    _cachedExpandedPreviewHtml = `<div class="dle-browse-preview" id="dle-preview-${CSS.escape(expandedKey)}"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}${relatedHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
                     _cachedExpandedPreviewKey = expandedKey;
                 }
 
@@ -668,7 +669,7 @@ export function renderGatingTab() {
                 return !activeFolders.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));
             }).length;
             if (excluded > 0) {
-                chipsHtml += `<span class="dle-gating-count" title="${excluded} entries outside selected folders will be filtered out">excluding ${excluded}</span>`;
+                chipsHtml += `<span class="dle-gating-count" title="${excluded} entries outside selected folders will be filtered out" aria-label="Excluding ${excluded} entries">excluding ${excluded}</span>`;
             }
             $chips.html(chipsHtml).show();
             $empty.hide();
@@ -713,7 +714,7 @@ export function renderGatingTab() {
         });
         $container.find('.dle-gating-hint').remove();
         if (!anySet && enabledDefs.length > 0) {
-            $container.append('<div class="dle-gating-hint">Set gating fields to filter which lore entries are included. Use <code>/dle-set-field</code> or click the edit icon on any field.</div>');
+            $container.append('<div class="dle-gating-hint">Set gating fields to filter which lore entries are included. Set via slash command (<code>/dle-set-field</code>) or click the field below.</div>');
         }
     }
 
@@ -742,7 +743,7 @@ export function renderGatingTab() {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
             } else {
-                $setBtn.before('<span class="dle-gating-empty">Not set</span>');
+                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: not set">Not set</span>`);
             }
         } else {
             // Array field
@@ -760,7 +761,7 @@ export function renderGatingTab() {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
             } else {
-                $setBtn.before('<span class="dle-gating-empty">None set</span>');
+                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: none set">None set</span>`);
             }
         }
     }

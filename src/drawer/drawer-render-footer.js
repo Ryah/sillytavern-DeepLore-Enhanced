@@ -74,15 +74,17 @@ export function renderFooter() {
 
     // ── Activity feed ──
     const $activityFeed = $footer.find('.dle-activity-feed');
+    $activityFeed.attr('role', 'log').attr('aria-live', 'polite');
     if ($activityFeed.length && activityLog.length > 0) {
         let feedHtml = '';
         for (const a of activityLog) {
             const time = new Date(a.ts);
             const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const isoTime = time.toISOString();
             feedHtml += `<div class="dle-activity-row">`;
-            feedHtml += `<span class="dle-activity-time">${timeStr}</span>`;
+            feedHtml += `<span class="dle-activity-time" title="${isoTime}">${timeStr}</span>`;
             feedHtml += `<span class="dle-activity-mode">${a.mode}</span>`;
-            let detail = `${a.injected} entries, ${formatTokensCompact(a.tokens)} tok`;
+            let detail = `${a.injected} entr${a.injected === 1 ? 'y' : 'ies'}, ${formatTokensCompact(a.tokens)} tok`;
             if (a.folderFilter?.length) detail += ` [${a.folderFilter.length} folder${a.folderFilter.length !== 1 ? 's' : ''}]`;
             feedHtml += `<span class="dle-activity-detail">${detail}</span>`;
             feedHtml += `</div>`;
@@ -148,12 +150,13 @@ export function renderFooter() {
     if (indexEverLoaded && indexTimestamp) {
         const ageMs = Date.now() - indexTimestamp;
         const cacheTTL = (settings.cacheTTL || 300) * 1000;
+        const ageSecs = Math.round(ageMs / 1000);
         if (ageMs < cacheTTL) {
-            const cacheLabel = `Cache: fresh (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries)`;
+            const cacheLabel = `Cache: fresh (${ageSecs} seconds old, ${vaultIndex.length} entries)`;
             $cache.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
             $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
         } else {
-            const cacheLabel = `Cache: stale (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries) — click to refresh`;
+            const cacheLabel = `Cache: stale (${ageSecs} seconds old, ${vaultIndex.length} entries) — click to refresh`;
             $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
             $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
         }

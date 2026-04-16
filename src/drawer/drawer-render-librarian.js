@@ -88,8 +88,8 @@ export function renderLibrarianTab() {
 
     const flagNew = visibleFlagGaps.filter(g => (g.timestamp || 0) > ds.librarianLastViewed.flag).length;
     const activityNew = activityFeed.filter(it => (it.ts || 0) > ds.librarianLastViewed.activity).length;
-    $subTabs.find('[data-filter="flag"] .dle-sub-tab-count').text(flagNew > 0 ? `(${flagNew})` : '');
-    $subTabs.find('[data-filter="activity"] .dle-sub-tab-count').text(activityNew > 0 ? `(${activityNew})` : '');
+    $subTabs.find('[data-filter="flag"] .dle-sub-tab-count').text(flagNew > 0 ? `(${flagNew})` : '').attr('aria-label', `Flag tab, ${flagNew} new`);
+    $subTabs.find('[data-filter="activity"] .dle-sub-tab-count').text(activityNew > 0 ? `(${activityNew})` : '').attr('aria-label', `Activity tab, ${activityNew} new`);
 
     // ─── Activity sub-tab ───────────────────────────────────────────────────
     if (ds.librarianFilter === 'activity') {
@@ -120,7 +120,7 @@ export function renderLibrarianTab() {
             const metaText = item.kind === 'gap-search'
                 ? 'no results'
                 : item.kind === 'gap-flag'
-                    ? `${item.urgency || 'medium'}${item.frequency > 1 ? `, flagged ${item.frequency}x` : ''}`
+                    ? `${item.urgency || 'medium'}${item.frequency > 1 ? `, flagged ${item.frequency} times` : item.frequency === 1 ? ', flagged once' : ''}`
                     : isSearch
                         ? `${item.resultCount} result${item.resultCount !== 1 ? 's' : ''}`
                         : (item.urgency || '');
@@ -171,6 +171,7 @@ export function renderLibrarianTab() {
             $emptyActions.css('display', 'none');
         } else {
             $text.text('No flagged issues yet. The AI will flag missing or stale lore during replies.');
+            $text.after('<p style="font-size: var(--dle-text-xs); opacity: 0.7; margin-top: var(--dle-space-1);">Check Settings → Features → Librarian to enable.</p>');
             $emptyActions.css('display', '');
         }
         $empty.addClass('dle-visible');
@@ -202,7 +203,7 @@ export function renderLibrarianTab() {
         html += `<div class="dle-librarian-entry ${tintClass} ${subtypeClass} ${selClass}" style="--dle-gap:${score.toFixed(2)}" `
             + `data-gap-id="${escapeHtml(gap.id)}" data-subtype="${gap.subtype || 'gap'}" ${entryTitleAttr} `
             + `data-urgency="${gap.urgency || 'medium'}" role="listitem" `
-            + `aria-expanded="false" aria-label="${title}, ${statusInfo.label}, ${gap.urgency || 'medium'} urgency" tabindex="0">`;
+            + `aria-expanded="false" aria-label="${title}, ${statusInfo.label}" tabindex="0">`;
         html += `<input type="checkbox" class="dle-gap-check" ${isSelected ? 'checked' : ''} aria-label="Select ${title}" tabindex="-1">`;
         // Update flags get a pen icon; gaps get the status icon
         if (isUpdate) {
@@ -235,12 +236,12 @@ export function renderLibrarianTab() {
     const selCount = ds.librarianSelected.size;
     const allSelected = selCount > 0 && gaps.every(g => ds.librarianSelected.has(g.id));
     $selectAllBar.find('.dle-librarian-select-all').prop('checked', allSelected);
-    $selectAllBar.find('.dle-librarian-select-count').text(selCount > 0 ? `${selCount} selected` : '');
+    $selectAllBar.find('.dle-librarian-select-count').text(selCount > 0 ? `${selCount} item${selCount === 1 ? '' : 's'} selected` : '');
 
     // Action buttons: act on selection only; disable when empty
     const hasSelection = selCount > 0;
     const hasSingleSelection = selCount === 1;
-    $actionRow.find('[data-librarian-action="open"]').prop('disabled', !hasSingleSelection);
+    $actionRow.find('[data-librarian-action="open"]').prop('disabled', !hasSingleSelection).attr('aria-disabled', !hasSingleSelection ? 'true' : null);
     $actionRow.find('[data-librarian-action="done"]').prop('disabled', !hasSelection);
     $actionRow.find('[data-librarian-action="remove"]').prop('disabled', !hasSelection);
 

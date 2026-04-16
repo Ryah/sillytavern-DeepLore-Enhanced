@@ -49,6 +49,7 @@ let drawerListeners = { eventSource: [], timers: [], stateObservers: [], windowE
 // per-closure state previously produced duplicate announcements with stale counts.
 let _gapAnnounceTimer = null;
 let _lastGapCount = 0;
+const GAP_ANNOUNCE_DEBOUNCE_MS = 500;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Public API (consumed by index.js)
@@ -154,11 +155,11 @@ export async function createDrawerPanel() {
             <div class="drawer-toggle drawer-header">
                 <div id="deeploreDrawerIcon"
                      class="drawer-icon interactable closedIcon dle-drawer-icon-svg"
-                     title="DeepLore Enhanced"
+                     title="Open DeepLore Enhanced drawer"
                      tabindex="0"
                      role="button"
                      aria-expanded="false"
-                     aria-label="DeepLore Enhanced drawer"><i class="fa-solid fa-book-open fa-fw" aria-hidden="true"></i></div>
+                     aria-label="Open DeepLore Enhanced drawer"><i class="fa-solid fa-book-open fa-fw" aria-hidden="true"></i></div>
             </div>
             <div id="deeplore-panel" class="drawer-content closedDrawer fillRight" role="region" aria-label="DeepLore Enhanced panel">
                 <div id="deeplore-panelheader" class="fa-solid fa-grip drag-grabber" aria-hidden="true"></div>
@@ -173,7 +174,7 @@ export async function createDrawerPanel() {
                     <!-- NOTE: Do NOT use right_menu_button class on <button> elements — ST applies
                          background-color: rgb(240,240,240) which creates a white square. The lock avoids
                          this because it's a checkbox+label, not a button. Style manually instead. -->
-                    <button class="dle-drawer-settings" title="Open DeepLore settings" aria-label="Open settings">
+                    <button class="dle-drawer-settings" title="Open DeepLore settings" aria-label="Open DeepLore settings">
                         <i class="fa-solid fa-gear" aria-hidden="true"></i>
                     </button>
                     <button class="dle-drawer-help" title="Show available commands (/dle-help)" aria-label="Show help">
@@ -240,7 +241,7 @@ export async function createDrawerPanel() {
     const $panel = $drawer.find('#deeplore-panel');
 
     function updateOverlayMode() {
-        const chatWidth = power_user?.chat_width || 50;
+        const chatWidth = power_user?.chat_width || 50; // Default if power_user.chat_width unset
         if (chatWidth >= OVERLAY_CHAT_WIDTH_THRESHOLD) {
             $panel.addClass('dle-overlay-mode');
         } else {
@@ -324,17 +325,19 @@ export async function createDrawerPanel() {
     });
 
     // Settings button — opens settings popup
-    $drawer.find('.dle-drawer-settings').on('click', async function () {
+    $drawer.find('.dle-drawer-settings').on('click', async function (e) {
         const { openSettingsPopup } = await import('../ui/settings-ui.js');
         openSettingsPopup?.();
+        e.currentTarget.blur();
     });
 
     // Help button — opens /dle-help command
-    $drawer.find('.dle-drawer-help').on('click', function () {
+    $drawer.find('.dle-drawer-help').on('click', function (e) {
         const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
         if (ctx?.executeSlashCommands) {
             ctx.executeSlashCommands('/dle-help');
         }
+        e.currentTarget.blur();
     });
 
     // Moving UI support — let ST's drag system handle our panel
@@ -516,7 +519,7 @@ export async function createDrawerPanel() {
         scheduleRender(renderBrowseTab);
         scheduleRender(renderTimers);
         scheduleRender(renderFooter);
-        announceToScreenReader(`Vault index refreshed: ${vaultIndex.length} entries loaded.`);
+        setTimeout(() => announceToScreenReader(`Vault index refreshed: ${vaultIndex.length} entries loaded.`), 0);
     }));
 
     drawerListeners.stateObservers.push(onAiStatsUpdated(() => {
@@ -554,8 +557,8 @@ export async function createDrawerPanel() {
         scheduleRender(renderBrowseTab);
         scheduleRender(renderTimers);
         scheduleRender(renderFooter);
-        if (lastInjectionSources !== null) {
-            announceToScreenReader(`Pipeline complete: ${lastInjectionSources.length} entries injected.`);
+        if (lastInjectionSources !== null && lastInjectionSources.length > 0) {
+            setTimeout(() => announceToScreenReader(`Pipeline complete: ${lastInjectionSources.length} entries injected.`), 0);
         }
     }));
 
@@ -614,7 +617,7 @@ export async function createDrawerPanel() {
                 if (pendingFlags > 0) {
                     announceToScreenReader(`${added} new lore gap${added !== 1 ? 's' : ''} flagged. ${pendingFlags} pending.`);
                 }
-            }, 500);
+            }, GAP_ANNOUNCE_DEBOUNCE_MS);
             drawerListeners.timers.push(_gapAnnounceTimer);
         }
         _lastGapCount = newCount;
@@ -649,8 +652,9 @@ export function navigateToBrowseEntry(title) {
     ds.$drawer.find('[data-filter="status"]').val('all');
     ds.$drawer.find('[data-filter="tag"]').val('');
 
-    // Render
+    // Render, then focus search input so keyboard users can immediately refine
     renderBrowseTab();
+    setTimeout(() => ds.$drawer?.find('.dle-browse-input').focus(), 0);
 }
 
 // Call this from extension cleanup if/when one exists.

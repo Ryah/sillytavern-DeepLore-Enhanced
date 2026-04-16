@@ -199,8 +199,17 @@ export function wireStatusActions($drawer) {
     $drawer.on('click', '.dle-action-btn[data-action]', function () {
         const action = $(this).data('action');
         switch (action) {
-            case 'refresh': buildIndex().catch(err => console.warn('[DLE] Manual refresh failed:', err.message)); break;
-            case 'scribe': executeCommand('/dle-scribe'); break;
+            case 'refresh': {
+                if (ds.refreshing) return;
+                ds.refreshing = true;
+                buildIndex().catch(err => console.warn('[DLE] Manual refresh failed:', err.message)).finally(() => { ds.refreshing = false; });
+                break;
+            }
+            case 'scribe': {
+                if (generationLock) { toastr.warning('Generation in progress.', 'DeepLore Enhanced', { timeOut: 2000 }); return; }
+                executeCommand('/dle-scribe');
+                break;
+            }
             case 'newlore': executeCommand('/dle-newlore'); break;
             case 'librarian-chat': executeCommand('/dle-librarian'); break;
             case 'graph': executeCommand('/dle-graph'); break;
@@ -306,14 +315,16 @@ export function wireInjectionTab($drawer) {
 
     // Copy injected entry titles to clipboard
     $drawer.on('click', '.dle-copy-titles-btn', function () {
+        const $btn = $(this);
         const sources = lastInjectionSources;
         if (!sources || sources.length === 0) {
             toastr.warning('No injected entries to copy.', 'DeepLore Enhanced', { timeOut: 2000 });
             return;
         }
+        const n = sources.length;
         const titles = sources.map(s => s.title).join('\n');
         navigator.clipboard.writeText(titles).then(
-            () => toastr.success(`Copied ${sources.length} entry title${sources.length !== 1 ? 's' : ''} to clipboard`, 'DeepLore Enhanced', { timeOut: 2000 }),
+            () => { toastr.success(`Copied ${n} title${n === 1 ? '' : 's'} to clipboard`, 'DeepLore Enhanced', { timeOut: 2000 }); $btn.focus(); },
             () => toastr.warning('Clipboard access denied — check browser permissions.', 'DeepLore Enhanced', { timeOut: 3000 }),
         );
     });
@@ -335,10 +346,12 @@ export function wireBrowseTab($drawer) {
     $drawer.find('.dle-browse-input').on('input', function () {
         const val = $(this).val();
         clearTimeout(ds.browseSearchTimeout);
+        $drawer.find('.dle-browse-refresh-spinner').css('visibility', 'visible');
         ds.browseSearchTimeout = setTimeout(() => {
+            $drawer.find('.dle-browse-refresh-spinner').css('visibility', '');
             ds.browseQuery = val;
             scheduleRender(renderBrowseTab);
-        }, 150);
+        }, 250);
     });
 
     // Filter selects
@@ -406,6 +419,7 @@ export function wireBrowseTab($drawer) {
                     return !(n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null));
                 });
             }
+            announceToScreenReader(`Pinned ${title}`);
         }
         saveMetadataDebounced();
         notifyPinBlockChanged();
@@ -439,6 +453,7 @@ export function wireBrowseTab($drawer) {
                     return !(n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null));
                 });
             }
+            announceToScreenReader(`Blocked ${title}`);
         }
         saveMetadataDebounced();
         notifyPinBlockChanged();
@@ -778,6 +793,7 @@ export function wireHealthIcons($drawer) {
 // ════════════════════════════════════════════════════════════════════════════
 // Librarian Tab
 // ════════════════════════════════════════════════════════════════════════════
+let removeArmedAt = 0;
 
 /** Wire Librarian tab interactions (sub-tabs, sort, selection, footer actions) */
 export function wireLibrarianTab($drawer) {
@@ -845,12 +861,15 @@ export function wireLibrarianTab($drawer) {
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             const $next = $(this).next('.dle-librarian-entry');
-            if ($next.length) $next[0].focus();
+            const $target = $next.length ? $next : $drawer.find('.dle-librarian-entry').first();
+            if ($target.length) $target[0].focus();
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             const $prev = $(this).prev('.dle-librarian-entry');
-            if ($prev.length) $prev[0].focus();
+            const $target = $prev.length ? $prev : $drawer.find('.dle-librarian-entry').last();
+            if ($target.length) $target[0].focus();
         } else if (e.key === ' ') {
+            // Space: toggle expand only (not checkbox)
             e.preventDefault();
             $(this).trigger('click');
         }
@@ -949,13 +968,32 @@ export function wireLibrarianTab($drawer) {
             setLoreGaps([...loreGaps]);
             ds.librarianSelected.clear();
             ds.librarianLastClicked = null;
-            announceToScreenReader(`${ids.length} item${ids.length !== 1 ? 's' : ''} marked as Written`);
+            const doneN = ids.length;
+            toastr.success(`Marked ${doneN} as written`, 'DeepLore Enhanced', { timeOut: 2000 });
+            announceToScreenReader(`${doneN} item${doneN !== 1 ? 's' : ''} marked as Written`);
             scheduleRender(renderLibrarianTab);
+            requestAnimationFrame(() => {
+                const $first = $drawer.find('.dle-librarian-list .dle-librarian-entry').first();
+                if ($first.length) $first[0].focus();
+            });
             return;
         }
 
         if (action === 'remove') {
-            // Two-tier remove: hide on first pass, dismiss-forever on already-hidden ids
+            const $btn = $(this);
+            const now = Date.now();
+            if (now - removeArmedAt > 3000) {
+                // Arm: first click — show confirm state, revert after 3s if no second click
+                removeArmedAt = now;
+                const origHtml = $btn.html();
+                $btn.html('<i class="fa-solid fa-trash" aria-hidden="true"></i> Click again to confirm');
+                setTimeout(() => {
+                    if (Date.now() - removeArmedAt >= 3000) $btn.html(origHtml);
+                }, 3000);
+                return;
+            }
+            // Confirmed: second click within 3s — execute
+            removeArmedAt = 0;
             const hidden = getHiddenGapIds();
             let hideN = 0, dismissN = 0;
             for (const id of ids) {
@@ -970,8 +1008,8 @@ export function wireLibrarianTab($drawer) {
             ds.librarianSelected.clear();
             ds.librarianLastClicked = null;
             const parts = [];
-            if (hideN) parts.push(`${hideN} hidden`);
-            if (dismissN) parts.push(`${dismissN} dismissed forever`);
+            if (hideN) parts.push(`${hideN} hidden (re-flag resurfaces)`);
+            if (dismissN) parts.push(`${dismissN} dismissed`);
             announceToScreenReader(parts.join(', '));
             scheduleRender(renderLibrarianTab);
         }

@@ -81,7 +81,7 @@ export const STATUS_CLASSES = {
 export const BROWSE_ROW_HEIGHT = 32;
 export const BROWSE_OVERSCAN = 8;
 
-/** Chat width threshold for overlay mode */
+/** Chat width threshold for overlay mode — chat_width percentage; above this, drawer uses fixed overlay */
 export const OVERLAY_CHAT_WIDTH_THRESHOLD = 60;
 
 // ─── Mutable State (shared object — avoids circular imports) ───
@@ -266,10 +266,9 @@ export function getMatchLabel(matchedBy) {
  */
 export function announceToScreenReader(message) {
     const $live = $('#dle-drawer-live');
-    if ($live.length) {
-        $live.text('');
-        requestAnimationFrame(() => $live.text(message));
-    }
+    if (!$live || !$live.length) return;
+    $live.text('');
+    requestAnimationFrame(() => $live.text(message));
 }
 
 /**

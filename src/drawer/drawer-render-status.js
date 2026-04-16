@@ -50,6 +50,7 @@ export function renderStatusZone() {
     _lastAnnouncedStatus = status;
 
     const $dot = $drawer.find('.dle-status-dot');
+    $dot.attr('aria-live', 'status');
     $dot.removeClass('dle-status-ok dle-status-degraded dle-status-limited dle-status-offline');
     $dot.addClass(STATUS_CLASSES[status] || 'dle-status-offline');
     const statusDesc = STATUS_DESCRIPTIONS[status] || status;
@@ -69,8 +70,8 @@ export function renderStatusZone() {
     $dot.toggleClass('dle-status-active', isActive);
 
     // Activity label (phase-driven: Indexing → Choosing Lore → Consulting Vault → Generating/Writing → Idle)
-    const PHASE_LABELS = { choosing: 'Choosing Lore...', consulting: 'Consulting Vault...', generating: 'Generating...', writing: 'Writing...', searching: 'Searching...', flagging: 'Flagging...' };
-    const pipelineText = indexing ? 'Indexing...' : PHASE_LABELS[pipelinePhase] || (ds.stGenerating ? 'Generating...' : 'Idle');
+    const PHASE_LABELS = { choosing: 'Choosing Lore…', consulting: 'Consulting Vault…', generating: 'Generating…', writing: 'Writing…', searching: 'Searching…', flagging: 'Flagging…' };
+    const pipelineText = indexing ? 'Indexing…' : PHASE_LABELS[pipelinePhase] || (ds.stGenerating ? 'Generating…' : 'Idle');
     $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
 
     // Sync skip-tools toggle button visual state
@@ -115,7 +116,7 @@ export function renderStatusZone() {
     const vaultCount = settings.vaults?.filter(v => v.enabled !== false).length || 1;
     const entryTitle = indexing
         ? 'Loading lore entries...'
-        : `${entryCount} lore entries loaded from ${vaultCount === 1 ? 'your Obsidian vault' : `${vaultCount} Obsidian vaults`}`;
+        : `${entryCount} lore entr${entryCount === 1 ? 'y' : 'ies'} loaded from ${vaultCount === 1 ? 'your Obsidian vault' : `${vaultCount} Obsidian vaults`}`;
     $entries.closest('.dle-stat').attr('title', entryTitle).attr('aria-label', entryTitle);
 
     const mode = settings.aiSearchEnabled !== false
@@ -144,10 +145,10 @@ export function renderStatusZone() {
     else if (pct >= 80) $barContainer.addClass('dle-budget-high');
     $drawer.find('.dle-token-bar').css('width', `${pct}%`);
     const budgetLabel = budget
-        ? `Lore | ${used.toLocaleString()} / ${budget.toLocaleString()}`
+        ? `Budget: ${used.toLocaleString()} / ${budget.toLocaleString()}`
         : settings.unlimitedBudget
-            ? `Lore | ${used.toLocaleString()} / \u221E`
-            : 'Lore | waiting';
+            ? `Budget: ${used.toLocaleString()} / \u221E`
+            : 'Budget: waiting';
     $drawer.find('.dle-token-bar-label').text(budgetLabel);
     // Build budget breakdown from trace for tooltip
     let breakdownParts = [];
@@ -199,9 +200,9 @@ export function renderStatusZone() {
             : 'Entries | waiting';
     $drawer.find('.dle-entries-bar-label').text(entriesLabel);
     const entriesTitle = maxEntries
-        ? `${injectedNum} of ${maxEntries} entries injected — limits how many lore entries are included per message`
+        ? `${injectedNum} of ${maxEntries} entr${maxEntries === 1 ? 'y' : 'ies'} injected — limits how many lore entries are included per message`
         : settings.unlimitedEntries
-            ? `${injectedNum} entries injected (unlimited) — no entry count cap configured`
+            ? `${injectedNum} entr${injectedNum === 1 ? 'y' : 'ies'} injected (unlimited) — no entry count cap configured`
             : 'Entry limit: waiting for first generation';
     $entriesBarContainer.attr('title', entriesTitle);
 
@@ -213,7 +214,7 @@ export function renderStatusZone() {
     const activeFolders = chat_metadata?.deeplore_folder_filter || [];
     if (activeFolders.length > 0) {
         const folderLabel = activeFolders.length === 1 ? activeFolders[0] : `${activeFolders.length} folders`;
-        chips.push(`<span class="dle-chip dle-chip-sm dle-folder-badge-chip" role="button" tabindex="0" title="Folder filter active: ${escapeHtml(activeFolders.join(', '))}" data-action="goto-gating"><i class="fa-solid fa-folder" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>${escapeHtml(folderLabel)}</span>`);
+        chips.push(`<span class="dle-chip dle-chip-sm dle-folder-badge-chip" role="button" aria-pressed="true" tabindex="0" title="Folder filter active: ${escapeHtml(activeFolders.join(', '))}" data-action="goto-gating"><i class="fa-solid fa-folder" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>${escapeHtml(folderLabel)}</span>`);
     }
     if (ctx) {
         for (const [key, val] of Object.entries(ctx)) {

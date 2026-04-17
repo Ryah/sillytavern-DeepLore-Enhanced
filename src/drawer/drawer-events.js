@@ -31,6 +31,7 @@ import {
 import { renderInjectionTab, renderBrowseTab, renderBrowseWindow, renderGatingTab, renderStatusZone } from './drawer-render.js';
 import { renderLibrarianTab } from './drawer-render-librarian.js';
 import { hideGap, dismissGap, getHiddenGapIds, getDismissedGapIds } from '../librarian/librarian-tools.js';
+import { dedupError } from '../toast-dedup.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -52,7 +53,10 @@ export function updateFilterActiveIndicators($drawer) {
 function executeCommand(cmd) {
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
     if (ctx?.executeSlashCommands) {
-        ctx.executeSlashCommands(cmd).catch(err => console.error('[DLE] Command error:', cmd, err));
+        ctx.executeSlashCommands(cmd).catch(err => {
+            console.error('[DLE] Command error:', cmd, err);
+            dedupError('A drawer command failed. Check the browser console for details.', 'drawer_cmd_error');
+        });
     } else {
         console.warn('[DLE] Cannot execute command — SillyTavern.getContext() unavailable');
     }

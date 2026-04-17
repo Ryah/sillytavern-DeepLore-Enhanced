@@ -36,7 +36,7 @@ export function applyLibrarianVisibility(enabled) {
                     for (let i = 0; i < chat.length; i++) {
                         try { m.removeLibrarianDropdown(i); } catch { /* noop */ }
                     }
-                }).catch(() => { /* noop */ });
+                }).catch((e) => { console.debug('[DLE] visibility: failed to load librarian-ui:', e?.message); });
             }
         } catch { /* noop */ }
     }

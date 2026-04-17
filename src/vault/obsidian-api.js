@@ -234,7 +234,7 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
                 abortErr.userAborted = true;
                 throw abortErr;
             }
-            const timeoutErr = new Error('Request timed out');
+            const timeoutErr = new Error('Request timed out', { cause: err });
             timeoutErr.name = 'AbortError';
             timeoutErr.timedOut = true;
             throw timeoutErr;

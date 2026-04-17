@@ -37,6 +37,7 @@ import {
     wireToolsTab, wireTabExpand, wireStatusActions, wireInjectionTab, wireBrowseTab, wireGatingTab, wireHealthIcons,
     wireLibrarianTab, wireGlobalShortcuts,
 } from './drawer-events.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Teardown registry (BUG-349 — drawer destroy/teardown to prevent listener leaks)
@@ -220,6 +221,7 @@ export async function createDrawerPanel() {
         requestAnimationFrame(() => {
             const isOpen = $drawer.find('#deeplore-panel').hasClass('openDrawer');
             $drawer.find('#deeploreDrawerIcon').attr('aria-expanded', String(isOpen));
+            pushEvent('drawer', { action: isOpen ? 'open' : 'close' });
             updateOverlayMode();
         });
     });

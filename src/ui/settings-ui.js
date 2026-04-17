@@ -52,7 +52,7 @@ function drainPendingPromptListCleanup() {
             const pmEntry = promptManager.getPromptById(id);
             if (pmEntry) pmEntry.content = '';
         }
-    } catch (e) { /* best-effort */ }
+    } catch (e) { console.warn('[DLE] drainPendingPromptListCleanup failed:', e?.message); return; }
     settings._pendingPromptListCleanup = false;
     saveSettingsDebounced();
 }

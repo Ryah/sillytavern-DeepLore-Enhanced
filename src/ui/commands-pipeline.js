@@ -148,11 +148,33 @@ export function registerPipelineCommands() {
             // Helper: build a set of keyword-matched titles for cross-referencing gated entries
             const keywordMatchedTitles = new Set(t.keywordMatched.map(m => m.title.toLowerCase()));
 
+            // Timing breakdown from per-stage instrumentation
+            const timingFields = [
+                ['Index Refresh', t.ensureIndexFreshMs],
+                ['Pin/Block', t.pinBlockMs],
+                ['Contextual Gating', t.contextualGatingMs],
+                ['Reinjection Cooldown', t.reinjectionCooldownMs],
+                ['Requires/Excludes', t.requiresExcludesMs],
+                ['Strip Dedup', t.stripDedupMs],
+                ['Format & Group', t.formatGroupMs],
+                ['Track Generation', t.trackGenerationMs],
+                ['Record Analytics', t.recordAnalyticsMs],
+                ['Per-Chat Counts', t.perChatCountsMs],
+            ];
+            const hasTimingData = timingFields.some(([, v]) => v != null);
+
             // Build plain-text version for clipboard
             const plainLines = [
                 'Entry Inspector',
                 `Mode: ${t.mode} | Indexed: ${t.indexed} | Bootstrap active: ${t.bootstrapActive ? 'yes' : 'no'} | AI fallback: ${t.aiFallback ? 'yes' : 'no'}`,
+                ...(t.genId ? [`Generation ID: ${t.genId}`] : []),
                 ...(t.aiPreFilter?.removed > 0 ? [`AI pre-filter: ${t.aiPreFilter.removed} entries hidden from AI by contextual gating (${t.aiPreFilter.before} → ${t.aiPreFilter.after})`] : []),
+                ...(hasTimingData ? [
+                    '',
+                    'Stage Timing:',
+                    ...timingFields.filter(([, v]) => v != null).map(([name, ms]) => `  ${name}: ${ms}ms`),
+                    `  Total: ${timingFields.reduce((sum, [, v]) => sum + (v || 0), 0)}ms`,
+                ] : []),
                 '',
             ];
             if (t.keywordMatched.length > 0) {
@@ -251,6 +273,18 @@ export function registerPipelineCommands() {
             html += `<h3>Entry Inspector</h3>`;
             html += buildCopyButton(plainText);
             html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
+            if (t.genId) html += `<p class="dle-text-xs dle-dimmed"><b>Generation ID:</b> ${escapeHtml(t.genId)}</p>`;
+            if (hasTimingData) {
+                const totalMs = timingFields.reduce((sum, [, v]) => sum + (v || 0), 0);
+                html += `<details><summary class="dle-health-summary"><b>Stage Timing</b> (${totalMs}ms total)</summary>`;
+                html += `<table class="dle-table" style="font-size:13px;"><tr><th>Stage</th><th>Time</th></tr>`;
+                for (const [name, ms] of timingFields) {
+                    if (ms == null) continue;
+                    html += `<tr><td>${escapeHtml(name)}</td><td class="dle-text-center">${ms}ms</td></tr>`;
+                }
+                html += `<tr style="font-weight:bold;"><td>Total</td><td class="dle-text-center">${totalMs}ms</td></tr>`;
+                html += `</table></details>`;
+            }
             if (t.aiPreFilter?.removed > 0) {
                 html += `<p class="dle-text-xs dle-dimmed">AI pre-filter: ${t.aiPreFilter.removed} entries hidden from AI by contextual gating (${t.aiPreFilter.before} → ${t.aiPreFilter.after})</p>`;
             }

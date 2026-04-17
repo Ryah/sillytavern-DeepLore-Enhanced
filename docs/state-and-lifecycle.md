@@ -69,6 +69,8 @@ No getter functions exist — other modules `import { vaultIndex } from './state
 | `lastWarningRatio` | `number` | Chat (→0) | onGenerate context warning | warning dedup |
 | `lastPipelineTrace` | `object\|null` | Chat (→null) | onGenerate trace publish, CHAT_CHANGED | /dle-inspect, drawer |
 
+**`lastPipelineTrace` shape note:** Contains `genId` (6-char string or `null`) and 10 `*Ms` timing fields (all `number|null`): `ensureIndexFreshMs`, `pinBlockMs`, `contextualGatingMs`, `reinjectionCooldownMs`, `requiresExcludesMs`, `stripDedupMs`, `formatGroupMs`, `trackGenerationMs`, `recordAnalyticsMs`, `perChatCountsMs`. Set by `onGenerate()` in `index.js` via `performance.now()` bookends around each stage call. No new state variables — these are fields on the existing trace object initialized in `runPipeline()` (`src/pipeline/pipeline.js`).
+
 ### Scribe State
 | Variable | Type | Reset scope | Writers | Readers |
 |---|---|---|---|---|

@@ -1,7 +1,12 @@
 /**
  * DeepLore Enhanced — BM25 Fuzzy Search Index
  * Extracted from vault.js for testability (pure functions, no ST globals).
+ *
+ * _debugMode is injected by vault.js at init time via setDebugMode().
+ * In test environments it stays false — no ST dependency.
  */
+let _debugMode = false;
+export function setDebugMode(val) { _debugMode = !!val; }
 
 /**
  * BUG-369: BM25 docId must be unique WITHIN a single vault. trackerKey
@@ -91,6 +96,8 @@ export function queryBM25(index, queryText, topK = 20, minScore = 0.5) {
     const queryTokens = tokenize(queryText);
     if (queryTokens.length === 0) return [];
 
+    const _bm25Start = performance.now();
+
     // BUG-042: Deduplicate query tokens (frequency was allocated but never used in scoring)
     const queryTerms = new Set(queryTokens);
 
@@ -130,5 +137,10 @@ export function queryBM25(index, queryText, topK = 20, minScore = 0.5) {
     }
 
     scores.sort((a, b) => b.score - a.score);
-    return scores.slice(0, topK);
+    const results = scores.slice(0, topK);
+    const _bm25Ms = Math.round(performance.now() - _bm25Start);
+    if (_debugMode) {
+        console.debug('[DLE] BM25: query "%s" → %d hits in %dms (threshold: %s)', queryText?.slice(0, 40), results.length, _bm25Ms, minScore);
+    }
+    return results;
 }

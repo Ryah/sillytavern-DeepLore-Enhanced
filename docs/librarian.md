@@ -104,6 +104,12 @@ Google Gemini `tool_choice` normalization (G6): string values mapped to `{ mode:
 - **C1 re-entrancy:** `setSendButtonState(true)` after `abort()` (which calls `unblockGeneration`), restored in finally
 - **H4 double-write guard:** `writeDone` flag prevents multiple `write()` calls
 
+### Logging
+
+- **`agentic-loop.js`:** `pushEvent` fires on loop start and completion (with `exitReason` and iteration counter). An always-on summary log line is emitted on completion regardless of debug mode.
+- **`librarian-tools.js`:** `searchLoreAction` and `flagLoreAction` have debug-gated logging for query counts, BM25 hit counts, and epoch guard checks.
+- **`librarian-chat-tools.js`:** `executeToolCall` is wrapped with per-call timing. `toolFlagEntryUpdate` has always-on logging (not debug-gated) since flag writes are infrequent and diagnostically important.
+
 ---
 
 ## 2. Search Action

@@ -392,6 +392,11 @@ Returns `Array<{title, score, entry}>` sorted by score descending.
 - **hydrateFromCache():** Also built during hydration so search is available before background rebuild.
 - If neither setting is enabled, `setFuzzySearchIndex(null)`.
 
+### Logging
+
+- **`buildIndex()` and `buildIndexWithReuse()`** in `vault.js` log `[DLE] Index built: N entries in Xms (mode: fresh|reuse)` on completion. Always-on (not debug-gated) -- valuable performance signal for diagnosing slow rebuilds or unexpected reuse misses.
+- **`queryBM25()`** in `bm25.js` logs `[DLE] BM25: query "..." → N hits in Xms` when debug mode is active. Debug mode is injected via `setDebugMode()` rather than imported from settings, preserving the module's pure-function / no-ST-import design.
+
 ---
 
 ## 8. Sync Polling

@@ -187,6 +187,16 @@ const { groups, count, totalTokens, acceptedEntries } = formatAndGroup(postDedup
 ```
 Applies token budget (`maxTokensBudget`), entry limit (`maxEntries`), groups by injection position/depth/role. Returns `groups[]` ready for `setExtensionPrompt`. See `core/matching.js`.
 
+### genId and Per-Stage Timing
+
+**genId** is a 6-char random identifier created at the top of `onGenerate()` via `Math.random().toString(36).slice(2, 8)`. It is passed to `runPipeline()` through the options object and stamped on the returned `trace` object. Used to correlate log lines and diagnostics across a single generation.
+
+**Per-stage timing:** 10 `*Ms` fields are recorded on `trace`, one per stage call in `onGenerate()`. Each uses `performance.now()` bookends around the stage call, assigned to trace after the stage completes:
+
+`ensureIndexFreshMs`, `pinBlockMs`, `contextualGatingMs`, `reinjectionCooldownMs`, `requiresExcludesMs`, `stripDedupMs`, `formatGroupMs`, `trackGenerationMs`, `recordAnalyticsMs`, `perChatCountsMs`
+
+**`ensureIndexFreshMs` special case:** `ensureIndexFresh()` runs before `runPipeline()` returns the trace object. The timing is captured in a local variable `_indexFreshMs` BEFORE trace exists, then assigned to `trace.ensureIndexFreshMs` after `runPipeline()` returns.
+
 ### Trace Publishing (L502-536)
 Enriches `trace` with gating/budget/dedup details. **Epoch-guarded** (L520): only publishes trace and pushes activity if both epochs match.
 

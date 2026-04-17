@@ -328,9 +328,18 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
             }
             const s = g.summary || {};
             const timing = s.totalMs != null ? ` (${s.totalMs}ms)` : '';
-            push(`- gen ${g.generationCount ?? '?'} @ ${new Date(g.t).toISOString()}${timing}: keyword=${s.keywordMatched ?? 0} -> aiSelected=${s.aiSelected ?? 0} -> injected=${s.injected ?? 0}${s.aiError ? ` [aiError: ${s.aiError}]` : ''}${g.aiCircuitOpen ? ' [CIRCUIT OPEN]' : ''}`);
+            push(`- gen ${g.generationCount ?? '?'} [${s.genId || '?'}] @ ${new Date(g.t).toISOString()}${timing}: keyword=${s.keywordMatched ?? 0} -> aiSelected=${s.aiSelected ?? 0} -> injected=${s.injected ?? 0}${s.aiError ? ` [aiError: ${s.aiError}]` : ''}${g.aiCircuitOpen ? ' [CIRCUIT OPEN]' : ''}`);
             if (s.injectedTitles && s.injectedTitles.length) {
                 push(`    injected: ${s.injectedTitles.join(', ')}`);
+            }
+            // Stage timing sub-line (only when any per-stage timing exists)
+            const hasStageTimings = s.ensureIndexFreshMs != null || s.keywordMatchMs != null || s.aiSearchMs != null ||
+                s.pinBlockMs != null || s.contextualGatingMs != null || s.reinjectionCooldownMs != null ||
+                s.requiresExcludesMs != null || s.stripDedupMs != null || s.formatGroupMs != null ||
+                s.trackGenerationMs != null || s.recordAnalyticsMs != null || s.perChatCountsMs != null;
+            if (hasStageTimings) {
+                const t = (v) => v != null ? `${v}ms` : '-';
+                push(`    timing: index=${t(s.ensureIndexFreshMs)} kw=${t(s.keywordMatchMs)} ai=${t(s.aiSearchMs)} pin=${t(s.pinBlockMs)} gating=${t(s.contextualGatingMs)} cooldown=${t(s.reinjectionCooldownMs)} reqExcl=${t(s.requiresExcludesMs)} dedup=${t(s.stripDedupMs)} fmt=${t(s.formatGroupMs)} track=${t(s.trackGenerationMs)} analytics=${t(s.recordAnalyticsMs)} counts=${t(s.perChatCountsMs)}`);
             }
         }
     }
@@ -420,6 +429,23 @@ diagnose what's wrong with the user's setup.
 - \`bootstrapActive\` — chat is short, bootstrap entries force-injected
 - \`aiFallback\`, \`aiError\` — AI search failed, fell back to keyword/constants
 
+\`genId\` — 6-char random string identifying this generation run. Present on both the top-level flight recorder entry and inside \`summary\`. Use to correlate log entries across systems.
+
+Per-stage timing fields (all in ms, null if stage didn't run):
+- \`totalMs\` — wall-clock time for entire pipeline
+- \`ensureIndexFreshMs\` — vault index freshness check / refresh
+- \`keywordMatchMs\` — stage 1 keyword + BM25 matching
+- \`aiSearchMs\` — stage 2 AI selection
+- \`pinBlockMs\` — per-chat pin/block overrides
+- \`contextualGatingMs\` — era/location/scene/character gating
+- \`reinjectionCooldownMs\` — reinjection cooldown filtering
+- \`requiresExcludesMs\` — requires/excludes dependency gating
+- \`stripDedupMs\` — strip entries already in recent context
+- \`formatGroupMs\` — budget limits + grouping + prompt assembly
+- \`trackGenerationMs\` — generation tracking bookkeeping
+- \`recordAnalyticsMs\` — analytics recording
+- \`perChatCountsMs\` — per-chat injection count updates
+
 \`circuit.open\` means the AI service is in circuit-breaker timeout (2 failures -> 30s cooldown).
 
 \`snapshot.staleness.capturedDuringGeneration\` — if true, snapshot was taken mid-pipeline. Some fields may be partially populated.
@@ -463,6 +489,9 @@ diagnose what's wrong with the user's setup.
 - **Vault missing host or API key** -> \`setupState.vaultSummary[].hasHost === false\` or \`hasApiKey === false\`. Vault configured but can't connect. Often caused by partial wizard completion.
 - **Settings version mismatch** -> \`setupState.settingsVersion\` is null or lower than expected (currently 2). Old settings may lack required fields and migrations may not have run.
 - **Index never loaded** -> \`setupState.indexEverLoaded === false\` AND \`setupState.hasEnabledVaults === true\`. Vault is configured but index never built — likely Obsidian connection failure or missing REST API plugin.
+- **Slow pipeline** -> \`totalMs\` consistently >2000ms. Check per-stage timings to identify bottleneck. Common culprits: \`aiSearchMs\` (slow model / high latency), \`ensureIndexFreshMs\` (vault re-index every generation).
+- **Per-stage bottleneck** -> One stage dominates \`totalMs\`. \`aiSearchMs\` >> others = model latency; \`ensureIndexFreshMs\` >> others = frequent re-indexing (check cache TTL); \`formatGroupMs\` high = large entry count surviving to final stage.
+- **Index refresh every generation** -> \`ensureIndexFreshMs\` non-null every gen = cache TTL too low or vault changes triggering rebuilds. Normal: null most gens, non-null only after TTL expires.
 
 ### Diagnostic Form (please fill out)
 

@@ -254,7 +254,7 @@ export function clearSessionState() {
             saveMetadataDebounced();
         }
         localStorage.removeItem(LEGACY_STORAGE_KEY);
-    } catch {}
+    } catch (e) { console.warn('[DLE] clearSessionState failed:', e?.message); }
 }
 
 /**

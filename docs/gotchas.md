@@ -386,7 +386,15 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 ---
 
-## 36. Clear Picks Must Reset All Pipeline Caches
+## 36. Error Cause Chaining
+
+**Rule:** Re-throws in `ai.js`, `proxy-api.js`, `obsidian-api.js`, and `agentic-api.js` use `new Error(msg, { cause: err })` to preserve original stack traces. Always check `error.cause` when debugging wrapped errors from these modules.
+
+**`_isDebug()` in `stages.js`:** Reads `globalThis.extension_settings?.deeplore_enhanced?.debugMode` directly instead of importing `settings.js`. This preserves test isolation -- tests don't have ST globals, so `_isDebug()` returns `false` by default without requiring a mock settings module.
+
+---
+
+## 37. Clear Picks Must Reset All Pipeline Caches
 
 **Rule:** The "Clear Picks" action must clear the AI search cache AND the injection log (`deeplore_injection_log`). If a new cache is added that influences entry selection, Clear Picks must clear it too.
 

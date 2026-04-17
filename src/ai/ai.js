@@ -198,7 +198,7 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
             }
         }
         // Preserve err.name on generic rethrow so AbortError/etc. classification survives.
-        const rethrow = new Error(`${err.message}${profileLabel}${modelLabel}`);
+        const rethrow = new Error(`${err.message}${profileLabel}${modelLabel}`, { cause: err });
         if (err.name && err.name !== 'Error') rethrow.name = err.name;
         if (err.status) rethrow.status = err.status;
         throw rethrow;

@@ -58,9 +58,20 @@ function summarizeTrace(trace) {
             outputCount: trace.aiPreFilter.outputCount ?? null,
         } : null,
         // Pipeline timing (if available in trace)
-        totalMs:          trace.totalMs          ?? null,
-        keywordMatchMs:   trace.keywordMatchMs   ?? null,
-        aiSearchMs:       trace.aiSearchMs       ?? null,
+        genId:                trace.genId                ?? null,
+        totalMs:              trace.totalMs              ?? null,
+        keywordMatchMs:       trace.keywordMatchMs       ?? null,
+        aiSearchMs:           trace.aiSearchMs           ?? null,
+        ensureIndexFreshMs:   trace.ensureIndexFreshMs   ?? null,
+        pinBlockMs:           trace.pinBlockMs           ?? null,
+        contextualGatingMs:   trace.contextualGatingMs   ?? null,
+        reinjectionCooldownMs: trace.reinjectionCooldownMs ?? null,
+        requiresExcludesMs:   trace.requiresExcludesMs   ?? null,
+        stripDedupMs:         trace.stripDedupMs         ?? null,
+        formatGroupMs:        trace.formatGroupMs        ?? null,
+        trackGenerationMs:    trace.trackGenerationMs    ?? null,
+        recordAnalyticsMs:    trace.recordAnalyticsMs    ?? null,
+        perChatCountsMs:      trace.perChatCountsMs      ?? null,
     };
 }
 
@@ -100,6 +111,7 @@ export async function startFlightRecorder() {
                 const trace = stateMod.lastPipelineTrace;
                 generationBuffer.push({
                     t: Date.now(),
+                    genId: stateMod.lastPipelineTrace?.genId ?? null,
                     generationCount: stateMod.generationCount ?? null,
                     chatEpoch: stateMod.chatEpoch ?? null,
                     aiCircuitOpen: !!stateMod.aiCircuitOpen,

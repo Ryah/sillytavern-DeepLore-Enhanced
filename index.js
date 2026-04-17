@@ -50,7 +50,7 @@ import {
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch, setLastIndexGenerationCount,
     aiSearchCache, setAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
-    setScribeInProgress, setPreviousSources,
+    setScribeInProgress, setPreviousSources, lastPipelineTrace,
     notepadExtractInProgress, setNotepadExtractInProgress,
     notifyPipelineComplete, notifyInjectionSourcesReady, notifyGatingChanged,
     fieldDefinitions,
@@ -68,7 +68,7 @@ import { resetAiThrottle, callAI } from './src/ai/ai.js';
 import { runPipeline } from './src/pipeline/pipeline.js';
 import { setupSyncPolling } from './src/vault/sync.js';
 import { runScribe } from './src/ai/scribe.js';
-import { pushEvent, consoleBuffer, networkBuffer, errorBuffer } from './src/diagnostics/interceptors.js';
+import { pushEvent, consoleBuffer, networkBuffer, errorBuffer, aiCallBuffer, eventBuffer } from './src/diagnostics/interceptors.js';
 import { generationBuffer } from './src/diagnostics/flight-recorder.js';
 import { runAutoSuggest, showSuggestionPopup } from './src/ai/auto-suggest.js';
 import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/ui/cartographer.js';
@@ -101,7 +101,7 @@ let _dleInitialized = false;
 let _dleBeforeUnloadHandler = null;
 
 function _registerEs(event, handler, { once = false } = {}) {
-    if (!event) return; // feature-detect guard: skip if event type doesn't exist in this ST version
+    if (!event) { console.debug('[DLE] _registerEs: skipped undefined event type'); return; } // feature-detect guard: skip if event type doesn't exist in this ST version
     _dleListeners.eventSource.push({ event, handler, once });
     if (once) eventSource.once(event, handler);
     else eventSource.on(event, handler);
@@ -270,6 +270,9 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
     // Capture lock epoch to detect if this pipeline has been superseded by a force-released lock
     const lockEpoch = generationLockEpoch;
 
+    // Generation correlation ID — threads through trace, flight recorder, and log lines
+    const genId = Math.random().toString(36).slice(2, 8);
+
     // Track whether the pipeline ran far enough to need generation tracking
     let pipelineRan = false;
     let injectedEntries = [];
@@ -303,6 +306,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
 
         // Ensure index is fresh (with timeout to prevent indefinite hangs)
         const INDEX_TIMEOUT_MS = 60_000;
+        const _indexFreshStart = performance.now();
         try {
             let indexTimer;
             await Promise.race([
@@ -316,6 +320,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                 return;
             }
         }
+        const _indexFreshMs = Math.round(performance.now() - _indexFreshStart);
 
         // Diagnostic breadcrumb: log pipeline entry state for first-gen investigation
         if (settings.debugMode) {
@@ -443,8 +448,9 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
 
         const _pipelineStartMs = performance.now();
         const _pipelineOnStatus = (text) => { _updatePipelineStatus(text); if (text.includes('Consulting')) setPipelinePhase('consulting'); };
-        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chatMessages, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal, onStatus: _pipelineOnStatus });
+        const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(chatMessages, vaultSnapshot, ctx, { pins, blocks, folderFilter, signal: pipelineAbort.signal, onStatus: _pipelineOnStatus, genId });
         trace.totalMs = Math.round(performance.now() - _pipelineStartMs);
+        trace.ensureIndexFreshMs = _indexFreshMs;
         if (pipelineAbort.signal.aborted) {
             if (settings.debugMode) console.debug('[DLE] Pipeline aborted by user before commit');
             return;
@@ -452,12 +458,16 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         const policy = buildExemptionPolicy(vaultSnapshot, pins, blocks);
 
         // Stage 1: Pin/Block overrides
+        const _pinBlockStart = performance.now();
         let finalEntries = applyPinBlock(pipelineEntries, vaultSnapshot, policy, matchedKeys);
+        trace.pinBlockMs = Math.round(performance.now() - _pinBlockStart);
 
         // Stage 2: Contextual gating (driven by field definitions)
+        const _gatingStart = performance.now();
         const preContextual = new Set(finalEntries.map(e => e.title));
         const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
         finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode, settings, fieldDefs);
+        trace.contextualGatingMs = Math.round(performance.now() - _gatingStart);
         if (trace) {
             const postContextual = new Set(finalEntries.map(e => e.title));
             trace.contextualGatingRemoved = [...preContextual].filter(t => !postContextual.has(t));
@@ -495,8 +505,10 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         }
 
         // Stage 3: Re-injection cooldown
+        const _cooldownStart = performance.now();
         const preCooldown = new Set(finalEntries.map(e => e.title));
         finalEntries = applyReinjectionCooldown(finalEntries, policy, injectionHistory, generationCount, settings.reinjectionCooldown, settings.debugMode);
+        trace.reinjectionCooldownMs = Math.round(performance.now() - _cooldownStart);
         if (trace) {
             const postCooldown = new Set(finalEntries.map(e => e.title));
             trace.cooldownRemoved = [...preCooldown].filter(t => !postCooldown.has(t));
@@ -514,7 +526,9 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         }
 
         // Stage 4: Requires/excludes gating (forceInject entries exempt)
+        const _reqExclStart = performance.now();
         const { result: gated, removed: gatingRemoved } = applyRequiresExcludesGating(finalEntries, policy, settings.debugMode);
+        trace.requiresExcludesMs = Math.round(performance.now() - _reqExclStart);
 
         if (gated.length === 0) {
             if (settings.debugMode) console.debug('[DLE] All entries removed by gating rules');
@@ -528,6 +542,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         }
 
         // Stage 5: Strip duplicate injections
+        const _stripDedupStart = performance.now();
         // BUG-396c: Clear stale injection log when context changed, BEFORE strip-dedup reads it.
         // Two signals: (1) swipe/regen detected — old injections were for the message being replaced,
         // (2) AI cache missed all tiers — chat content changed enough that old dedup entries are stale.
@@ -573,10 +588,13 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                 trace.stripDedupRemoved = gated.filter(e => !postDedupTitles.has(e.title)).map(e => e.title);
             }
         }
+        trace.stripDedupMs = Math.round(performance.now() - _stripDedupStart);
 
         // Stage 6: Format with budget, grouped by injection position
         // BUG-014: Use the captured settings object (line 63) for consistent settings throughout pipeline
+        const _fmtStart = performance.now();
         const { groups, count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(postDedup, settings, PROMPT_TAG_PREFIX);
+        trace.formatGroupMs = Math.round(performance.now() - _fmtStart);
 
         injectedEntries = acceptedEntries;
 
@@ -758,9 +776,11 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         // Stage 7: Track cooldowns and injection history (epoch-guarded, lock-guarded)
         // lockEpoch guard prevents a force-released stale pipeline from corrupting these Maps
         // concurrently with the active pipeline that superseded it.
+        const _trackStart = performance.now();
         if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
             trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings);
         }
+        trace.trackGenerationMs = Math.round(performance.now() - _trackStart);
 
         // Clear stale injection log when dedup is toggled off (epoch-guarded)
         if (!settings.stripDuplicateInjections && epoch === chatEpoch && chat_metadata.deeplore_injection_log?.length > 0) {
@@ -811,6 +831,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
 
         // Stage 8: Analytics (use postDedup — entries that passed all gating — as "matched")
         // BUG-FIX: Epoch-guard analytics like Stages 7 and 9 to prevent cross-chat pollution
+        const _analyticsStart = performance.now();
         if (postDedup.length > 0 && epoch === chatEpoch && lockEpoch === generationLockEpoch) {
             recordAnalytics(postDedup, injectedEntries, settings.analyticsData);
             // Only persist analytics every 5 generations to reduce write amplification
@@ -819,6 +840,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                 saveSettingsDebounced();
             }
         }
+        trace.recordAnalyticsMs = Math.round(performance.now() - _analyticsStart);
 
         // Stage 9: Per-chat injection counts (epoch-guarded, lock-guarded, swipe-aware)
         //
@@ -827,6 +849,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         //   - regen of the current swipe (key matches → decrement exactly the prior keys)
         //   - alternate-swipe navigation (different swipe_id → different key → no false decrement)
         //   - reload between generations (perSwipeInjectedKeys is persisted)
+        const _countsStart = performance.now();
         if (epoch === chatEpoch && lockEpoch === generationLockEpoch) {
             const lastIdx = chatMessages.length - 1;
             const swipeId = lastIdx >= 0 ? (chatMessages[lastIdx]?.swipe_id ?? 0) : 0;
@@ -866,6 +889,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             // to debounced if saveMetadata throws synchronously (shouldn't, but belt-and-braces).
             try { saveMetadata(); } catch { saveMetadataDebounced(); }
         }
+        trace.perChatCountsMs = Math.round(performance.now() - _countsStart);
 
         if (groups.length > 0) {
             // Context usage warning — BUG 6 FIX: reset ratio when it drops below threshold
@@ -1033,6 +1057,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             } catch (err) {
                 if (err?.name !== 'AbortError' && !pipelineAbort.signal.aborted) {
                     console.error('[DLE] Agentic loop error:', err);
+                    pushEvent('librarian', { action: 'error', error: err?.message?.slice(0, 200) });
                     // If prose was already shown, the error is from FLAG phase — save what we have
                     if (proseMsg) {
                         await saveChatConditional();
@@ -1387,6 +1412,8 @@ jQuery(async function () {
                     const existing = chat_metadata.deeplore_ai_notepad || '';
                     chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + notes).trim());
                     saveMetadataDebounced();
+                    pushEvent('ai_notepad', { action: 'tag_extracted', noteLength: notes.length });
+                    if (settings.debugMode) console.debug('[DLE] Notepad: extracted %d chars from tags', notes.length);
                 }
             } else if (mode === 'extract') {
                 // Extract mode: strip visible note-taking prose, then async API extraction
@@ -1408,8 +1435,10 @@ jQuery(async function () {
                 const extractEpoch = chatEpoch;
                 const msgIndex = chat.length - 1;
                 const swipeIdAtStart = lastMessage.swipe_id;
+                if (settings.debugMode) console.debug('[DLE] Notepad: starting AI extraction');
                 (async () => {
                     setNotepadExtractInProgress(true);
+                    pushEvent('ai_notepad', { action: 'extract_start' });
                     try {
                         const extractPrompt = settings.aiNotepadExtractPrompt?.trim() || DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT;
                         const existingNotes = chat_metadata?.deeplore_ai_notepad?.trim();
@@ -1424,19 +1453,30 @@ jQuery(async function () {
                         const responseText = (result?.text || result || '').trim();
 
                         // BUG-AUDIT-7: Bail if chat changed during async extraction
-                        if (extractEpoch !== chatEpoch) return;
+                        if (extractEpoch !== chatEpoch) {
+                            if (getSettings().debugMode) console.debug('[DLE] Notepad: extraction skipped (epoch changed)');
+                            return;
+                        }
                         // BUG-AUDIT-CNEW01: Bail if message was swiped/deleted during extraction
                         const currentMsg = chat[msgIndex];
-                        if (!currentMsg || currentMsg.swipe_id !== swipeIdAtStart) return;
+                        if (!currentMsg || currentMsg.swipe_id !== swipeIdAtStart) {
+                            if (getSettings().debugMode) console.debug('[DLE] Notepad: extraction skipped (epoch changed)');
+                            return;
+                        }
                         if (responseText && responseText !== 'NOTHING_TO_NOTE') {
                             currentMsg.extra = currentMsg.extra || {};
                             currentMsg.extra.deeplore_ai_notes = responseText;
                             const existing = chat_metadata.deeplore_ai_notepad || '';
                             chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + responseText).trim());
                             saveMetadataDebounced();
+                            pushEvent('ai_notepad', { action: 'extract_completed', noteLength: responseText?.length || 0 });
+                            if (getSettings().debugMode) console.debug('[DLE] Notepad: AI extracted %d chars', responseText.length);
+                        } else if (responseText === 'NOTHING_TO_NOTE') {
+                            pushEvent('ai_notepad', { action: 'extract_empty' });
                         }
                     } catch (err) {
                         console.warn('[DLE] AI Notebook extract error:', err.message);
+                        pushEvent('ai_notepad', { action: 'extract_error', error: err?.message?.slice(0, 200) });
                     } finally {
                         setNotepadExtractInProgress(false);
                     }
@@ -1992,10 +2032,37 @@ jQuery(async function () {
         _dleBeforeUnloadHandler = () => { try { _teardownDleExtension(); } catch { /* ignore */ } };
         window.addEventListener('beforeunload', _dleBeforeUnloadHandler);
 
+        // Developer debug namespace — read-only access to internal state and buffers.
+        // Usage: in browser console, type `__DLE_DEBUG.state`, `__DLE_DEBUG.trace`, `__DLE_DEBUG.buffers`.
+        globalThis.__DLE_DEBUG = Object.freeze({
+            get state() {
+                return {
+                    vaultIndex, generationCount, chatEpoch, generationLock,
+                    generationLockEpoch, indexing, indexEverLoaded,
+                    cooldownTracker: Object.fromEntries(cooldownTracker),
+                    injectionHistory: Object.fromEntries(injectionHistory),
+                    decayTracker: Object.fromEntries(decayTracker),
+                    fieldDefinitions,
+                };
+            },
+            get trace() { return lastPipelineTrace; },
+            get buffers() {
+                return {
+                    console: consoleBuffer.drain(),
+                    network: networkBuffer.drain(),
+                    errors: errorBuffer.drain(),
+                    aiCalls: aiCallBuffer.drain(),
+                    events: eventBuffer.drain(),
+                    generations: generationBuffer.drain(),
+                };
+            },
+        });
+
         _dleInitCount++;
         pushEvent('init', { initCount: _dleInitCount, vaultCount: (getSettings().vaults || []).filter(v => v.enabled).length });
         console.log('[DLE] DeepLore Enhanced client extension initialized');
     } catch (err) {
         console.error('[DLE] Failed to initialize:', err);
+        toastr.error('DeepLore Enhanced failed to initialize. Check the browser console (F12) for details.', 'DLE Error', { timeOut: 0 });
     }
 });

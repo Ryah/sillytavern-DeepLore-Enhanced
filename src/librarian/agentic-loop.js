@@ -13,6 +13,7 @@ import {
     chatEpoch, generationLockEpoch,
     setGenerationLockTimestamp,
 } from '../state.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Tool Definitions (OpenAI function calling format)
@@ -111,6 +112,8 @@ export async function runAgenticLoop(options) {
         onStatus, onProse, injectedTitles, settings,
     } = options;
 
+    pushEvent('librarian', { action: 'start', maxSearches: maxSearches });
+
     let phase = PHASE_SEARCH;
     let searchCount = 0;
     let flagCount = 0;
@@ -119,14 +122,19 @@ export async function runAgenticLoop(options) {
     const toolActivity = [];
     const usage = { totalInput: 0, totalOutput: 0 };
     const debug = settings.debugMode;
+    let exitReason = 'max_iterations';
+    let iterations = 0;
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        iterations = iteration + 1;
         // Epoch guards — bail if chat changed or lock was force-released
         if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
             if (debug) console.debug('[DLE] Agentic loop: epoch mismatch, aborting');
+            exitReason = 'epoch_mismatch';
             break;
         }
         if (signal.aborted) {
+            exitReason = 'aborted';
             const err = new Error('Agentic loop aborted');
             err.name = 'AbortError';
             throw err;
@@ -147,7 +155,7 @@ export async function runAgenticLoop(options) {
         }
 
         // No tools available = done
-        if (tools.length === 0) break;
+        if (tools.length === 0) { exitReason = 'no_tools'; break; }
 
         // H1: Always use 'auto' — 'required'/'any' conflicts with thinking/extended thinking
         // on Claude and potentially Gemini. The system prompt already instructs the AI to
@@ -163,12 +171,13 @@ export async function runAgenticLoop(options) {
         // should not crash the generation. Wrap the entire FLAG iteration in try/catch.
         if (phase === PHASE_FLAG) {
             try {
-                await _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug);
+                flagCount += await _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug);
             } catch (flagErr) {
                 if (flagErr?.name === 'AbortError') throw flagErr;
                 console.warn('[DLE] Flag phase error (prose already delivered):', flagErr?.message || flagErr);
             }
             // FLAG phase always runs at most one iteration — break after
+            exitReason = 'completed';
             break;
         }
 
@@ -190,6 +199,7 @@ export async function runAgenticLoop(options) {
                 const text = getTextContent(response);
                 if (text?.trim()) prose = text;
             }
+            exitReason = 'no_tools';
             break;
         }
 
@@ -264,6 +274,7 @@ export async function runAgenticLoop(options) {
                         results.push({ id: tc.id, name: tc.name, result: 'Flag is not available yet. Call write first.' });
                         break;
                     }
+                    flagCount++;
                     const flagResult = await flagLoreAction(tc.input || {});
                     results.push({ id: tc.id, name: tc.name, result: flagResult || 'Flag recorded.' });
                     toolActivity.push({
@@ -295,6 +306,11 @@ export async function runAgenticLoop(options) {
         if (debug) console.debug('[DLE] Agentic loop: no write() call detected, checking for text fallback');
     }
 
+    console.log('[DLE] Librarian: %d iterations, %d searches, %d flags, prose=%d chars, exit=%s',
+        iterations, searchCount, flagCount, (prose || '').length, exitReason);
+
+    pushEvent('librarian', { action: 'completed', iterations, searches: searchCount, flags: flagCount, hadProse: !!prose });
+
     return { prose: prose || '', toolActivity, usage };
 }
 
@@ -317,7 +333,7 @@ export async function runAgenticLoop(options) {
 async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug) {
     const response = await callWithTools(messages, tools, toolChoice, maxTokens, signal);
     const toolCalls = parseToolCalls(response);
-    if (toolCalls.length === 0) return; // AI chose not to flag — done
+    if (toolCalls.length === 0) return 0; // AI chose not to flag — done
 
     const assistantMsg = buildAssistantMessage(response);
     messages.push(assistantMsg);
@@ -348,6 +364,7 @@ async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal,
         messages.push(toolResultMsg);
     }
     if (debug) console.debug(`[DLE] Flag phase: processed ${flagCount} flag(s)`);
+    return flagCount;
 }
 
 /**

@@ -19,6 +19,7 @@ import { extractAiResponseClient } from '../helpers.js';
 import { getWriterVisibleEntries, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
 import { stripObsidianSyntax } from '../helpers.js';
 import { ensureIndexFresh, buildIndex } from '../vault/vault.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
 
 export const DEFAULT_AUTO_SUGGEST_PROMPT = `You are a lore analyst for a roleplay session. Analyze the recent chat and identify characters, locations, items, concepts, or events that are mentioned but do NOT have an existing lorebook entry.
 
@@ -111,6 +112,7 @@ export async function runAutoSuggest() {
     autoSuggestInProgress = true;
     autoSuggestInProgressEpoch = chatEpoch;
     const epoch = chatEpoch;
+    pushEvent('auto_suggest', { action: 'start' });
     try {
     const settings = getSettings();
     await ensureIndexFresh();
@@ -138,10 +140,12 @@ export async function runAutoSuggest() {
 
     // Filter out entries that already exist
     const existingLower = new Set(visibleEntries.map(e => e.title.toLowerCase()));
-    return parsed.filter(s =>
+    const filtered = parsed.filter(s =>
         s && typeof s === 'object' && s.title &&
         !existingLower.has(s.title.toLowerCase())
     );
+    pushEvent('auto_suggest', { action: 'completed', count: filtered.length });
+    return filtered;
     } finally {
         autoSuggestInProgress = false;
     }

@@ -110,6 +110,7 @@ export async function callScribe(systemPrompt, userMessage, settings) {
 export async function runScribe(customPrompt) {
     if (scribeInProgress) return;
     setScribeInProgress(true);
+    pushEvent('scribe', { action: 'start' });
 
     // Capture epoch to detect chat changes during async scribe work
     const epoch = chatEpoch;

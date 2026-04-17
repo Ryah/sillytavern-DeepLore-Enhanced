@@ -7,6 +7,15 @@ import { trackerKey } from './state.js';
 import { normalizePinBlock, matchesPinBlock } from './helpers.js';
 import { evaluateOperator } from './fields.js';
 
+/** Lazy accessor for debugMode — avoids importing settings.js (which pulls ST globals that break tests). */
+function _isDebug() {
+    try {
+        // Dynamic require avoided; read from the live settings object if available
+        const ext = globalThis.extension_settings?.deeplore_enhanced;
+        return ext?.debugMode === true;
+    } catch { return false; }
+}
+
 // ============================================================================
 // ExemptionPolicy
 // ============================================================================
@@ -61,6 +70,9 @@ export function buildExemptionPolicy(vaultSnapshot, pins, blocks) {
  */
 export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
     let result = [...entries];
+    let addedCount = 0;
+    let upgradedCount = 0;
+    let blockedCount = 0;
 
     // Add pinned entries not already in results
     // H23: Use matchesPinBlock for vault-aware matching (backward compat with bare strings)
@@ -92,10 +104,12 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
                     resultTitleIdx.set(lowerTitle, result.length);
                     result.push({ ...entry, constant: true, priority: 10, ...cloneFields });
                     matchedKeys.set(entry.title, '(pinned)');
+                    addedCount++;
                 } else {
                     // Entry already matched — replace with pinned copy
                     const idx = resultTitleIdx.get(lowerTitle);
                     if (idx !== undefined) result[idx] = { ...entry, constant: true, priority: 10, ...cloneFields };
+                    upgradedCount++;
                 }
             }
         }
@@ -104,7 +118,13 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
     // Remove blocked entries (blocks override constants)
     // H23: Use matchesPinBlock for vault-aware matching
     if (policy.blocks.length > 0) {
+        const beforeBlock = result.length;
         result = result.filter(e => !policy.blocks.some(pb => matchesPinBlock(pb, e)));
+        blockedCount = beforeBlock - result.length;
+    }
+
+    if ((addedCount > 0 || upgradedCount > 0 || blockedCount > 0) && _isDebug()) {
+        console.debug('[DLE] Pin/Block: +%d pinned, %d upgraded, -%d blocked', addedCount, upgradedCount, blockedCount);
     }
 
     return result;
@@ -411,7 +431,7 @@ export function applyStripDedup(entries, policy, injectionLog, lookbackDepth, de
     });
 
     if (debugMode && result.length < before) {
-        console.log(`[DLE][DIAG] strip-dedup-summary: removed ${before - result.length}/${before} entries`);
+        console.debug(`[DLE][DIAG] strip-dedup-summary: removed ${before - result.length}/${before} entries`);
     }
 
     return result;
@@ -447,6 +467,11 @@ export function trackGeneration(injectedEntries, generationCount, cooldownTracke
             injectionHistory.set(trackerKey(entry), generationCount + 1);
         }
     }
+
+    if (_isDebug() && injectedEntries.length > 0) {
+        const cooldownCount = injectedEntries.filter(e => e.cooldown !== null && e.cooldown > 0).length;
+        console.debug('[DLE] Track: %d injected, %d cooldowns set, reinjection=%s', injectedEntries.length, cooldownCount, settings.reinjectionCooldown > 0);
+    }
 }
 
 /**
@@ -460,10 +485,15 @@ export function trackGeneration(injectedEntries, generationCount, cooldownTracke
  * @param {Map} [consecutiveInjections] - Mutable consecutive injection counter
  */
 export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings, consecutiveInjections) {
+    let expiredCooldowns = 0;
+    let decayPruned = 0;
+    let streaksBroken = 0;
+
     // Decrement cooldown counters; remove expired ones
     for (const [title, remaining] of cooldownTracker) {
         if (remaining <= 1) {
             cooldownTracker.delete(title);
+            expiredCooldowns++;
         } else {
             cooldownTracker.set(title, remaining - 1);
         }
@@ -482,6 +512,7 @@ export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries
             if (!injectedKeys.has(tk)) {
                 if (staleness + 1 >= pruneThreshold) { // BUG-H10: off-by-one, was > causing 1 extra generation
                     decayTracker.delete(tk);
+                    decayPruned++;
                 } else {
                     decayTracker.set(tk, staleness + 1);
                 }
@@ -497,8 +528,15 @@ export function decrementTrackers(cooldownTracker, decayTracker, injectedEntries
             consecutiveInjections.set(tk, (consecutiveInjections.get(tk) || 0) + 1);
         }
         for (const [tk] of consecutiveInjections) {
-            if (!injectedKeys.has(tk)) consecutiveInjections.delete(tk);
+            if (!injectedKeys.has(tk)) {
+                consecutiveInjections.delete(tk);
+                streaksBroken++;
+            }
         }
+    }
+
+    if (_isDebug() && (expiredCooldowns > 0 || decayPruned > 0 || streaksBroken > 0)) {
+        console.debug('[DLE] Decrement: %d cooldowns expired, %d decay pruned, %d streaks broken', expiredCooldowns, decayPruned, streaksBroken);
     }
 }
 
@@ -529,19 +567,27 @@ export function recordAnalytics(matchedEntries, injectedEntries, analyticsData) 
     // Prune stale analytics entries not triggered in 30+ days
     const ANALYTICS_STALE_MS = 30 * 24 * 60 * 60 * 1000;
     const now = Date.now();
+    let stalePruned = 0;
     for (const key of Object.keys(analyticsData)) {
         if (analyticsData[key].lastTriggered && (now - analyticsData[key].lastTriggered) > ANALYTICS_STALE_MS) {
             delete analyticsData[key];
+            stalePruned++;
         }
     }
 
     // Cap total entries at 500 — evict oldest by lastTriggered to prevent unbounded growth
     const ANALYTICS_MAX = 500;
     const keys = Object.keys(analyticsData);
+    let capEvicted = 0;
     if (keys.length > ANALYTICS_MAX) {
         keys.sort((a, b) => (analyticsData[a].lastTriggered || 0) - (analyticsData[b].lastTriggered || 0));
         for (const key of keys.slice(0, keys.length - ANALYTICS_MAX)) {
             delete analyticsData[key];
+            capEvicted++;
         }
+    }
+
+    if (_isDebug() && (stalePruned > 0 || capEvicted > 0)) {
+        console.debug('[DLE] Analytics: %d stale pruned, %d cap evicted', stalePruned, capEvicted);
     }
 }

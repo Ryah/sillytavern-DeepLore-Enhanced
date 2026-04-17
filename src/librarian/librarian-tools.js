@@ -338,6 +338,7 @@ function resolveLinkedEntries(entry, excludeTitles, max = 10, titleMap = null) {
 export async function searchLoreAction(args) {
     const settings = getSettings();
     const epoch = chatEpoch;
+    const debug = settings.debugMode;
 
     // Accept both { queries: [...] } and legacy { query: "..." }
     let queries = args?.queries;
@@ -345,6 +346,8 @@ export async function searchLoreAction(args) {
     if (!Array.isArray(queries)) return 'No queries provided.';
     queries = queries.map(q => (q || '').trim()).filter(Boolean).slice(0, 4);
     if (queries.length === 0) return 'No queries provided.';
+
+    if (debug) console.debug('[DLE] searchLore: %d queries received', queries.length);
 
     // Guard: max searches per generation
     if (loreGapSearchCount >= settings.librarianMaxSearches) {
@@ -369,6 +372,7 @@ export async function searchLoreAction(args) {
 
     // Still no index — record gaps and bail
     if (!fuzzySearchIndex) {
+        console.warn('[DLE] searchLore: vault index not ready — recording %d gap(s)', queries.length);
         for (const query of queries) {
             const failGap = {
                 id: gapId(), type: 'search', query,
@@ -383,7 +387,11 @@ export async function searchLoreAction(args) {
             const updated = existing
                 ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now() } : g)
                 : [...loreGaps, failGap];
-            if (epoch === chatEpoch) persistGaps(updated);
+            if (epoch === chatEpoch) {
+                persistGaps(updated);
+            } else if (debug) {
+                console.debug('[DLE] searchLore: epoch guard — skipped gap persist (index not ready)');
+            }
         }
         return 'Lore vault index is still loading. This does NOT count against your search limit — try again on the next message.';
     }
@@ -417,6 +425,8 @@ export async function searchLoreAction(args) {
         );
         const filtered = hits.filter(h => !shownTitles.has(h.entry.title.toLowerCase()) && !h.entry.guide);
 
+        if (debug) console.debug('[DLE] searchLore: query="%s" — %d BM25 hits after filter', query, filtered.length);
+
         if (filtered.length === 0) {
             noResultQueries.push(query);
             trackUnmetQuery(query);
@@ -426,7 +436,12 @@ export async function searchLoreAction(args) {
             const gapUpdate = existing
                 ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: false } : g)
                 : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
-            if (epoch === chatEpoch) persistGaps(gapUpdate);
+            if (debug) console.debug('[DLE] searchLore: no-result gap %s for "%s"', existing ? 'merge' : 'create', query);
+            if (epoch === chatEpoch) {
+                persistGaps(gapUpdate);
+            } else if (debug) {
+                console.debug('[DLE] searchLore: epoch guard — skipped gap persist');
+            }
             continue;
         }
 
@@ -451,6 +466,7 @@ export async function searchLoreAction(args) {
     const resultParts = [];
 
     if (bestHit) {
+        if (debug) console.debug('[DLE] searchLore: best hit="%s" (score=%.2f)', bestHit.title, bestScore);
         shownTitles.add(bestHit.title.toLowerCase());
         allResultTitles.push(bestHit.title);
         totalTokens += bestHit.tokenEstimate || 0;
@@ -487,6 +503,8 @@ export async function searchLoreAction(args) {
     // instead of the raw length/4 heuristic. Fall back to heuristic only if totalTokens is 0.
     const estimatedTokens = totalTokens > 0 ? totalTokens : Math.ceil(resultText.length / 4);
 
+    if (debug) console.debug('[DLE] searchLore: ~%d tokens, %d results', estimatedTokens, allResultTitles.length);
+
     // Activity log + pending buffer
     const logEntry = {
         type: 'search',
@@ -517,6 +535,7 @@ export async function searchLoreAction(args) {
  */
 export async function flagLoreAction(args) {
     const epoch = chatEpoch; // Snapshot for stale-guard
+    const debug = getSettings().debugMode;
     const title = args?.title?.trim();
     const reason = args?.reason?.trim();
     if (!title) return 'No title provided.';
@@ -526,6 +545,8 @@ export async function flagLoreAction(args) {
     const flagType = ['gap', 'update'].includes(args?.flag_type) ? args.flag_type : 'gap';
     const entryTitle = args?.entry_title?.trim() || null;
 
+    if (debug) console.debug('[DLE] flagLore: title="%s" flagType=%s urgency=%s', title, flagType, urgency);
+
     // Merge frequency with existing flags for the same topic (only within same subtype)
     const existingGap = findSimilarGap(loreGaps, title, 'flag', flagType);
     // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone —
@@ -533,6 +554,7 @@ export async function flagLoreAction(args) {
     if (existingGap) clearHiddenSilently(existingGap.id);
     let updatedGaps;
     if (existingGap) {
+        if (debug) console.debug('[DLE] flagLore: merging with existing gap (freq %d→%d)', existingGap.frequency, existingGap.frequency + 1);
         const urgencyOrder = { low: 0, medium: 1, high: 2 };
         const escalatedUrgency = urgencyOrder[urgency] > urgencyOrder[existingGap.urgency]
             ? urgency : existingGap.urgency;
@@ -547,6 +569,7 @@ export async function flagLoreAction(args) {
         };
         updatedGaps = loreGaps.map(g => g === existingGap ? updated : g);
     } else {
+        if (debug) console.debug('[DLE] flagLore: creating new gap record');
         const newGap = {
             id: gapId(),
             type: 'flag',
@@ -566,7 +589,13 @@ export async function flagLoreAction(args) {
         updatedGaps = [...loreGaps, newGap];
     }
     // Guard: don't persist if chat changed during generation
-    if (epoch === chatEpoch) persistGaps(updatedGaps);
+    if (epoch === chatEpoch) {
+        const ok = persistGaps(updatedGaps);
+        if (!ok) console.warn('[DLE] flagLore: persist failed (no chat metadata) for "%s"', title);
+        else if (debug) console.debug('[DLE] flagLore: persisted — %s', existingGap ? 'merged' : 'new');
+    } else {
+        if (debug) console.debug('[DLE] flagLore: epoch guard — skipped persist for "%s"', title);
+    }
 
     // Activity log + pending buffer for consolidated dropdown
     const logEntry = {

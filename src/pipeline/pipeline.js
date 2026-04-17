@@ -37,7 +37,7 @@ export function matchEntries(chat, snapshot = null, opts = {}) {
  * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
-export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null, signal = null, onStatus = null } = {}) {
+export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null, signal = null, onStatus = null, genId = null } = {}) {
     // Snapshot settings and vault index so async stages (AI search) see a consistent view
     const rawSettings = getSettings();
     const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
@@ -47,6 +47,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
     const trace = {
+        genId, // Correlation ID — set by caller via options
         mode: settings.aiSearchEnabled
             ? settings.aiSearchMode
             : 'keywords-only',
@@ -69,6 +70,17 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         aiError: '', // BUG-004: Capture AI error message for toast enrichment
         fuzzyStats: null,
         refineKeyBlocked: [],
+        // Per-stage timing (ms) — populated by onGenerate after each stage
+        ensureIndexFreshMs: null,
+        pinBlockMs: null,
+        contextualGatingMs: null,
+        reinjectionCooldownMs: null,
+        requiresExcludesMs: null,
+        stripDedupMs: null,
+        formatGroupMs: null,
+        trackGenerationMs: null,
+        recordAnalyticsMs: null,
+        perChatCountsMs: null,
     };
 
     if (settings.debugMode) {

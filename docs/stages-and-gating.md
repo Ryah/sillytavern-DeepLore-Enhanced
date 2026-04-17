@@ -249,6 +249,21 @@ recordAnalytics(matchedEntries, injectedEntries, analyticsData)
 
 ---
 
+## Debug-Gated Stage Logging
+
+Stage functions emit structured `[DLE]` log lines gated behind `_isDebug()`, a helper that reads `globalThis.extension_settings?.deeplore_enhanced?.debugMode` directly. This avoids importing `settings.js`, preserving test isolation.
+
+All log lines are suppressed when their stage has no meaningful work (zero-change guard):
+
+| Stage function | Log format | Skips when |
+|---|---|---|
+| `applyPinBlock()` | `[DLE] Pin/Block: +N pinned, N upgraded, -N blocked` | pins=0 AND blocks=0 |
+| `trackGeneration()` | `[DLE] Track: N injected, N cooldowns set, reinjection=on/off` | injectedEntries empty |
+| `decrementTrackers()` | `[DLE] Decrement: cooldowns N/N, decay pruned=N, streaks broken=N` | all trackers empty |
+| `recordAnalytics()` | `[DLE] Analytics: matched=N injected=N, pruned=N+N, total=N` | matched=0 AND injected=0 |
+
+---
+
 ## Field Definitions System
 
 **Source:** `src/fields.js`

@@ -328,6 +328,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
     const positionalEntries = entries.filter(e => !e.outlet);
 
     const accepted = [];
+    let truncatedCount = 0;
 
     const MIN_TRUNCATION_TOKENS = 50;
 
@@ -369,6 +370,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                 });
                 totalTokens += truncatedEntry.tokenEstimate;
                 count++;
+                truncatedCount++;
                 break; // Budget is now fully consumed
             }
 
@@ -475,6 +477,9 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         }));
 
         groups.push(...outletGroups);
+        console.log('[DLE] Format: %d/%d entries, %d/%d tokens%s, %d groups, %d outlet',
+            count, positionalEntries.length, totalTokens, settings.unlimitedBudget ? totalTokens : settings.maxTokensBudget,
+            truncatedCount > 0 ? `, ${truncatedCount} truncated` : '', groups.length, outletEntries.length);
         return { groups, count: count + outletEntries.length, totalTokens: totalTokens + outletTokens, acceptedEntries: [...accepted.map(a => a.entry), ...outletEntries] };
     }
 
@@ -503,5 +508,8 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
     }));
 
     groups.push(...outletGroups);
+    console.log('[DLE] Format: %d/%d entries, %d/%d tokens%s, %d groups, %d outlet',
+        count, positionalEntries.length, totalTokens, settings.unlimitedBudget ? totalTokens : settings.maxTokensBudget,
+        truncatedCount > 0 ? `, ${truncatedCount} truncated` : '', groups.length, outletEntries.length);
     return { groups, count: count + outletEntries.length, totalTokens: totalTokens + outletTokens, acceptedEntries: [...accepted.map(a => a.entry), ...outletEntries] };
 }

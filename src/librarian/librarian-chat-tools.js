@@ -11,6 +11,7 @@ import { vaultIndex, fuzzySearchIndex, loreGaps, chatEpoch, notifyLoreGapsChange
 import { queryBM25 } from '../vault/bm25.js';
 import { getContext } from '../../../../../extensions.js';
 import { persistGaps, gapId } from './librarian-tools.js';
+import { getSettings } from '../../settings.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Constants
@@ -144,27 +145,37 @@ function truncate(text, max = TOOL_RESULT_MAX_CHARS) {
  * @returns {string} Result text
  */
 export function executeToolCall(name, args = {}, session = null) {
-    switch (name) {
-        case 'search_vault': return toolSearchVault(args);
-        case 'get_entry': return toolGetEntry(args);
-        case 'get_full_content': return toolGetFullContent(args, session);
-        case 'find_similar': return toolFindSimilar(args);
-        case 'list_flags': return toolListFlags(args);
-        case 'get_links': return toolGetLinks(args);
-        case 'get_backlinks': return toolGetBacklinks(args);
-        case 'list_entries': return toolListEntries(args);
-        case 'get_recent_chat': return toolGetRecentChat(args);
-        case 'flag_entry_update': return toolFlagEntryUpdate(args);
-        case 'compare_entry_to_chat': return toolCompareEntryToChat(args);
-        case 'get_writing_guide': return toolGetWritingGuide(args);
-        // BUG-325: default error message must include get_writing_guide — it is handled above but
-        // not in LIBRARIAN_TOOLS (it is dynamic/conditional and built separately in buildToolsPromptSection).
-        default: {
-            const staticTools = LIBRARIAN_TOOLS.map(t => t.name);
-            const dynamicTools = getGuideEntries().length > 0 ? ['get_writing_guide'] : [];
-            return `Unknown tool: "${name}". Available tools: ${[...staticTools, ...dynamicTools].join(', ')}`;
+    const t0 = performance.now();
+    let result;
+    try {
+        switch (name) {
+            case 'search_vault': result = toolSearchVault(args); break;
+            case 'get_entry': result = toolGetEntry(args); break;
+            case 'get_full_content': result = toolGetFullContent(args, session); break;
+            case 'find_similar': result = toolFindSimilar(args); break;
+            case 'list_flags': result = toolListFlags(args); break;
+            case 'get_links': result = toolGetLinks(args); break;
+            case 'get_backlinks': result = toolGetBacklinks(args); break;
+            case 'list_entries': result = toolListEntries(args); break;
+            case 'get_recent_chat': result = toolGetRecentChat(args); break;
+            case 'flag_entry_update': result = toolFlagEntryUpdate(args); break;
+            case 'compare_entry_to_chat': result = toolCompareEntryToChat(args); break;
+            case 'get_writing_guide': result = toolGetWritingGuide(args); break;
+            // BUG-325: default error message must include get_writing_guide — it is handled above but
+            // not in LIBRARIAN_TOOLS (it is dynamic/conditional and built separately in buildToolsPromptSection).
+            default: {
+                const staticTools = LIBRARIAN_TOOLS.map(t => t.name);
+                const dynamicTools = getGuideEntries().length > 0 ? ['get_writing_guide'] : [];
+                result = `Unknown tool: "${name}". Available tools: ${[...staticTools, ...dynamicTools].join(', ')}`;
+            }
         }
+    } catch (err) {
+        console.warn('[DLE] Emma tool "%s" threw: %s', name, err?.message || err);
+        throw err;
     }
+    const debug = getSettings().debugMode;
+    if (debug) console.debug('[DLE] Emma tool: %s — %d chars, %dms', name, (result || '').length, Math.round(performance.now() - t0));
+    return result;
 }
 
 // ── Individual tool implementations ──────────────────────────────────────
@@ -423,10 +434,12 @@ function toolFlagEntryUpdate(args) {
     const updatedGaps = [...loreGaps, newGap];
     const ok = persistGaps(updatedGaps);
     if (!ok) {
+        console.warn('[DLE] Emma flag: "%s" — persist failed (no chat metadata)', title);
         return `Error: could not persist flag (no active chat metadata).`;
     }
     notifyLoreGapsChanged();
 
+    console.log('[DLE] Emma flag: "%s" — %s — persist=%s', title, 'medium', ok);
     return `Flagged "${entry.title}" for update: ${fullReason}`;
 }
 

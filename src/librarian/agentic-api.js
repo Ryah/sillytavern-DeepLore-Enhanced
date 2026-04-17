@@ -214,7 +214,7 @@ async function callWithToolsViaProxy(connConfig, messages, tools, toolChoice, ma
                 abortErr.userAborted = true;
                 throw abortErr;
             }
-            const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`);
+            const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`, { cause: err });
             timeoutErr.name = 'AbortError';
             timeoutErr.timedOut = true;
             throw timeoutErr;

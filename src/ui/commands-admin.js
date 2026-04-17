@@ -19,6 +19,7 @@ import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
 import { loadIndexFromCache, clearIndexCache } from '../vault/cache.js';
 import { runHealthCheck } from './diagnostics.js';
 import { showNotebookPopup, showAiNotepadPopup, buildCopyButton, attachCopyHandler } from './popups.js';
+import { consoleBuffer } from '../diagnostics/interceptors.js';
 
 /**
  * Shared command list used by both /dle-help and /dle command palette.
@@ -64,6 +65,8 @@ export const DLE_COMMANDS = [
     { cmd: '/dle-context-state', desc: 'Show current gating state (alias: /dle-ctx)' },
     { sep: true, label: 'Diagnostics' },
     { cmd: '/dle-diagnostics', desc: 'Export a diagnostics markdown report' },
+    { cmd: '/dle-debug', desc: 'Toggle debug mode on or off' },
+    { cmd: '/dle-logs', desc: 'Show recent DLE console log entries' },
 ];
 
 export function registerAdminCommands() {
@@ -447,6 +450,54 @@ export function registerAdminCommands() {
             return '';
         },
         helpString: 'Open the setup wizard: connect vault, configure tags, matching, AI, and more.',
+        returns: ARGUMENT_TYPE.STRING,
+    }));
+
+    // ── Debug & Logs ──
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-debug',
+        callback: async (_args, value) => {
+            const settings = getSettings();
+            const arg = (value || '').trim().toLowerCase();
+            if (arg === 'on') settings.debugMode = true;
+            else if (arg === 'off') settings.debugMode = false;
+            else settings.debugMode = !settings.debugMode;
+            saveSettingsDebounced();
+            toastr.success(`Debug mode ${settings.debugMode ? 'ON' : 'OFF'}`, 'DeepLore Enhanced');
+            return '';
+        },
+        helpString: 'Toggle debug logging. Usage: /dle-debug [on|off]',
+        returns: ARGUMENT_TYPE.STRING,
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'dle-logs',
+        callback: async (_args, value) => {
+            const n = Math.min(Math.max(parseInt(value) || 50, 1), 500);
+            const all = consoleBuffer.drain();
+            const dleEntries = all.filter(e => e.dle || (e.msg && e.msg.includes('[DLE]')));
+            const recent = dleEntries.slice(-n);
+
+            if (recent.length === 0) {
+                toastr.info('No DLE log entries found.', 'DeepLore Enhanced');
+                return '';
+            }
+
+            const lines = recent.map(e => {
+                const ts = new Date(e.t).toLocaleTimeString();
+                return `[${ts}] [${e.level}] ${e.msg}`;
+            });
+            const plainText = lines.join('\n');
+
+            const html = `<div class="dle-popup">${buildCopyButton(plainText)}<pre class="dle-text-pre" style="max-height:60vh;overflow:auto;white-space:pre-wrap;font-size:12px;">${escapeHtml(plainText)}</pre></div>`;
+            await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
+                wide: true, large: true, allowVerticalScrolling: true,
+                onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+            });
+            return '';
+        },
+        helpString: 'Show recent DLE console log entries. Usage: /dle-logs [count]',
         returns: ARGUMENT_TYPE.STRING,
     }));
 

@@ -253,3 +253,38 @@ User-facing entry point: `triggerDiagnosticDownload()` builds the anonymized rep
 `buildDiagnosticReport()` — Assembles the full diagnostic markdown report. Captures state snapshot, drains all ring buffers (console, network, error, generation, long-task), runs `scrubDeep()`, compresses via gzip, and encodes as base64 data block.
 
 **Export format v2** (`dle-diagnostic-v2`): The verbose diagnostic blob now includes `eventLog` (from `eventBuffer`), `aiCallLog` (from `aiCallBuffer`), `globalConsoleLog` (non-DLE console entries, last 100), and `interceptorInstallFailures`. Console logs are split into `consoleLog` (DLE-only, entries with `dle: true`) and `globalConsoleLog` (everything else, capped at 100).
+
+### Generation Correlation ID (`genId`)
+Each generation gets a 6-char correlation ID (`Math.random().toString(36).slice(2, 8)`) created in `onGenerate()`. Threaded to the pipeline trace via `runPipeline()` options, copied by `summarizeTrace()` into flight recorder entries, and included in diagnostic export human-readable per-generation lines. Enables correlating log entries, trace data, and flight recorder records back to a single generation.
+
+### Per-Stage Timing on Trace
+10 `*Ms` timing fields on the pipeline trace, each measuring wall-clock duration of the corresponding stage:
+
+`ensureIndexFreshMs`, `pinBlockMs`, `contextualGatingMs`, `reinjectionCooldownMs`, `requiresExcludesMs`, `stripDedupMs`, `formatGroupMs`, `trackGenerationMs`, `recordAnalyticsMs`, `perChatCountsMs`
+
+Visible in `/dle-inspect` timing section (collapsible "Stage Timing" table with per-stage ms and total) and included in diagnostic export trace data.
+
+### Additional pushEvent Kinds
+Beyond the existing `init`, `obsidian_circuit`, `search_mode`, `cache_save`, `cache_load`, `scribe`, `enabled`, etc.:
+
+- **`librarian`** — `start`, `completed`, `error`
+- **`scribe`** — `start` (supplements existing completion event)
+- **`ai_notepad`** — `tag_extracted`, `extract_start`, `extract_completed`, `extract_error`, `extract_empty`
+- **`auto_suggest`** — `start`, `completed`
+- **`drawer`** — `open`, `close`
+
+### Slash Commands (Diagnostics)
+- **`/dle-debug [on|off]`** — Toggle debug mode. No argument = toggle current state. Persists to settings.
+- **`/dle-logs [N]`** — Show last N DLE console entries (default 50, max 500). Filters `consoleBuffer` for entries with `dle: true` flag. Displays in popup with copy button.
+
+### `globalThis.__DLE_DEBUG` Namespace
+Read-only object created on `init()`. Three getters (no setters):
+
+- **`.state`** — snapshot of key state variables: `vaultIndex`, `generationCount`, `chatEpoch`, `generationLock`, `cooldownTracker`, etc.
+- **`.trace`** — returns `lastPipelineTrace`
+- **`.buffers`** — returns `.drain()` of all 6 ring buffers (console, network, errors, aiCalls, events, generations)
+
+For browser console debugging. Read-only — mutations have no effect on DLE state.
+
+### `/dle-inspect` Timing Section
+Now shows `genId` at the top of the trace view. When timing data is present on the trace, displays a collapsible "Stage Timing" table listing each `*Ms` field with its value and a total row. Collapsed by default to keep the inspect view compact.

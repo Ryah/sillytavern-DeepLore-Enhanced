@@ -29,7 +29,7 @@ import { saveIndexToCache, loadIndexFromCache, pruneOrphanedCacheKeys } from './
 import { dedupError, dedupWarning } from '../toast-dedup.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
 // BM25 pure functions extracted to bm25.js for testability
-import { buildBM25Index } from './bm25.js';
+import { buildBM25Index, setDebugMode as setBm25DebugMode } from './bm25.js';
 // bm25 functions imported for internal use; consumers should import directly from ./bm25.js
 
 // Pure functions extracted to vault-pure.js for testability
@@ -60,6 +60,9 @@ const CACHE_FALLBACK_TOAST_TIMEOUT = 10000;
  * so cache-hydrated sessions aren't stuck with degraded scoring until a full rebuild.
  */
 function computeDerivedIndexFields(entries, settings) {
+    // Propagate debug mode to BM25 module (no ST dependency in test environments)
+    setBm25DebugMode(settings?.debugMode);
+
     // Compute vault average token count for Context Map coloring
     const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
     setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
@@ -262,6 +265,7 @@ export async function buildIndex() {
     setIndexing(true);
     let capturedEpoch = buildEpoch;
     (async () => {
+    const _buildStart = performance.now();
     const settings = getSettings();
     const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     try {
@@ -459,6 +463,7 @@ export async function buildIndex() {
         setIndexTimestamp(Date.now());
 
         if (settings.debugMode) console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
+        console.log('[DLE] Index built: %d entries in %dms (mode: fresh)', entries.length, Math.round(performance.now() - _buildStart));
 
         if (isZombie()) return;
         await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
@@ -631,6 +636,7 @@ export async function buildIndexWithReuse() {
     const indexSnapshot = [...vaultIndex];
 
     (async () => {
+    const _buildStart = performance.now();
     let _reuseResult = false;
     try {
         // BUG-F3: Reload field definitions during incremental sync (was only loaded in full buildIndex)
@@ -865,6 +871,7 @@ export async function buildIndexWithReuse() {
         if (settings.debugMode) {
             console.log(`[DLE] Reuse sync: ${allEntries.length} entries after reuse rebuild`);
         }
+        console.log('[DLE] Index built: %d entries in %dms (mode: reuse)', dedupedEntries.length, Math.round(performance.now() - _buildStart));
 
         _reuseResult = true;
     } catch (err) {

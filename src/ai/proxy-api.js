@@ -154,7 +154,7 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
                 abortErr.userAborted = true;
                 throw abortErr;
             }
-            const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`);
+            const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`, { cause: err });
             timeoutErr.name = 'AbortError';
             timeoutErr.timedOut = true;
             throw timeoutErr;

@@ -53,6 +53,7 @@ import {
     setScribeInProgress, setPreviousSources, lastPipelineTrace,
     notepadExtractInProgress, setNotepadExtractInProgress,
     notifyPipelineComplete, notifyInjectionSourcesReady, notifyGatingChanged,
+    notifyChatInjectionCountsUpdated,
     fieldDefinitions,
     folderList,
     setLoreGaps, setLoreGapSearchCount, setLibrarianChatStats,
@@ -888,6 +889,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             // with CHAT_CHANGED and never flush this chat's counts. Fire-and-forget; fall back
             // to debounced if saveMetadata throws synchronously (shouldn't, but belt-and-braces).
             try { saveMetadata(); } catch { saveMetadataDebounced(); }
+            notifyChatInjectionCountsUpdated();
         }
         trace.perChatCountsMs = Math.round(performance.now() - _countsStart);
 
@@ -1389,6 +1391,10 @@ jQuery(async function () {
                         if (pmEntry) pmEntry.content = '';
                     }
                 }
+                // Reset drawer status phase to idle so the mascot doesn't stick on
+                // 'writing'/'searching'/'generating' after a user stop. The epoch bump above
+                // guarantees no active pipeline can be racing this write.
+                setPipelinePhase('idle');
             } catch (err) { console.warn('[DLE] GENERATION_STOPPED cleanup failed:', err?.message); }
         });
 
@@ -1678,6 +1684,31 @@ jQuery(async function () {
         _registerEs(event_types.MESSAGE_SWIPE_DELETED, (messageId) => {
             // The swiped-away alternate is gone — its extras no longer apply.
             try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_SWIPE_DELETED cleanup failed:', err.message); }
+            // Reindex perSwipeInjectedKeys: keys shaped `${messageId}|${swipeId}` pointing at
+            // no-longer-existing swipe slots leak memory + persisted metadata bytes over time.
+            // ST does not shift swipe_id on delete; we only drop keys past the new swipes.length.
+            try {
+                const msg = chat?.[messageId];
+                if (msg && Array.isArray(msg.swipes)) {
+                    const prefix = `${messageId}|`;
+                    let dirty = false;
+                    for (const k of [...perSwipeInjectedKeys.keys()]) {
+                        if (!k.startsWith(prefix)) continue;
+                        const swipeId = parseInt(k.slice(prefix.length), 10);
+                        if (!Number.isFinite(swipeId)) continue;
+                        if (swipeId >= msg.swipes.length) {
+                            perSwipeInjectedKeys.delete(k);
+                            dirty = true;
+                        }
+                    }
+                    if (dirty) {
+                        chat_metadata.deeplore_swipe_injected_keys = Object.fromEntries(
+                            [...perSwipeInjectedKeys.entries()].map(([k, v]) => [k, [...v]]),
+                        );
+                        saveMetadataDebounced();
+                    }
+                }
+            } catch (err) { console.warn('[DLE] MESSAGE_SWIPE_DELETED reindex failed:', err?.message); }
         });
 
         // BUG-038: Subscribe to chat deletion events. ST wipes chat_metadata itself, but
@@ -1741,7 +1772,19 @@ jQuery(async function () {
             // AI Notepad extraction since the visible prose is what it was extracted from.
             try {
                 const message = chat?.[messageId];
-                if (!message?.extra?.deeplore_ai_notes) return;
+                if (!message) return;
+                // Streaming-thrash guard: ST fires MESSAGE_EDITED per keystroke in some provider
+                // streams. Skip work if the visible content hasn't actually changed. Fast non-crypto
+                // fingerprint — length + first/last chars is enough to detect a real edit.
+                const _mes = message.mes || '';
+                const _newHash = `${_mes.length}:${_mes.charCodeAt(0) || 0}:${_mes.charCodeAt(_mes.length - 1) || 0}`;
+                if (message.extra?.deeplore_last_edit_hash === _newHash) return;
+                if (!message.extra) message.extra = {};
+                message.extra.deeplore_last_edit_hash = _newHash;
+                // Real content change — invalidate ai-search cache so the next pipeline doesn't
+                // reuse an entry match computed against the pre-edit chat line set.
+                setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
+                if (!message.extra?.deeplore_ai_notes) return;
                 // BUG-AUDIT-H07: Use last-occurrence removal (same as MESSAGE_SWIPED BUG-290)
                 // to avoid removing an earlier message's identical note instead of this one.
                 const notes = message.extra.deeplore_ai_notes;

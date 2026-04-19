@@ -160,11 +160,11 @@ export function setGenerationCount(v) { generationCount = v; }
 export function setInjectionHistory(v) { injectionHistory = v; }
 export function setSyncIntervalId(v) { syncIntervalId = v; }
 export function setLastWarningRatio(v) { lastWarningRatio = v; }
-export function setLastPipelineTrace(v) { lastPipelineTrace = v; }
+export function setLastPipelineTrace(v) { lastPipelineTrace = v; notifyPipelineTraceUpdated(); }
 export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
 export function setConsecutiveInjections(v) { consecutiveInjections = v; }
-export function setChatInjectionCounts(v) { chatInjectionCounts = v; }
+export function setChatInjectionCounts(v) { chatInjectionCounts = v; notifyChatInjectionCountsUpdated(); }
 export function setLastHealthResult(v) { lastHealthResult = v; }
 export function setLastVaultFailureCount(v) { lastVaultFailureCount = v; }
 export function setLastVaultAttemptCount(v) { lastVaultAttemptCount = v; }
@@ -603,6 +603,44 @@ export function clearLoreGapsCallbacks() { loreGapsChangedCallbacks.clear(); }
 export function notifyLoreGapsChanged() {
     for (const cb of [...loreGapsChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Lore gaps changed callback error:', err.message); }
+    }
+}
+
+// ── Chat injection counts changed callbacks ──
+
+/** @type {Set<() => void>} */
+const chatInjectionCountsCallbacks = new Set();
+
+export function onChatInjectionCountsUpdated(callback) {
+    chatInjectionCountsCallbacks.add(callback);
+    return () => chatInjectionCountsCallbacks.delete(callback);
+}
+
+export function clearChatInjectionCountsCallbacks() { chatInjectionCountsCallbacks.clear(); }
+
+export function notifyChatInjectionCountsUpdated() {
+    for (const cb of [...chatInjectionCountsCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] chatInjectionCounts callback error:', err.message); }
+    }
+}
+
+// ── Pipeline trace updated callbacks ──
+// Distinct from notifyPipelineComplete to avoid firing SR "Pipeline complete: N entries injected"
+// for every trace write. Use this when lastPipelineTrace changes without pipeline finalization.
+
+/** @type {Set<() => void>} */
+const pipelineTraceCallbacks = new Set();
+
+export function onPipelineTraceUpdated(callback) {
+    pipelineTraceCallbacks.add(callback);
+    return () => pipelineTraceCallbacks.delete(callback);
+}
+
+export function clearPipelineTraceCallbacks() { pipelineTraceCallbacks.clear(); }
+
+export function notifyPipelineTraceUpdated() {
+    for (const cb of [...pipelineTraceCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] pipelineTrace callback error:', err.message); }
     }
 }
 

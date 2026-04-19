@@ -52,7 +52,7 @@ export function renderStatusZone() {
     _lastAnnouncedStatus = status;
 
     const $dot = $drawer.find('.dle-status-dot');
-    $dot.attr('aria-live', 'status');
+    $dot.attr('aria-live', 'polite');
     $dot.removeClass('dle-status-ok dle-status-degraded dle-status-limited dle-status-offline');
     $dot.addClass(STATUS_CLASSES[status] || 'dle-status-offline');
 
@@ -84,7 +84,7 @@ export function renderStatusZone() {
     // Activity label (phase-driven: Indexing → Choosing Lore → Consulting Vault → Generating/Writing → Idle)
     const PHASE_LABELS = { choosing: 'Choosing Lore…', consulting: 'Consulting Vault…', generating: 'Generating…', writing: 'Writing…', searching: 'Searching…', flagging: 'Flagging…' };
     const pipelineText = indexing ? 'Indexing…' : PHASE_LABELS[pipelinePhase] || (ds.stGenerating ? 'Generating…' : 'Idle');
-    $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`);
+    $drawer.find('.dle-pipeline-label').text(pipelineText).attr('aria-label', `Status: ${pipelineText}`).attr('aria-live', 'polite');
 
     // Sync skip-tools toggle button visual state; pulse on change
     const $skipBtn = $drawer.find('.dle-action-btn[data-action="skip-tools"]');

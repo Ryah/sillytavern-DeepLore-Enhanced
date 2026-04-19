@@ -19,6 +19,7 @@ import {
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onInjectionSourcesReady, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
     onIndexingChanged, onLoreGapsChanged, onClaudeAutoEffortChanged, onPipelinePhaseChanged,
+    onChatInjectionCountsUpdated, onPipelineTraceUpdated, onFieldDefinitionsUpdated,
 } from '../state.js';
 
 // ─── Drawer sub-modules ───
@@ -628,6 +629,31 @@ export async function createDrawerPanel() {
             drawerListeners.timers.push(_gapAnnounceTimer);
         }
         _lastGapCount = newCount;
+    }));
+
+    // Per-chat injection counts — Browse badges + Why? tab reflect the count; without this
+    // subscriber the UI stays stale between pipeline runs that mutate via direct .set().
+    drawerListeners.stateObservers.push(onChatInjectionCountsUpdated(() => {
+        if (drawerDestroyed) return;
+        scheduleRender(renderBrowseTab);
+        scheduleRender(renderInjectionTab);
+    }));
+
+    // Pipeline trace updates — rejected-entry lookup + Why-Not fallback display.
+    // Dedicated observer (not onPipelineComplete) so SR does NOT announce "Pipeline complete"
+    // for every trace mutation.
+    drawerListeners.stateObservers.push(onPipelineTraceUpdated(() => {
+        if (drawerDestroyed) return;
+        scheduleRender(renderInjectionTab);
+        scheduleRender(renderBrowseTab);
+    }));
+
+    // Field definitions — Gating tab rule builder + Browse custom-field filters depend on these;
+    // notifier existed at src/state.js but had zero subscribers until now.
+    drawerListeners.stateObservers.push(onFieldDefinitionsUpdated(() => {
+        if (drawerDestroyed) return;
+        scheduleRender(renderGatingTab);
+        scheduleRender(renderBrowseTab);
     }));
 }
 

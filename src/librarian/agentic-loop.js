@@ -12,6 +12,7 @@ import { getSettings } from '../../settings.js';
 import {
     chatEpoch, generationLockEpoch,
     setGenerationLockTimestamp,
+    pipelinePhase, setPipelinePhase,
 } from '../state.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
 
@@ -169,12 +170,19 @@ export async function runAgenticLoop(options) {
 
         // H8: FLAG phase is best-effort — prose is already delivered, so errors here
         // should not crash the generation. Wrap the entire FLAG iteration in try/catch.
+        // Phase label: emit 'flagging' so the drawer status reflects the silent wrap-up stage.
+        // PHASE_LABELS at drawer-render-status.js includes 'Flagging…'. AbortError still throws;
+        // finally restores prior phase so 'flagging' cannot stick.
         if (phase === PHASE_FLAG) {
+            const _priorPhase = pipelinePhase;
+            setPipelinePhase('flagging');
             try {
                 flagCount += await _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug);
             } catch (flagErr) {
                 if (flagErr?.name === 'AbortError') throw flagErr;
                 console.warn('[DLE] Flag phase error (prose already delivered):', flagErr?.message || flagErr);
+            } finally {
+                setPipelinePhase(_priorPhase === 'flagging' ? 'idle' : _priorPhase);
             }
             // FLAG phase always runs at most one iteration — break after
             exitReason = 'completed';

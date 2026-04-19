@@ -17,6 +17,7 @@ import {
     librarianSessionStats, setLibrarianSessionStats,
     librarianChatStats, setLibrarianChatStats,
     notifyLoreGapsChanged,
+    notifyAiStatsUpdated,
 } from '../state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -282,6 +283,7 @@ function incrementStats(field, extraTokens = 0) {
         [field]: (librarianChatStats[field] || 0) + 1,
         estimatedExtraTokens: (librarianChatStats.estimatedExtraTokens || 0) + extraTokens,
     });
+    notifyAiStatsUpdated();
 }
 
 // ════════════════════════════════════════════════════════════════════════════

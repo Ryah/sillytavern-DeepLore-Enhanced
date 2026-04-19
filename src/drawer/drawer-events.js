@@ -30,7 +30,7 @@ import {
 } from './drawer-state.js';
 import { renderInjectionTab, renderBrowseTab, renderBrowseWindow, renderGatingTab, renderStatusZone } from './drawer-render.js';
 import { renderLibrarianTab } from './drawer-render-librarian.js';
-import { hideGap, dismissGap, getHiddenGapIds, getDismissedGapIds } from '../librarian/librarian-tools.js';
+import { hideGap, dismissGap, getHiddenGapIds, getDismissedGapIds, persistGaps } from '../librarian/librarian-tools.js';
 import { dedupError } from '../toast-dedup.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -218,7 +218,13 @@ export function wireStatusActions($drawer) {
                 if (generationLock) { toastr.warning('Generation in progress.', 'DeepLore Enhanced', { timeOut: 2000 }); return; }
                 const $scribeBtn = $(this);
                 $scribeBtn.prop('disabled', true).find('i').addClass('fa-spin');
-                setTimeout(() => $scribeBtn.prop('disabled', false).find('i').removeClass('fa-spin'), 15000);
+                setTimeout(() => {
+                    if ($scribeBtn.prop('disabled')) {
+                        $scribeBtn.prop('disabled', false).find('i').removeClass('fa-spin');
+                        toastr.warning('Scribe still running or did not return — try again if needed.', 'DeepLore Enhanced', { timeOut: 4000 });
+                        announceToScreenReader('Scribe timed out.');
+                    }
+                }, 15000);
                 executeCommand('/dle-scribe');
                 break;
             }
@@ -273,6 +279,7 @@ export function wireStatusActions($drawer) {
                         cacheAfterClear: { hashEmpty: !aiSearchCache.hash, resultCount: aiSearchCache.results?.length ?? 0 },
                     });
                 }
+                announceToScreenReader('Search cache cleared — next generation will re-select lore.');
                 toastr.info('Search cache cleared — next generation will re-select lore.', 'DeepLore');
                 break;
             }
@@ -414,6 +421,21 @@ export function wireBrowseTab($drawer) {
         scheduleRender(renderBrowseTab);
     });
 
+    // Quick-filter pills (Since last gen / Never injected). Pills render via
+    // drawer-render-tabs.js:478-479 with data-qf attribute and role="button" tabindex=0.
+    // ds.browseQuickFilter already read by renderBrowseTab — wiring completes the loop.
+    $drawer.on('click', '.dle-qf-pill', function () {
+        const qf = $(this).data('qf');
+        ds.browseQuickFilter = (ds.browseQuickFilter === qf) ? null : qf;
+        scheduleRender(renderBrowseTab);
+        const label = $(this).text();
+        toastr.info(ds.browseQuickFilter ? `Quick filter: ${label}` : 'Quick filter cleared', 'DeepLore Enhanced', { timeOut: 1500 });
+        announceToScreenReader(ds.browseQuickFilter ? `${label} filter on` : 'Quick filter off');
+    });
+    $drawer.on('keydown', '.dle-qf-pill', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+    });
+
     // B: Clear all browse filters button (in empty-no-results state)
     $drawer.on('click', '.dle-browse-clear-filters', function () {
         ds.browseQuery = '';
@@ -449,6 +471,8 @@ export function wireBrowseTab($drawer) {
         if (idx !== -1) {
             // Unpin
             chat_metadata.deeplore_pins.splice(idx, 1);
+            announceToScreenReader(`Unpinned ${title}`);
+            toastr.info(`Unpinned: ${title}`, 'DeepLore Enhanced', { timeOut: 2000 });
         } else {
             // Pin — also remove from blocks
             chat_metadata.deeplore_pins.push({ title, vaultSource });
@@ -484,6 +508,8 @@ export function wireBrowseTab($drawer) {
         if (idx !== -1) {
             // Unblock
             chat_metadata.deeplore_blocks.splice(idx, 1);
+            announceToScreenReader(`Unblocked ${title}`);
+            toastr.info(`Unblocked: ${title}`, 'DeepLore Enhanced', { timeOut: 2000 });
         } else {
             // Block — also remove from pins
             chat_metadata.deeplore_blocks.push({ title, vaultSource });
@@ -792,6 +818,7 @@ export function wireGatingTab($drawer) {
     // Reasoning chip → open AI Connections settings (P13: goto-ai-connections)
     $drawer.on('click', '[data-action="goto-ai-connections"]', function (e) {
         e.stopPropagation();
+        announceToScreenReader('Open Settings, then Connection, then AI Connections subtab.');
         toastr.info('Open Settings → Connection → AI Connections', 'DeepLore Enhanced', { timeOut: 4000 });
     });
     $drawer.on('keydown', '[data-action="goto-ai-connections"]', function (e) {
@@ -883,6 +910,14 @@ export function wireLibrarianTab($drawer) {
         ds.librarianSort = $(this).val() || 'newest';
         try { accountStorage.setItem('dle-librarian-sort', ds.librarianSort); } catch { /* noop */ }
         scheduleRender(renderLibrarianTab);
+    });
+
+    // Clear selection × button (drawer-render-librarian.js renders this pill; handler was missing).
+    $drawer.on('click', '.dle-librarian-clear-btn', function () {
+        ds.librarianSelected.clear();
+        ds.librarianLastClicked = null;
+        scheduleRender(renderLibrarianTab);
+        announceToScreenReader('Selection cleared');
     });
 
     // Click on a gap row → toggle expand (plain text detail). Ignore clicks on
@@ -1038,7 +1073,7 @@ export function wireLibrarianTab($drawer) {
                 const gap = loreGaps.find(g => g.id === id);
                 if (gap) gap.status = 'written';
             }
-            setLoreGaps([...loreGaps]);
+            persistGaps([...loreGaps]);
             ds.librarianSelected.clear();
             ds.librarianLastClicked = null;
             const doneN = ids.length;

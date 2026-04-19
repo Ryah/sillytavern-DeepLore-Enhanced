@@ -350,8 +350,9 @@ export function renderBrowseTab() {
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
     // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
-    const pinSet = new Set(pins.map(p => normalizePinBlock(p).title.toLowerCase()));
-    const blockSet = new Set(blocks.map(b => normalizePinBlock(b).title.toLowerCase()));
+    // Multi-vault: key on vaultSource:title (trackerKey invariant) so same-title cross-vault pins don't collide.
+    const pinSet = new Set(pins.map(p => { const n = normalizePinBlock(p); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
+    const blockSet = new Set(blocks.map(b => { const n = normalizePinBlock(b); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
 
     // Injected set — fall back to lastPipelineTrace (sources cleared after message render)
     const injectedSet = new Set();
@@ -412,9 +413,10 @@ export function renderBrowseTab() {
 
         // Status filter
         const tl = e.title.toLowerCase();
+        const pbKey = `${e.vaultSource || ''}:${tl}`;
         if (statusFilter === 'injected' && !injectedSet.has(tl)) return false;
-        if (statusFilter === 'pinned' && !pinSet.has(tl)) return false;
-        if (statusFilter === 'blocked' && !blockSet.has(tl)) return false;
+        if (statusFilter === 'pinned' && !pinSet.has(pbKey)) return false;
+        if (statusFilter === 'blocked' && !blockSet.has(pbKey)) return false;
         if (statusFilter === 'constant' && !e.constant) return false;
         if (statusFilter === 'seed' && !e.seed) return false;
         if (statusFilter === 'bootstrap' && !e.bootstrap) return false;
@@ -596,8 +598,9 @@ export function renderBrowseWindow() {
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
     // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
-    const pinSet = new Set(pins.map(p => normalizePinBlock(p).title.toLowerCase()));
-    const blockSet = new Set(blocks.map(b => normalizePinBlock(b).title.toLowerCase()));
+    // Multi-vault: key on vaultSource:title (trackerKey invariant) so same-title cross-vault pins don't collide.
+    const pinSet = new Set(pins.map(p => { const n = normalizePinBlock(p); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
+    const blockSet = new Set(blocks.map(b => { const n = normalizePinBlock(b); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
     // Build injected set — fall back to lastPipelineTrace when lastInjectionSources
     // has been consumed by CHARACTER_MESSAGE_RENDERED (moved to message.extra)
     const injectedSet = new Set();
@@ -630,8 +633,9 @@ export function renderBrowseWindow() {
     for (let i = startIdx; i < endIdx; i++) {
         const e = entries[i];
         const tl = e.title.toLowerCase();
-        const isPinned = pinSet.has(tl);
-        const isBlocked = blockSet.has(tl);
+        const pbKey = `${e.vaultSource || ''}:${tl}`;
+        const isPinned = pinSet.has(pbKey);
+        const isBlocked = blockSet.has(pbKey);
         const isInjected = injectedSet.has(tl);
 
         const classes = ['dle-browse-entry'];

@@ -166,20 +166,6 @@ export function dismissGap(id) {
     setLoreGaps([...loreGaps]);
 }
 
-/** Resurface a hidden gap. */
-export function unhideGap(id) {
-    const arr = readGapIdArray('deeplore_lore_gaps_hidden');
-    if (arr.includes(id)) writeGapIdArray('deeplore_lore_gaps_hidden', arr.filter(x => x !== id));
-    setLoreGaps([...loreGaps]);
-}
-
-/** Bring back a dismissed-forever gap. */
-export function undismissGap(id) {
-    const arr = readGapIdArray('deeplore_lore_gaps_dismissed');
-    if (arr.includes(id)) writeGapIdArray('deeplore_lore_gaps_dismissed', arr.filter(x => x !== id));
-    setLoreGaps([...loreGaps]);
-}
-
 /** Internal: silently clear an id from the hidden array (used during re-flag merge). */
 function clearHiddenSilently(id) {
     const arr = readGapIdArray('deeplore_lore_gaps_hidden');
@@ -395,7 +381,7 @@ export async function searchLoreAction(args) {
                 console.debug('[DLE] searchLore: epoch guard — skipped gap persist (index not ready)');
             }
         }
-        return 'Lore vault index is still loading. This does NOT count against your search limit — try again on the next message.';
+        return 'Lore vault index is still loading. This search counted against your limit; vault should be ready on next message.';
     }
 
     // Build injected titles set for filtering

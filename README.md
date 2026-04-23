@@ -182,7 +182,7 @@ See [Wiki: AI Search](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced
 
 ## Slash Commands
 
-Type `/dle-help` in the SillyTavern chat input for the full in-app reference, or see the [complete command reference](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Slash-Commands) on the wiki.
+Type `/help slash` in the SillyTavern chat input (ST auto-discovers DLE commands), or see the [complete command reference](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Slash-Commands) on the wiki.
 
 ---
 

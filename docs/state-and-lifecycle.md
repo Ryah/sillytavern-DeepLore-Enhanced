@@ -95,7 +95,7 @@ No getter functions exist — other modules `import { vaultIndex } from './state
 ### UI State
 | Variable | Type | Reset scope | Writers | Readers |
 |---|---|---|---|---|
-| `pipelinePhase` | `'idle'\|'choosing'\|'generating'\|'writing'\|'searching'\|'flagging'` | Session | `setPipelinePhase()` (L217) | drawer status display |
+| `pipelinePhase` | `'idle'\|'choosing'\|'generating'\|'writing'\|'searching'\|'flagging'` | Session | `setPipelinePhase()` | drawer status display |
 | `autoSuggestMessageCount` | `number` | Chat (→0) | CHARACTER_MESSAGE_RENDERED, CHAT_CHANGED | auto-suggest trigger |
 | `notepadExtractInProgress` | `boolean` | Chat (→false) | GENERATION_ENDED, CHAT_CHANGED | extract lock |
 | `lastHealthResult` | `{errors, warnings}\|null` | Session | /dle-health command | settings badge |
@@ -144,9 +144,9 @@ Each observable is a `Set<() => void>`. Registration returns an unsubscribe func
 
 ## CHAT_CHANGED Handler
 
-Full ordered reset sequence in `index.js` L1593-1847. This is the most complex event handler — every line is load-bearing.
+Full ordered reset sequence in `index.js` (`CHAT_CHANGED` handler registered via `_registerEs(event_types.CHAT_CHANGED, ...)`). This is the most complex event handler — every line is load-bearing.
 
-### 1. Epoch + Lock (L1595-1603)
+### 1. Epoch + Lock
 ```
 setChatEpoch(chatEpoch + 1)           // Invalidates all in-flight pipeline epoch checks
 _removePipelineStatus()                // Clean up UI
@@ -155,7 +155,7 @@ if (generationLock):
   setGenerationLock(false)             // Release lock for new chat
 ```
 
-### 2. Scribe State Hydration (L1607-1622)
+### 2. Scribe State Hydration
 ```
 setLastScribeChatLength(metadata.deeplore_lastScribeChatLength || chat.length)
 setLastScribeSummary(metadata.deeplore_lastScribeSummary || '')
@@ -163,7 +163,7 @@ setLastScribeSummary(metadata.deeplore_lastScribeSummary || '')
 setNotepadExtractInProgress(false)     // BUG-061: Safe to reset — epoch guard protects writes
 ```
 
-### 3. Per-Chat Tracker Reset (L1625-1628)
+### 3. Per-Chat Tracker Reset
 ```
 injectionHistory.clear()
 cooldownTracker.clear()
@@ -171,24 +171,24 @@ decayTracker.clear()
 consecutiveInjections.clear()
 ```
 
-### 4. Chat Injection Counts Hydration (L1635-1650)
+### 4. Chat Injection Counts Hydration
 ```
 Hydrate chatInjectionCounts from chat_metadata.deeplore_chat_counts
 Prune orphaned keys (if vaultIndex populated) — BUG-072
 ```
 
-### 5. Folder Filter Validation (L1656-1663)
+### 5. Folder Filter Validation
 ```
 Prune stale folder names from deeplore_folder_filter — BUG-074
 ```
 
-### 6. Swipe Keys Hydration (L1666-1676)
+### 6. Swipe Keys Hydration
 ```
 Hydrate perSwipeInjectedKeys from chat_metadata.deeplore_swipe_injected_keys
 setLastGenerationTrackerSnapshot(null)
 ```
 
-### 7. Counter/Cache Resets (L1677-1687)
+### 7. Counter/Cache Resets
 ```
 setGenerationCount(0)
 setLastIndexGenerationCount(0)
@@ -203,7 +203,7 @@ setPreviousSources(null)
 resetCartographer()
 ```
 
-### 8. Librarian State Hydration (L1692-1697)
+### 8. Librarian State Hydration
 ```
 setLoreGaps(metadata.deeplore_lore_gaps?.map(normalizeLoreGap) || [])
 setLoreGapSearchCount(0)
@@ -211,17 +211,17 @@ setLibrarianChatStats({...zeroed...})
 clearSessionActivityLog()
 ```
 
-### 9. UI Reset + Notifications (L1700-1702)
+### 9. UI Reset + Notifications
 ```
 resetDrawerState()
 notifyPipelineComplete()     // Forces drawer re-render
 notifyGatingChanged()        // Forces gating tab re-render + AI cache invalidation
 ```
 
-### 10. PM Entry Re-Registration (L1705-1731)
+### 10. PM Entry Re-Registration
 If `injectionMode === 'prompt_list'`, re-registers PM entries for the new active character.
 
-### 11. Chat Load UI Injection (L1741-1847)
+### 11. Chat Load UI Injection
 Deferred via `setTimeout` + `requestAnimationFrame`. Epoch-guarded (`injectEpoch === chatEpoch`).
 - **Migration pass 1**: `tool_invocations` → `deeplore_tool_calls` (BUG-126 sentinel)
 - **Migration pass 2**: `deeplore_sources` from empty intermediates → correct reply
@@ -231,23 +231,23 @@ Deferred via `setTimeout` + `requestAnimationFrame`. Epoch-guarded (`injectEpoch
 
 ## Event Subscriptions
 
-All registered via `_registerEs()` in init (L856+). Full list:
+All registered via `_registerEs()` in `init()`. Full list:
 
-| Event | Handler | Location |
-|---|---|---|
-| `GENERATION_STOPPED` | Release lock, clear status, bump lockEpoch, clear prompts | L1092-1110 |
-| `GENERATION_ENDED` (AI Notebook) | Extract `<dle-notes>` (tag mode) or async extract (extract mode) | L1112-1187 |
-| `CHARACTER_MESSAGE_RENDERED` | Cartographer sources, AI Notebook fallback, Scribe trigger, Auto-suggest | L1283-1373 |
-| `MESSAGE_SWIPED` | Clear tool calls/sources/notes on swiped message, rebuild counts | L1376-1447 |
-| ~~`MESSAGE_DELETED`~~ | *(Removed — agentic loop produces no intermediates to clean up)* | — |
-| `MESSAGE_SWIPE_DELETED` | Clean up per-message extras | L1493-1496 |
-| `CHAT_DELETED` / `GROUP_CHAT_DELETED` | Clear Librarian session state | L1502-1506 |
-| `CONNECTION_PROFILE_DELETED` | Null dangling profileIds, toast | L1518-1539 |
-| `CONNECTION_PROFILE_UPDATED` | Invalidate settings cache | L1540-1542 |
-| `SETTINGS_UPDATED` | Invalidate settings cache | L1560-1562 |
-| `MESSAGE_EDITED` | Remove AI notes from edited message | L1564-1590 |
-| `CHAT_CHANGED` | Full reset sequence (see above) | L1593-1847 |
-| `APP_READY` | First-run wizard + auto-connect (latched) | L980, L1065 |
+| Event | Handler |
+|---|---|
+| `GENERATION_STOPPED` | Release lock, clear status, bump lockEpoch, clear prompts (inline in `init()`) |
+| `GENERATION_ENDED` (AI Notebook) | Extract `<dle-notes>` (tag mode) or async extract (extract mode) (inline in `init()`) |
+| `CHARACTER_MESSAGE_RENDERED` | Cartographer sources, AI Notebook fallback, Scribe trigger, Auto-suggest (inline in `init()`) |
+| `MESSAGE_SWIPED` | Clear tool calls/sources/notes on swiped message, rebuild counts (inline in `init()`) |
+| ~~`MESSAGE_DELETED`~~ | *(Removed — agentic loop produces no intermediates to clean up)* |
+| `MESSAGE_SWIPE_DELETED` | Clean up per-message extras (inline in `init()`) |
+| `CHAT_DELETED` / `GROUP_CHAT_DELETED` | `_onChatDeleted` — clear Librarian session state |
+| `CONNECTION_PROFILE_DELETED` | `_onProfileDeleted` — null dangling profileIds, toast |
+| `CONNECTION_PROFILE_UPDATED` | `_onProfileUpdated` — invalidate settings cache |
+| `SETTINGS_UPDATED` | Invalidate settings cache (inline in `init()`) |
+| `MESSAGE_EDITED` | Remove AI notes from edited message (inline in `init()`) |
+| `CHAT_CHANGED` | Full reset sequence (see above — inline in `init()`) |
+| `APP_READY` | `_wizardOnce` (first-run wizard) + `_autoConnectOnce` (auto-connect), both `{ once: true }` |
 
 ---
 
@@ -287,4 +287,4 @@ HALF-OPEN: aiCircuitOpen=true, cooldown expired. One probe allowed.
 - `tryAcquireHalfOpenProbe()` — **mutation gate**. Only for AI call paths.
 - `releaseHalfOpenProbe()` — Used by `hierarchicalPreFilter` (its outcome shouldn't affect breaker).
 
-See `src/state.js` L246-350 for full implementation.
+See `src/state.js` — `recordAiFailure()`, `recordAiSuccess()`, `releaseHalfOpenProbe()`, `isAiCircuitOpen()`, `tryAcquireHalfOpenProbe()` — for full implementation.

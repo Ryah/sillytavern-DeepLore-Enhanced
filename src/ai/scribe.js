@@ -9,7 +9,7 @@ import {
     eventSource,
     event_types,
 } from '../../../../../../script.js';
-import { saveMetadataDebounced } from '../../../../../extensions.js';
+import { getContext, saveMetadataDebounced } from '../../../../../extensions.js';
 import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../settings.js';
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildIndex } from '../vault/vault.js';
@@ -19,7 +19,7 @@ import { stripObsidianSyntax } from '../helpers.js';
 import {
     scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
     setScribeInProgress, setLastScribeSummary, setLastScribeChatLength,
-    isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure,
+    tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure,
 } from '../state.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
@@ -48,7 +48,9 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     const mode = resolved.mode;
 
     if (mode === 'profile' || mode === 'proxy') {
-        if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
+        // S4-1: tryAcquireHalfOpenProbe is the mutation gate; isAiCircuitOpen returns
+        // false in half-open-no-probe state, so gating on it first leaks the probe slot.
+        if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
         try {
             const result = await callAI(systemPrompt, userMessage, { ...resolved, caller: 'scribe' });
             recordAiSuccess();
@@ -62,7 +64,8 @@ export async function callScribe(systemPrompt, userMessage, settings) {
 
     // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
     // BUG-116: Circuit breaker integration for st mode (consistent with profile/proxy modes)
-    if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
+    // S4-1: see mutation-gate note above.
+    if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
     // Note: generateQuietPrompt cannot be aborted — the background generation will complete
     // regardless, but BUG-241 wires GENERATION_STOPPED so our await resolves early and the
     // scribeInProgress lock releases promptly instead of waiting out the full timeout.
@@ -88,7 +91,15 @@ export async function callScribe(systemPrompt, userMessage, settings) {
                     err.userAborted = true;
                     reject(err);
                 };
-                try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
+                // BUG-AUDIT: if registration throws we must null `onStop` so the
+                // finally clause doesn't try to remove a listener that was never
+                // added — otherwise it races with a partial registration state.
+                try {
+                    eventSource.on(event_types.GENERATION_STOPPED, onStop);
+                } catch (regErr) {
+                    console.warn('[DLE] Scribe stop-listener registration failed:', regErr?.message);
+                    onStop = null;
+                }
             }),
         ]);
         // BUG-116: Record success for circuit breaker consistency with profile/proxy modes
@@ -199,7 +210,16 @@ export async function runScribe(customPrompt) {
             // so on returning to a chat the next rendered message could re-trigger scribe
             // immediately even though the chat hadn't grown since the last successful scribe.
             chat_metadata.deeplore_lastScribeChatLength = chatLenAtWrite;
-            saveMetadataDebounced();
+            // BUG-AUDIT: Flush synchronously instead of debounced. The debounced save reads
+            // the live chat_metadata at flush time — if CHAT_CHANGED fires in the debounce
+            // window, the orphaned write to the OLD chat_metadata object never hits disk.
+            // Force-flush now while chat_metadata still points at the same object we wrote to.
+            try {
+                await getContext().saveMetadata();
+            } catch (saveErr) {
+                console.warn('[DLE] Scribe: sync saveMetadata failed, falling back to debounced:', saveErr?.message);
+                saveMetadataDebounced();
+            }
             pushEvent('scribe', { action: 'completed', chatLength: chatLenAtWrite });
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
             // Reindex so the newly-written note is immediately retrievable
@@ -207,7 +227,18 @@ export async function runScribe(customPrompt) {
                 if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed before reindex, skipping buildIndex');
                 return;
             }
-            try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Scribe reindex after write failed:', reidxErr?.message); }
+            try { await buildIndex(); } catch (reidxErr) {
+                console.warn('[DLE] Scribe reindex after write failed:', reidxErr?.message);
+                // BUG-AUDIT: without a toast the new session note is on disk but
+                // unretrievable until the next manual refresh — user should know.
+                try {
+                    toastr.warning(
+                        `Session note saved, but reindex failed: ${reidxErr?.message || 'unknown error'}. Refresh manually from the drawer.`,
+                        'DeepLore Enhanced',
+                        { timeOut: 10000 },
+                    );
+                } catch { /* toastr unavailable */ }
+            }
         } else {
             dedupError('Couldn\'t save the session note to your vault.', 'scribe_write_fail', { hint: data && data.error });
         }

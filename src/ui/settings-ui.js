@@ -113,8 +113,12 @@ function renderVaultList(settings, container = null) {
 function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     const container = $scope || $('#dle-vault-list');
 
+    // S1-01: clear prior bindings so repeated calls (post-scan re-render) don't stack handlers.
+    container.off('.dleVault');
+    if ($addBtn) $addBtn.off('.dleVault');
+
     // Input changes on vault fields
-    container.on('input', '.dle-vault-name, .dle-vault-host, .dle-vault-port, .dle-vault-key', function () {
+    container.on('input.dleVault', '.dle-vault-name, .dle-vault-host, .dle-vault-port, .dle-vault-key', function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
@@ -154,7 +158,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // Enable/disable toggle
-    container.on('change', '.dle-vault-enabled', function () {
+    container.on('change.dleVault', '.dle-vault-enabled', function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
@@ -166,7 +170,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // HTTPS toggle — auto-switch port between 27124 (HTTPS) and 27123 (HTTP)
-    container.on('change', '.dle-vault-https', function () {
+    container.on('change.dleVault', '.dle-vault-https', function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
@@ -198,7 +202,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // Test individual vault
-    container.on('click', '.dle-vault-test', async function () {
+    container.on('click.dleVault', '.dle-vault-test', async function () {
         const $btn = $(this);
         if ($btn.hasClass('disabled')) return;
         $btn.addClass('disabled');
@@ -238,7 +242,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     });
 
     // Remove vault (with confirmation)
-    container.on('click', '.dle-vault-remove', async function () {
+    container.on('click.dleVault', '.dle-vault-remove', async function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
@@ -260,13 +264,14 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         renderVaultList(settings, container[0]);
     });
 
-    // Add vault button
-    const $addButton = $addBtn || $('#dle-add-vault');
-    $addButton.on('click', function () {
-        settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27123, apiKey: '', enabled: true, https: false });
-        saveSettingsDebounced();
-        renderVaultList(settings, container[0]);
-    });
+    // Add vault button (required — all callers pass $addBtn explicitly)
+    if ($addBtn && $addBtn.length) {
+        $addBtn.on('click.dleVault', function () {
+            settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27123, apiKey: '', enabled: true, https: false });
+            saveSettingsDebounced();
+            renderVaultList(settings, container[0]);
+        });
+    }
 }
 
 // ============================================================================
@@ -1911,7 +1916,18 @@ function bindPopupEvents($container) {
                 if (state.vaultIndex && state.vaultIndex.length) {
                     state.setFuzzySearchIndex(buildBM25Index(state.vaultIndex));
                 }
-            } catch (err) { console.warn('[DLE] BM25 rebuild on enable failed:', err); }
+            } catch (err) {
+                console.warn('[DLE] BM25 rebuild on enable failed:', err);
+                // BUG-AUDIT: Librarian search was just turned on but the fuzzy index
+                // is null — the toggle lied. Surface so user knows to refresh.
+                try {
+                    toastr.warning(
+                        `Librarian search enabled, but fuzzy-index rebuild failed: ${err?.message || 'unknown error'}. Run /dle-force-refresh.`,
+                        'DeepLore Enhanced',
+                        { timeOut: 10000 },
+                    );
+                } catch { /* toastr unavailable */ }
+            }
         }
     });
     $c('#dle-sp-librarian-flag').on('change', function () { settings.librarianFlagEnabled = $(this).prop('checked'); saveSettingsDebounced(); });

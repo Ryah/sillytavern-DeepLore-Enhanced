@@ -49,7 +49,7 @@ import {
     generationLock, generationLockTimestamp, generationLockEpoch, setGenerationLock, setGenerationLockEpoch,
     setLastInjectionSources, setLastInjectionEpoch, setLastScribeChatLength, setLastScribeSummary,
     setGenerationCount, setLastWarningRatio, setChatEpoch, setLastIndexGenerationCount,
-    aiSearchCache, setAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
+    aiSearchCache, setAiSearchCache, resetAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
     setScribeInProgress, setPreviousSources, lastPipelineTrace,
     notepadExtractInProgress, setNotepadExtractInProgress,
     notifyPipelineComplete, notifyInjectionSourcesReady, notifyGatingChanged,
@@ -100,6 +100,9 @@ import { buildChatMessages } from './src/librarian/agentic-messages.js';
 const _dleListeners = { eventSource: [] };
 let _dleInitialized = false;
 let _dleBeforeUnloadHandler = null;
+// BUG-AUDIT: analytics batch flag — Stage 8 sets true on record, clears on save.
+// CHAT_CHANGED and beforeunload flush this so in-flight batches aren't lost.
+let _analyticsPendingSave = false;
 
 function _registerEs(event, handler, { once = false } = {}) {
     if (!event) { console.debug('[DLE] _registerEs: skipped undefined event type'); return; } // feature-detect guard: skip if event type doesn't exist in this ST version
@@ -126,6 +129,10 @@ function _teardownDleExtension() {
         try { window.removeEventListener('beforeunload', _dleBeforeUnloadHandler); } catch { /* ignore */ }
         _dleBeforeUnloadHandler = null;
     }
+    // BUG-AUDIT: Drop __DLE_DEBUG so its frozen getter closures don't retain
+    // vaultIndex + ring buffers across re-init. Without this the old module's
+    // state graph (~1–5 MB) is GC-pinned for the page lifetime.
+    try { delete globalThis.__DLE_DEBUG; } catch { /* non-configurable in rare envs — ignore */ }
     _dleInitialized = false;
 }
 
@@ -471,7 +478,9 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         trace.contextualGatingMs = Math.round(performance.now() - _gatingStart);
         if (trace) {
             const postContextual = new Set(finalEntries.map(e => e.title));
-            trace.contextualGatingRemoved = [...preContextual].filter(t => !postContextual.has(t));
+            trace.contextualGatingRemoved = [...preContextual]
+                .filter(t => !postContextual.has(t))
+                .map(title => ({ title, reason: 'Filtered by era/location/scene/character' }));
         }
 
         if (trace?.aiFallback) {
@@ -512,7 +521,9 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         trace.reinjectionCooldownMs = Math.round(performance.now() - _cooldownStart);
         if (trace) {
             const postCooldown = new Set(finalEntries.map(e => e.title));
-            trace.cooldownRemoved = [...preCooldown].filter(t => !postCooldown.has(t));
+            trace.cooldownRemoved = [...preCooldown]
+                .filter(t => !postCooldown.has(t))
+                .map(title => ({ title, reason: 'Cooldown active' }));
         }
 
         if (finalEntries.length === 0) {
@@ -586,7 +597,9 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             }
             if (trace) {
                 const postDedupTitles = new Set(postDedup.map(e => e.title));
-                trace.stripDedupRemoved = gated.filter(e => !postDedupTitles.has(e.title)).map(e => e.title);
+                trace.stripDedupRemoved = gated
+                    .filter(e => !postDedupTitles.has(e.title))
+                    .map(e => ({ title: e.title, reason: 'Already in recent context' }));
             }
         }
         trace.stripDedupMs = Math.round(performance.now() - _stripDedupStart);
@@ -835,10 +848,16 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         const _analyticsStart = performance.now();
         if (postDedup.length > 0 && epoch === chatEpoch && lockEpoch === generationLockEpoch) {
             recordAnalytics(postDedup, injectedEntries, settings.analyticsData);
-            // Only persist analytics every 5 generations to reduce write amplification
-            if (generationCount % 5 === 0) {
+            // BUG-AUDIT: `generationCount % 5 === 0` includes 0 (first gen after
+            // CHAT_CHANGED), which fires before any pending mutation has
+            // accumulated — redundant save amplification. Skip the gen-0 case,
+            // and mark a pending flag so CHAT_CHANGED / unload handlers can
+            // flush any unpersisted analytics batch.
+            _analyticsPendingSave = true;
+            if (generationCount > 0 && generationCount % 5 === 0) {
                 invalidateSettingsCache();
                 saveSettingsDebounced();
+                _analyticsPendingSave = false;
             }
         }
         trace.recordAnalyticsMs = Math.round(performance.now() - _analyticsStart);
@@ -1234,7 +1253,23 @@ jQuery(async function () {
         const firstRunSettings = getSettings();
         const hasEnabledVaults = (firstRunSettings.vaults || []).some(v => v.enabled);
         // BUG-125: Also check localStorage sentinel in case settings save crashed
-        const wizardCompleted = firstRunSettings._wizardCompleted || (typeof localStorage !== 'undefined' && localStorage.getItem('dle-wizard-completed') === '1');
+        const _lsSentinel = typeof localStorage !== 'undefined' && localStorage.getItem('dle-wizard-completed') === '1';
+        const _settingsFlag = !!firstRunSettings._wizardCompleted;
+        const wizardCompleted = _settingsFlag || _lsSentinel;
+        // BUG-AUDIT: the two sources can diverge if one write path fails (settings save
+        // crash, localStorage quota). Reconcile now so drawer status, wizard re-launch,
+        // and diagnostics all read the same truth on subsequent loads.
+        if (wizardCompleted && _settingsFlag !== _lsSentinel) {
+            try {
+                if (!_settingsFlag) {
+                    firstRunSettings._wizardCompleted = true;
+                    try { saveSettingsDebounced(); } catch { /* noop */ }
+                }
+                if (!_lsSentinel && typeof localStorage !== 'undefined') {
+                    try { localStorage.setItem('dle-wizard-completed', '1'); } catch { /* quota/denied — settings flag is authoritative */ }
+                }
+            } catch { /* noop */ }
+        }
         if (!hasEnabledVaults && !wizardCompleted) {
             const launchWizard = async () => {
                 try {
@@ -1547,7 +1582,17 @@ jQuery(async function () {
                 if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
                     const newMessages = chat.length - lastScribeChatLength;
                     if (newMessages >= settings.scribeInterval && !scribeInProgress) {
-                        runScribe().catch(err => console.warn('[DLE] Scribe auto-trigger failed:', err?.message)); // fire-and-forget
+                        // BUG-AUDIT: fire-and-forget auto-trigger would silently drop failures —
+                        // user never knows their background scribe stopped working. Dedup so
+                        // repeated failures don't spam the UI.
+                        runScribe().catch(err => {
+                            console.warn('[DLE] Scribe auto-trigger failed:', err?.message);
+                            dedupWarning(
+                                `Session Scribe auto-run failed: ${err?.message || 'unknown error'}.`,
+                                'scribe_auto_trigger_fail',
+                                { hint: 'Background scribe failure — manual /dle-scribe still works.' },
+                            );
+                        });
                     }
                 }
             } catch (err) { console.warn('[DLE] Scribe render-handler failed:', err?.message); }
@@ -1562,7 +1607,16 @@ jQuery(async function () {
                             try {
                                 const suggestions = await runAutoSuggest();
                                 if (suggestions && suggestions.length > 0) await showSuggestionPopup(suggestions);
-                            } catch (err) { console.warn('[DLE] Auto-suggest auto-trigger failed:', err?.message); }
+                            } catch (err) {
+                                console.warn('[DLE] Auto-suggest auto-trigger failed:', err?.message);
+                                // BUG-AUDIT: same rationale as scribe above — dedup toast so
+                                // failures don't stack but the user learns the feature broke.
+                                dedupWarning(
+                                    `Auto Lorebook run failed: ${err?.message || 'unknown error'}.`,
+                                    'autosuggest_auto_trigger_fail',
+                                    { hint: 'Background auto-lorebook failure — manual /dle-newlore still works.' },
+                                );
+                            }
                         })();
                     }
                 }
@@ -1783,7 +1837,7 @@ jQuery(async function () {
                 message.extra.deeplore_last_edit_hash = _newHash;
                 // Real content change — invalidate ai-search cache so the next pipeline doesn't
                 // reuse an entry match computed against the pre-edit chat line set.
-                setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
+                resetAiSearchCache();
                 if (!message.extra?.deeplore_ai_notes) return;
                 // BUG-AUDIT-H07: Use last-occurrence removal (same as MESSAGE_SWIPED BUG-290)
                 // to avoid removing an earlier message's identical note instead of this one.
@@ -1808,6 +1862,17 @@ jQuery(async function () {
 
         // Context Cartographer: re-inject buttons on chat load
         _registerEs(event_types.CHAT_CHANGED, () => {
+            // BUG-AUDIT: flush any pending analytics batch before the chat switch
+            // bumps chatEpoch and potentially invalidates the in-flight pipeline's
+            // save path. Without this, 1–4 generations of analytics since the last
+            // modulo-5 flush vanish on chat switch.
+            if (_analyticsPendingSave) {
+                try {
+                    invalidateSettingsCache();
+                    saveSettingsDebounced();
+                } catch { /* ignore */ }
+                _analyticsPendingSave = false;
+            }
             // Increment epoch first so any in-flight onGenerate sees the mismatch
             setChatEpoch(chatEpoch + 1);
             // Diagnostic breadcrumbs: mark chat boundary in ring buffers so exports are parseable
@@ -1902,7 +1967,7 @@ jQuery(async function () {
             setLastIndexGenerationCount(0);
             setLastInjectionEpoch(-1);
             setLastWarningRatio(0);
-            setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
+            resetAiSearchCache();
             resetAiThrottle();
             setAutoSuggestMessageCount(0);
             setLastPipelineTrace(null);
@@ -2072,7 +2137,19 @@ jQuery(async function () {
         // BUG-063: Wire page-unload teardown so tracked listeners + drawer DOM
         // are released cleanly on reload. No-op in environments where
         // beforeunload never fires (it always does in browsers).
-        _dleBeforeUnloadHandler = () => { try { _teardownDleExtension(); } catch { /* ignore */ } };
+        _dleBeforeUnloadHandler = () => {
+            // BUG-AUDIT: flush any pending analytics batch before teardown so
+            // the last 1–4 generations since the last modulo-5 save are
+            // persisted on tab close / reload.
+            if (_analyticsPendingSave) {
+                try {
+                    invalidateSettingsCache();
+                    saveSettingsDebounced();
+                } catch { /* ignore */ }
+                _analyticsPendingSave = false;
+            }
+            try { _teardownDleExtension(); } catch { /* ignore */ }
+        };
         window.addEventListener('beforeunload', _dleBeforeUnloadHandler);
 
         // Developer debug namespace — read-only access to internal state and buffers.

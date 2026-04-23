@@ -16,7 +16,7 @@ import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI } from './ai.js';
 import { extractAiResponseClient } from '../helpers.js';
-import { getWriterVisibleEntries, chatEpoch, isAiCircuitOpen, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
+import { getWriterVisibleEntries, chatEpoch, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
 import { stripObsidianSyntax } from '../helpers.js';
 import { ensureIndexFresh, buildIndex } from '../vault/vault.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
@@ -44,7 +44,9 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
     const maxTokens = resolved.maxTokens;
 
     if (mode === 'st') {
-        if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
+        // S4-2: tryAcquireHalfOpenProbe is the mutation gate; gating on isAiCircuitOpen
+        // first leaks the probe slot in half-open-no-probe state.
+        if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
         // BUG-244: generateQuietPrompt cannot be aborted mid-flight. Mirror scribe's GENERATION_STOPPED
         // race pattern so our await resolves early on user stop (lock releases promptly) rather than
         // blocking until the orphaned background generation completes or times out.
@@ -70,7 +72,15 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
                         err.userAborted = true;
                         reject(err);
                     };
-                    try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
+                    // BUG-AUDIT: if registration throws we must null `onStop` so the
+                    // finally clause doesn't try to remove a listener that was never
+                    // added — otherwise it races with a partial registration state.
+                    try {
+                        eventSource.on(event_types.GENERATION_STOPPED, onStop);
+                    } catch (regErr) {
+                        console.warn('[DLE] Auto-suggest stop-listener registration failed:', regErr?.message);
+                        onStop = null;
+                    }
                 }),
             ]);
             recordAiSuccess();
@@ -83,7 +93,8 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
             if (onStop) { try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ } }
         }
     } else if (mode === 'profile' || mode === 'proxy') {
-        if (isAiCircuitOpen() && !tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
+        // S4-2: see mutation-gate note above.
+        if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
         try {
             const result = await callAI(systemPrompt, userMessage, { ...resolved, caller: 'autoSuggest' });
             recordAiSuccess();
@@ -272,7 +283,18 @@ ${safeContent}`;
                             this.textContent = 'Accepted';
                             toastr.success(`Created: ${s.title}`, 'DeepLore Enhanced');
                             // Reindex so the new entry is immediately retrievable
-                            try { await buildIndex(); } catch (reidxErr) { console.warn('[DLE] Auto-suggest reindex after write failed:', reidxErr?.message); }
+                            try { await buildIndex(); } catch (reidxErr) {
+                                console.warn('[DLE] Auto-suggest reindex after write failed:', reidxErr?.message);
+                                // BUG-AUDIT: surface reindex failure — otherwise the new
+                                // entry stays invisible to retrieval until the next refresh.
+                                try {
+                                    toastr.warning(
+                                        `Entry saved, but reindex failed: ${reidxErr?.message || 'unknown error'}. Refresh manually from the drawer.`,
+                                        'DeepLore Enhanced',
+                                        { timeOut: 10000 },
+                                    );
+                                } catch { /* toastr unavailable */ }
+                            }
                         } else {
                             console.warn('[DLE] Auto-suggest write failed:', data && data.error);
                             toastr.error('Couldn\'t save that entry to your vault.', 'DeepLore Enhanced');

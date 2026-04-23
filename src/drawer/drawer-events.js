@@ -14,7 +14,7 @@ import {
     notifyGatingChanged, notifyPinBlockChanged,
     fieldDefinitions, folderList,
     loreGaps, setLoreGaps,
-    setAiSearchCache, setLastInjectionSources,
+    setAiSearchCache, resetAiSearchCache, setLastInjectionSources,
     aiSearchCache, lastGenerationTrackerSnapshot,
     generationCount, chatEpoch,
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
@@ -36,6 +36,22 @@ import { dedupError } from '../toast-dedup.js';
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers
 // ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * BUG-AUDIT: Shortcut keys (d, Delete, Backspace) must not fire while the user is
+ * editing in a text surface. Previous guard only checked INPUT/TEXTAREA/SELECT and
+ * missed `contenteditable` editors (e.g. rich-text notebook, CKEditor surfaces),
+ * so the user's keystroke would stomp the drawer selection instead of the text.
+ * @param {Element|null} el
+ */
+function _isSafeShortcutTarget(el) {
+    if (!el) return true;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) return false;
+    if (el.isContentEditable) return false;
+    // contenteditable attr explicitly set (isContentEditable checks inheritance too, but be defensive).
+    try { if (el.closest && el.closest('[contenteditable="true"]')) return false; } catch { /* ignore selector errors */ }
+    return true;
+}
 
 /**
  * Highlight filter dropdowns that have a non-default value selected.
@@ -208,7 +224,18 @@ export function wireStatusActions($drawer) {
                 ds.refreshing = true;
                 const $refreshBtn = $(this);
                 $refreshBtn.prop('disabled', true).find('i').removeClass('fa-sync').addClass('fa-spin fa-spinner');
-                buildIndex().catch(err => console.warn('[DLE] Manual refresh failed:', err.message)).finally(() => {
+                buildIndex().catch(err => {
+                    // BUG-AUDIT: manual refresh was user-initiated — surface failure
+                    // instead of leaving them wondering why the status bar didn't update.
+                    console.warn('[DLE] Manual refresh failed:', err?.message);
+                    try {
+                        toastr.error(
+                            `Vault refresh failed: ${err?.message || 'unknown error'}.`,
+                            'DeepLore Enhanced',
+                            { timeOut: 10000 },
+                        );
+                    } catch { /* toastr unavailable */ }
+                }).finally(() => {
                     ds.refreshing = false;
                     $refreshBtn.prop('disabled', false).find('i').removeClass('fa-spin fa-spinner').addClass('fa-sync');
                 });
@@ -265,7 +292,7 @@ export function wireStatusActions($drawer) {
                         chatEpoch,
                     });
                 }
-                setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
+                resetAiSearchCache();
                 setLastInjectionSources(null);
                 // BUG-396: Also clear the injection log so strip-dedup doesn't remove
                 // entries that were in deleted/regenerated messages.
@@ -358,7 +385,11 @@ export function wireInjectionTab($drawer) {
 export function wireBrowseTab($drawer) {
     // Virtual scroll — re-render visible window on scroll (RAF-throttled)
     // The actual scroll container is .dle-drawer-inner (scrollableInner), not the tab panel
-    $drawer.find('.dle-drawer-inner').on('scroll', function () {
+    // BUG-AUDIT: namespaced (`.dle-browse`) so repeated wireBrowseTab calls (drawer
+    // rebuilds on chat switch / re-init) can off() the prior binding and not stack.
+    const $scrollInner = $drawer.find('.dle-drawer-inner');
+    $scrollInner.off('scroll.dle-browse');
+    $scrollInner.on('scroll.dle-browse', function () {
         if (ds.browseScrollRAF) return;
         ds.browseScrollRAF = requestAnimationFrame(() => {
             ds.browseScrollRAF = null;
@@ -968,13 +999,13 @@ export function wireLibrarianTab($drawer) {
             // Space: toggle expand only (not checkbox)
             e.preventDefault();
             $(this).trigger('click');
-        } else if (e.key === 'd' && document.activeElement && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        } else if (e.key === 'd' && _isSafeShortcutTarget(document.activeElement)) {
             // d: mark selected as written (P14)
             if (ds.librarianSelected.size > 0) {
                 e.preventDefault();
                 $drawer.find('.dle-librarian-action[data-librarian-action="done"]').trigger('click');
             }
-        } else if ((e.key === 'Delete' || e.key === 'Backspace') && document.activeElement && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        } else if ((e.key === 'Delete' || e.key === 'Backspace') && _isSafeShortcutTarget(document.activeElement)) {
             // Delete/Backspace: remove selected (P14)
             if (ds.librarianSelected.size > 0) {
                 e.preventDefault();

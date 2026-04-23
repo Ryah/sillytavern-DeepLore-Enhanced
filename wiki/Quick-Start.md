@@ -66,4 +66,4 @@ The key parts:
 - Read **[First Steps](First-Steps)** to learn how to build out your vault
 - Check the **[Writing Vault Entries](Writing-Vault-Entries)** guide for frontmatter reference
 - Run `/dle-health` to check your entry quality
-- Explore `/dle-help` for all available commands
+- Run `/help slash` to see all DLE commands (ST auto-discovers them)

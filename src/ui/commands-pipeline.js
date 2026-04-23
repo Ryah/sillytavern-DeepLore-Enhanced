@@ -205,7 +205,8 @@ export function registerPipelineCommands() {
                 plainLines.push(`Contextual Gating Removed (${t.contextualGatingRemoved.length}):`);
                 const gatingCtx = chat_metadata?.deeplore_context || {};
                 const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
-                for (const title of t.contextualGatingRemoved) {
+                for (const item of t.contextualGatingRemoved) {
+                    const title = item.title;
                     const entry = vaultIndex.find(e => e.title === title);
                     const reasons = [];
                     if (entry?.customFields) {
@@ -229,7 +230,7 @@ export function registerPipelineCommands() {
             }
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
                 plainLines.push(`Re-injection Cooldown Removed (${t.cooldownRemoved.length}):`);
-                for (const title of t.cooldownRemoved) plainLines.push(`  ${title}`);
+                for (const item of t.cooldownRemoved) plainLines.push(`  ${item.title}`);
                 plainLines.push('');
             }
             if (t.gatedOut && t.gatedOut.length > 0) {
@@ -244,7 +245,7 @@ export function registerPipelineCommands() {
             }
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
                 plainLines.push(`Already Injected (${t.stripDedupRemoved.length}):`);
-                for (const title of t.stripDedupRemoved) plainLines.push(`  ${title}`);
+                for (const item of t.stripDedupRemoved) plainLines.push(`  ${item.title}`);
                 plainLines.push('');
             }
             if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
@@ -341,7 +342,8 @@ export function registerPipelineCommands() {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
                 const gatingCtx = chat_metadata?.deeplore_context || {};
                 const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
-                for (const title of t.contextualGatingRemoved) {
+                for (const item of t.contextualGatingRemoved) {
+                    const title = item.title;
                     const entry = vaultIndex.find(e => e.title === title);
                     const reasons = [];
                     if (entry?.customFields) {
@@ -364,8 +366,8 @@ export function registerPipelineCommands() {
             // Re-injection cooldown removals
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
-                for (const title of t.cooldownRemoved) {
-                    html += `<li>${escapeHtml(title)} — recently injected, on cooldown</li>`;
+                for (const item of t.cooldownRemoved) {
+                    html += `<li>${escapeHtml(item.title)} — recently injected, on cooldown</li>`;
                 }
                 html += '</ul>';
             }
@@ -399,8 +401,8 @@ export function registerPipelineCommands() {
             // Strip dedup removals
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Already Injected (${t.stripDedupRemoved.length})</h4><ul>`;
-                for (const title of t.stripDedupRemoved) {
-                    html += `<li>${escapeHtml(title)} — already injected in recent generation(s)</li>`;
+                for (const item of t.stripDedupRemoved) {
+                    html += `<li>${escapeHtml(item.title)} — already injected in recent generation(s)</li>`;
                 }
                 html += '</ul>';
             }

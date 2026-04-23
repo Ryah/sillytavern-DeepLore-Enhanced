@@ -1,6 +1,6 @@
 /**
  * DeepLore Enhanced — Slash Commands: Admin & Status
- * /dle-notebook, /dle-ai-notepad, /dle-status, /dle-scribe-history, /dle-analytics, /dle-health, /dle-setup, /dle-help
+ * /dle-notebook, /dle-ai-notepad, /dle-status, /dle-scribe-history, /dle-analytics, /dle-health, /dle-setup
  */
 import { saveSettingsDebounced, chat_metadata } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
@@ -22,7 +22,7 @@ import { showNotebookPopup, showAiNotepadPopup, buildCopyButton, attachCopyHandl
 import { consoleBuffer } from '../diagnostics/interceptors.js';
 
 /**
- * Shared command list used by both /dle-help and /dle command palette.
+ * Shared command list used by the /dle command palette.
  * Each entry: { cmd, desc } for commands, { sep, label } for section headers.
  */
 export const DLE_COMMANDS = [

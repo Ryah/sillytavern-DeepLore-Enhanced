@@ -64,7 +64,7 @@ Three tools in OpenAI function calling format:
 | `write` | SEARCH | Submit final prose response — triggers SEARCH->FLAG transition |
 | `flag` | FLAG | Flag lore gaps/updates (delegates to `flagLoreAction`) |
 
-`write` is always available in SEARCH phase. When it is the only tool left (search limit reached), the system prompt instructs the AI to call it — no `toolChoice` forcing needed (see H1 comment, `agentic-loop.js` L152-154: always `'auto'`).
+`write` is always available in SEARCH phase. When it is the only tool left (search limit reached), the system prompt instructs the AI to call it — no `toolChoice` forcing needed (see H1 comment in `agentic-loop.js`, inside the main iteration loop: `toolChoice` is always `'auto'`).
 
 ### Provider Format Handling (agentic-api.js)
 
@@ -114,7 +114,7 @@ Google Gemini `tool_choice` normalization (G6): string values mapped to `{ mode:
 
 ## 2. Search Action
 
-**File:** `src/librarian/librarian-tools.js`, L355-542
+**File:** `src/librarian/librarian-tools.js: searchLoreAction()`
 
 ### `searchLoreAction(args) -> Promise<string>`
 
@@ -123,15 +123,15 @@ Google Gemini `tool_choice` normalization (G6): string values mapped to `{ mode:
 { queries: string[] }   // preferred
 { query: string }        // legacy fallback -- coerced to [query]
 ```
-Queries are trimmed, filtered, capped to 4 (L371).
+Queries are trimmed, filtered, capped to 4 (in `searchLoreAction()` input normalization).
 
 **Flow:**
 
 1. Guard: `loreGapSearchCount >= settings.librarianMaxSearches` returns limit message.
-2. Increment `loreGapSearchCount` IMMEDIATELY (L381) -- before any await -- to prevent race when AI sends multiple concurrent search_lore calls.
+2. Increment `loreGapSearchCount` IMMEDIATELY (in `searchLoreAction()`, right after the max-searches guard) -- before any await -- to prevent race when AI sends multiple concurrent search_lore calls.
 3. Await `buildPromise` if vault index still loading.
 4. BM25 search via `queryBM25(fuzzySearchIndex, query, librarianMaxResults, fuzzySearchMinScore)`.
-5. Filter out already-injected titles (`lastInjectionSources`) and `guide` entries (L443).
+5. Filter out already-injected titles (`lastInjectionSources`) and `guide` entries (in `searchLoreAction()` per-query BM25 hit filter).
 6. Select single best hit (highest BM25 score across all queries), return full content.
 7. Resolve up to 3 linked entries from best hit's `resolvedLinks` -- manifest/summary format only.
 8. Report other match counts across remaining queries.
@@ -156,13 +156,13 @@ Queries are trimmed, filtered, capped to 4 (L371).
 
 ### Token estimation (BUG-AUDIT-H19)
 
-Uses accumulated `totalTokens` from real `entry.tokenEstimate` values. Falls back to `resultText.length / 4` only if `totalTokens` is 0 (L513).
+Uses accumulated `totalTokens` from real `entry.tokenEstimate` values. Falls back to `resultText.length / 4` only if `totalTokens` is 0 (in `searchLoreAction()` `estimatedTokens` computation).
 
 ---
 
 ## 3. Flag Action
 
-**File:** `src/librarian/librarian-tools.js`, L549-634
+**File:** `src/librarian/librarian-tools.js: flagLoreAction()`
 
 ### `flagLoreAction(args) -> Promise<string>`
 
@@ -194,7 +194,7 @@ Uses accumulated `totalTokens` from real `entry.tokenEstimate` values. Falls bac
 
 ### Overlap detection: `findSimilarGap()`
 
-**File:** `src/librarian/librarian-tools.js`, L81-101
+**File:** `src/librarian/librarian-tools.js: findSimilarGap()`
 
 Tokenizes both queries via `tokenize()` (from BM25 module), computes Jaccard-like overlap ratio: `overlap / max(newSet.size, existingSet.size)`. Threshold: **>0.6** (60%). Only compares gaps with matching `type` and optionally `subtype`.
 
@@ -233,7 +233,7 @@ In the agentic loop, tool activity is returned as `result.toolActivity` and stor
 |---|---|---|
 | `CHAT_DELETED` | `clearLibrarianSessionState()` | Clears session from chat_metadata + localStorage |
 | `GROUP_CHAT_DELETED` | `clearLibrarianSessionState()` | Same |
-| `CHAT_CHANGED` | (index.js L1696) | `clearSessionActivityLog()` (session state itself is per-chat, so it persists within the chat) |
+| `CHAT_CHANGED` | (index.js CHAT_CHANGED handler) | `clearSessionActivityLog()` (session state itself is per-chat, so it persists within the chat) |
 
 ### Session creation: `createSession(entryPoint, options)`
 
@@ -287,11 +287,11 @@ These tools are available ONLY inside Emma's conversation loop (`sendMessage`). 
 
 ### `get_writing_guide` tool
 
-**File:** `src/librarian/librarian-chat-tools.js`, L480-495
+**File:** `src/librarian/librarian-chat-tools.js: toolGetWritingGuide()` (plus `getGuideEntries()` and `findGuideByName()` helpers)
 
 Serves entries tagged `lorebook-guide` (entries where `entry.guide === true`). Uses kebab-case title matching. These entries are **never injected into the writing AI** through the normal pipeline -- they exist exclusively for the Librarian.
 
-**Gotcha (BUG-325):** `get_writing_guide` is not in the static `LIBRARIAN_TOOLS` array -- it is dynamically built in `buildToolsPromptSection()` (L505-558) only when guide entries exist. The `default` case in `executeToolCall()` must list it explicitly in the error message (L162-167).
+**Gotcha (BUG-325):** `get_writing_guide` is not in the static `LIBRARIAN_TOOLS` array -- it is dynamically built in `buildToolsPromptSection()` only when guide entries exist. The `default` case in `executeToolCall()` must list it explicitly in the error message.
 
 ### `buildToolsPromptSection()`
 
@@ -307,15 +307,15 @@ Generates the tools documentation section embedded in Emma's system prompt. Rebu
 
 | Behavior | OFF (default) | ON |
 |---|---|---|
-| Gap records on gen start | Kept (accumulate) | Cleared via `persistGaps([])` (index.js L283-285) |
+| Gap records on gen start | Kept (accumulate) | Cleared via `persistGaps([])` (in `onGenerate()`, per-message-activity branch after lock acquisition) |
 | Gap records on swipe | N/A (already accumulated) | Kept (not cleared) |
-| `deeplore_tool_calls` on swipe | Deleted from `message.extra` (index.js L1391-1394) | Preserved (will be replaced on next gen) |
+| `deeplore_tool_calls` on swipe | Deleted from `message.extra` (in `index.js` MESSAGE_SWIPED handler) | Preserved (will be replaced on next gen) |
 | Dropdown DOM on swipe | Removed | Removed (DOM always cleared; data preserved for re-render) |
 | Dropdown data persistence | Ephemeral (deleted on swipe) | Per-message (survives swipe) |
 
 ### Implementation details
 
-**Gap clearing (index.js L283-285):**
+**Gap clearing (in `onGenerate()`, per-message-activity branch after lock acquisition):**
 ```js
 if (settings.librarianPerMessageActivity && settings.librarianEnabled) {
     persistGaps([]);
@@ -323,7 +323,7 @@ if (settings.librarianPerMessageActivity && settings.librarianEnabled) {
 ```
 Runs inside `onGenerate()` after lock acquisition, before the pipeline runs.
 
-**Swipe handling (index.js L1388-1400):**
+**Swipe handling (in `index.js` MESSAGE_SWIPED handler):**
 ```js
 if (!getSettings().librarianPerMessageActivity) {
     if (message.extra?.deeplore_tool_calls) {
@@ -334,10 +334,10 @@ if (!getSettings().librarianPerMessageActivity) {
 removeLibrarianDropdown(messageId);  // always
 ```
 
-**CHAT_CHANGED hydration (index.js L1689-1697):**
+**CHAT_CHANGED hydration (in `index.js` CHAT_CHANGED handler, Librarian hydration block):**
 Regardless of this setting, `CHAT_CHANGED` always hydrates `loreGaps` from `chat_metadata.deeplore_lore_gaps` (normalizing legacy statuses), resets `loreGapSearchCount`, resets `librarianChatStats`, and clears `sessionActivityLog`.
 
-**Dropdown re-render on chat load (index.js L1830-1833):**
+**Dropdown re-render on chat load (in `index.js` CHAT_CHANGED handler, inside `injectAllChatLoadUI()` — Librarian dropdown injection pass):**
 After migration, if `librarianEnabled && librarianShowToolCalls`, iterates all messages and calls `injectLibrarianDropdown(i, chat[i].extra.deeplore_tool_calls)` for any message that has stored tool call data.
 
 ---
@@ -346,7 +346,7 @@ After migration, if `librarianEnabled && librarianShowToolCalls`, iterates all m
 
 ### Gap persistence: `persistGaps(updatedGaps)`
 
-**File:** `src/librarian/librarian-tools.js`, L108-139
+**File:** `src/librarian/librarian-tools.js: persistGaps()`
 
 1. Checks `getContext().chatMetadata` availability BEFORE mutating state (BUG-304).
 2. Caps gap count to 200 (BUG-AUDIT-C03), evicting oldest by `createdAt`.
@@ -361,11 +361,11 @@ After migration, if `librarianEnabled && librarianShowToolCalls`, iterates all m
 | Hidden | `deeplore_lore_gaps_hidden` | Re-flag resurfaces (calls `clearHiddenSilently`) |
 | Dismissed | `deeplore_lore_gaps_dismissed` | Re-flag does NOT resurface, but escalates urgency silently |
 
-Functions: `hideGap()`, `unhideGap()`, `dismissGap()`, `undismissGap()`.
+Functions: `hideGap()`, `dismissGap()`. (Un-hide/un-dismiss go through re-flag, which honors the tier's re-flag behavior above.)
 
 ### `notifyLoreGapsChanged()`
 
-**File:** `src/state.js`, L527-541
+**File:** `src/state.js: notifyLoreGapsChanged()`
 
 Callback-based observer pattern. `setLoreGaps()` calls it automatically. Also called explicitly by `searchLoreAction` and `flagLoreAction` after pushing to `sessionActivityLog` (to update the Activity sub-tab even when `persistGaps` was not called).
 
@@ -374,7 +374,7 @@ Callback-based observer pattern. `setLoreGaps()` calls it automatically. Also ca
 | Variable | Scope | Reset trigger |
 |---|---|---|
 | `librarianSessionStats` | Page load | Never (survives CHAT_CHANGED) |
-| `librarianChatStats` | Per-chat | `CHAT_CHANGED` (index.js L1695) |
+| `librarianChatStats` | Per-chat | `CHAT_CHANGED` (in `index.js` CHAT_CHANGED handler, Librarian hydration block) |
 
 Both track `{ searchCalls, flagCalls, estimatedExtraTokens }`.
 
@@ -392,6 +392,6 @@ Both track `{ searchCalls, flagCalls, estimatedExtraTokens }`.
 
 ### Activity feed: `buildLibrarianActivityFeed()`
 
-**File:** `src/librarian/librarian-tools.js`, L210-255
+**File:** `src/librarian/librarian-tools.js: buildLibrarianActivityFeed()`
 
 Merges session activity log (in-memory) with persistent gap records (loreGaps). Deduplicates by `type:query:timestamp/2000` key. Persistent search gaps are excluded (only live session searches shown). Returns newest-first array consumed by both the drawer and the popup.

@@ -916,7 +916,32 @@
                     <span>Show Labels</span>
                 </label>
 
-                <p class="dle-section-desc" style="margin-top: 8px;"><small><i class="fa-solid fa-circle-info"></i> Most graph controls live in the graph window's own settings panel — open the graph to tune physics, focus depth, edge filtering, and presets.</small></p>
+                <div class="flex-container" style="margin-top: 8px;">
+                    <div class="flex1" title="Physics: node repulsion strength. Higher = more spread. Default: 0.3.">
+                        <label for="dle-sp-graph-repulsion"><small>Repulsion</small></label>
+                        <input id="dle-sp-graph-repulsion" type="number" class="text_pole" min="0.1" max="5.0" step="0.05" />
+                    </div>
+                    <div class="flex1" title="Physics: gravity toward graph center. Higher = tighter cluster. Default: 11.0.">
+                        <label for="dle-sp-graph-gravity"><small>Gravity</small></label>
+                        <input id="dle-sp-graph-gravity" type="number" class="text_pole" min="0.1" max="20" step="0.5" />
+                    </div>
+                    <div class="flex1" title="Physics: velocity damping. Higher = motion decays faster. Default: 0.50.">
+                        <label for="dle-sp-graph-damping"><small>Damping</small></label>
+                        <input id="dle-sp-graph-damping" type="number" class="text_pole" min="0.3" max="0.98" step="0.01" />
+                    </div>
+                </div>
+                <div class="flex-container">
+                    <div class="flex1" title="Per-hop brightness transmission on hover. E[d] = t^d. Lower = sharper falloff. Default: 0.9.">
+                        <label for="dle-sp-graph-hover-falloff"><small>Hover Falloff (per hop)</small></label>
+                        <input id="dle-sp-graph-hover-falloff" type="number" class="text_pole" min="0.3" max="0.85" step="0.01" />
+                    </div>
+                    <div class="flex1" title="Minimum edge weight to render (filter out weak edges). Default: 0.05.">
+                        <label for="dle-sp-graph-edge-filter-alpha"><small>Edge Filter Alpha</small></label>
+                        <input id="dle-sp-graph-edge-filter-alpha" type="number" class="text_pole" min="0.01" max="0.5" step="0.01" />
+                    </div>
+                </div>
+
+                <p class="dle-section-desc" style="margin-top: 8px;"><small><i class="fa-solid fa-circle-info"></i> Graph also has its own in-window settings panel (gear icon) with live sliders and presets.</small></p>
             </div>
             </div>
             </div>
@@ -1038,8 +1063,11 @@
                             <label class="checkbox_label" title="Append custom text after the built-in guide.">
                                 <input type="radio" name="dle-sp-librarian-prompt-mode" value="append" class="checkbox"> Append
                             </label>
-                            <label class="checkbox_label" title="Replace the entire system prompt with custom text.">
-                                <input type="radio" name="dle-sp-librarian-prompt-mode" value="override" class="checkbox"> Override
+                            <label class="checkbox_label" title="Replace the role/persona section only. Entry writing guide, manifest, gap context, chat, draft JSON, tools, and response format still included.">
+                                <input type="radio" name="dle-sp-librarian-prompt-mode" value="override" class="checkbox"> Override (partial)
+                            </label>
+                            <label class="checkbox_label" title="Pure passthrough — custom text IS the entire system prompt. No guide, manifest, chat, draft, tools, or response format appended. Advanced.">
+                                <input type="radio" name="dle-sp-librarian-prompt-mode" value="strict-override" class="checkbox"> Strict Override (full)
                             </label>
                         </div>
                         <div class="flex-container" style="align-items: center; gap: 6px; display: none;" id="dle-sp-librarian-preset-row">
@@ -1272,7 +1300,6 @@
             <div class="dle-cmd-grid">
                 <div class="dle-cmd-grid-col">
                     <span class="dle-cmd-grid-header">Browse &amp; Diagnose</span>
-                    <div class="dle-cmd-row"><code>/dle-help</code><span>List all commands</span></div>
                     <div class="dle-cmd-row"><code>/dle-status</code><span>Connection &amp; index info</span></div>
                     <div class="dle-cmd-row"><code>/dle-health</code><span>Audit entries</span></div>
                     <div class="dle-cmd-row"><code>/dle-browse</code><span>Search all entries</span></div>

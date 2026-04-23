@@ -679,11 +679,17 @@ export function initRender(gs) {
     }
 
     // Legend expand/collapse toggle click handler
-    if (gs.tooltipEl) {
+    // BUG-AUDIT: signal-scoped to gs.listenerAC so graph teardown drops this handler,
+    // and guarded by _dleLegendClickWired so render re-runs don't stack duplicates.
+    if (gs.tooltipEl && !gs.tooltipEl._dleLegendClickWired) {
         gs.tooltipEl.addEventListener('click', (e) => {
             if (e.target.closest('.dle-graph-legend-toggle')) {
                 gs.tooltipEl.classList.toggle('dle-graph-tooltip--expanded');
             }
+        }, { signal: gs.listenerAC?.signal });
+        gs.tooltipEl._dleLegendClickWired = true;
+        gs.listenerAC?.signal.addEventListener('abort', () => {
+            if (gs.tooltipEl) gs.tooltipEl._dleLegendClickWired = false;
         });
     }
 

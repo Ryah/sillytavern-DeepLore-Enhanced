@@ -35,7 +35,7 @@ function computeGapScore(gap) {
     const ageHours = ageMs / (1000 * 60 * 60);
     const recency = Math.max(0, 1.0 - ageHours / 24);
     const raw = (freqNorm * 0.4) + (urgency * 0.4) + (recency * 0.2);
-    return Math.min(3, raw * 2.5);
+    return Math.min(3, raw * 3.0);
 }
 
 /** Format a timestamp as relative time (e.g. "2m ago"). */

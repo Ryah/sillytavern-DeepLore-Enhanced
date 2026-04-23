@@ -178,9 +178,6 @@ export async function createDrawerPanel() {
                     <button class="dle-drawer-settings" title="Open DeepLore settings" aria-label="Open DeepLore settings">
                         <i class="fa-solid fa-gear" aria-hidden="true"></i>
                     </button>
-                    <button class="dle-drawer-help" title="Show available commands (/dle-help)" aria-label="Show help">
-                        <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
-                    </button>
                     <button id="dle-drawer-close" class="dle-drawer-close" title="Close drawer" aria-label="Close drawer">
                         <i class="fa-solid fa-chevron-up" aria-hidden="true"></i>
                     </button>
@@ -333,15 +330,6 @@ export async function createDrawerPanel() {
         e.currentTarget.blur();
     });
 
-    // Help button — opens /dle-help command
-    $drawer.find('.dle-drawer-help').on('click', function (e) {
-        const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
-        if (ctx?.executeSlashCommands) {
-            ctx.executeSlashCommands('/dle-help');
-        }
-        e.currentTarget.blur();
-    });
-
     // Moving UI support — let ST's drag system handle our panel
     if (power_user?.movingUI && dragElement) {
         dragElement($('#deeplore-panel'));
@@ -481,12 +469,17 @@ export async function createDrawerPanel() {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // E10: Restore last viewed drawer tab — always open to Why? (injection) on open
+    // E10: Restore last viewed drawer tab from accountStorage.
+    // Q18: switchTab has been writing 'dle-last-drawer-tab' the whole time;
+    // now we actually read it on open. First-time users fall back to 'injection'.
     // ═══════════════════════════════════════════════════════════════════════
-    // Default tab on drawer open is always Why? — do not restore last tab.
-    // (accountStorage write in switchTab is kept for other potential consumers,
-    //  but on open we always override to injection.)
-    try { switchTab($drawer, 'injection'); } catch { /* noop */ }
+    const VALID_TABS = new Set(['injection', 'browse', 'gating', 'librarian', 'tools']);
+    let initialTab = 'injection';
+    try {
+        const savedTab = accountStorage.getItem('dle-last-drawer-tab');
+        if (savedTab && VALID_TABS.has(savedTab)) initialTab = savedTab;
+    } catch { /* noop */ }
+    try { switchTab($drawer, initialTab); } catch { /* noop */ }
 
     // ═══════════════════════════════════════════════════════════════════════
     // C: Restore persistent UI prefs from accountStorage

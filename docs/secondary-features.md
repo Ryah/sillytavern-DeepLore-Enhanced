@@ -8,7 +8,7 @@ Features that are important but less regression-prone than the core pipeline. Ea
 
 **Source:** `src/ai/scribe.js`
 
-**Trigger:** Counter-based in `CHARACTER_MESSAGE_RENDERED` handler (`index.js` L1349-1356). Fires when `chat.length - lastScribeChatLength >= settings.scribeInterval` and `!scribeInProgress`.
+**Trigger:** Counter-based inside the `CHARACTER_MESSAGE_RENDERED` handler in `index.js` (registered via `_registerEs(event_types.CHARACTER_MESSAGE_RENDERED, ...)`). Fires when `chat.length - lastScribeChatLength >= settings.scribeInterval` and `!scribeInProgress`.
 
 **Flow:**
 ```
@@ -42,7 +42,7 @@ CHARACTER_MESSAGE_RENDERED
 
 ## 2. AI Notebook
 
-**Source:** `index.js` L1236-1335 (GENERATION_ENDED handler), L1365-1387 (CHARACTER_MESSAGE_RENDERED fallback)
+**Source:** `index.js` — `GENERATION_ENDED` handler (`_registerEs(event_types.GENERATION_ENDED, ...)`) for primary extraction, and `CHARACTER_MESSAGE_RENDERED` handler fallback block (calls `extractAiNotes()` inside the render handler)
 
 Two modes: `tag` and `extract`.
 
@@ -60,7 +60,7 @@ The AI writes `<dle-notes>` blocks in its response. DLE extracts them post-gener
     → saveMetadataDebounced()
 ```
 
-**Injection (onGenerate L644-668):** Injects previous notes as `[Your previous session notes]` block + instruction prompt (DEFAULT_AI_NOTEPAD_PROMPT) at configured position/depth/role.
+**Injection (inside `onGenerate()` AI Notepad block, uses `DEFAULT_AI_NOTEPAD_PROMPT`):** Injects previous notes as `[Your previous session notes]` block + instruction prompt (DEFAULT_AI_NOTEPAD_PROMPT) at configured position/depth/role.
 
 ### Extract Mode
 DLE strips visible note-taking prose, then fires an async API call to extract session notes.
@@ -82,7 +82,7 @@ DLE strips visible note-taking prose, then fires an async API call to extract se
 ```
 
 ### Fallback (CHARACTER_MESSAGE_RENDERED)
-Tag-mode extraction also runs here (L1365-1387) to catch notes missed by GENERATION_ENDED (e.g., swipe back to a response that has unextracted `<dle-notes>`).
+Tag-mode extraction also runs inside the `CHARACTER_MESSAGE_RENDERED` handler (second `extractAiNotes()` call) to catch notes missed by GENERATION_ENDED (e.g., swipe back to a response that has unextracted `<dle-notes>`).
 
 ### Storage
 - **Per-message:** `message.extra.deeplore_ai_notes` — the extracted notes for this specific message
@@ -90,7 +90,7 @@ Tag-mode extraction also runs here (L1365-1387) to catch notes missed by GENERAT
 - **Cap function:** `capNotepad(text)` — trims oldest block at paragraph boundary (`\n\n`)
 
 ### Swipe Rollback (BUG-290)
-On `MESSAGE_SWIPED` (L1402-1419): Removes the **last occurrence** of the swiped message's notes from `deeplore_ai_notepad`, anchored on `'\n' + notes`. Uses `lastIndexOf` (not first `replace`) to avoid removing an earlier message's identical notes.
+On `MESSAGE_SWIPED` handler (`_registerEs(event_types.MESSAGE_SWIPED, ...)` — notepad rollback block using `lastIndexOf(anchored)`): Removes the **last occurrence** of the swiped message's notes from `deeplore_ai_notepad`, anchored on `'\n' + notes`. Uses `lastIndexOf` (not first `replace`) to avoid removing an earlier message's identical notes.
 
 Same rollback pattern in `MESSAGE_DELETED`, `MESSAGE_SWIPE_DELETED`, and `MESSAGE_EDITED` handlers.
 
@@ -98,7 +98,7 @@ Same rollback pattern in `MESSAGE_DELETED`, `MESSAGE_SWIPE_DELETED`, and `MESSAG
 
 ## 3. Author's Notebook
 
-**Source:** `index.js` L627-637
+**Source:** `index.js` — Author's Notebook injection block inside `onGenerate()` (reads `chat_metadata.deeplore_notebook`, calls `_injectAuxPrompt('deeplore_notebook', ...)`)
 
 Simple user-written per-chat notes. Stored in `chat_metadata.deeplore_notebook`.
 
@@ -110,7 +110,7 @@ Injected as auxiliary prompt via `_injectAuxPrompt('deeplore_notebook', content,
 
 **Source:** `src/ai/auto-suggest.js`
 
-**Trigger:** Counter in `CHARACTER_MESSAGE_RENDERED` handler (L1400-1413). Increments `autoSuggestMessageCount` each render. When count reaches `settings.autoSuggestInterval`, resets counter and fires `runAutoSuggest()`.
+**Trigger:** Counter block inside `CHARACTER_MESSAGE_RENDERED` handler (`setAutoSuggestMessageCount(autoSuggestMessageCount + 1)` path). Increments `autoSuggestMessageCount` each render. When count reaches `settings.autoSuggestInterval`, resets counter and fires `runAutoSuggest()`.
 
 **Flow:**
 ```
@@ -124,7 +124,7 @@ Injected as auxiliary prompt via `_injectAuxPrompt('deeplore_notebook', content,
     → Modal with suggested entries for user review
 ```
 
-**Connection routing:** Auto-suggest has its own `callAutoSuggest()` function (`src/ai/auto-suggest.js` L39) with independent 3-mode routing (st/profile/proxy) and circuit breaker integration — it does NOT call `callAI()` directly.
+**Connection routing:** Auto-suggest has its own `callAutoSuggest()` function (`src/ai/auto-suggest.js:callAutoSuggest()`) with independent 3-mode routing (st/profile/proxy) and circuit breaker integration — it does NOT call `callAI()` directly.
 
 **State:** `autoSuggestMessageCount` — reset to 0 on CHAT_CHANGED.
 
@@ -132,11 +132,11 @@ Injected as auxiliary prompt via `_injectAuxPrompt('deeplore_notebook', content,
 
 ## 5. Context Cartographer
 
-**Source:** `src/ui/cartographer.js`, `index.js` L1221-1234 (click/keydown delegation), L1349-1363 (CHARACTER_MESSAGE_RENDERED render handler)
+**Source:** `src/ui/cartographer.js`, `index.js` — `.dle-carto` click/keydown delegation on `#chat` (`$('#chat').on('click.dle-carto keydown.dle-carto', '.mes_deeplore_sources', ...)`) and `CHARACTER_MESSAGE_RENDERED` handler's `injectSourcesButton(messageId)` block
 
 Shows a "Sources" button on messages that had lore injected.
 
-### Source Tagging (onGenerate L591-600)
+### Source Tagging (inside `onGenerate()` — `setLastInjectionSources(...)` commit block)
 ```
 setLastInjectionSources(injectedEntries.map(e => ({
     title, filename, matchedBy, priority, tokens, vaultSource
@@ -144,7 +144,7 @@ setLastInjectionSources(injectedEntries.map(e => ({
 setLastInjectionEpoch(epoch)
 ```
 
-### Source Consumption (CHARACTER_MESSAGE_RENDERED L1349-1363)
+### Source Consumption (inside `CHARACTER_MESSAGE_RENDERED` handler — `injectSourcesButton(messageId)` block)
 ```
 → Check: lastInjectionSources exists and is non-empty
 → Check: lastInjectionEpoch === chatEpoch (epoch guard)
@@ -154,7 +154,7 @@ setLastInjectionEpoch(epoch)
 → injectSourcesButton(messageId)
 ```
 
-### Click Delegation (L1221-1234)
+### Click Delegation
 Namespaced as `.dle-carto` on `#chat` for clean teardown. Handles `click` and `keydown` (Enter/Space for a11y). Opens `showSourcesPopup(sources, { aiNotes })`.
 
 ### Diff Display
@@ -191,12 +191,12 @@ Custom Canvas-based force-directed graph visualization (no external library).
 **Source:** `src/diagnostics/`
 
 ### boot.js
-First import in `index.js` (L7). Installs console/fetch/XHR/error interceptors and starts PerformanceObserver (long-task tracking) at **module-eval time** so DLE captures cold-start bugs in itself and other extensions. This runs before any other DLE code.
+First import in `index.js` (`import './src/diagnostics/boot.js';` at top of file, before any other DLE imports). Installs console/fetch/XHR/error interceptors and starts PerformanceObserver (long-task tracking) at **module-eval time** so DLE captures cold-start bugs in itself and other extensions. This runs before any other DLE code.
 
 ### flight-recorder.js
-Ring buffer of per-generation event summaries (`generationBuffer`, size **50** — increased from 20). Started in init (L882-887). Records pipeline runs, AI calls, errors, aborts. Used by `/dle-diagnostics` export.
+Ring buffer of per-generation event summaries (`generationBuffer`, size **50** — increased from 20). Started via `startFlightRecorder()` imported and called near the end of `init()`. Records pipeline runs, AI calls, errors, aborts. Used by `/dle-diagnostics` export.
 
-**`recordAbort(msg)`** — called from onGenerate catch block (L807) on user abort.
+**`recordAbort(msg)`** — dynamically imported and called from `onGenerate()`'s catch block on user abort.
 
 **Boot marker:** `{ kind: 'recorder_started' }` pushed on init.
 

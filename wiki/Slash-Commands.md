@@ -4,10 +4,7 @@ DeepLore Enhanced registers several slash commands in SillyTavern. Type them in 
 
 ## Commands
 
-### `/dle-help`
-Show a quick-reference list of all DeepLore Enhanced slash commands with brief descriptions. Organized by category (diagnostics, AI features, per-chat overrides, contextual gating).
-
----
+> ST's built-in `/help slash` auto-discovers all DLE commands via their `helpString` fields. Use that for an in-app reference.
 
 ### `/dle-refresh`
 Force rebuild the vault index cache. Re-fetches all entries from Obsidian regardless of Cache TTL.
@@ -299,11 +296,25 @@ Generate AI summaries for entries that lack a `summary` field. Summaries are wri
 ### `/dle-import`
 Import SillyTavern World Info JSON into the vault. Opens a popup where you paste your WI JSON and choose a target folder. Handles WI exports, V2 character cards, and entry arrays. See [[Features#ST Lorebook Import Bridge]].
 
+---
+
+### `/dle-debug [on|off]`
+Toggle debug logging. No argument toggles the current state; `on` / `off` force it. Debug log lines land in the browser console prefixed `[DLE]` and are also captured by `/dle-logs`.
+
+---
+
+### `/dle-logs [count]`
+Show the last N DLE console log entries captured by the in-memory ring buffer (default 50, max 500). Useful when the browser console is cluttered and you want to copy just DLE-tagged lines.
+
+---
+
+### `/dle-clear-folder`
+Clear the active folder filter so entries from all folders are eligible again. No-op if no filter is set.
+
 ## Quick Reference
 
 | Command | Description |
 |---------|-------------|
-| `/dle-help` | Quick reference of all commands |
 | `/dle-refresh` (`/dle-r`) | Force re-index vault |
 | `/dle-status` | Show connection and index status |
 | `/dle-why` (`/dle-context`) | Preview what would be injected now |
@@ -337,3 +348,6 @@ Import SillyTavern World Info JSON into the vault. Opens a popup where you paste
 | `/dle-setup` | Run setup wizard |
 | `/dle-summarize` | Generate AI summaries for entries |
 | `/dle-import` | Import ST World Info JSON |
+| `/dle-debug [on\|off]` | Toggle debug logging |
+| `/dle-logs [count]` | Show last N DLE console log entries |
+| `/dle-clear-folder` | Clear active folder filter |

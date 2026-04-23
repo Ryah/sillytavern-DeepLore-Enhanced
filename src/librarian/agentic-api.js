@@ -35,7 +35,13 @@ function getLibrarianMode() {
  * @returns {boolean}
  */
 export function isToolCallingSupported() {
-    if (getLibrarianMode() === 'proxy') return true;
+    if (getLibrarianMode() === 'proxy') {
+        // Pre-validate proxy config so dispatch doesn't start an agentic loop that
+        // would throw mid-flight via validateProxyUrl, after abort() + button-flip.
+        const cfg = resolveConnectionConfig('librarian');
+        if (!cfg.proxyUrl || !cfg.model) return false;
+        return true;
+    }
     if (main_api !== 'openai') return false;
     const source = oai_settings?.chat_completion_source;
     if (!source) return false;

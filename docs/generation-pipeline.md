@@ -1,12 +1,12 @@
 # Generation Pipeline Deep Dive
 
-The generation pipeline is DLE's core — most regressions originate here. This doc traces every step of `onGenerate()` in `index.js` L188-842.
+The generation pipeline is DLE's core — most regressions originate here. This doc traces every step of `onGenerate()` in `index.js`.
 
 ---
 
 ## Overview
 
-`onGenerate(chatMessages, contextSize, abort, type)` is the generation interceptor, called by SillyTavern's interceptor system before each generation. It is registered on `globalThis.deepLoreEnhanced_onGenerate` (L845).
+`onGenerate(chatMessages, contextSize, abort, type)` is the generation interceptor, called by SillyTavern's interceptor system before each generation. It is registered on `globalThis.deepLoreEnhanced_onGenerate` (module bottom).
 
 **Inputs:** `chatMessages` (filtered copy of ST's chat array — NOT the global `chat`; pushing to it loses data), `contextSize` (context window tokens), `abort` (callback to prevent ST's generation — used by agentic loop dispatch), `type` (generation type string).
 
@@ -18,7 +18,7 @@ The generation pipeline is DLE's core — most regressions originate here. This 
 
 ---
 
-## Phase 1: Early Guards (L188-205)
+## Phase 1: Early Guards (in `onGenerate()`)
 
 ```
 onGenerate(chatMessages)
@@ -29,11 +29,11 @@ onGenerate(chatMessages)
 
 1. **Quiet generations** (type `'quiet'`): Background API calls (e.g., summarization). No lore injection.
 2. **`skipNextPipeline` bypass**: One-shot flag checked after the quiet check and before the tool-call continuation check. When true, the entire DLE pipeline is skipped (early return). The flag is consumed immediately (reset to `false`). Used by `/dle-review` to prevent the DLE pipeline from running on vault review generations — the review needs a clean generation with no lore injection.
-3. **Tool-call continuations** (L215-222): When the last message has `extra.tool_invocations` or `is_system`, ST is re-calling Generate after a tool invocation from another extension using ST's ToolManager. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics. Records `{ skipped: true, reason: 'tool_call_continuation' }` in the flight recorder. DLE's own Librarian uses the agentic loop (not ToolManager), so DLE tool calls never trigger this guard.
+3. **Tool-call continuations** (in `onGenerate()`): When the last message has `extra.tool_invocations` or `is_system`, ST is re-calling Generate after a tool invocation from another extension using ST's ToolManager. Lore from the original generation is still in context. Re-running would waste tokens and corrupt analytics. Records `{ skipped: true, reason: 'tool_call_continuation' }` in the flight recorder. DLE's own Librarian uses the agentic loop (not ToolManager), so DLE tool calls never trigger this guard.
 
 ---
 
-## Phase 2: Pre-Lock Setup (L212-236)
+## Phase 2: Pre-Lock Setup (in `onGenerate()`)
 
 ```
   → Check generationLock
@@ -43,13 +43,13 @@ onGenerate(chatMessages)
   → Show status: "Choosing Lore…"
 ```
 
-**Lock acquisition** (L219-236): `setGenerationLock(true)` increments `generationLockEpoch` (in the setter at `state.js` L190). This epoch is captured at L290 and checked at every commit point.
+**Lock acquisition** (in `onGenerate()`): `setGenerationLock(true)` increments `generationLockEpoch` (in the setter at `state.js:setGenerationLock()`). This epoch is captured in `onGenerate()` and checked at every commit point.
 
-**Force-release** (L221-229): After 30s, the lock is considered stuck. `generationLockEpoch` is bumped BEFORE releasing, so the stuck pipeline's late writes fail every `lockEpoch === generationLockEpoch` guard. Records `{ forceRelease: true, lockAgeMs, oldEpoch, newEpoch }` in the flight recorder. If lock contention is detected but under 30s, records `{ skipped: true, reason: 'lock_contention' }` and returns.
+**Force-release** (in `onGenerate()`): After 30s, the lock is considered stuck. `generationLockEpoch` is bumped BEFORE releasing, so the stuck pipeline's late writes fail every `lockEpoch === generationLockEpoch` guard. Records `{ forceRelease: true, lockAgeMs, oldEpoch, newEpoch }` in the flight recorder. If lock contention is detected but under 30s, records `{ skipped: true, reason: 'lock_contention' }` and returns.
 
 ---
 
-## Phase 3: Epoch Capture & Abort Setup (L288-306)
+## Phase 3: Epoch Capture & Abort Setup (in `onGenerate()`)
 
 ```
   → Capture chatEpoch and generationLockEpoch
@@ -58,14 +58,14 @@ onGenerate(chatMessages)
   → Wire STREAM_TOKEN_RECEIVED (once) to remove status
 ```
 
-**Epoch capture** (L288-290):
+**Epoch capture** (in `onGenerate()`):
 ```javascript
 const epoch = chatEpoch;
 const lockEpoch = generationLockEpoch;
 ```
 These are checked after every `await` and before every state mutation.
 
-**AbortController** (L298-301): `pipelineAbort.signal` is passed to `runPipeline` and AI calls. The Stop button triggers `GENERATION_STOPPED` which aborts the controller.
+**AbortController** (in `onGenerate()`): `pipelineAbort.signal` is passed to `runPipeline` and AI calls. The Stop button triggers `GENERATION_STOPPED` which aborts the controller.
 
 ---
 
@@ -75,7 +75,7 @@ When `debugMode` is enabled, a diagnostic breadcrumb is logged at pipeline entry
 
 ---
 
-## Phase 4: Index Refresh (L307-361)
+## Phase 4: Index Refresh (in `onGenerate()`)
 
 ```
 try {
@@ -88,15 +88,15 @@ try {
 }
 ```
 
-**Index timeout** (L323-336): `Promise.race` with 60s timer. If timeout wins and `vaultIndex.length > 0`, proceeds with stale data. If vault is empty, returns (no lore to inject).
+**Index timeout** (in `onGenerate()`): `Promise.race` with 60s timer. If timeout wins and `vaultIndex.length > 0`, proceeds with stale data. If vault is empty, returns (no lore to inject).
 
-**Epoch re-check** (L341-344): `CHAT_CHANGED` may fire during the up-to-60s `ensureIndexFresh` await. Without this check, the pipeline would tag a stale snapshot with the new chat's swipe keys. On mismatch, records `{ discarded: true, reason: 'chat_changed_during_index' }` in the flight recorder.
+**Epoch re-check** (in `onGenerate()`): `CHAT_CHANGED` may fire during the up-to-60s `ensureIndexFresh` await. Without this check, the pipeline would tag a stale snapshot with the new chat's swipe keys. On mismatch, records `{ discarded: true, reason: 'chat_changed_during_index' }` in the flight recorder.
 
-**Guide entry filter** (L348): `getWriterVisibleEntries()` = `vaultIndex.filter(e => !e.guide)`. The writing AI must never see guide entries.
+**Guide entry filter** (in `onGenerate()`): `getWriterVisibleEntries()` = `vaultIndex.filter(e => !e.guide)`. The writing AI must never see guide entries.
 
 ---
 
-## Phase 5: Swipe Rollback (L366-391)
+## Phase 5: Swipe Rollback (in `onGenerate()`)
 
 ```
   → Compute swipeKey: `${msgIdx}|${swipe_id}`
@@ -106,11 +106,11 @@ try {
 
 **Swipe detection**: If the swipe key matches the previous generation's snapshot key, this is a regen/swipe. Restore cooldownTracker, decayTracker, consecutiveInjections, injectionHistory, and generationCount from the snapshot.
 
-**Snapshot capture** (L383-390): Always takes a fresh snapshot with the current swipe key. This is the restore point for the next generation if it's a swipe.
+**Snapshot capture** (in `onGenerate()`): Always takes a fresh snapshot with the current swipe key. This is the restore point for the next generation if it's a swipe.
 
 ---
 
-## Phase 6: Pipeline Execution (L393-406)
+## Phase 6: Pipeline Execution (in `onGenerate()`)
 
 ```
   → Gather context: ctx, pins, blocks, folderFilter from chat_metadata
@@ -131,57 +131,57 @@ try {
 
 ### Hierarchical Pre-Filter Toggle
 
-Controlled by `settings.hierarchicalPreFilter` (default: `false`, `settings.js` L196). When enabled and candidate count exceeds `HIERARCHICAL_THRESHOLD = 40` (`ai.js` L311), a lightweight AI call clusters candidates by category and asks which categories are relevant, returning a reduced candidate set before the main AI search.
+Controlled by `settings.hierarchicalPreFilter` (default: `false`, in `defaultSettings`). When enabled and candidate count exceeds `HIERARCHICAL_THRESHOLD = 40` (ai.js: module-top const), a lightweight AI call clusters candidates by category and asks which categories are relevant, returning a reduced candidate set before the main AI search.
 
 - **Returns:** `null` (skip, use all candidates) or a filtered array (may be empty — empty is a valid result meaning no categories matched)
 - **BUG-396 rescue:** Entries whose primary keywords are explicitly mentioned in the chat are re-added after filtering, preventing the pre-filter from silently dropping highly-relevant entries
 - **Circuit breaker:** Uses `tryAcquireHalfOpenProbe()` / `releaseHalfOpenProbe()` — its probe slot is independent of the main `aiSearch()` call
-- **Source:** `src/ai/ai.js` L321-450
+- **Source:** `src/ai/ai.js:hierarchicalPreFilter()`
 
 ---
 
-## Phase 7: Post-Pipeline Stages (L407-536)
+## Phase 7: Post-Pipeline Stages (in `onGenerate()`)
 
 These run in `index.js`, not in `runPipeline()`. Each has its own trace recording.
 
-### Stage 1: Pin/Block (L409-410)
+### Stage 1: Pin/Block (in `onGenerate()`)
 ```javascript
 const policy = buildExemptionPolicy(vaultSnapshot, pins, blocks);
 let finalEntries = applyPinBlock(pipelineEntries, vaultSnapshot, policy, matchedKeys);
 ```
 Adds pinned entries (as `constant=true, priority=10`). Removes blocked entries. See `stages-and-gating.md`.
 
-### Stage 2: Contextual Gating (L413-419)
+### Stage 2: Contextual Gating (in `onGenerate()`)
 ```javascript
 finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode, settings, fieldDefs);
 ```
 Filters by era/location/scene_type/character_present/custom fields. ForceInject entries exempt.
 
-### AI Fallback Warning (L421-432)
+### AI Fallback Warning (in `onGenerate()`)
 If `trace.aiFallback` is true, shows user-facing warning with error classification.
 
-### Empty Check + clearPrompts (L438-449)
-If no entries remain, clears prompts (with epoch guard) and returns. Similar epoch-guarded clearPrompts+return blocks also follow Stage 3 (L460-469) and Stage 4 (L474-483) in case those stages remove all remaining entries.
+### Empty Check + clearPrompts (in `onGenerate()`)
+If no entries remain, clears prompts (with epoch guard) and returns. Similar epoch-guarded clearPrompts+return blocks also follow Stage 3 and Stage 4 in case those stages remove all remaining entries.
 
-### Stage 3: Re-injection Cooldown (L452-469)
+### Stage 3: Re-injection Cooldown (in `onGenerate()`)
 ```javascript
 finalEntries = applyReinjectionCooldown(finalEntries, policy, injectionHistory, generationCount, settings.reinjectionCooldown, settings.debugMode);
 ```
 Skips entries injected within `reinjectionCooldown` generations. ForceInject exempt.
 
-### Stage 4: Requires/Excludes (L471-483)
+### Stage 4: Requires/Excludes (in `onGenerate()`)
 ```javascript
 const { result: gated, removed: gatingRemoved } = applyRequiresExcludesGating(finalEntries, policy, settings.debugMode);
 ```
 AND logic for `requires`, OR logic for `excludes`. ForceInject exempt.
 
-### Stage 5: Strip Dedup (L485-493)
+### Stage 5: Strip Dedup (in `onGenerate()`)
 ```javascript
 postDedup = applyStripDedup(gated, policy, chat_metadata.deeplore_injection_log, settings.stripLookbackDepth, settings, settings.debugMode);
 ```
 Removes entries with same position+depth+role+contentHash in recent injection log.
 
-### Stage 6: Format and Group (L496-498)
+### Stage 6: Format and Group (in `onGenerate()`)
 ```javascript
 const { groups, count, totalTokens, acceptedEntries } = formatAndGroup(postDedup, settings, PROMPT_TAG_PREFIX);
 ```
@@ -197,40 +197,40 @@ Applies token budget (`maxTokensBudget`), entry limit (`maxEntries`), groups by 
 
 **`ensureIndexFreshMs` special case:** `ensureIndexFresh()` runs before `runPipeline()` returns the trace object. The timing is captured in a local variable `_indexFreshMs` BEFORE trace exists, then assigned to `trace.ensureIndexFreshMs` after `runPipeline()` returns.
 
-### Trace Publishing (L502-536)
-Enriches `trace` with gating/budget/dedup details. **Epoch-guarded** (L520): only publishes trace and pushes activity if both epochs match.
+### Trace Publishing (in `onGenerate()`)
+Enriches `trace` with gating/budget/dedup details. **Epoch-guarded** (in `onGenerate()`): only publishes trace and pushes activity if both epochs match.
 
 ---
 
-## Phase 8: Commit Phase (L538-610)
+## Phase 8: Commit Phase (in `onGenerate()`)
 
 ```
-  → FINAL EPOCH CHECK (L540, L548)
+  → FINAL EPOCH CHECK (in onGenerate() commit phase)
   → If groups.length > 0:
-    → clearPrompts() (L553)
+    → clearPrompts() (in onGenerate() — clear-before-replace)
     → For each group:
       → Outlet groups (position -1): setExtensionPrompt with outlet tag
       → Prompt List mode: write to PM entry directly
       → Extension mode: setExtensionPrompt with position/depth/role
     → Tag lastInjectionSources + lastInjectionEpoch for Cartographer
   → Else (no groups):
-    → clearPrompts() (L603) — stale prompts from prior generation
+    → clearPrompts() (in onGenerate() else branch) — stale prompts from prior generation
 ```
 
-**Two epoch checks** before committing (L540, L548). Both must pass.
+**Two epoch checks** before committing (in `onGenerate()`). Both must pass.
 
-**clearPrompts placement**: Two sites — L553 inside the `if (groups.length > 0)` block (clear-before-replace), and L603 in the `else` branch (clear stale prompts when no groups survived). Earlier empty-check branches (L448, L467, L481) also call clearPrompts with their own epoch guards.
+**clearPrompts placement**: Two sites — inside the `if (groups.length > 0)` block (clear-before-replace), and in the `else` branch (clear stale prompts when no groups survived). Earlier empty-check branches also call clearPrompts with their own epoch guards.
 
 **Injection modes:**
 - **Extension mode** (default): `setExtensionPrompt(tag, text, position, depth, allowWIScan, role)` for each group
 - **Prompt List mode**: Writes content directly to PM entries (`pmEntry.content = group.text`). PM's drag order controls placement.
 - **Outlet groups** (position -1): Always use `setExtensionPrompt` regardless of mode, for `{{outlet::name}}` macro
 
-**Auxiliary prompts** (L612-668): Author's Notebook and AI Notebook injection via `_injectAuxPrompt()` helper, which handles the PM-vs-extension_prompts ladder.
+**Auxiliary prompts** (in `onGenerate()`): Author's Notebook and AI Notebook injection via `_injectAuxPrompt()` helper, which handles the PM-vs-extension_prompts ladder.
 
 ---
 
-## Phase 8b: Agentic Loop Dispatch (L776-866)
+## Phase 8b: Agentic Loop Dispatch (in `onGenerate()`)
 
 After pipeline commit and `_updatePipelineStatus('Generating...')`, DLE fires `notifyInjectionSourcesReady()` (so the drawer can render the Why? tab early, before generation completes), then checks whether to run its own generation loop:
 
@@ -275,23 +275,23 @@ The agentic loop runs the state machine (SEARCH -> FLAG -> DONE), calling `searc
 
 ---
 
-## Phase 9: Post-Commit Tracking (L670-761)
+## Phase 9: Post-Commit Tracking (in `onGenerate()`)
 
 All epoch-guarded and lock-guarded.
 
-### Stage 7: Track Generation (L670-675)
+### Stage 7: Track Generation (in `onGenerate()`)
 ```javascript
 trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings);
 ```
 Updates per-entry cooldown, decay, and injection history maps.
 
-### Injection Dedup Log (L684-703)
+### Injection Dedup Log (in `onGenerate()`)
 If `stripDuplicateInjections` enabled, records entries with position/depth/role/contentHash to `chat_metadata.deeplore_injection_log`. Bounded by `stripLookbackDepth + 1`.
 
-### Stage 8: Analytics (L705-714)
+### Stage 8: Analytics (in `onGenerate()`)
 `recordAnalytics(postDedup, injectedEntries, settings.analyticsData)`. Persisted every 5 generations to reduce write amplification.
 
-### Stage 9: Per-Chat Injection Counts (L716-761)
+### Stage 9: Per-Chat Injection Counts (in `onGenerate()`)
 - Decrements prior swipe's keys from `chatInjectionCounts`
 - Increments this round's keys
 - Prunes `perSwipeInjectedKeys` to last 10 message slots
@@ -300,7 +300,7 @@ If `stripDuplicateInjections` enabled, records entries with position/depth/role/
 
 ---
 
-## Phase 10: Finally Block (L812-841)
+## Phase 10: Finally Block (in `onGenerate()`)
 
 **Always runs** — even on errors and early returns.
 
@@ -316,11 +316,11 @@ finally {
 }
 ```
 
-**decrementTrackers** (L825): Always runs if `pipelineRan` is true, even with zero matches. Without this, cooldown timers freeze permanently.
+**decrementTrackers** (in `onGenerate()` finally): Always runs if `pipelineRan` is true, even with zero matches. Without this, cooldown timers freeze permanently.
 
-**Conditional lock release** (L832-834): `if (lockEpoch === generationLockEpoch)` — prevents a force-released stale pipeline from unlocking the newer pipeline. On mismatch, records `{ lockReleaseBlocked: true, reason: 'epoch_mismatch' }` in the flight recorder.
+**Conditional lock release** (in `onGenerate()` finally): `if (lockEpoch === generationLockEpoch)` — prevents a force-released stale pipeline from unlocking the newer pipeline. On mismatch, records `{ lockReleaseBlocked: true, reason: 'epoch_mismatch' }` in the flight recorder.
 
-**Conditional pipeline-complete notification** (L838-840): Both epoch AND lockEpoch must match. Prevents a stale pipeline from triggering drawer re-renders for the wrong chat. On mismatch, records `{ discarded: true, reason: 'stale_pipeline_tracking_skipped' }`.
+**Conditional pipeline-complete notification** (in `onGenerate()` finally): Both epoch AND lockEpoch must match. Prevents a stale pipeline from triggering drawer re-renders for the wrong chat. On mismatch, records `{ discarded: true, reason: 'stale_pipeline_tracking_skipped' }`.
 
 ---
 
@@ -331,8 +331,8 @@ finally {
 3. Stale pipelines (force-released lock) bail at every commit point via `lockEpoch` check
 4. The pipeline is NOT reentrant — `generationLock` prevents concurrent runs
 5. Tool-call continuations skip the pipeline entirely
-6. Guide entries are filtered out at L348 via `getWriterVisibleEntries()` — they never reach the writing AI
-7. `pipelineRan` controls whether `decrementTrackers` runs in `finally` — set to `true` at L364 only after the vault snapshot is confirmed non-empty
+6. Guide entries are filtered out (in `onGenerate()`) via `getWriterVisibleEntries()` — they never reach the writing AI
+7. `pipelineRan` controls whether `decrementTrackers` runs in `finally` — set to `true` (in `onGenerate()`) only after the vault snapshot is confirmed non-empty
 8. When Librarian is enabled + tool calling supported, DLE aborts ST's generation and runs its own agentic loop. The loop calls `setGenerationLockTimestamp` as keepalive (C9) and uses `setSendButtonState` as re-entrancy guard (C1).
 9. `onGenerate`'s first parameter is `chatMessages` (a filtered copy), NOT the global `chat`. Never push to it — use the global `chat` import for message creation.
 10. `notifyInjectionSourcesReady()` fires before the agentic loop dispatch, allowing the drawer to render the Why? tab early.
@@ -346,12 +346,12 @@ finally {
 ## Call Graph Summary
 
 ```
-onGenerate(chatMessages, contextSize, abort, type)             [index.js L188]
-  ├─ setGenerationLock(true)                                   [L236]
-  ├─ ensureIndexFresh()                                        [L326, with 60s timeout]
-  ├─ getWriterVisibleEntries()                                 [L348]
-  ├─ (swipe rollback from lastGenerationTrackerSnapshot)       [L369-391]
-  ├─ runPipeline(chatMessages, vaultSnapshot, ctx, opts)        [L401]
+onGenerate(chatMessages, contextSize, abort, type)             [index.js]
+  ├─ setGenerationLock(true)                                   [in onGenerate()]
+  ├─ ensureIndexFresh()                                        [in onGenerate(), with 60s timeout]
+  ├─ getWriterVisibleEntries()                                 [in onGenerate()]
+  ├─ (swipe rollback from lastGenerationTrackerSnapshot)       [in onGenerate()]
+  ├─ runPipeline(chatMessages, vaultSnapshot, ctx, opts)        [in onGenerate()]
   │   ├─ matchEntries(chatMessages, snapshot)                   [src/pipeline/pipeline.js]
   │   ├─ hierarchicalPreFilter(entries, chatMessages, signal)   [optional, ai-only + two-stage modes]
   │   ├─ buildCandidateManifest(entries)                       [src/ai/ai.js → manifest.js]

@@ -60,11 +60,16 @@ export function showSourcesPopup(sources, opts = {}) {
     const avgTokens = vaultAvgTokens || 0;
     const positionLabels = { 0: 'After Main Prompt', 1: 'In-chat', 2: 'Before Main Prompt' };
 
-    // Group sources by injection position
-    const entryByTitle = new Map(vaultIndex.map(e => [e.title, e]));
+    // Group sources by injection position.
+    // Keyed by trackerKey (vaultSource:title) so same-title entries across vaults don't collide.
+    const entryByTrackerKey = new Map(vaultIndex.map(e => [trackerKey(e), e]));
+    // Title-only fallback for callers whose input has no vaultSource (e.g. trace data).
+    // Linear scan returns the first match — matches pre-fix behavior when vaultSource is absent.
+    const findByTitle = (title) => vaultIndex.find(e => e.title === title);
+    const resolveEntry = (title, vaultSource) => (vaultSource ? entryByTrackerKey.get(`${vaultSource}:${title}`) : null) || findByTitle(title);
     const groups = new Map();
     for (const src of sources) {
-        const entry = entryByTitle.get(src.title);
+        const entry = resolveEntry(src.title, src.vaultSource);
         const pos = entry?.injectionPosition ?? settings.injectionPosition;
         const depth = entry?.injectionDepth ?? settings.injectionDepth;
         const posKey = pos === 1 ? `In-chat @depth ${depth}` : (positionLabels[pos] || 'Unknown');
@@ -82,8 +87,21 @@ export function showSourcesPopup(sources, opts = {}) {
         const ek = src.entry ? trackerKey(src.entry) : `${src.vaultSource || ''}:${src.title}`;
         const cc = chatInjectionCounts.get(ek) || 0;
         const at = settings.analyticsData?.[ek];
-        const folder = entryByTitle.get(src.title)?.folderPath || '';
+        const folder = resolveEntry(src.title, src.vaultSource)?.folderPath || '';
         plainLines.push(`${src.title}\t${src.tokens}\t${src.matchedBy}\t${folder}\t${cc}\t${at?.injected || 0}\t${at?.matched || 0}\t${at?.lastTriggered ? new Date(at.lastTriggered).toLocaleString() : 'Never'}`);
+    }
+
+    // BUG-AUDIT: per-render keyword→regex cache. Without this we rebuild identical
+    // RegExp objects for every entry sharing a matchedBy keyword (hundreds on large
+    // vaults). Scoped to one render call; GCed when popup closes.
+    /** @type {Map<string, RegExp>} */
+    const _highlightRegexCache = new Map();
+    function _highlightRegexFor(keyword) {
+        if (_highlightRegexCache.has(keyword)) return _highlightRegexCache.get(keyword);
+        const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(`(${escaped})`, 'gi');
+        _highlightRegexCache.set(keyword, re);
+        return re;
     }
 
     let html = `<div class="dle-popup">`;
@@ -171,9 +189,9 @@ export function showSourcesPopup(sources, opts = {}) {
                 if (src.matchedBy && !src.matchedBy.startsWith('(')) {
                     const keyword = src.matchedBy.split('→')[0].trim();
                     if (keyword.length >= 2) {
-                        const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                        // Use a placeholder that won't be escaped, then swap after escapeHtml
-                        highlighted = highlighted.replace(new RegExp(`(${escaped})`, 'gi'), '\x00MARK_START\x00$1\x00MARK_END\x00');
+                        // Use a placeholder that won't be escaped, then swap after escapeHtml.
+                        // Regex object is reset-scanned because /g with replace() doesn't mutate lastIndex on string targets.
+                        highlighted = highlighted.replace(_highlightRegexFor(keyword), '\x00MARK_START\x00$1\x00MARK_END\x00');
                     }
                 }
                 highlighted = escapeHtml(highlighted)
@@ -211,7 +229,8 @@ export function showSourcesPopup(sources, opts = {}) {
                 html += `<div id="dle-rej-${groupId}" class="dle-ctx-detail">`;
 
                 for (const e of group.entries) {
-                    const entry = entryByTitle.get(e.title);
+                    // Trace entries carry no vaultSource — falls back to first title match in vault.
+                    const entry = resolveEntry(e.title, e.vaultSource);
                     const whynotId = simpleHash(`whynot_${e.title}`);
                     html += `<div class="dle-carto-entry-row">`;
                     html += `<span class="dle-text-sm">${escapeHtml(e.title)} <button class="dle-carto-browse-btn" data-browse-title="${escapeHtml(e.title)}" title="Show in Browse"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;

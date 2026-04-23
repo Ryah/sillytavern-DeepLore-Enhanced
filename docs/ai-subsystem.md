@@ -2,18 +2,18 @@
 
 Code-level reference for the DLE AI subsystem. For pipeline flow see `CLAUDE.md`; for generation ordering see `docs/generation-pipeline.md`.
 
-Source files: `src/ai/ai.js`, `src/ai/manifest.js`, `src/ai/proxy-api.js`, `src/ai/claude-adaptive-check.js`, `src/ai/models.js`, `settings.js` (L300-349), `src/state.js` (L246-350), `src/helpers.js` (L60-210), `src/librarian/agentic-api.js` (agentic loop API layer).
+Source files: `src/ai/ai.js`, `src/ai/manifest.js`, `src/ai/proxy-api.js`, `src/ai/claude-adaptive-check.js`, `src/ai/models.js`, `settings.js` (`resolveConnectionConfig()` + `TOOL_SETTINGS_KEYS`), `src/state.js` (circuit breaker state + `recordAiFailure`/`recordAiSuccess`/`isAiCircuitOpen`/`tryAcquireHalfOpenProbe`/`releaseHalfOpenProbe`), `src/helpers.js` (`extractAiResponseClient`/`normalizeResults`/`clusterEntries`/`buildCategoryManifest`), `src/librarian/agentic-api.js` (agentic loop API layer).
 
 ---
 
 ## 1. Connection Routing
 
-### `resolveConnectionConfig(toolKey)` -- settings.js L318
+### `resolveConnectionConfig(toolKey)` -- settings.js
 
 Central dispatch that resolves any feature's AI connection settings into a uniform config object. Eliminates per-caller if/else routing.
 
 ```js
-// settings.js L300-307
+// settings.js: TOOL_SETTINGS_KEYS constant
 const TOOL_SETTINGS_KEYS = {
     aiSearch:     { mode, profileId, proxyUrl, model, maxTokens, timeout },
     scribe:       { ... },
@@ -27,12 +27,12 @@ const TOOL_SETTINGS_KEYS = {
 resolveConnectionConfig(toolKey) -> config
 ```
 
-**Inherit fallback** (L329-348): When a tool's mode is `'inherit'` and `toolKey !== 'aiSearch'`, mode and profileId resolve from AI Search's settings. Model and proxyUrl cascade: tool's own value if set, else AI Search's. `maxTokens` and `timeout` always come from the tool's own settings (never inherited).
+**Inherit fallback** (in `resolveConnectionConfig()`): When a tool's mode is `'inherit'` and `toolKey !== 'aiSearch'`, mode and profileId resolve from AI Search's settings. Model and proxyUrl cascade: tool's own value if set, else AI Search's. `maxTokens` and `timeout` always come from the tool's own settings (never inherited).
 
 **Gotchas:**
 - AI Search itself cannot inherit (it IS the root). If `aiSearchConnectionMode === 'inherit'`, that value flows through unchanged -- callers treat it as the literal mode string.
 - `librarianConnectionMode` must NOT share with retrieval (per user feedback). Don't collapse them. The `librarian` connection config is used by the agentic loop (in proxy mode) and by Emma's chat session (the review popup).
-- When `mode === 'inherit'` resolves to `'proxy'`, the proxyUrl falls back to `toolProxyUrl || aiSearch.proxyUrl` -- but when mode is NOT inherit, proxyUrl falls back to `toolProxyUrl || defaultSettings[keys.proxyUrl]` (L344). These are different fallback chains.
+- When `mode === 'inherit'` resolves to `'proxy'`, the proxyUrl falls back to `toolProxyUrl || aiSearch.proxyUrl` -- but when mode is NOT inherit, proxyUrl falls back to `toolProxyUrl || defaultSettings[keys.proxyUrl]` (in `resolveConnectionConfig()`). These are different fallback chains.
 
 ### Agentic Loop Connection -- agentic-api.js
 
@@ -43,20 +43,20 @@ The Librarian's agentic generation loop uses a **separate API path** from `callA
 
 The Librarian profile setting (`librarianConnectionMode`, `librarianProfileId`, etc.) is also used by Emma's conversation loop in `librarian-session.js` (the review popup).
 
-### AI Call Throttle -- ai.js L24-32
+### AI Call Throttle -- ai.js module-top constants
 
 ```js
 let _lastAiCallTimestamp = 0;           // module-scoped, reset on chat change
 const AI_CALL_MIN_INTERVAL_MS = 500;    // 500ms minimum between actual API calls
 ```
 
-Enforced in `callAI()` (L229-240). Cache hits and circuit-breaker skips bypass throttle (they don't make API calls). Throttle errors have `err.throttled = true` and do NOT trip the circuit breaker.
+Enforced in `callAI()`. Cache hits and circuit-breaker skips bypass throttle (they don't make API calls). Throttle errors have `err.throttled = true` and do NOT trip the circuit breaker.
 
-`resetAiThrottle()` (L32): Sets `_lastAiCallTimestamp = 0`. Called on chat change to prevent cross-chat penalty.
+`resetAiThrottle()`: Sets `_lastAiCallTimestamp = 0`. Called on chat change to prevent cross-chat penalty.
 
-**Critical**: Throttle timestamp is stamped on SUCCESS only (L270-272, BUG-039). Failed calls don't consume the window, so immediate retries aren't blocked.
+**Critical**: Throttle timestamp is stamped on SUCCESS only (in `callAI()` — BUG-039). Failed calls don't consume the window, so immediate retries aren't blocked.
 
-### `callAI()` -- ai.js L228
+### `callAI()` -- ai.js
 
 Unified router. All AI features call this, never `callViaProfile`/`callProxyViaCorsBridge` directly.
 
@@ -65,7 +65,7 @@ callAI(systemPrompt, userMessage, connectionConfig) -> {text, usage}
 // connectionConfig: { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints, signal, skipThrottle, caller }
 ```
 
-Dispatches to `callViaProfile()` when `mode === 'profile'`, or `callProxyViaCorsBridge()` when `mode === 'proxy'`. Proxy mode defaults model to `'claude-haiku-4-5-20251001'` if none specified (L266).
+Dispatches to `callViaProfile()` when `mode === 'profile'`, or `callProxyViaCorsBridge()` when `mode === 'proxy'`. Proxy mode defaults model to `'claude-haiku-4-5-20251001'` if none specified (in `callAI()`).
 
 **`caller` label**: All callers now pass a `caller` string (e.g. `'aiSearch'`, `'scribe'`, `'autoSuggest'`, `'hierarchicalPreFilter'`, `'aiNotepad'`, `'optimizeKeys'`). This label is recorded in the `aiCallBuffer` for per-call diagnostics.
 
@@ -77,7 +77,7 @@ Dispatches to `callViaProfile()` when `mode === 'profile'`, or `callProxyViaCors
 
 ## 2. AI Search
 
-### `aiSearch()` -- ai.js L452
+### `aiSearch()` -- ai.js
 
 ```js
 aiSearch(chat, candidateManifest, candidateHeader, snapshot, candidateEntries, signal)
@@ -88,29 +88,29 @@ aiSearch(chat, candidateManifest, candidateHeader, snapshot, candidateEntries, s
 **State written:** `aiSearchCache` (via `setAiSearchCache`), `aiSearchStats` (mutated in-place).
 **Dependencies:** `getSettings()`, `buildAiChatContext()`, `simpleHash()`, `callAI()`, `extractAiResponseClient()`, `normalizeResults()`, `fuzzyTitleMatch()`.
 
-**Flow:**
+**Flow** (all steps inside `aiSearch()`):
 
-1. Guard: bail if `!aiSearchEnabled` or empty manifest (L455-457)
-2. Circuit breaker: `tryAcquireHalfOpenProbe()` -- blocks if breaker is open (L460)
-3. Strip trailing assistant message from chat for cache stability (L472-478, BUG-CACHE-FIX)
-4. Build `chatContext` from `buildAiChatContext(chatForCache, scanDepth)` (L479)
-5. Prepend seed entries on new chats (L486-495)
-6. Append scribe summary if `scribeInformedRetrieval` is on (L498-503)
+1. Guard: bail if `!aiSearchEnabled` or empty manifest
+2. Circuit breaker: `tryAcquireHalfOpenProbe()` -- blocks if breaker is open
+3. Strip trailing assistant message from chat for cache stability (BUG-CACHE-FIX)
+4. Build `chatContext` from `buildAiChatContext(chatForCache, scanDepth)`
+5. Prepend seed entries on new chats
+6. Append scribe summary if `scribeInformedRetrieval` is on
 7. **Cache check** (see sliding window below)
-8. Build system prompt with `{{maxEntries}}` substitution (L613-641)
-9. Build user message: manifest info + manifest + chat context (L645-649)
-10. Proxy mode: split into cacheHints `{stablePrefix, dynamicSuffix}` (L652-665)
-11. `callAI()` (L667-676)
-12. Parse response via `extractAiResponseClient()` (L685)
-13. Handle object-shaped responses -- unwrap `{results: [...]}` etc. (L688-699)
-14. `normalizeResults()` (L710-720) -- zero usable items from non-empty array trips breaker
-15. Exact title match against `candidateEntries` (L732-742)
-16. Fuzzy match unmatched titles via `fuzzyTitleMatch()` (L747-764)
-17. Sort by confidence tier: high > medium > low (L767-768)
-18. Confidence threshold filter (L771-777) -- `aiConfidenceThreshold` setting
-19. Cache results and `recordAiSuccess()` (L785-805)
+8. Build system prompt with `{{maxEntries}}` substitution
+9. Build user message: manifest info + manifest + chat context
+10. Proxy mode: split into cacheHints `{stablePrefix, dynamicSuffix}`
+11. `callAI()`
+12. Parse response via `extractAiResponseClient()`
+13. Handle object-shaped responses -- unwrap `{results: [...]}` etc.
+14. `normalizeResults()` -- zero usable items from non-empty array trips breaker
+15. Exact title match against `candidateEntries`
+16. Fuzzy match unmatched titles via `fuzzyTitleMatch()`
+17. Sort by confidence tier: high > medium > low
+18. Confidence threshold filter -- `aiConfidenceThreshold` setting
+19. Cache results and `recordAiSuccess()`
 
-**Error handling** (L807-837): Classifies errors into categories that determine circuit breaker behavior:
+**Error handling** (catch block in `aiSearch()`): Classifies errors into categories that determine circuit breaker behavior:
 - **User abort** (`err.userAborted === true`): no breaker trip, silent
 - **Timeout** (`err.timedOut === true`): no breaker trip, warning logged
 - **Throttle** (`err.throttled`): no breaker trip, debug-only
@@ -118,45 +118,45 @@ aiSearch(chat, candidateManifest, candidateHeader, snapshot, candidateEntries, s
 - **Auth error** (401/403): no breaker trip, user error toast
 - **Everything else**: `recordAiFailure()` -- trips breaker after 2 consecutive
 
-### Sliding Window Cache -- ai.js L505-610
+### Sliding Window Cache -- ai.js (inside `aiSearch()`)
 
 Cache key components:
 ```js
-// L516
+// in aiSearch()
 const settingsKey = `${aiSearchMode}|${scanDepth}|${maxEntries}|${unlimitedEntries}|${promptHash}|${connectionMode}|${profileId}|${model}|${confidenceThreshold}|${manifestSummaryMode}|${summaryLength}`;
 const manifestHash = simpleHash(settingsKey + candidateManifest);
 ```
 
-Four cache-hit paths, checked in order:
+Four cache-hit paths, checked in order (all in `aiSearch()`):
 
-1. **Exact match** (L537-543): `chatHash === cached.hash && manifestHash === cached.manifestHash`. Catches identical re-runs.
+1. **Exact match**: `chatHash === cached.hash && manifestHash === cached.manifestHash`. Catches identical re-runs.
 
-2. **Keyword-stable hit** (L549-565): Manifest unchanged, current `candidateEntries` titles are a subset of `cached.matchedEntrySet`. Catches typo fixes, "ok continue", reaction messages. Skipped in `ai-only` mode.
+2. **Keyword-stable hit**: Manifest unchanged, current `candidateEntries` titles are a subset of `cached.matchedEntrySet`. Catches typo fixes, "ok continue", reaction messages. Skipped in `ai-only` mode.
 
-3. **Swipe/regen safety net** (L571-578): Manifest unchanged, chat line count <= cached count. After trailing-assistant strip, swipe/regen should hit exact match -- this is a defensive fallback.
+3. **Swipe/regen safety net**: Manifest unchanged, chat line count <= cached count. After trailing-assistant strip, swipe/regen should hit exact match -- this is a defensive fallback.
 
-4. **Sliding window** (L583-610): Manifest unchanged, chat grew (new lines only). Scans new lines against `entityNameSet` using pre-compiled word-boundary regexes from `entityShortNameRegexes`. Cache valid if no new entity mentions. **Skipped when `entityRegexVersion` differs from cached version** (BUG-394 -- post-rebuild staleness).
+4. **Sliding window**: Manifest unchanged, chat grew (new lines only). Scans new lines against `entityNameSet` using pre-compiled word-boundary regexes from `entityShortNameRegexes`. Cache valid if no new entity mentions. **Skipped when `entityRegexVersion` differs from cached version** (BUG-394 -- post-rebuild staleness).
 
-**Cache writes** (L785-794): Stores `{hash, manifestHash, chatLineCount, results[], matchedEntrySet, entityRegexVersion}` via `setAiSearchCache()`.
+**Cache writes** (in `aiSearch()`): Stores `{hash, manifestHash, chatLineCount, results[], matchedEntrySet, entityRegexVersion}` via `setAiSearchCache()`.
 
-`resolveCachedResults()` (L527-535): Replays cached title-based results against `candidateEntries` (not full `vaultIndex`) to prevent blocked/gated entries from leaking through (BUG-382).
+`resolveCachedResults()` (local helper inside `aiSearch()`): Replays cached title-based results against `candidateEntries` (not full `vaultIndex`) to prevent blocked/gated entries from leaking through (BUG-382).
 
 ### Response Parsing
 
-**`extractAiResponseClient(text)`** -- helpers.js L66
+**`extractAiResponseClient(text)`** -- helpers.js
 
-Tries three strategies in order:
-1. Direct `JSON.parse()` (L80-83)
-2. Markdown code fence extraction via regex (L85-91)
-3. Bracket-balanced JSON array extraction with string-awareness (L95-122) -- sorts candidates largest-first, tries each
+Tries three strategies in order (all inside `extractAiResponseClient()`):
+1. Direct `JSON.parse()`
+2. Markdown code fence extraction via regex
+3. Bracket-balanced JSON array extraction with string-awareness -- sorts candidates largest-first, tries each
 
-All candidates are validated via `isValidResultArray()` (L70-77): must be an array where at least one element is a string or an object with `.title` or `.name`.
+All candidates are validated via `isValidResultArray()` (inner helper in `extractAiResponseClient()`): must be an array where at least one element is a string or an object with `.title` or `.name`.
 
-**`normalizeResults(arr)`** -- helpers.js L131
+**`normalizeResults(arr)`** -- helpers.js
 
 Maps raw parsed items to `{title, confidence, reason}` objects. Rejects non-string/non-object items (BUG-391 -- prevents `42` or `[object Object]` becoming fake titles). Filters out null/empty/`"null"`/`"undefined"` titles.
 
-**`fuzzyTitleMatch(aiTitle, candidateTitles, threshold=0.6)`** -- helpers.js L697
+**`fuzzyTitleMatch(aiTitle, candidateTitles, threshold=0.6)`** -- helpers.js
 
 Bigram Dice coefficient similarity. Returns `{title, similarity}` for best match above threshold, or null.
 
@@ -164,67 +164,67 @@ Bigram Dice coefficient similarity. Returns `{title, similarity}` for best match
 
 ## 3. Hierarchical Pre-Filter
 
-### `hierarchicalPreFilter(candidates, chat, signal)` -- ai.js L321
+### `hierarchicalPreFilter(candidates, chat, signal)` -- ai.js
 
 Two-phase AI search for large vaults. Called from the pipeline before `aiSearch()`.
 
 ```
-HIERARCHICAL_THRESHOLD = 40  // ai.js L311
-AI_PREFILTER_MAX_TOKENS = 512  // ai.js L30
+HIERARCHICAL_THRESHOLD = 40  // ai.js: module-top const
+AI_PREFILTER_MAX_TOKENS = 512  // ai.js: module-top const
 ```
 
-**Trigger conditions** (L303-313):
+**Trigger conditions** (in `hierarchicalPreFilter()`):
 - Selectable entries (non-force-injected) >= 40
 - Cluster count > 3
 - In `summary_only` mode, entries without summaries are excluded before counting (BUG-387)
 
-**Flow:**
+**Flow** (all steps inside `hierarchicalPreFilter()`):
 
-1. Filter out force-injected entries (L303), apply summary_only filter (L306-308)
-2. `clusterEntries(selectable)` -> `Map<category, entries[]>` (helpers.js L173)
-3. Skip if < 40 selectable or <= 3 clusters (L310-313)
-4. `buildCategoryManifest(clusters)` -> compact text (helpers.js L202)
-5. `tryAcquireHalfOpenProbe()` -- blocks if circuit breaker open (L333)
-6. `callAI()` with `skipThrottle: true` (L339-348)
-7. Parse categories via `extractAiResponseClient()` (L363)
-8. Handle object wrappers: `{categories: [...]}`, `{labels: [...]}`, etc. (L367-381)
-9. Filter candidates to selected categories (L384-401)
-10. Re-include force-injected entries (L403-405)
-11. Aggressiveness check: if filtering removed > `(1 - hierarchicalAggressiveness)` fraction, return null (L412-416)
-12. `releaseHalfOpenProbe()` -- does NOT record success/failure (L425)
+1. Filter out force-injected entries, apply summary_only filter
+2. `clusterEntries(selectable)` -> `Map<category, entries[]>` (helpers.js:`clusterEntries()`)
+3. Skip if < 40 selectable or <= 3 clusters
+4. `buildCategoryManifest(clusters)` -> compact text (helpers.js:`buildCategoryManifest()`)
+5. `tryAcquireHalfOpenProbe()` -- blocks if circuit breaker open
+6. `callAI()` with `skipThrottle: true`
+7. Parse categories via `extractAiResponseClient()`
+8. Handle object wrappers: `{categories: [...]}`, `{labels: [...]}`, etc.
+9. Filter candidates to selected categories
+10. Re-include force-injected entries
+11. Aggressiveness check: if filtering removed > `(1 - hierarchicalAggressiveness)` fraction, return null
+12. `releaseHalfOpenProbe()` -- does NOT record success/failure
 
-**`clusterEntries(entries)`** -- helpers.js L173
+**`clusterEntries(entries)`** -- helpers.js
 
-Clusters by first non-infrastructure tag. `LOREBOOK_INFRA_TAGS` (helpers.js L156-164) contains `lorebook`, `lorebook-always`, `lorebook-seed`, `lorebook-bootstrap`, `lorebook-guide`, `lorebook-never`, `lorebook-constant`. These are skipped when picking the clustering tag because WI imports put `lorebook` on everything (BUG-384). Falls back to top folder from filename, then `'Uncategorized'`.
+Clusters by first non-infrastructure tag. `LOREBOOK_INFRA_TAGS` (helpers.js: module-top const) contains `lorebook`, `lorebook-always`, `lorebook-seed`, `lorebook-bootstrap`, `lorebook-guide`, `lorebook-never`, `lorebook-constant`. These are skipped when picking the clustering tag because WI imports put `lorebook` on everything (BUG-384). Falls back to top folder from filename, then `'Uncategorized'`.
 
-**`buildCategoryManifest(clusters)`** -- helpers.js L202
+**`buildCategoryManifest(clusters)`** -- helpers.js
 
 One line per category: `[CategoryName] (N entries): title1, title2, ... (+M more)`
 Shows up to 5 sample titles per category.
 
 **Gotchas:**
-- `releaseHalfOpenProbe()` (state.js L286-289): Clears the probe flag without recording success or failure. This is intentional -- the pre-filter's outcome shouldn't affect the circuit breaker since `aiSearch()` manages its own probing independently.
+- `releaseHalfOpenProbe()` (state.js): Clears the probe flag without recording success or failure. This is intentional -- the pre-filter's outcome shouldn't affect the circuit breaker since `aiSearch()` manages its own probing independently.
 - Stats: Hierarchical calls increment `aiSearchStats.totalInputTokens`/`totalOutputTokens` and `aiSearchStats.hierarchicalCalls`, but NOT `aiSearchStats.calls` (BUG-017/BUG-393). The dedicated counter prevents double-counting while keeping token averages accurate.
-- On error, the probe is released (not recorded as failure) unless `err.throttled` (L431). The pre-filter returns null on any failure, falling back to single-call search.
+- On error, the probe is released (not recorded as failure) unless `err.throttled` (in `hierarchicalPreFilter()` catch block). The pre-filter returns null on any failure, falling back to single-call search.
 
 ---
 
 ## 4. Candidate Manifest
 
-### `buildCandidateManifest(candidates, excludeBootstrap, settings)` -- manifest.js L21
+### `buildCandidateManifest(candidates, excludeBootstrap, settings)` -- manifest.js
 
-Pure function (no SillyTavern imports). The ai.js wrapper (L283-284) injects `getSettings()`.
+Pure function (no SillyTavern imports). The ai.js wrapper (`buildCandidateManifest()` in ai.js) injects `getSettings()`.
 
 ```js
 // Returns: { manifest: string, header: string }
 ```
 
 **What's excluded:**
-- Constants (`entry.constant === true`) -- via `isForceInjected()` (helpers.js L683)
+- Constants (`entry.constant === true`) -- via `isForceInjected()` (helpers.js:`isForceInjected()`)
 - Bootstraps when `excludeBootstrap === true` (passed when chat is short enough for bootstrap injection)
-- In `summary_only` mode: entries without a summary field (L30-31)
+- In `summary_only` mode: entries without a summary field (in `buildCandidateManifest()`)
 
-**Per-entry XML format** (manifest.js L75):
+**Per-entry XML format** (in `buildCandidateManifest()`):
 ```xml
 <entry name="EscapedTitle">
 Title (TokenEstimate tok) -> link1, link2 [STALE - consider refreshing]
@@ -233,19 +233,19 @@ Summary text truncated to aiSearchManifestSummaryLength...
 </entry>
 ```
 
-**Summary selection** (L39-42) controlled by `manifestSummaryMode`:
+**Summary selection** (in `buildCandidateManifest()`) controlled by `manifestSummaryMode`:
 - `'prefer_summary'` (default): Use `entry.summary`, fallback to truncated content
 - `'content_only'`: Always use truncated content
 - `'summary_only'`: Use summary only (entries without summaries excluded upstream)
 
 Summary truncation: `truncateToSentence(content.substring(0, summaryLen * 3), summaryLen)` where `summaryLen` defaults to `aiSearchManifestSummaryLength || 600`.
 
-**Annotations:**
-- Decay hint `[STALE]` when `staleness >= decayBoostThreshold` (L49-52)
-- Frequency hint `[FREQUENT]` when `consecutiveInjections >= decayPenaltyThreshold` (L55-59)
-- Custom field annotations from `entry.customFields` using `fieldDefinitions` label map (L63-69)
+**Annotations** (all in `buildCandidateManifest()`):
+- Decay hint `[STALE]` when `staleness >= decayBoostThreshold`
+- Frequency hint `[FREQUENT]` when `consecutiveInjections >= decayPenaltyThreshold`
+- Custom field annotations from `entry.customFields` using `fieldDefinitions` label map
 
-**Header** (L84-91):
+**Header** (in `buildCandidateManifest()`):
 ```
 Candidate entries: N (from M total).
 K entries are always included (~T tokens).
@@ -257,7 +257,7 @@ The forced-entry count uses `candidates.length - selectable.length` (BUG-047: co
 
 ## 5. Circuit Breaker Integration
 
-### State Machine -- state.js L246-350
+### State Machine -- state.js (circuit breaker section)
 
 Three states:
 
@@ -267,23 +267,23 @@ OPEN    -- aiCircuitOpen=true, cooldown not expired. All calls blocked.
 HALF-OPEN -- aiCircuitOpen=true, cooldown expired. One probe allowed.
 ```
 
-**Constants:**
+**Constants** (state.js: module-top consts in the circuit breaker block):
 ```js
-AI_CIRCUIT_THRESHOLD = 2       // consecutive failures to trip (L254)
-AI_CIRCUIT_COOLDOWN  = 30_000  // ms before half-open probe (L255)
-AI_PROBE_TIMEOUT     = 60_000  // ms before stale probe auto-resets (L308)
+AI_CIRCUIT_THRESHOLD = 2       // consecutive failures to trip
+AI_CIRCUIT_COOLDOWN  = 30_000  // ms before half-open probe
+AI_PROBE_TIMEOUT     = 60_000  // ms before stale probe auto-resets
 ```
 
-**State variables** (state.js):
+**State variables** (state.js: module-top exports/locals in the circuit breaker block):
 ```js
-export let aiCircuitOpen = false;        // L249
-export let aiCircuitFailures = 0;        // L250
-export let aiCircuitOpenedAt = 0;        // L251
-let aiCircuitHalfOpenProbe = false;      // L253 (not exported)
-let aiCircuitProbeTimestamp = 0;         // L309 (not exported)
+export let aiCircuitOpen = false;
+export let aiCircuitFailures = 0;
+export let aiCircuitOpenedAt = 0;
+let aiCircuitHalfOpenProbe = false;      // not exported
+let aiCircuitProbeTimestamp = 0;         // not exported
 ```
 
-### `isAiCircuitOpen()` -- state.js L313
+### `isAiCircuitOpen()` -- state.js
 
 **Pure query. Never mutates state.** Safe for UI rendering, status checks, non-AI code paths.
 
@@ -296,38 +296,38 @@ Returns `false` (proceed) when:
 - Cooldown expired, no probe dispatched (caller should use `tryAcquireHalfOpenProbe`)
 - Cooldown expired, probe dispatched but stale (> 60s)
 
-### `tryAcquireHalfOpenProbe()` -- state.js L333
+### `tryAcquireHalfOpenProbe()` -- state.js
 
 **Mutation gate. Only call from actual AI code paths** (aiSearch, hierarchicalPreFilter).
 
 Returns `true` if:
-- Circuit closed (all pass) -- L334
-- Circuit open, cooldown expired, no active probe -- acquires atomically (L344-347)
-- Circuit open, cooldown expired, probe stale (> 60s) -- resets and re-acquires (L338-339)
+- Circuit closed (all pass)
+- Circuit open, cooldown expired, no active probe -- acquires atomically
+- Circuit open, cooldown expired, probe stale (> 60s) -- resets and re-acquires
 
 Returns `false` if:
-- Still in cooldown (L349)
-- Probe already in-flight and not stale (L343)
+- Still in cooldown
+- Probe already in-flight and not stale
 
 **Caller contract**: If `tryAcquireHalfOpenProbe()` returns true and circuit was open, caller MUST eventually call `recordAiSuccess()`, `recordAiFailure()`, or `releaseHalfOpenProbe()`.
 
-### `recordAiFailure()` -- state.js L258
+### `recordAiFailure()` -- state.js
 
-- Clears half-open probe flag (L260-263)
-- Increments `aiCircuitFailures` (L264)
-- If failures >= threshold (2): sets `aiCircuitOpen = true`, refreshes `aiCircuitOpenedAt` (L265-268)
-- Notifies observers on state transition CLOSED -> OPEN (L271)
+- Clears half-open probe flag
+- Increments `aiCircuitFailures`
+- If failures >= threshold (2): sets `aiCircuitOpen = true`, refreshes `aiCircuitOpenedAt`
+- Notifies observers on state transition CLOSED -> OPEN
 
-### `recordAiSuccess()` -- state.js L273
+### `recordAiSuccess()` -- state.js
 
-- Clears probe flag, timestamp, failures, circuit open flag, opened-at (L275-279)
-- Notifies observers on state transition OPEN -> CLOSED (L281)
+- Clears probe flag, timestamp, failures, circuit open flag, opened-at
+- Notifies observers on state transition OPEN -> CLOSED
 
-### `releaseHalfOpenProbe()` -- state.js L286
+### `releaseHalfOpenProbe()` -- state.js
 
 Clears probe flag and timestamp without recording success or failure. Used by `hierarchicalPreFilter` so its outcome doesn't cascade to the main search's circuit state.
 
-### What does NOT trip the breaker (ai.js L819):
+### What does NOT trip the breaker (in `aiSearch()` catch block):
 
 - Throttle failures (`err.throttled`)
 - Timeouts (`err.timedOut` or `AbortError`)
@@ -343,10 +343,10 @@ All three AI-calling functions use the same circuit breaker probe pattern:
 
 | Function | File | Modes | Notes |
 |---|---|---|---|
-| `aiSearch()` | `src/ai/ai.js` L497-500 | profile, proxy, st | Main caller; `recordAiSuccess/Failure()` |
-| `hierarchicalPreFilter()` | `src/ai/ai.js` L354-356 | profile, proxy | `releaseHalfOpenProbe()` only — never records success/failure |
-| `callAutoSuggest()` | `src/ai/auto-suggest.js` L45-46, L85 | st, profile, proxy | `recordAiSuccess/Failure()` |
-| `callScribe()` (internal) | `src/ai/scribe.js` L51-52, L65, L94-99 | st, profile | `recordAiSuccess/Failure()` |
+| `aiSearch()` | `src/ai/ai.js` | profile, proxy, st | Main caller; `recordAiSuccess/Failure()` |
+| `hierarchicalPreFilter()` | `src/ai/ai.js` | profile, proxy | `releaseHalfOpenProbe()` only — never records success/failure |
+| `callAutoSuggest()` | `src/ai/auto-suggest.js` | st, profile, proxy | `recordAiSuccess/Failure()` |
+| `callScribe()` (internal) | `src/ai/scribe.js` | st, profile | `recordAiSuccess/Failure()` |
 
 When adding a new AI caller, it must follow this pattern. When touching the circuit breaker, update this table.
 
@@ -373,47 +373,47 @@ These complement the existing types (timeout, rate_limit, auth, user_abort, thro
 Detects when a Connection Manager profile uses Claude opus-4-6 / sonnet-4-6 (adaptive thinking models) but the bound OpenAI completion preset lacks an explicit `reasoning_effort` set to low/medium/high. ST rejects these requests with a 400 error.
 
 ```js
-const CLAUDE_ADAPTIVE_REGEX = /^claude-(opus-4-6|sonnet-4-6)/i;  // L14
-const VALID_EFFORTS = new Set(['low', 'medium', 'high']);         // L16
+const CLAUDE_ADAPTIVE_REGEX = /^claude-(opus-4-6|sonnet-4-6)/i;  // claude-adaptive-check.js: module-top const
+const VALID_EFFORTS = new Set(['low', 'medium', 'high']);         // claude-adaptive-check.js: module-top const
 ```
 
-### `detectClaudeAdaptiveIssue(profileId, modelOverride, opts)` -- L28
+### `detectClaudeAdaptiveIssue(profileId, modelOverride, opts)` -- claude-adaptive-check.js
 
 ```js
 // Returns: {bad: boolean, reason?: string, profileName?, modelName?, presetName?}
 ```
 
-**Flow:**
-1. Bail early if no profileId or no SillyTavern context (L30-31)
-2. Get profile via `ConnectionManagerRequestService.getProfile()` (L37-38)
-3. Skip if `profile.api !== 'claude'` -- OpenRouter/custom wrappers handle this differently (L41)
-4. Check model against `CLAUDE_ADAPTIVE_REGEX` (L44)
-5. Check preset exists (L46-55) -- `reason: 'no_preset'` if missing
-6. Read `reasoning_effort` from preset (BUG-397: always JIT, never memoized; callers can pass `opts.freshPreset`) (L59-61)
-7. Return `bad: true` with `reason: 'auto'` or `reason: 'unset'` if effort is invalid (L63-70)
+**Flow** (all steps inside `detectClaudeAdaptiveIssue()`):
+1. Bail early if no profileId or no SillyTavern context
+2. Get profile via `ConnectionManagerRequestService.getProfile()`
+3. Skip if `profile.api !== 'claude'` -- OpenRouter/custom wrappers handle this differently
+4. Check model against `CLAUDE_ADAPTIVE_REGEX`
+5. Check preset exists -- `reason: 'no_preset'` if missing
+6. Read `reasoning_effort` from preset (BUG-397: always JIT, never memoized; callers can pass `opts.freshPreset`)
+7. Return `bad: true` with `reason: 'auto'` or `reason: 'unset'` if effort is invalid
 
-**Wrapped in try/catch** (L74-78): Detection must never throw -- returns `{bad: false}` on any error.
+**Wrapped in try/catch** (in `detectClaudeAdaptiveIssue()`): Detection must never throw -- returns `{bad: false}` on any error.
 
-### Pre-flight in `callViaProfile()` -- ai.js L82-96
+### Pre-flight in `callViaProfile()` -- ai.js
 
-Dynamic-imported at call time (`await import('./claude-adaptive-check.js')`). When `bad === true`:
-- Sets `claudeAutoEffortState` via `setClaudeAutoEffortState(true, detail)` (state.js L135-140), which notifies UI observers
-- One-shot toast via `claimClaudeAdaptiveToastSlot(detail)` (L160-166)
-- Stores detail for error rewriting in the catch block (L185-197)
+Dynamic-imported at call time (`await import('./claude-adaptive-check.js')`). When `bad === true` (inside `callViaProfile()`):
+- Sets `claudeAutoEffortState` via `setClaudeAutoEffortState(true, detail)` (state.js:`setClaudeAutoEffortState()`), which notifies UI observers
+- One-shot toast via `claimClaudeAdaptiveToastSlot(detail)`
+- Stores detail for error rewriting in the catch block
 
-### Error rewriting -- ai.js L185-197
+### Error rewriting -- ai.js (in `callViaProfile()` catch block)
 
 When the actual API call fails AND `claudeAdaptiveDetail` was set pre-flight AND the error message matches `400|bad request|top_k|thinking|reasoning_effort`, the error is rewritten to a human-readable message from `buildClaudeAdaptiveMessage(detail, 'error')`. The import is wrapped separately (BUG-069) so import failure doesn't mask the original error.
 
-### `claimClaudeAdaptiveToastSlot(detail)` -- L160
+### `claimClaudeAdaptiveToastSlot(detail)` -- claude-adaptive-check.js
 
-Session-scoped one-shot tracking. Key is `profileName|modelName|presetName`. Returns `true` (show toast) only the first time per combo per browser session. The `_sessionToastShown` Set (L151) is never persisted.
+Session-scoped one-shot tracking. Key is `profileName|modelName|presetName`. Returns `true` (show toast) only the first time per combo per browser session. The `_sessionToastShown` Set (claude-adaptive-check.js: module-top const) is never persisted.
 
-### `resolveFeatureConnectionMode(settings, feature)` -- L115
+### `resolveFeatureConnectionMode(settings, feature)` -- claude-adaptive-check.js
 
 Resolves inherit chain: `settings[featureConnectionModeKey]` -> if `'inherit'`, falls back to `settings.aiSearchConnectionMode || 'profile'`.
 
-### `shouldCheckClaudeAdaptiveForFeature(settings, feature)` -- L142
+### `shouldCheckClaudeAdaptiveForFeature(settings, feature)` -- claude-adaptive-check.js
 
 Returns true only when the feature's effective mode is `'profile'`. Proxy mode routes through a local proxy that handles thinking itself, so the native-Anthropic preset check would be a false positive.
 
@@ -421,76 +421,58 @@ Returns true only when the feature's effective mode is `'profile'`. Proxy mode r
 
 ## 7. Proxy Mode
 
-### `callProxyViaCorsBridge()` -- proxy-api.js L69
+### `callProxyViaCorsBridge()` -- proxy-api.js
 
 ```js
 callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout=15000, cacheHints, externalSignal)
   -> {text: string, usage: {input_tokens, output_tokens}}
 ```
 
-Routes through SillyTavern's built-in CORS proxy at `/proxy/:url`. **Requires `enableCorsProxy: true` in ST's config.yaml** -- without it, the proxy returns 404 with a "CORS proxy is disabled" message, which is caught and surfaced as a descriptive error (L120-122).
+Routes through SillyTavern's built-in CORS proxy at `/proxy/:url`. **Requires `enableCorsProxy: true` in ST's config.yaml** -- without it, the proxy returns 404 with a "CORS proxy is disabled" message, which is caught and surfaced as a descriptive error (in `callProxyViaCorsBridge()`).
 
-**URL construction** (L72-74):
+**URL construction** (in `callProxyViaCorsBridge()`):
 ```js
 const targetUrl = proxyUrl.replace(/\/+$/, '') + '/v1/messages';
 const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;
 ```
 The target URL is `encodeURIComponent`-encoded to prevent Express from collapsing `://` to `:/`.
 
-**Request format**: Anthropic Messages API format (L108-115):
+**Request format**: Anthropic Messages API format (body build in `callProxyViaCorsBridge()`):
 - `anthropic-version: 2023-06-01` header
 - System prompt as `[{type: 'text', text, cache_control: {type: 'ephemeral'}}]`
-- User content: plain string, or two-block array when `cacheHints` provided (stable prefix with `cache_control: {type: 'ephemeral'}` + dynamic suffix) (L92-99)
+- User content: plain string, or two-block array when `cacheHints` provided (stable prefix with `cache_control: {type: 'ephemeral'}` + dynamic suffix) (userContent assembly in `callProxyViaCorsBridge()`)
 
-**Abort handling** (L76-88, L149-162):
+**Abort handling** (abort wiring + catch block in `callProxyViaCorsBridge()`):
 - Internal `AbortController` with timeout
 - External signal wired to internal controller
 - On abort, distinguishes user abort (`externalSignal.aborted` -> `err.userAborted = true`) from timeout (`err.timedOut = true`). Both set `err.name = 'AbortError'`.
 
-**Error response scrubbing** (L124-129): Truncates to 150 chars and redacts API keys matching patterns for Anthropic, OpenAI, Google, Groq, and generic Bearer tokens.
+**Error response scrubbing** (in `callProxyViaCorsBridge()` non-ok branch): Truncates to 150 chars and redacts API keys matching patterns for Anthropic, OpenAI, Google, Groq, and generic Bearer tokens.
 
-**JSON parse safety** (L133-139, BUG-041): Separate `response.text()` and `JSON.parse()` calls for distinct error messages.
+**JSON parse safety** (in `callProxyViaCorsBridge()` — BUG-041): Separate `response.text()` and `JSON.parse()` calls for distinct error messages.
 
-### `validateProxyUrl(url)` -- proxy-api.js L25
+### `validateProxyUrl(url)` -- proxy-api.js
 
 SSRF validation. Called at the start of `callProxyViaCorsBridge()` and in `fetchModels()`.
 
-**Blocks:**
-- Empty/malformed/non-http(s) URLs (L28-36)
-- Cloud metadata endpoints: `169.254.169.254`, `metadata.google.internal`, `100.100.100.200` (L38-40)
-- `localhost`, `0.0.0.0`, `::1`, `::ffff:127.0.0.1` (L42-44)
-- Private/reserved ranges: 10.x, 172.16-31.x, 192.168.x, 100.64-127.x (CGNAT), 169.254.x (link-local), 0.x, fd/fe80 (IPv6) (L46-58)
-- Numeric/hex/octal IP shorthand (L61-66)
+**Blocks** (all in `validateProxyUrl()`):
+- Empty/malformed/non-http(s) URLs
+- Cloud metadata endpoints: `169.254.169.254`, `metadata.google.internal`, `100.100.100.200`
+- `localhost`, `0.0.0.0`, `::1`, `::ffff:127.0.0.1`
+- Private/reserved ranges: 10.x, 172.16-31.x, 192.168.x, 100.64-127.x (CGNAT), 169.254.x (link-local), 0.x, fd/fe80 (IPv6)
+- Numeric/hex/octal IP shorthand
 
 **Allows:** `127.0.0.1` only (local proxies).
 
-### `testProxyConnection(proxyUrl, model)` -- proxy-api.js L175
+### `testProxyConnection(proxyUrl, model)` -- proxy-api.js
 
 Sends a minimal probe (`'Reply OK.'` system, `'ping'` user, max 8 tokens, 15s timeout). Returns `{ok: boolean, response?, error?}`.
-
-### `fetchModels()` -- models.js L29
-
-```js
-fetchModels({baseUrl, apiKey, timeout=8000, via='auto'})
-  -> {ok, models: string[], raw, error?, source: 'cache'|'direct'|'cors'}
-```
-
-Hits `{base}/v1/models` (OpenAI-compatible). Used to populate model dropdowns in proxy-mode settings.
-
-**Caching:** `sessionStorage` keyed by `dle_models_v1::{baseUrl}::{apiKeyFingerprint}` (L35-36). FNV-1a 32-bit hash of API key (BUG-388) -- rotating keys invalidates cache without storing the raw key.
-
-**Fetch strategy** (`via` parameter, L74-101):
-- `'auto'` (default): Try direct fetch first. Fall back to CORS bridge on TypeError, AbortError, or non-401/403 HTTP errors. Auth failures (401/403) surface immediately.
-- `'direct'`: Direct only.
-- `'cors'`: CORS bridge only.
-
-`clearModelsCache(baseUrl)` (L127): Sweeps all fingerprint variants for a base URL, or all DLE model cache entries if no baseUrl given.
 
 ---
 
 ## 8. Auto-Suggest Connection Routing
 
-### `callAutoSuggest(systemPrompt, userMessage, toolKey)` -- auto-suggest.js L39
+### `callAutoSuggest(systemPrompt, userMessage, toolKey)` -- auto-suggest.js
 
 Routes auto-suggest AI calls through the same connection-mode system as `callScribe`. Three modes:
 

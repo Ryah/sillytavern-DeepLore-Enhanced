@@ -238,7 +238,11 @@ export function loadSessionState() {
             return parsed;
         }
         return null;
-    } catch {
+    } catch (e) {
+        // BUG-AUDIT: bare swallow loses the signal when a corrupted draft or
+        // parse error destroys the user's in-progress Librarian chat silently.
+        // Log + null so the caller can decide whether to warn the user.
+        console.warn('[DLE] loadSessionState failed (draft discarded):', e?.message);
         return null;
     }
 }
@@ -473,11 +477,18 @@ function buildSystemPrompt(session) {
     const promptMode = settings.librarianSystemPromptMode || 'default';
     const customPrompt = settings.librarianCustomSystemPrompt || '';
 
-    if (promptMode === 'override' && customPrompt.trim()) {
-        // BUG-336: Full override — user's prompt IS the entire system prompt.
+    if (promptMode === 'strict-override' && customPrompt.trim()) {
+        // Strict override — user's prompt IS the entire system prompt.
         // No bootstrap, manifest, gap context, related entries, chat context,
-        // draft JSON, tools, or response format appended. Pure override.
+        // draft JSON, tools, or response format appended. Pure passthrough.
         return customPrompt;
+    }
+
+    if (promptMode === 'override' && customPrompt.trim()) {
+        // Partial override — customPrompt replaces Emma's role/persona only.
+        // Entry writing guide, manifest, gap context, chat context, draft JSON,
+        // tools, and response format are still appended.
+        parts.push(customPrompt);
     } else {
         parts.push(`You are **Emma**, the Librarian — a lorebook editor for a roleplay setting. You help the user create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".
 
@@ -492,13 +503,13 @@ You're Emma. You have a library sciences degree and you ended up cataloguing fic
 - Brief. Sharp. Never let the attitude slow down the actual work. The user came here to get something done.
 - No exclamation points unless something genuinely warrants one. No emojis. Ever.
 - Personality lives ONLY in the conversational \`message\` field. The structured \`draftUpdates\` / draft fields stay clean, professional, and faithful to the user's setting.`);
+    }
 
-        // Entry writing guide
-        parts.push(ENTRY_WRITING_GUIDE);
+    // Entry writing guide (always included except in strict-override)
+    parts.push(ENTRY_WRITING_GUIDE);
 
-        if (promptMode === 'append' && customPrompt.trim()) {
-            parts.push('\n## Additional Instructions\n' + customPrompt);
-        }
+    if (promptMode === 'append' && customPrompt.trim()) {
+        parts.push('\n## Additional Instructions\n' + customPrompt);
     }
 
     // Entry point context

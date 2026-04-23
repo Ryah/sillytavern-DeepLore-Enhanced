@@ -31,7 +31,7 @@ Code-level reference for Claude Code. Covers the full lifecycle from Obsidian fe
 }
 ```
 
-Default in `settings.js` L174: `vaults: []`. Legacy single-vault fields (`obsidianPort`, `obsidianApiKey`) are migrated once into `vaults[0]` by `initializeSettings()` (settings.js L476-487), guarded by `s._vaultsMigrated` sentinel.
+Default in `settings.js`: `vaults: []` (in `defaultSettings`). Legacy single-vault fields (`obsidianPort`, `obsidianApiKey`) are migrated once into `vaults[0]` inline inside `getSettings()`, guarded by `s._vaultsMigrated` sentinel.
 
 ### Multi-vault support
 
@@ -40,7 +40,7 @@ All vault-aware code iterates `settings.vaults.filter(v => v.enabled)`. Vault or
 - **Conflict resolution** (`settings.multiVaultConflictResolution`): `all` | `first` | `last` | `merge`. Applied by `deduplicateMultiVault()` in `vault-pure.js`. Keyed by `entry.title.toLowerCase()`. H-05: merge mode now OR-merges boolean flags (`constant`, `seed`, `bootstrap`, `guide`).
 - **Cross-vault duplicate detection**: `detectCrossVaultDuplicates()` runs before dedup in both `buildIndex()` and `buildIndexWithReuse()`. Shows a warning toast listing conflicting titles and vault sources. Duplicates are not forbidden at runtime but users are told to rename.
 
-### `getPrimaryVault(settings)` (settings.js L525)
+### `getPrimaryVault(settings)` (settings.js:getPrimaryVault())
 
 Returns first enabled vault, or `vaults[0]`, or a fallback object `{ name: 'Default', host: '127.0.0.1', port: 27124, apiKey: '', https: true, enabled: false }`.
 
@@ -74,7 +74,7 @@ onGenerate(chat)
        -> buildIndex()                  // fallback if reuse fails or index empty
 ```
 
-### `hydrateFromCache()` (vault.js L511-564)
+### `hydrateFromCache()` (vault.js:hydrateFromCache())
 
 Instant startup path. Loads entries from IndexedDB, runs all derived-state computations so the first generation isn't degraded, then kicks off a background `buildIndex()` to validate against Obsidian.
 
@@ -103,7 +103,7 @@ This ensures that any synchronous observer seeing `indexing === true` always fin
 
 ### `buildEpoch` zombie guard
 
-`buildEpoch` is a monotonic counter in `state.js` (L178). Incremented by `sync.js` when a stuck indexing flag is force-released after 120s. Both build functions capture `buildEpoch` at start and check via `isZombie = () => buildEpoch !== capturedEpoch` at multiple points:
+`buildEpoch` is a monotonic counter in `state.js` (module-top `buildEpoch` state var). Incremented by `sync.js` when a stuck indexing flag is force-released after 120s. Both build functions capture `buildEpoch` at start and check via `isZombie = () => buildEpoch !== capturedEpoch` at multiple points:
 - After field definitions load
 - After each vault fetch
 - After dedup
@@ -111,7 +111,7 @@ This ensures that any synchronous observer seeing `indexing === true` always fin
 
 If `isZombie()` returns true, the build bails silently without committing stale results.
 
-The `finally` block in `buildIndex()` only clears `indexing`/`buildPromise` if `buildEpoch === capturedEpoch` (vault.js L486-489), preventing a zombie cleanup from interfering with a legitimately-running new build.
+The `finally` block in `buildIndex()` only clears `indexing`/`buildPromise` if `buildEpoch === capturedEpoch` (vault.js:buildIndex() finally block), preventing a zombie cleanup from interfering with a legitimately-running new build.
 
 ---
 
@@ -150,7 +150,7 @@ Keyed by `"host:port"` string (e.g. `"127.0.0.1:27123"`). Each vault gets indepe
 
 DLE does NOT use ST's CORS proxy for Obsidian connections. The Obsidian Local REST API plugin has built-in CORS support. The CORS proxy (`enableCorsProxy: true` in ST's config.yaml) is used only for AI search connections in proxy mode, not vault fetching.
 
-### `diagnoseFetchFailure()` (obsidian-api.js L365-380)
+### `diagnoseFetchFailure()` (obsidian-api.js:diagnoseFetchFailure())
 
 When an HTTPS fetch fails with TypeError/Failed to fetch, probes `http://host:httpPort/vault/` to diagnose. If `port` is 27124 (HTTPS default), probes 27123 (HTTP default). Returns `{diagnosis: 'cert'|'unreachable'|'auth', httpWorked, httpPort}`.
 
@@ -158,7 +158,7 @@ When an HTTPS fetch fails with TypeError/Failed to fetch, probes `http://host:ht
 
 ## 4. Parsing
 
-### `parseVaultFile(file, tagConfig, fieldDefinitions)` (core/pipeline.js L83-236)
+### `parseVaultFile(file, tagConfig, fieldDefinitions)` (core/pipeline.js:parseVaultFile())
 
 Takes `{filename, content}` and tag/field config. Returns a `VaultEntry` or `null`.
 
@@ -211,7 +211,7 @@ Pipeline.js extracts these frontmatter fields (with type coercion):
 
 ## 5. Finalization
 
-### `finalizeIndex({ entries, settings, skipCacheSave })` (vault.js L131-240)
+### `finalizeIndex({ entries, settings, skipCacheSave })` (vault.js:finalizeIndex())
 
 Shared post-processing called by both `buildIndex()` and `buildIndexWithReuse()` after entries are committed to `vaultIndex`.
 
@@ -220,8 +220,8 @@ Shared post-processing called by both `buildIndex()` and `buildIndexWithReuse()`
 ```
 finalizeIndex()
   -> resolveLinks(vaultIndex)               // core/matching.js
-  -> dangling reference cleanup              // inline, L141-167
-  -> computeDerivedIndexFields(entries)      // vault.js L61-129
+  -> dangling reference cleanup              // inline in finalizeIndex()
+  -> computeDerivedIndexFields(entries)      // vault.js:computeDerivedIndexFields()
        -> setVaultAvgTokens()
        -> build mentionWeights Map           // setMentionWeights()
        -> build folderList                   // setFolderList()
@@ -245,35 +245,35 @@ finalizeIndex()
 
 Populates `entry.resolvedLinks[]` by matching `entry.links[]` (wiki-link targets) against actual entry titles in the index.
 
-### Dangling reference cleanup (vault.js L141-167)
+### Dangling reference cleanup (vault.js: inline block in finalizeIndex())
 
 Strips `requires[]`, `excludes[]`, and `cascadeLinks[]` references that don't match any entry title in the current index. Originals preserved on `_originalRequires`, `_originalExcludes`, `_originalCascadeLinks` so the health check can still surface broken references.
 
-**Gotcha:** The `_original*` fields are included in the IndexedDB cache save (cache.js L110, explicit `_original*` allowlist in the private-field filter). This means cached entries retain the broken-ref information across reloads.
+**Gotcha:** The `_original*` fields are included in the IndexedDB cache save (cache.js:saveIndexToCache(), explicit `_original*` allowlist in the private-field filter). This means cached entries retain the broken-ref information across reloads.
 
-### `computeDerivedIndexFields(entries, settings)` (vault.js L61-129)
+### `computeDerivedIndexFields(entries, settings)` (vault.js:computeDerivedIndexFields())
 
 Shared between `finalizeIndex()` and `hydrateFromCache()` (BUG-370).
 
-**mentionWeights** (vault.js L69-110): Cross-entry mention frequency table. Key format: `"sourceName\0targetTitle"`, value: match count. Uses precompiled combined regexes per target entry for O(N x total_content) instead of O(N x M x content) (BUG-374). Short names (<=3 chars) use `\b` word boundaries.
+**mentionWeights** (vault.js: mentionWeights block inside computeDerivedIndexFields()): Cross-entry mention frequency table. Key format: `"sourceName\0targetTitle"`, value: match count. Uses precompiled combined regexes per target entry for O(N x total_content) instead of O(N x M x content) (BUG-374). Short names (<=3 chars) use `\b` word boundaries.
 
-**folderList** (vault.js L113-128): Array of `{path, entryCount}` sorted by count descending. Includes all ancestor folders (e.g. entry in `A/B/C` counts toward `A`, `A/B`, and `A/B/C`).
+**folderList** (vault.js: folderList block inside computeDerivedIndexFields()): Array of `{path, entryCount}` sorted by count descending. Includes all ancestor folders (e.g. entry in `A/B/C` counts toward `A`, `A/B`, and `A/B/C`).
 
 **vaultAvgTokens**: Simple mean of all `entry.tokenEstimate` values.
 
-### `computeEntityDerivedState(entries)` (vault-pure.js L13-32)
+### `computeEntityDerivedState(entries)` (vault-pure.js:computeEntityDerivedState())
 
 **entityNameSet:** `Set<string>` of all lowercased titles (min 1 char) and keys (min 2 chars).
 
 **entityShortNameRegexes:** `Map<string, RegExp>` mapping each entity name to a precompiled `\b...\b` case-insensitive regex. Used by AI search cache sliding window for entity mention detection.
 
-**Side effect:** `setEntityShortNameRegexes()` bumps `entityRegexVersion` (state.js L205), a monotonic counter. AI search cache stamps this at write time and compares on read to detect post-rebuild staleness (BUG-394).
+**Side effect:** `setEntityShortNameRegexes()` bumps `entityRegexVersion` (state.js:setEntityShortNameRegexes()), a monotonic counter. AI search cache stamps this at write time and compares on read to detect post-rebuild staleness (BUG-394).
 
 ### AI search cache invalidation
 
 `setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] })` -- forces a fresh AI selection on next generation after any index rebuild.
 
-### Analytics pruning (vault.js L218-227)
+### Analytics pruning (vault.js: analytics block inside finalizeIndex())
 
 Removes `settings.analyticsData` keys that don't match any active `trackerKey(entry)` (format: `"vaultSource:title"`). Skips keys starting with `_` (sub-objects like `_librarian`). Prevents unbounded growth when vault entries are renamed/deleted.
 
@@ -295,7 +295,7 @@ Removes `settings.analyticsData` keys that don't match any active `trackerKey(en
 
 ### Cache key format
 
-`getCacheKey()` (cache.js L31-43): Builds a fingerprint from enabled vault configs:
+`getCacheKey()` (cache.js:getCacheKey()): Builds a fingerprint from enabled vault configs:
 
 ```
 "index_" + lorebookTag + "_" + conflictResolution + "_" + sorted("name:host:port:protocol:hashedApiKey" per enabled vault, joined by "|")
@@ -317,14 +317,14 @@ Falls back to `"primaryIndex"` if no vaults configured or on error. H-06: `loreb
 }
 ```
 
-### `loadIndexFromCache()` (cache.js L143-185)
+### `loadIndexFromCache()` (cache.js:loadIndexFromCache())
 
 Returns `{entries, timestamp}` or `null`. Rejection cases:
 1. No data or empty entries array -> `null`
 2. `schemaVersion` mismatch -> `null` (shows toast "Refreshing your lore cache after an update")
 3. All entries fail `validateCachedEntry()` -> `null`
 
-### `validateCachedEntry(entry)` (cache-validate.js L13-52)
+### `validateCachedEntry(entry)` (cache-validate.js:validateCachedEntry())
 
 Pure function. Returns `false` if structurally invalid; mutates in-place to backfill missing fields.
 
@@ -339,19 +339,19 @@ Pure function. Returns `false` if structurally invalid; mutates in-place to back
 - `links`, `resolvedLinks`, `tags` defaulted to `[]`
 - `customFields` coerced to `{}` if not a plain object; inner values validated for primitive/array types (BUG-376)
 
-### `pruneOrphanedCacheKeys(saveSucceeded)` (cache.js L200-243)
+### `pruneOrphanedCacheKeys(saveSucceeded)` (cache.js:pruneOrphanedCacheKeys())
 
 Removes all IndexedDB keys except the current `getCacheKey()`. Guarded by `_lastSaveSucceeded` (BUG-371): if the most recent `saveIndexToCache()` failed (quota/blocked), pruning is skipped to avoid wiping the only valid cache.
 
-### `_lastSaveSucceeded` guard (cache.js L25)
+### `_lastSaveSucceeded` guard (cache.js: `_lastSaveSucceeded` module-level var)
 
 Module-level: `null` (no save attempted), `true` (last save succeeded), `false` (last save failed). Set by `saveIndexToCache()`. Read by `pruneOrphanedCacheKeys()`. Prevents catastrophic cache loss when IndexedDB quota is exceeded.
 
-### `clearIndexCache()` (cache.js L249-267)
+### `clearIndexCache()` (cache.js:clearIndexCache())
 
 Clears ALL keys in the `vaultCache` store (not just the current fingerprint). Called by manual cache clear in settings/danger zone.
 
-### IndexedDB blocked handling (cache.js L77-92)
+### IndexedDB blocked handling (cache.js:openDB())
 
 `openDB()` wraps `openDBOnce()` with a one-shot 250ms retry on `BLOCKED` error. Shows a deduped warning toast. Blocked state occurs when another SillyTavern tab has an older DB version open.
 
@@ -361,7 +361,7 @@ Clears ALL keys in the `vaultCache` store (not just the current fingerprint). Ca
 
 ### Source: `src/vault/bm25.js` (pure functions, no ST imports)
 
-### `buildBM25Index(entries)` (bm25.js L35-78)
+### `buildBM25Index(entries)` (bm25.js:buildBM25Index())
 
 Returns `{idf: Map<term, number>, docs: Map<docId, {tf, len, entry}>, avgDl: number, invertedIndex: Map<term, Set<docId>>}`.
 
@@ -369,11 +369,11 @@ Returns `{idf: Map<term, number>, docs: Map<docId, {tf, len, entry}>, avgDl: num
 
 **Document ID format (BUG-369):** `"vaultSource\0filename"` (not trackerKey, which is `vaultSource:title`). Filename is unique within a vault; titles can collide.
 
-**Tokenization:** `tokenize(text)` (bm25.js L25-27) -- lowercase, split on `[^\p{L}\p{N}]+` (Unicode-aware), filter tokens < 2 chars. No CJK n-gram splitting.
+**Tokenization:** `tokenize(text)` (bm25.js:tokenize()) -- lowercase, split on `[^\p{L}\p{N}]+` (Unicode-aware), filter tokens < 2 chars. No CJK n-gram splitting.
 
 **IDF formula:** `log((N - df + 0.5) / (df + 0.5) + 1)`
 
-### `queryBM25(index, queryText, topK=20, minScore=0.5)` (bm25.js L88-134)
+### `queryBM25(index, queryText, topK=20, minScore=0.5)` (bm25.js:queryBM25())
 
 Returns `Array<{title, score, entry}>` sorted by score descending.
 
@@ -401,7 +401,7 @@ Returns `Array<{title, score, entry}>` sorted by score descending.
 
 ## 8. Sync Polling
 
-### `setupSyncPolling(buildIndexFn, buildIndexWithReuseFn)` (src/vault/sync.js L60-129)
+### `setupSyncPolling(buildIndexFn, buildIndexWithReuseFn)` (src/vault/sync.js:setupSyncPolling())
 
 Uses `setTimeout` chaining (NOT `setInterval`) to prevent overlapping callbacks.
 
@@ -427,13 +427,17 @@ Module-level `_syncEpoch` counter. Each `setupSyncPolling()` call increments it.
 ### Change detection
 
 Done inside `finalizeIndex()`, not in sync.js directly:
-- `takeIndexSnapshot(vaultIndex)` (core/sync.js L12-27): Creates `{contentHashes: Map<filename, hash>, titleMap, keyMap, timestamp}`.
-- `detectChanges(old, new)` (core/sync.js L35-77): Returns `{added[], removed[], modified[], keysChanged[], hasChanges}`. Content changes detected via hash comparison; key changes detected via JSON.stringify comparison.
-- `showChangesToast(changes)` (src/vault/sync.js L24-51): HTML toast with truncated lists (max 3 items per category).
+- `takeIndexSnapshot(vaultIndex)` (core/sync.js:takeIndexSnapshot()): Creates `{contentHashes: Map<filename, hash>, titleMap, keyMap, timestamp}`.
+- `detectChanges(old, new)` (core/sync.js:detectChanges()): Returns `{added[], removed[], modified[], keysChanged[], hasChanges}`. Content changes detected via hash comparison; key changes detected via JSON.stringify comparison.
+- `showChangesToast(changes)` (src/vault/sync.js:showChangesToast()): HTML toast with truncated lists (max 3 items per category).
 
 ### Snapshot patching for failed vaults (BUG-368)
 
-In `buildIndexWithReuse()` (vault.js L837-863): After `finalizeIndex()` replaces `previousIndexSnapshot`, entries from vaults that failed during this sync cycle have their snapshot entries restored from the pre-sync snapshot. This prevents masking edits made while a vault was unreachable.
+In `buildIndexWithReuse()` (vault.js: failed-vault snapshot-patch block inside buildIndexWithReuse()): After `finalizeIndex()` replaces `previousIndexSnapshot`, entries from vaults that failed during this sync cycle have their snapshot entries restored from the pre-sync snapshot. This prevents masking edits made while a vault was unreachable.
+
+### First-build-post-hydrate silence (intentional)
+
+The first full build after cold-boot hydrate has no `previousIndexSnapshot` to compare against, so `detectChanges()` is not called and no toast fires. This is intentional cold-start UX — firing "100 entries added" on every app load would be noise. `previousIndexSnapshot` is built during the first build's `finalizeIndex()` and subsequent polls fire change toasts normally from that baseline.
 
 ---
 
@@ -441,7 +445,7 @@ In `buildIndexWithReuse()` (vault.js L837-863): After `finalizeIndex()` replaces
 
 ### Source: `src/vault/import.js`
 
-### `parseWorldInfoJson(jsonText)` (import.js L129-161)
+### `parseWorldInfoJson(jsonText)` (import.js:parseWorldInfoJson())
 
 Handles three ST World Info JSON formats:
 1. **Direct WI export:** `{entries: {0: {...}, 1: {...}}}` (object with numeric keys)
@@ -450,7 +454,7 @@ Handles three ST World Info JSON formats:
 
 Returns `{entries: object[], source: string}`. Filters out null/non-object entries.
 
-### `convertWiEntry(wiEntry, lorebookTag)` (src/helpers.js L237+)
+### `convertWiEntry(wiEntry, lorebookTag)` (src/helpers.js:convertWiEntry())
 
 Maps a single ST World Info entry to `{filename, content}` (Obsidian markdown with frontmatter).
 
@@ -460,7 +464,7 @@ Maps a single ST World Info entry to `{filename, content}` (Obsidian markdown wi
 - Position: maps ST's 5-value enum `{0: 'after', 1: 'before', 2: 'before', 3: 'after', 4: 'in_chat'}` (lossy).
 - Content: `wiEntry.content` as markdown body after frontmatter.
 
-### `importEntries(entries, folder, onProgress)` (import.js L25-122)
+### `importEntries(entries, folder, onProgress)` (import.js:importEntries())
 
 Writes entries to the primary vault one at a time.
 
@@ -488,15 +492,15 @@ Writes entries to the primary vault one at a time.
 
 3. **`_contentHash` must not be recomputed on merge** (BUG-378). Reuse-sync compares `entry._contentHash` against on-disk file hashes. If merge recomputes it, every poll reports the merged entry as "modified" and triggers redundant re-parse/tokenize.
 
-4. **Field definitions are loaded independently by both build paths** (`buildIndex` L274-296, `buildIndexWithReuse` L632-652). Both defer publishing to state until parsing is complete.
+4. **Field definitions are loaded independently by both build paths** (`buildIndex()` and `buildIndexWithReuse()` — each has its own field-definitions load block). Both defer publishing to state until parsing is complete.
 
-5. **`skipCacheSave`** is set to `true` when any vault fetch partially failed (buildIndex L441). This prevents caching a truncated index over a previously-good one.
+5. **`skipCacheSave`** is set to `true` when any vault fetch partially failed (in `buildIndex()`, passed into `finalizeIndex()` as `vaultFetchFailed`). This prevents caching a truncated index over a previously-good one.
 
 6. **BUG-366/367 carry-forward guards** in both `buildIndex()` and `buildIndexWithReuse()`: if a vault returns partial results or zero files but previously had entries, the prior entries for that vault are carried forward instead of being silently dropped.
 
-7. **`ensureIndexFresh()` respects three rebuild trigger modes** (vault.js L885-933): `ttl` (default, time-based), `generation` (every N generations), `manual` (only if index empty). The `generation` mode uses `generationCount` / `lastIndexGenerationCount` from state.js.
+7. **`ensureIndexFresh()` respects three rebuild trigger modes** (vault.js:ensureIndexFresh()): `ttl` (default, time-based), `generation` (every N generations), `manual` (only if index empty). The `generation` mode uses `generationCount` / `lastIndexGenerationCount` from state.js.
 
-8. **The `finally` block asymmetry**: `buildIndex()` only clears indexing/buildPromise if epoch matches (vault.js L509). `buildIndexWithReuse()` always clears them in `finally` (vault.js L873-876). This is intentional -- `buildIndex` is the only path that can be zombie-killed by force-release, and a force-release immediately starts a new build that must own the lock.
+8. **The `finally` block asymmetry**: `buildIndex()` only clears indexing/buildPromise if epoch matches (vault.js:buildIndex() finally block). `buildIndexWithReuse()` always clears them in `finally` (vault.js:buildIndexWithReuse() finally block). This is intentional -- `buildIndex` is the only path that can be zombie-killed by force-release, and a force-release immediately starts a new build that must own the lock.
 
 9. **`notifyIndexUpdated()`** fires registered callbacks (from settings-ui.js) without the vault module importing from the UI layer. This is the pub-sub bridge between data and presentation.
 

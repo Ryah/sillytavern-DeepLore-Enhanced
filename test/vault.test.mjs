@@ -325,16 +325,17 @@ test('B15: mode "merge" customFields — arrays unioned', () => {
     assert(result[0].customFields.location.includes('mountain'), 'location has mountain');
 });
 
-test('B16: mode "merge" customFields — scalars prefer first non-empty', () => {
+test('B16: mode "merge" customFields — scalars: first wins unless null/undefined', () => {
     const entries = [
-        makeEntry('Dragon', { customFields: { mood: 'fierce', region: '' } }),
-        makeEntry('Dragon', { customFields: { mood: 'calm', region: 'north' } }),
+        makeEntry('Dragon', { customFields: { mood: 'fierce', region: '', count: 0, missing: null } }),
+        makeEntry('Dragon', { customFields: { mood: 'calm', region: 'north', count: 42, missing: 'found' } }),
     ];
     const result = deduplicateMultiVault(entries, 'merge');
-    assertEqual(result[0].customFields.mood, 'fierce', 'first scalar kept');
-    // region: first has empty string, which is falsy — but the code checks `!existing.customFields[k]`
-    // empty string is falsy, so second fills it
-    assertEqual(result[0].customFields.region, 'north', 'empty scalar filled from second');
+    assertEqual(result[0].customFields.mood, 'fierce', 'first non-empty scalar kept');
+    // Code uses `== null` (null/undefined only), NOT generic falsy — preserves legitimate '' and 0.
+    assertEqual(result[0].customFields.region, '', 'empty string preserved (not null)');
+    assertEqual(result[0].customFields.count, 0, 'zero preserved (not null)');
+    assertEqual(result[0].customFields.missing, 'found', 'null scalar filled from second');
 });
 
 test('B17: BUG-378 — _contentHash preserved from first entry (not recomputed)', () => {

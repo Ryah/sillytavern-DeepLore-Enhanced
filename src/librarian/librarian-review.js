@@ -1215,7 +1215,18 @@ async function writeToVault(session, opts = {}) {
             if (stCtx?.saveSettingsDebounced) stCtx.saveSettingsDebounced();
 
             // Trigger index rebuild
-            buildIndex(true).catch(err => console.warn('[DLE] Post-write index rebuild failed:', err.message));
+            // BUG-AUDIT: toastr on failure — otherwise the newly-written entry stays
+            // un-indexed and invisible to retrieval until the next manual refresh.
+            buildIndex(true).catch(err => {
+                console.warn('[DLE] Post-write index rebuild failed:', err?.message);
+                try {
+                    toastr.warning(
+                        `Entry saved, but reindex failed: ${err?.message || 'unknown error'}. Refresh manually from the drawer.`,
+                        'DeepLore Enhanced',
+                        { timeOut: 10000 },
+                    );
+                } catch { /* toastr unavailable */ }
+            });
             return true;
         } else {
             console.warn('[DLE] Librarian write failed:', data && data.error);

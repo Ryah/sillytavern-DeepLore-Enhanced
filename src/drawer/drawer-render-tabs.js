@@ -520,9 +520,24 @@ export function renderBrowseTab() {
     $list.css({ 'min-height': totalHeight + 'px' });
 
     // Reset scroll to top when filters change (prevents seeing empty results after filtering while scrolled)
+    // BUG-AUDIT: previously reset scroll on EVERY render, so pin/block toggles (which
+    // re-render the tab) yanked the user back to the top mid-scroll. Only reset when
+    // the filter signature actually changed since last render.
+    const _filterSignature = JSON.stringify({
+        q: query || '',
+        s: statusFilter || 'all',
+        t: tagFilter || '',
+        f: ds.browseFolderFilter || '',
+        cf: ds.browseCustomFieldFilters || {},
+        qf: ds.browseQuickFilter ?? null,
+        sort: sortKey || 'priority_asc',
+    });
     const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
-    if (scrollContainer) scrollContainer.scrollTop = 0;
-    ds._browseLastScrollTop = undefined; // reset delta check
+    if (scrollContainer && ds._browseLastFilterSig !== _filterSignature) {
+        scrollContainer.scrollTop = 0;
+        ds._browseLastScrollTop = undefined; // reset delta check
+    }
+    ds._browseLastFilterSig = _filterSignature;
 
     // Render visible window
     renderBrowseWindow();

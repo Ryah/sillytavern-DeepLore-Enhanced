@@ -8,8 +8,14 @@ let _pushEventRef = null;
 function pushEventSafe(kind, data) {
     try {
         if (!_pushEventRef) {
-            // Dynamic import returns a promise — fire-and-forget on first call, sync on subsequent
-            import('./diagnostics/interceptors.js').then(m => { _pushEventRef = m.pushEvent; });
+            // Dynamic import returns a promise — fire-and-forget on first call, sync on subsequent.
+            // BUG-AUDIT: unhandled-rejection on this lazy import would surface as an
+            // "uncaught (in promise)" console error if interceptors.js ever failed to
+            // evaluate (e.g. syntax error in a future refactor). Attach .catch so the
+            // diagnostic path fails silently instead of poisoning the console.
+            import('./diagnostics/interceptors.js')
+                .then(m => { _pushEventRef = m.pushEvent; })
+                .catch(() => { /* diagnostics are best-effort; never break state mutations */ });
             return;
         }
         _pushEventRef(kind, data);
@@ -132,6 +138,13 @@ export function setIndexing(v) { indexing = v; notifyIndexingChanged(); }
 export function setBuildPromise(v) { buildPromise = v; }
 export function setIndexEverLoaded(v) { indexEverLoaded = v; }
 export function setAiSearchCache(v) { aiSearchCache = v; }
+/** Canonical empty aiSearchCache shape. Use everywhere the cache is invalidated
+ *  so partial writes can't drop fields (notably `matchedEntrySet`) and leak stale
+ *  state across chats / rebuilds. */
+export function emptyAiSearchCache() {
+    return { hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null };
+}
+export function resetAiSearchCache() { aiSearchCache = emptyAiSearchCache(); }
 export function setLastInjectionSources(v) { lastInjectionSources = v; }
 export function setLastInjectionEpoch(v) { lastInjectionEpoch = v; }
 export function setLastScribeChatLength(v) { lastScribeChatLength = v; }
@@ -512,7 +525,7 @@ export function onGatingChanged(callback) {
 export function clearGatingCallbacks() { gatingChangedCallbacks.clear(); }
 
 export function notifyGatingChanged() {
-    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
+    resetAiSearchCache();
     for (const cb of [...gatingChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Gating changed callback error:', err.message); }
     }
@@ -531,7 +544,7 @@ export function onPinBlockChanged(callback) {
 export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.clear(); }
 
 export function notifyPinBlockChanged() {
-    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
+    resetAiSearchCache();
     for (const cb of [...pinBlockChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Pin/block changed callback error:', err.message); }
     }
@@ -566,7 +579,7 @@ export function onFieldDefinitionsUpdated(callback) {
 }
 
 function notifyFieldDefinitionsUpdated() {
-    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null });
+    resetAiSearchCache();
     for (const cb of [...fieldDefinitionsCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Field definitions callback error:', err.message); }
     }

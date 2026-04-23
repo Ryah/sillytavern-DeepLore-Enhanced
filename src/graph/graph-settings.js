@@ -104,7 +104,7 @@ export function initGraphSettings(gs, dbg) {
 
         for (const [id, map] of Object.entries(sliderMaps)) {
             const el = document.getElementById(id);
-            const valEl = document.getElementById(id + '_val');
+            const valEl = document.getElementById(id + '-val');
             const actual = settings[map.key] ?? map.def;
             let sliderPos = actualToSlider(map, actual);
             if (map.invert) sliderPos = -sliderPos;
@@ -194,7 +194,7 @@ export function initGraphSettings(gs, dbg) {
         // Wire all normalized sliders
         for (const [id, map] of Object.entries(sliderMaps)) {
             const el = document.getElementById(id);
-            const valEl = document.getElementById(id + '_val');
+            const valEl = document.getElementById(id + '-val');
             if (!el) continue;
             el.addEventListener('input', () => {
                 let rawSlider = parseInt(el.value, 10);

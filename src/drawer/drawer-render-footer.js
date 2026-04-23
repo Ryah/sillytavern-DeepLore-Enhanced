@@ -39,7 +39,7 @@ export function renderFooter() {
     const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
     const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
     const contextUsed = ds.contextTokens || 0;
-    const libExtra = librarianChatStats.estimatedExtraTokens || 0;
+    const libExtra = librarianChatStats?.estimatedExtraTokens || 0;
     const totalUsed = contextUsed + libExtra;
 
     if (maxContext > 0) {

@@ -468,11 +468,11 @@ export function categorizeRejections(trace, injectedTitles) {
         if (entries.length > 0) groups.push({ stage: 'gated_out', label: 'Blocked by dependencies', icon: 'fa-lock', entries });
     }
 
-    // Contextual Gating Removed (string array)
+    // Contextual Gating Removed (object array: {title, reason})
     if (trace.contextualGatingRemoved?.length > 0) {
         const entries = trace.contextualGatingRemoved
-            .filter(t => !injectedTitles.has(t))
-            .map(t => ({ title: t, reason: 'Filtered by era/location/scene/character' }));
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => ({ title: e.title, reason: e.reason || 'Filtered by era/location/scene/character' }));
         if (entries.length > 0) groups.push({ stage: 'contextual_gating', label: 'Filtered by context', icon: 'fa-filter', entries });
     }
 
@@ -482,9 +482,9 @@ export function categorizeRejections(trace, injectedTitles) {
         // Build set of entries accounted for by other stages
         const accountedTitles = new Set([
             ...(trace.gatedOut || []).map(e => e.title),
-            ...(trace.contextualGatingRemoved || []),
-            ...(trace.cooldownRemoved || []),
-            ...(trace.stripDedupRemoved || []),
+            ...(trace.contextualGatingRemoved || []).map(e => e.title),
+            ...(trace.cooldownRemoved || []).map(e => e.title),
+            ...(trace.stripDedupRemoved || []).map(e => e.title),
             ...(trace.probabilitySkipped || []).map(e => e.title),
             ...(trace.warmupFailed || []).map(e => e.title),
             ...(trace.budgetCut || []).map(e => e.title),
@@ -495,11 +495,11 @@ export function categorizeRejections(trace, injectedTitles) {
         if (entries.length > 0) groups.push({ stage: 'ai_rejected', label: 'AI Rejected', icon: 'fa-robot', entries });
     }
 
-    // Cooldown Removed (string array)
+    // Cooldown Removed (object array: {title, reason})
     if (trace.cooldownRemoved?.length > 0) {
         const entries = trace.cooldownRemoved
-            .filter(t => !injectedTitles.has(t))
-            .map(t => ({ title: t, reason: 'Cooldown active' }));
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => ({ title: e.title, reason: e.reason || 'Cooldown active' }));
         if (entries.length > 0) groups.push({ stage: 'cooldown', label: 'Cooldown Active', icon: 'fa-clock', entries });
     }
 
@@ -511,11 +511,11 @@ export function categorizeRejections(trace, injectedTitles) {
         if (entries.length > 0) groups.push({ stage: 'budget_cut', label: 'Over budget', icon: 'fa-scissors', entries });
     }
 
-    // Strip Dedup Removed (string array)
+    // Strip Dedup Removed (object array: {title, reason})
     if (trace.stripDedupRemoved?.length > 0) {
         const entries = trace.stripDedupRemoved
-            .filter(t => !injectedTitles.has(t))
-            .map(t => ({ title: t, reason: 'Already in context' }));
+            .filter(e => !injectedTitles.has(e.title))
+            .map(e => ({ title: e.title, reason: e.reason || 'Already in context' }));
         if (entries.length > 0) groups.push({ stage: 'strip_dedup', label: 'Already Injected', icon: 'fa-copy', entries });
     }
 

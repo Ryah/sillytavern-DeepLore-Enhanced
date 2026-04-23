@@ -39,7 +39,8 @@ let installed = false;
 /** Best-effort live read of debugMode without creating a hard import dep. */
 function debugModeOn() {
     try {
-        return !!(globalThis.extension_settings?.deeplore?.debugMode);
+        // DIAG-01: canonical settings key is 'deeplore_enhanced', not legacy 'deeplore'.
+        return !!(globalThis.extension_settings?.deeplore_enhanced?.debugMode);
     } catch { return false; }
 }
 

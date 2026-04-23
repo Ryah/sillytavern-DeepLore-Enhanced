@@ -18,6 +18,7 @@ export function validateCachedEntry(entry) {
     if (typeof entry.tokenEstimate !== 'number' || entry.tokenEstimate < 0 || Number.isNaN(entry.tokenEstimate)) return false;
     if (entry.links !== undefined && !Array.isArray(entry.links)) return false;
     if (entry.tags !== undefined && !Array.isArray(entry.tags)) return false;
+    if (entry.resolvedLinks !== undefined && !Array.isArray(entry.resolvedLinks)) return false;
     // Default critical fields that may be missing from partial writes
     if (typeof entry.priority !== 'number' || Number.isNaN(entry.priority)) entry.priority = 50;
     if (typeof entry.constant !== 'boolean') entry.constant = false;

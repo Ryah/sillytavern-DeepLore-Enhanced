@@ -172,9 +172,8 @@ export async function runAgenticLoop(options) {
         // should not crash the generation. Wrap the entire FLAG iteration in try/catch.
         // Phase label: emit 'flagging' so the drawer status reflects the silent wrap-up stage.
         // PHASE_LABELS at drawer-render-status.js includes 'Flagging…'. AbortError still throws;
-        // finally restores prior phase so 'flagging' cannot stick.
+        // finally always sets 'idle' since FLAG is the terminal step of the agentic loop.
         if (phase === PHASE_FLAG) {
-            const _priorPhase = pipelinePhase;
             setPipelinePhase('flagging');
             try {
                 flagCount += await _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug);
@@ -182,7 +181,7 @@ export async function runAgenticLoop(options) {
                 if (flagErr?.name === 'AbortError') throw flagErr;
                 console.warn('[DLE] Flag phase error (prose already delivered):', flagErr?.message || flagErr);
             } finally {
-                setPipelinePhase(_priorPhase === 'flagging' ? 'idle' : _priorPhase);
+                setPipelinePhase('idle');
             }
             // FLAG phase always runs at most one iteration — break after
             exitReason = 'completed';

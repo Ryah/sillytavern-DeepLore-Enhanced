@@ -8,6 +8,74 @@ import { pushEvent } from '../diagnostics/interceptors.js';
 const DEFAULT_TIMEOUT = 30000;
 const OBSIDIAN_BATCH_SIZE = 50;
 
+/**
+ * Validate an Obsidian host is a safe local target before attaching `Bearer ${apiKey}`.
+ * Obsidian Local REST API is meant for loopback and LAN; a bad host config (or
+ * an attacker-controlled vault row) must never cause the API key to be sent to a
+ * public endpoint or cloud metadata service.
+ *
+ * Allowlist: loopback (127.0.0.1, ::1), RFC1918 (10/8, 172.16/12, 192.168/16),
+ * link-local (169.254/16, fe80::/10), ULA (fd00::/8), "localhost".
+ * Blocks: public IPs, metadata IPs (169.254.169.254), 0.0.0.0, 100.64/10 (CGNAT),
+ * numeric/octal shorthand, non-dotted IPv4.
+ * @param {string} host
+ * @throws {Error} if host is not a safe local target.
+ */
+export function validateObsidianHost(host) {
+    if (typeof host !== 'string' || !host.trim()) {
+        throw new Error('Obsidian host is empty');
+    }
+    const raw = host.trim().toLowerCase().replace(/^\[|\]$/g, '');
+    // Blocked exact hosts (cloud metadata endpoints).
+    const blockedExact = new Set([
+        '169.254.169.254',          // AWS/Azure/GCP IMDS
+        'metadata.google.internal',
+        '100.100.100.200',          // Alibaba
+        '0.0.0.0',
+    ]);
+    if (blockedExact.has(raw)) {
+        throw new Error(`Obsidian host "${host}" is blocked (metadata/zero address).`);
+    }
+    // Numeric IP shorthand (e.g. "2130706433" for 127.0.0.1) — reject to avoid bypassing pattern checks.
+    if (/^\d+$/.test(raw) || /^0x[0-9a-f]+$/i.test(raw)) {
+        throw new Error(`Obsidian host "${host}" uses a numeric IP shorthand — use dotted notation.`);
+    }
+    if (/(?:^|\.)0\d+(?:\.|$)/.test(raw)) {
+        throw new Error(`Obsidian host "${host}" uses octal IP notation — use standard dotted decimal.`);
+    }
+    // Allow named localhost.
+    if (raw === 'localhost' || raw === 'localhost.localdomain') return;
+    // Allow IPv6 loopback and private ranges.
+    if (raw === '::1') return;
+    if (/^fd[0-9a-f]{2}:/.test(raw)) return;        // ULA fd00::/8
+    if (/^fe80:/.test(raw)) return;                  // link-local fe80::/10
+    if (/^::ffff:127\./.test(raw)) return;           // IPv4-mapped loopback
+    // For IPv4: require dotted quad and allowlisted range.
+    const v4 = raw.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (v4) {
+        const [, a, b] = v4.map(Number);
+        const octets = v4.slice(1).map(Number);
+        if (octets.some(n => n > 255)) {
+            throw new Error(`Obsidian host "${host}" is not a valid IPv4 address.`);
+        }
+        // Block CGNAT 100.64.0.0/10 explicitly (shared ISP space — not a local vault).
+        if (a === 100 && b >= 64 && b <= 127) {
+            throw new Error(`Obsidian host "${host}" is in the CGNAT range — not a local vault.`);
+        }
+        const isLoopback = a === 127;
+        const isRFC1918 =
+            a === 10 ||
+            (a === 172 && b >= 16 && b <= 31) ||
+            (a === 192 && b === 168);
+        const isLinkLocal = a === 169 && b === 254;
+        if (isLoopback || isRFC1918 || isLinkLocal) return;
+        throw new Error(`Obsidian host "${host}" is a public IP — refusing to send API key off-network.`);
+    }
+    // Reject everything else (public DNS names, raw IPv6 globals, garbage).
+    // Named hosts would require DNS resolution to validate — out of scope client-side.
+    throw new Error(`Obsidian host "${host}" is not a recognized local address (use 127.0.0.1, localhost, or a LAN IP).`);
+}
+
 // ── Circuit Breaker (per-vault) ──
 // Prevents hammering Obsidian when it's down. Short backoffs (it's local and free).
 // Each vault gets its own circuit breaker keyed by "host:port" string for multi-vault
@@ -173,6 +241,10 @@ export function validateVaultPath(filename) {
  * @returns {Promise<{status: number, data: string}>}
  */
 export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, https: useHttps = false, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT, signal = null }) {
+    // BUG-AUDIT: host validation BEFORE any headers are built, to ensure the
+    // `Bearer ${apiKey}` header is only ever attached to loopback/LAN targets.
+    // Throws synchronously if host is public/shorthand/metadata.
+    validateObsidianHost(host || '127.0.0.1');
     // Circuit breaker key: host:port for multi-vault isolation
     const circuitKey = `${host}:${port}`;
     // Circuit breaker: reject immediately if circuit is open
@@ -370,6 +442,10 @@ export async function testConnection(host, port, apiKey, useHttps = false) {
  */
 export async function diagnoseFetchFailure(host, port, apiKey) {
     const httpPort = port === 27124 ? 27123 : port;
+    // BUG-AUDIT: mirror validator from obsidianFetch so the diagnostic probe can't
+    // leak Bearer to a public host when upstream config is bad.
+    try { validateObsidianHost(host || '127.0.0.1'); }
+    catch { return { diagnosis: 'unreachable', httpWorked: false, httpPort }; }
     try {
         const res = await fetch(`http://${host || '127.0.0.1'}:${httpPort}/vault/`, {
             headers: { 'Authorization': `Bearer ${apiKey}` },

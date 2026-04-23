@@ -4,7 +4,7 @@
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
 import { syncIntervalId, indexing, setSyncIntervalId, setIndexing, setBuildPromise, buildEpoch, setBuildEpoch } from '../state.js';
-import { getCircuitState } from './obsidian-api.js';
+import { getAllCircuitStates } from './obsidian-api.js';
 
 // ─── Constants ───
 const SYNC_TOAST_TIMEOUT = 8000;
@@ -101,9 +101,12 @@ export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
                     _indexingSeenSince = 0;
                 }
 
-                // Skip fetch when all Obsidian vault circuits are open (avoid hammering a dead connection)
-                const obsidianCircuit = getCircuitState();
-                if (obsidianCircuit.state === 'open') {
+                // Skip fetch only when EVERY Obsidian vault circuit is open. A single open
+                // vault should not starve healthy vaults of polling. Empty circuit state
+                // (no vaults tracked yet) proceeds normally — build will populate on first poll.
+                const allStates = getAllCircuitStates();
+                const keys = Object.keys(allStates);
+                if (keys.length > 0 && keys.every(k => allStates[k].state === 'open')) {
                     if (current.debugMode) {
                         console.debug('[DLE] Sync: all vault circuits open — skipping this tick');
                     }

@@ -164,8 +164,3 @@ export function claimClaudeAdaptiveToastSlot(detail) {
     _sessionToastShown.add(key);
     return true;
 }
-
-/** Test helper — clears the session toast set. */
-export function _resetClaudeAdaptiveToastSession() {
-    _sessionToastShown.clear();
-}

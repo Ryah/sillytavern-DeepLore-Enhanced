@@ -171,14 +171,17 @@ export function applyContextualGating(entries, context, policy, debugMode, setti
             const entryValue = e.customFields?.[fd.name];
             const activeValue = context[fd.contextKey];
             const tolerance = fd.gating.tolerance || fallbackTolerance;
+            const isExistenceOp = fd.gating.operator === 'exists' || fd.gating.operator === 'not_exists';
 
-            // No entry value → pass (entry doesn't care about this field)
-            if (entryValue == null || (Array.isArray(entryValue) && entryValue.length === 0)) continue;
-            // Empty string → pass
-            if (entryValue === '') continue;
+            // No entry value → pass (entry doesn't care about this field) — exempt
+            // existence operators, which intentionally gate on the absence of a value.
+            if (!isExistenceOp && (entryValue == null || (Array.isArray(entryValue) && entryValue.length === 0))) continue;
+            // Empty string → pass (same exemption)
+            if (!isExistenceOp && entryValue === '') continue;
 
-            // Entry has value but no active context set for this field
-            if (activeValue == null || activeValue === '' || (Array.isArray(activeValue) && activeValue.length === 0)) {
+            // Entry has value but no active context set for this field — existence
+            // operators ignore active context entirely, so always let them evaluate.
+            if (!isExistenceOp && (activeValue == null || activeValue === '' || (Array.isArray(activeValue) && activeValue.length === 0))) {
                 if (tolerance === 'strict') return false;
                 continue; // moderate/lenient: pass through
             }
@@ -575,9 +578,11 @@ export function recordAnalytics(matchedEntries, injectedEntries, analyticsData) 
         }
     }
 
-    // Cap total entries at 500 — evict oldest by lastTriggered to prevent unbounded growth
+    // Cap total entries at 500 — evict oldest by lastTriggered to prevent unbounded growth.
+    // Underscore-prefixed keys are meta buckets (e.g. `_librarian`) — exempt from eviction
+    // because they have no lastTriggered stamp and would always sort first.
     const ANALYTICS_MAX = 500;
-    const keys = Object.keys(analyticsData);
+    const keys = Object.keys(analyticsData).filter(k => !k.startsWith('_'));
     let capEvicted = 0;
     if (keys.length > ANALYTICS_MAX) {
         keys.sort((a, b) => (analyticsData[a].lastTriggered || 0) - (analyticsData[b].lastTriggered || 0));

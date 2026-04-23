@@ -11,7 +11,7 @@ import {
     vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
     aiSearchCache, previousIndexSnapshot, trackerKey,
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
-    setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
+    setIndexEverLoaded, setAiSearchCache, resetAiSearchCache, setPreviousIndexSnapshot,
     setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
     setFuzzySearchIndex, setMentionWeights, setFolderList,
     setLastVaultFailureCount, setLastVaultAttemptCount,
@@ -184,7 +184,7 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
     }
 
     // Invalidate AI search cache on re-index
-    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
+    resetAiSearchCache();
 
     // Vault change detection
     const newSnapshot = takeIndexSnapshot(vaultIndex);
@@ -832,6 +832,11 @@ export async function buildIndexWithReuse() {
         setVaultIndex(dedupedEntries);
         setIndexTimestamp(Date.now());
 
+        // Intentional asymmetry with buildIndex: no skipCacheSave here. The reuse
+        // path carries forward last-known entries for failed vaults via dedupedEntries,
+        // so the cache already represents the best known state and is safe to persist.
+        // (buildIndex passes skipCacheSave:vaultFetchFailed because a full rebuild with
+        // a failed vault could write an empty or partial cache.)
         await finalizeIndex({ entries: dedupedEntries, settings });
 
         // BUG-368: finalizeIndex has now replaced previousIndexSnapshot with one built from

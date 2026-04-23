@@ -75,11 +75,26 @@ export function attachCopyHandler(container) {
             const original = btn.textContent;
             btn.textContent = 'Copied!';
             btn.disabled = true;
-            setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+            // BUG-AUDIT: if the popup closes before the timer fires, the callback
+            // executes against a detached button. Track the timer on the element
+            // and clear any prior one so rapid clicks don't leak timers and so
+            // the element isn't mutated after removal.
+            if (btn._dleCopyResetTimer) clearTimeout(btn._dleCopyResetTimer);
+            btn._dleCopyResetTimer = setTimeout(() => {
+                btn._dleCopyResetTimer = null;
+                if (!btn.isConnected) return;
+                btn.textContent = original;
+                btn.disabled = false;
+            }, 1500);
         } catch (err) {
             console.error('[DLE] Clipboard copy failed:', err);
             btn.textContent = 'Copy failed';
-            setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+            if (btn._dleCopyResetTimer) clearTimeout(btn._dleCopyResetTimer);
+            btn._dleCopyResetTimer = setTimeout(() => {
+                btn._dleCopyResetTimer = null;
+                if (!btn.isConnected) return;
+                btn.textContent = 'Copy to Clipboard';
+            }, 2000);
         }
     });
 }
@@ -600,7 +615,7 @@ export async function showOptimizePopup(entry, result) {
                 if (key === 'keys') {
                     newContent += `keys:\n${keysYaml}\n`;
                 } else if (Array.isArray(val)) {
-                    newContent += `${key}:\n${val.map(v => `  - ${v}`).join('\n')}\n`;
+                    newContent += `${key}:\n${val.map(v => `  - ${yamlSerializeValue(v)}`).join('\n')}\n`;
                 } else {
                     newContent += `${key}: ${yamlSerializeValue(val)}\n`;
                 }

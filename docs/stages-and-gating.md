@@ -10,7 +10,7 @@ Core stage functions live in `src/stages.js`. **Stages 1–5 and the Tracking Fu
 buildExemptionPolicy(vaultSnapshot, pins, blocks)
   → { forceInject: Set<string>, pins: Array<{title, vaultSource}>, blocks: Array<{title, vaultSource}> }
 ```
-**Location:** `src/stages.js` L24-43
+**Location:** `src/stages.js:buildExemptionPolicy()`
 
 `forceInject` is a Set of lowercased titles. An entry in `forceInject` skips:
 - Contextual gating (Stage 2)
@@ -27,7 +27,7 @@ Entries added to `forceInject`:
 - All `bootstrap` entries (lorebook-bootstrap)
 - All pinned entries (from `chat_metadata.deeplore_pins`)
 
-Pin/block normalization (L34-35): `normalizePinBlock()` converts bare title strings to `{title, vaultSource: null}` for backward compatibility.
+Pin/block normalization: `normalizePinBlock()` (called at top of `buildExemptionPolicy()`) converts bare title strings to `{title, vaultSource: null}` for backward compatibility.
 
 ---
 
@@ -37,7 +37,7 @@ Pin/block normalization (L34-35): `normalizePinBlock()` converts bare title stri
 applyPinBlock(entries, vaultSnapshot, policy, matchedKeys)
   → entries[] (modified)
 ```
-**Location:** `src/stages.js` L62-111
+**Location:** `src/stages.js:applyPinBlock()`
 
 **Pins:**
 - Looks up pinned entries in `vaultSnapshot` (not just pipeline results)
@@ -48,7 +48,7 @@ applyPinBlock(entries, vaultSnapshot, policy, matchedKeys)
 - Records `matchedKeys.set(title, '(pinned)')` for trace display
 
 **Blocks:**
-- Filters out any entry matching a block via `matchesPinBlock(pb, entry)` (L106-108)
+- Filters out any entry matching a block via `matchesPinBlock(pb, entry)` (block pass at end of `applyPinBlock()`)
 - Blocks override constants — a blocked constant is removed
 
 **Gotcha:** Uses O(1) `resultTitleIdx` Map for lookup (BUG-AUDIT-H15), not linear scan.
@@ -61,7 +61,7 @@ applyPinBlock(entries, vaultSnapshot, policy, matchedKeys)
 applyContextualGating(entries, context, policy, debugMode, settings, fieldDefs)
   → entries[] (filtered)
 ```
-**Location:** `src/stages.js` L131-188
+**Location:** `src/stages.js:applyContextualGating()`
 
 Driven by `fieldDefinitions` array (default 4 from `src/fields.js`: `era`, `location`, `scene_type`, `character_present`). Custom fields defined in `field-definitions.yaml`.
 
@@ -90,7 +90,7 @@ Driven by `fieldDefinitions` array (default 4 from `src/fields.js`: `era`, `loca
 - **Moderate:** Entry with value + no context = passes
 - **Lenient:** Like moderate, plus `match_any`/`match_all` non-matches also pass. Precision operators (`eq`, `gt`, `lt`, `not_any`) always filter. (BUG-H8)
 
-**Short-circuit:** If no context dimension is set at all, returns entries unchanged (L142).
+**Short-circuit:** If no context dimension is set at all, returns entries unchanged (early return at top of `applyContextualGating()`).
 
 ---
 
@@ -100,24 +100,24 @@ Driven by `fieldDefinitions` array (default 4 from `src/fields.js`: `era`, `loca
 applyFolderFilter(entries, selectedFolders, policy, debugMode)
   → entries[] (filtered)
 ```
-**Location:** `src/stages.js` L206-221
+**Location:** `src/stages.js:applyFolderFilter()`
 
-- Root-level entries (`!e.folderPath`) always pass (L212)
-- Subfolder matching: `e.folderPath === f || e.folderPath.startsWith(f + '/')` (L213)
-- ForceInject entries exempt (L211)
-- No-op if `selectedFolders` is null/empty (L207)
+- Root-level entries (`!e.folderPath`) always pass
+- Subfolder matching: `e.folderPath === f || e.folderPath.startsWith(f + '/')`
+- ForceInject entries exempt
+- No-op if `selectedFolders` is null/empty (early return)
 
-**Note:** `applyFolderFilter` runs at three points inside `runPipeline()` (one per search mode — ai-only: `pipeline.js` L102, two-stage: L233, keywords-only: L309) as a pre-filter before candidate manifest building. It also runs post-pipeline in `index.js` as Stage 2b (the authoritative gate). It is documented here because it shares the exemption policy pattern.
+**Note:** `applyFolderFilter` runs at three points inside `runPipeline()` (one per search mode — ai-only, two-stage, keywords-only branches in `src/pipeline/pipeline.js:runPipeline()`) as a pre-filter before candidate manifest building. It also runs post-pipeline in `index.js` as Stage 2b (the authoritative gate). It is documented here because it shares the exemption policy pattern.
 
 ---
 
 ## Hierarchical Pre-Filter (Pre-pipeline, inside `runPipeline()`)
 
-**Source:** `src/ai/ai.js` L321-450
+**Source:** `src/ai/ai.js:hierarchicalPreFilter()`
 
-**Controlled by:** `settings.hierarchicalPreFilter` (default: `false`, `settings.js` L196)
+**Controlled by:** `settings.hierarchicalPreFilter` (default: `false`, in `settings.js` `defaultSettings`)
 
-Not a post-pipeline stage — runs inside `runPipeline()` _before_ `applyContextualGating()` and `buildCandidateManifest()`. When enabled and candidate count exceeds `HIERARCHICAL_THRESHOLD = 40` (`ai.js` L311), it makes a lightweight AI call to cluster candidates by category and ask which categories are relevant to the current chat, returning a reduced set.
+Not a post-pipeline stage — runs inside `runPipeline()` _before_ `applyContextualGating()` and `buildCandidateManifest()`. When enabled and candidate count exceeds `HIERARCHICAL_THRESHOLD = 40` (module-scope constant in `ai.js`), it makes a lightweight AI call to cluster candidates by category and ask which categories are relevant to the current chat, returning a reduced set.
 
 - **Returns:** `null` (skip — too few candidates or threshold not met) or a filtered array. An empty array is a valid return (AI selected zero relevant categories).
 - **BUG-396 rescue:** After filtering, entries whose primary keywords are explicitly mentioned in the chat are re-added, preventing high-relevance entries from being silently dropped.
@@ -132,7 +132,7 @@ Not a post-pipeline stage — runs inside `runPipeline()` _before_ `applyContext
 applyReinjectionCooldown(entries, policy, injectionHistory, generationCount, reinjectionCooldown, debugMode)
   → entries[] (filtered)
 ```
-**Location:** `src/stages.js` L239-260
+**Location:** `src/stages.js:applyReinjectionCooldown()`
 
 - Checks `injectionHistory` Map: `trackerKey(entry) → lastInjectedGeneration`
 - Entry skipped if `generationCount - lastGen < reinjectionCooldown`
@@ -149,7 +149,7 @@ applyReinjectionCooldown(entries, policy, injectionHistory, generationCount, rei
 applyRequiresExcludesGating(entries, policy, debugMode)
   → { result: entries[], removed: entries[] }
 ```
-**Location:** `src/stages.js` L275-350
+**Location:** `src/stages.js:applyRequiresExcludesGating()`
 
 **Iterative loop** (max 10 iterations) until stable:
 1. Sort entries descending by priority number (higher number = lower priority, processed first) (BUG-029)
@@ -159,9 +159,9 @@ applyRequiresExcludesGating(entries, policy, debugMode)
    - `excludes`: ANY title in the active set → remove (OR logic).
 3. Repeat if any entry was removed (cascading dependencies)
 
-**Re-sort on return** (L347): Ascending by priority (lower number = higher priority) so downstream `formatAndGroup` budget cap keeps the most important entries.
+**Re-sort on return**: Ascending by priority (lower number = higher priority) so downstream `formatAndGroup` budget cap keeps the most important entries.
 
-**Contradiction detection** (L320-331): Warns if entry A requires B but B excludes A.
+**Contradiction detection**: Warns if entry A requires B but B excludes A.
 
 **Dangling reference handling:** References to entries not in the vault are stripped at finalization time (`resolveLinks` in vault.js), with originals preserved on `_originalRequires`, `_originalExcludes`.
 
@@ -173,7 +173,7 @@ applyRequiresExcludesGating(entries, policy, debugMode)
 applyStripDedup(entries, policy, injectionLog, lookbackDepth, defaultSettings, debugMode)
   → entries[] (filtered)
 ```
-**Location:** `src/stages.js` L368-395
+**Location:** `src/stages.js:applyStripDedup()`
 
 - Reads `chat_metadata.deeplore_injection_log` (array of `{gen, entries[]}`)
 - Takes last `lookbackDepth` log entries
@@ -209,14 +209,14 @@ formatAndGroup(entries, settings, promptTagPrefix)
 
 ## Tracking Functions (Post-Commit)
 
-**Note on numbering:** `stages.js` internally labels `trackGeneration` / `decrementTrackers` / `recordAnalytics` as "Stage 6: Tracking" in its comments (`stages.js` L398). This doc uses Stage 6 for `formatAndGroup` (which lives in `core/matching.js`, not `stages.js`) and labels the tracking functions as Stage 7/8 to reflect their call order in `index.js`. The two numbering schemes are both valid — they describe different slices of the pipeline.
+**Note on numbering:** `stages.js` internally labels `trackGeneration` / `decrementTrackers` / `recordAnalytics` as "Stage 6: Tracking" in its section comment. This doc uses Stage 6 for `formatAndGroup` (which lives in `core/matching.js`, not `stages.js`) and labels the tracking functions as Stage 7/8 to reflect their call order in `index.js`. The two numbering schemes are both valid — they describe different slices of the pipeline.
 
 ### trackGeneration (Stage 7)
 
 ```javascript
 trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker, injectionHistory, settings)
 ```
-**Location:** `src/stages.js` L412-427
+**Location:** `src/stages.js:trackGeneration()`
 
 - Sets `cooldownTracker` for entries with per-entry `cooldown` field (value = `cooldown + 1` to compensate for immediate decrement)
 - Records `injectionHistory` entries for re-injection cooldown (if `reinjectionCooldown > 0`)
@@ -226,7 +226,7 @@ trackGeneration(injectedEntries, generationCount, cooldownTracker, decayTracker,
 ```javascript
 decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings, consecutiveInjections)
 ```
-**Location:** `src/stages.js` L439-480
+**Location:** `src/stages.js:decrementTrackers()`
 
 **Always runs if `pipelineRan` is true** (even with zero matches). Without this, cooldown timers freeze permanently.
 
@@ -239,7 +239,7 @@ decrementTrackers(cooldownTracker, decayTracker, injectedEntries, settings, cons
 ```javascript
 recordAnalytics(matchedEntries, injectedEntries, analyticsData)
 ```
-**Location:** `src/stages.js` L489-524
+**Location:** `src/stages.js:recordAnalytics()`
 
 - Increments `matched` count for all selected entries (pre-budget)
 - Increments `injected` count for actually injected entries (post-budget)

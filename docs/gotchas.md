@@ -19,7 +19,7 @@ if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
 // NOW safe to write
 ```
 
-**Where in code:** `index.js` L288-290 (capture), L341, L444, L463, L477, L540, L548, L673, L707, L723, L823, L832, L838 (checks). Missing a single check = cross-chat data corruption.
+**Where in code:** `index.js: onGenerate()` — `epoch`/`lockEpoch` captured after lock acquisition, re-checked at every commit-phase write (no-match/cooldown-empty/gating-empty branches, prompt commit, cartographer source capture, tracking, analytics, per-chat counts). Missing a single check = cross-chat data corruption.
 
 ---
 
@@ -29,7 +29,7 @@ if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
 
 **Why:** `clearPrompts` deletes all DLE-managed entries from `extension_prompts`. If an early return fires after clearing but before setting new prompts, lore silently disappears. If a stale pipeline reaches `clearPrompts`, it wipes prompts the new pipeline just set.
 
-**Where in code:** `index.js` L553 (correct — inside the `groups.length > 0` block, after final epoch check). Lines L448, L467, L481 (no-match/cooldown-empty/gating-empty branches — guarded by epoch check first).
+**Where in code:** `index.js: onGenerate()` — `clearPrompts()` is called in the `groups.length > 0` commit block (after final epoch check) and in the three early-return branches (no-match, cooldown-empty, gating-empty), each guarded by an epoch check first.
 
 ---
 
@@ -41,7 +41,7 @@ if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
 |---|---|---|
 | Session | Page load only | `aiSearchStats`, `librarianSessionStats` |
 | Chat | `CHAT_CHANGED` | `cooldownTracker`, `decayTracker`, `consecutiveInjections`, `injectionHistory`, `generationCount`, `chatInjectionCounts`, `perSwipeInjectedKeys`, `librarianChatStats` |
-| Generation | Each `onGenerate` run | `loreGapSearchCount` (always reset — L279, unconditional) |
+| Generation | Each `onGenerate` run | `loreGapSearchCount` (always reset in `onGenerate()` after lock acquisition, unconditional) |
 
 **Why:** Resetting a session-scoped stat on chat change loses cross-chat totals. NOT resetting a chat-scoped tracker on chat change leaks stale data into the new chat.
 
@@ -53,7 +53,7 @@ if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
 
 **Why:** Multi-vault support means the same title can exist in different vaults. Bare titles collide, causing one vault's cooldown/analytics to overwrite another's.
 
-**Where:** `src/state.js` L91-93. Used in: `cooldownTracker`, `injectionHistory`, `decayTracker`, `consecutiveInjections`, `chatInjectionCounts`, `perSwipeInjectedKeys`, `analyticsData`.
+**Where:** `src/state.js: trackerKey()`. Used in: `cooldownTracker`, `injectionHistory`, `decayTracker`, `consecutiveInjections`, `chatInjectionCounts`, `perSwipeInjectedKeys`, `analyticsData`.
 
 ---
 
@@ -63,7 +63,7 @@ if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
 
 **Safe to show in:** Drawer Browse tab, graph, diagnostics, Librarian's `get_writing_guide` tool.
 
-**Where:** `src/state.js` L113-115 (`getWriterVisibleEntries`). Called at `index.js` L348 (pipeline snapshot). If you add a new path that sends vault data to the AI, it MUST go through this filter.
+**Where:** `src/state.js: getWriterVisibleEntries()`. Called in `index.js: onGenerate()` at the vault snapshot step. If you add a new path that sends vault data to the AI, it MUST go through this filter.
 
 ---
 
@@ -73,7 +73,7 @@ if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
 
 **Why:** Other extensions may use ST's ToolManager. ST re-calls Generate after each tool invocation. Lore from the original generation is still in context. Re-running the pipeline wastes tokens. DLE's own Librarian uses the agentic loop (not ToolManager), so DLE tool calls never trigger this guard.
 
-**Where:** `index.js` L215-222.
+**Where:** `index.js: onGenerate()` — tool-call continuation skip block (checks `lastMsg.extra.tool_invocations` / `lastMsg.is_system` on the final chat entry).
 
 ---
 
@@ -88,7 +88,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why:** Without the lockEpoch check, the stale pipeline's `finally` block releases the new pipeline's lock, allowing a third concurrent pipeline to start.
 
-**Where:** `index.js` L219-235 (lock acquisition + stale detection), L832-834 (conditional release in finally). `src/state.js` L182-193 (setter increments epoch on acquire).
+**Where:** `index.js: onGenerate()` — lock acquisition + 30s stale detection block; and the conditional release in the outer `finally` (`if (lockEpoch === generationLockEpoch) setGenerationLock(false)`). `src/state.js: setGenerationLock()` (increments epoch on acquire).
 
 ---
 
@@ -98,7 +98,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why (historical):** The old ToolManager approach created `tool_invocation` system messages and intermediate assistant messages that needed post-hoc stripping. The agentic loop eliminates this entire class of bugs — no `stripDleSystemMessages`, no `_cleanupOrphanedDleIntermediates`, no GENERATION_ENDED consolidation.
 
-**Where:** `index.js` L822-844 (single `addOneMessage` call after loop completes).
+**Where:** `index.js: onGenerate()` agentic loop dispatch branch — the `onProse` callback invokes `saveReply` once after the loop completes (single `addOneMessage` via `saveReply`).
 
 ---
 
@@ -111,7 +111,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 - Delete + regenerate produces same content → hash collision → false rollback
 - The slot+swipe_id key is stable across both scenarios
 
-**Where:** `index.js` L366-391 (rollback logic), L716-761 (per-swipe injection count tracking). `src/state.js` L162-170 (state variable + comment).
+**Where:** `index.js: onGenerate()` — `_snapMatch` swipe-rollback block (early in the try), and the per-chat injection counts / per-swipe tracking block (Stage 9, `_countsStart`). `src/state.js: perSwipeInjectedKeys` state var (BUG-291/292/293 comment).
 
 ---
 
@@ -126,7 +126,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 - `hierarchicalPreFilter` uses `releaseHalfOpenProbe()` — its outcome shouldn't affect the breaker since `aiSearch()` handles its own probing
 - Stale probes auto-reset after 60s (`AI_PROBE_TIMEOUT`)
 
-**Where:** `src/state.js` L246-350 (full state machine with comments).
+**Where:** `src/state.js` — AI circuit breaker state machine: `recordAiFailure()`, `recordAiSuccess()`, `releaseHalfOpenProbe()`, `isAiCircuitOpen()`, `tryAcquireHalfOpenProbe()` (see header comment on the 3-state CLOSED/OPEN/HALF-OPEN machine).
 
 ---
 
@@ -136,7 +136,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why (historical):** The old cache required every mutator to remember `invalidateSettingsCache()`. BUG-088 removed the cache because the invalidation discipline was brittle. The `SETTINGS_UPDATED` event handler still calls the no-op for backward compatibility.
 
-**Where:** `settings.js` L414-430 — BUG-088 comment + no-op stub.
+**Where:** `settings.js: invalidateSettingsCache()` — BUG-088 comment + no-op stub.
 
 ---
 
@@ -156,7 +156,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why (BUG from `bugs_ongenerate_scope.md`):** `_updatePipelineStatus` was originally defined inside `init()` scope. `onGenerate` couldn't see it — every generation crashed silently because ST swallows interceptor errors. The error was invisible until someone checked the console.
 
-**Where:** `index.js` L160-175 (`_updatePipelineStatus` and `_removePipelineStatus` are module-scope functions).
+**Where:** `index.js: _updatePipelineStatus()` and `_removePipelineStatus()` (module-scope functions).
 
 ---
 
@@ -166,7 +166,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why (BUG-063):** `_teardownDleExtension()` iterates `_dleListeners.eventSource` to remove every tracked listener on teardown (page unload, re-init). A listener registered directly with `eventSource.on()` cannot be removed on teardown, causing duplicate handlers on reload and leaked closures.
 
-**Where:** `index.js` L80-89 (`_registerEs` definition), L91-107 (`_teardownDleExtension`), L858-864 (re-init guard). Exception: per-generation listeners wired inside `onGenerate` (e.g. `GENERATION_STOPPED`, `STREAM_TOKEN_RECEIVED`) are torn down in the `finally` block, not via `_registerEs`.
+**Where:** `index.js: _registerEs()` and `_teardownDleExtension()` (module-scope), plus the re-init guard at the top of the `jQuery()` init (checks `_dleInitialized`). Exception: per-generation listeners wired inside `onGenerate` (e.g. `GENERATION_STOPPED`, `STREAM_TOKEN_RECEIVED`) are torn down in the `finally` block, not via `_registerEs`.
 
 ---
 
@@ -176,7 +176,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why (BUG-275):** Resetting the flag here races with a scribe that is still mid-`await` on chat A. When the user returns to chat A, a second scribe starts concurrently — two `writeNotes` + two reindexes race, corrupting state.
 
-**Where:** `index.js` L1614-1617 (comment explaining why NOT to reset). `src/ai/scribe.js` L215 (flag released in scribe's own `finally`).
+**Where:** `index.js` CHAT_CHANGED handler (BUG-275 comment explaining why NOT to reset). `src/ai/scribe.js: runScribe()` `finally` block (flag released in scribe's own `finally`).
 
 ---
 
@@ -186,7 +186,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why (BUG-015/AUDIT-C05):** Without this, a zombie build (stuck in a slow Obsidian fetch) that unsticks after a force-release will commit a stale index on top of a fresh one, silently reverting vault changes.
 
-**Where:** `src/state.js` L176-179 (`buildEpoch` + setter). `src/vault/vault.js` L259-265 (`buildIndex` capture + zombie helper), L486 (commit guard), L593-596 (`buildIndexWithReuse` capture), L671 (mid-loop check), L776 (final check before commit). `src/vault/sync.js` L94 (force-release bump).
+**Where:** `src/state.js: buildEpoch` + `setBuildEpoch()`. `src/vault/vault.js: buildIndex()` (captures `capturedEpoch` + defines `isZombie()`; checks at every `isZombie()` call site, including the final commit guard). `src/vault/vault.js: buildIndexWithReuse()` (separate `capturedBuildEpoch` + `isZombie()` checked mid-loop and before commit). `src/vault/sync.js` — stuck-indexing watchdog (bumps `buildEpoch` on force-release).
 
 ---
 
@@ -194,9 +194,9 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Rule:** The health check in `src/ui/diagnostics.js` must use `vaultIndex` (the live state binding), not a local `entries` variable.
 
-**Why (BUG FIX):** At ~line 145, the health check was referencing `entries` (undefined in that scope) instead of `vaultIndex` when running exclude-reference validation. This caused the health check to crash on any vault that had entries with `excludes` references, silently swallowing the error and returning incomplete diagnostics.
+**Why (BUG FIX):** In `runHealthCheck()`'s exclude-reference validation, the code was referencing `entries` (undefined in that scope) instead of `vaultIndex`. This caused the health check to crash on any vault that had entries with `excludes` references, silently swallowing the error and returning incomplete diagnostics.
 
-**Where:** `src/ui/diagnostics.js` ~L145.
+**Where:** `src/ui/diagnostics.js: runHealthCheck()` — exclude-reference validation block (BUG-AUDIT-H22).
 
 ---
 
@@ -230,7 +230,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Pattern:** For a regex with N capture groups, the fn should have exactly `N + 4` parameters: `(match, ...Ngroups, offset, fullString, ctx)`.
 
-**Where:** `src/diagnostics/scrubber.js` L70-140 (PATTERNS array).
+**Where:** `src/diagnostics/scrubber.js: PATTERNS` array.
 
 ---
 
@@ -240,7 +240,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why:** The agentic loop runs multiple iterations (up to 15) with awaits between each. A chat switch or stop-button press during any iteration must bail the loop immediately. Without this, a stale loop writes tool results and creates messages in the wrong chat.
 
-**Where:** `src/librarian/agentic-loop.js` L123-132 (epoch + abort check at iteration start).
+**Where:** `src/librarian/agentic-loop.js: runAgenticLoop()` — epoch + abort check at iteration start of the main `for` loop.
 
 ---
 
@@ -248,9 +248,9 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Rule:** Call `setGenerationLockTimestamp(Date.now())` before every `callWithTools()` call and before tool processing in the agentic loop.
 
-**Why:** The generation lock has a 30s stale detection (`lockAge > 30_000` in onGenerate L233). The agentic loop can run for much longer than 30s (multiple search + API round trips). Without keepalive, the stale-lock detector force-releases the lock mid-loop, bumping `generationLockEpoch`. The loop's next epoch check sees a mismatch and bails, silently dropping the generation.
+**Why:** The generation lock has a 30s stale detection (`lockAge > 30_000` in `onGenerate()`'s lock-acquisition block). The agentic loop can run for much longer than 30s (multiple search + API round trips). Without keepalive, the stale-lock detector force-releases the lock mid-loop, bumping `generationLockEpoch`. The loop's next epoch check sees a mismatch and bails, silently dropping the generation.
 
-**Where:** `src/librarian/agentic-loop.js` L157 (before API call), L187 (before tool processing). `src/state.js` L208 (`setGenerationLockTimestamp` — updates timestamp without toggling the lock).
+**Where:** `src/librarian/agentic-loop.js: runAgenticLoop()` — `setGenerationLockTimestamp(Date.now())` is called twice per iteration (before `callWithTools()` and before tool processing). `src/state.js: setGenerationLockTimestamp()` (updates timestamp without toggling the lock).
 
 ---
 
@@ -260,7 +260,7 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Why:** `abort()` calls ST's `unblockGeneration()`, which re-enables the send button. Without the guard, the user can trigger a new generation while the agentic loop is still running, causing race conditions with `chat.push` and `addOneMessage`.
 
-**Where:** `index.js` L783-785 (lock), L858-860 (restore in finally).
+**Where:** `index.js: onGenerate()` agentic-loop dispatch branch — `setSendButtonState(true)` + `deactivateSendButtons()` immediately after `abort()`; restored in the dispatch `finally` via `setSendButtonState(false)` + `activateSendButtons()`.
 
 ---
 
@@ -306,11 +306,11 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 ## 28. `CHARACTER_MESSAGE_RENDERED` Cleans `message.mes` Asynchronously After `saveReply`
 
-**Rule:** Do NOT assume `message.mes` is clean immediately after `await saveReply(...)`. Cleaning happens in the CHARACTER_MESSAGE_RENDERED event handler (`index.js` L1372-1380), which fires asynchronously after saveReply resolves. Code that runs directly after `await saveReply(...)` may still see raw text with `<dle-notes>` tags.
+**Rule:** Do NOT assume `message.mes` is clean immediately after `await saveReply(...)`. Cleaning happens in the CHARACTER_MESSAGE_RENDERED event handler (`index.js` — the AI Notebook fallback-extraction block inside the `CHARACTER_MESSAGE_RENDERED` handler), which fires asynchronously after saveReply resolves. Code that runs directly after `await saveReply(...)` may still see raw text with `<dle-notes>` tags.
 
 **Why:** `saveReply` creates the message and emits `CHARACTER_MESSAGE_RENDERED`. However, ST's event dispatch resolves asynchronously — DLE's handler (which sets `message.mes = cleanedMessage`) runs after the current continuation. Swipes are written from the raw text by saveReply itself; the handler updates only `message.mes` and the DOM, not swipe slots. The raw text with notes is therefore preserved in swipes and only the in-memory `message.mes` / DOM are cleaned.
 
-**Where:** `index.js` `CHARACTER_MESSAGE_RENDERED` handler (`L1342-1387`), agentic loop dispatch (Phase 8b).
+**Where:** `index.js` `CHARACTER_MESSAGE_RENDERED` handler (registered via `_registerEs`), agentic loop dispatch (Phase 8b).
 
 ---
 
@@ -370,9 +370,9 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Rule:** When touching the circuit breaker or adding new AI callers, be aware that `hierarchicalPreFilter` acquires and releases its own `tryAcquireHalfOpenProbe()` / `releaseHalfOpenProbe()` slot independently from `aiSearch()`.
 
-**Why:** `hierarchicalPreFilter` is optional and its success/failure should not affect the breaker state. It uses `releaseHalfOpenProbe()` on both success AND failure — it never calls `recordAiSuccess()` or `recordAiFailure()`. This means a hierarchical pre-filter failure doesn't trip the circuit, and a success doesn't clear it. Its probe slot is separate from the main `aiSearch()` call — both can be in-flight in the same pipeline pass (see `ai.js` L354-356 and L497-500 for the two separate `tryAcquireHalfOpenProbe()` calls).
+**Why:** `hierarchicalPreFilter` is optional and its success/failure should not affect the breaker state. It uses `releaseHalfOpenProbe()` on both success AND failure — it never calls `recordAiSuccess()` or `recordAiFailure()`. This means a hierarchical pre-filter failure doesn't trip the circuit, and a success doesn't clear it. Its probe slot is separate from the main `aiSearch()` call — both can be in-flight in the same pipeline pass (see the two separate `tryAcquireHalfOpenProbe()` calls, one in each function).
 
-**Where:** `src/ai/ai.js` `hierarchicalPreFilter()` (L354-469) and `aiSearch()` (L497-500).
+**Where:** `src/ai/ai.js: hierarchicalPreFilter()` and `src/ai/ai.js: aiSearch()` — each acquires its own probe.
 
 ---
 
@@ -380,9 +380,9 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 
 **Rule:** Any code that reads `message.extra.deeplore_tool_calls` must account for whether `librarianPerMessageActivity` is ON or OFF. Its presence is NOT guaranteed.
 
-**Why:** When OFF (default), `deeplore_tool_calls` is deleted from `message.extra` on every swipe (`index.js` L1432-1436). Librarian dropdowns are always ephemeral. Gaps accumulate across messages. When ON, tool calls and gap records persist per-message across swipes, and gaps are cleared at generation start instead. This setting changes the entire gap and dropdown lifecycle.
+**Why:** When OFF (default), `deeplore_tool_calls` is deleted from `message.extra` on every swipe (in `index.js` MESSAGE_SWIPED handler — per-message-activity-off branch). Librarian dropdowns are always ephemeral. Gaps accumulate across messages. When ON, tool calls and gap records persist per-message across swipes, and gaps are cleared at generation start instead. This setting changes the entire gap and dropdown lifecycle.
 
-**Where:** `index.js` MESSAGE_SWIPED handler (L1432-1436), `onGenerate` gap clearing (L264-266). `src/state.js` (`librarianPerMessageActivity` read via `getSettings()`).
+**Where:** `index.js` MESSAGE_SWIPED handler (per-message-activity-off branch deletes `deeplore_tool_calls`), `index.js: onGenerate()` gap-clearing branch (`persistGaps([])` when per-message-activity is on). `src/state.js` (`librarianPerMessageActivity` read via `getSettings()`).
 
 ---
 

@@ -400,7 +400,18 @@ export async function openRuleBuilder() {
             // Rebuild index to pick up new field extractions
             const fieldNames = newDefs.map(f => f.name).join(', ');
             toastr.success(`Saved ${newDefs.length} field${newDefs.length !== 1 ? 's' : ''} (${fieldNames}). Rebuilding index...`, 'Fields Updated');
-            buildIndex().catch(err => console.warn('[DLE] Index rebuild after field save failed:', err.message));
+            // BUG-AUDIT: surface reindex failure — fields saved but vault still
+            // indexed without new extractions is a silent data-drift footgun.
+            buildIndex().catch(err => {
+                console.warn('[DLE] Index rebuild after field save failed:', err?.message);
+                try {
+                    toastr.error(
+                        `Fields saved, but index rebuild failed: ${err?.message || 'unknown error'}. Run /dle-force-refresh or rebuild from the drawer.`,
+                        'Reindex Failed',
+                        { timeOut: 12000 },
+                    );
+                } catch { /* toastr unavailable */ }
+            });
 
             // Close the popup by clicking the dialog's close button
             $container.closest('.dialogue_popup').find('.dialogue_popup_ok').trigger('click');

@@ -2892,7 +2892,7 @@ test('categorizeRejections: gatedOut entries', () => {
 });
 
 test('categorizeRejections: contextualGatingRemoved', () => {
-    const trace = { contextualGatingRemoved: ['A', 'B'] };
+    const trace = { contextualGatingRemoved: [{ title: 'A', reason: 'r' }, { title: 'B', reason: 'r' }] };
     const groups = categorizeRejections(trace, new Set());
     assertEqual(groups.length, 1);
     assertEqual(groups[0].stage, 'contextual_gating');
@@ -2900,7 +2900,7 @@ test('categorizeRejections: contextualGatingRemoved', () => {
 });
 
 test('categorizeRejections: cooldownRemoved', () => {
-    const trace = { cooldownRemoved: ['A'] };
+    const trace = { cooldownRemoved: [{ title: 'A', reason: 'Cooldown active' }] };
     const groups = categorizeRejections(trace, new Set());
     assertEqual(groups[0].stage, 'cooldown');
     assertEqual(groups[0].entries[0].reason, 'Cooldown active');
@@ -2914,7 +2914,7 @@ test('categorizeRejections: budgetCut with tokens', () => {
 });
 
 test('categorizeRejections: stripDedupRemoved', () => {
-    const trace = { stripDedupRemoved: ['A'] };
+    const trace = { stripDedupRemoved: [{ title: 'A', reason: 'Already in context' }] };
     const groups = categorizeRejections(trace, new Set());
     assertEqual(groups[0].stage, 'strip_dedup');
     assertEqual(groups[0].entries[0].reason, 'Already in context');
@@ -2935,7 +2935,7 @@ test('categorizeRejections: warmupFailed', () => {
 test('categorizeRejections: excludes injected titles from all groups', () => {
     const trace = {
         gatedOut: [{ title: 'A', requires: [], excludes: [] }],
-        cooldownRemoved: ['B'],
+        cooldownRemoved: [{ title: 'B', reason: 'Cooldown active' }],
     };
     const groups = categorizeRejections(trace, new Set(['A', 'B']));
     assertEqual(groups.length, 0);
@@ -2949,7 +2949,7 @@ test('categorizeRejections: AI rejected cross-references other stages', () => {
             { title: 'C', matchedBy: 'night' },
         ],
         aiSelected: [{ title: 'A' }],
-        cooldownRemoved: ['B'], // B is accounted for by cooldown, not AI rejection
+        cooldownRemoved: [{ title: 'B', reason: 'Cooldown active' }], // B is accounted for by cooldown, not AI rejection
     };
     const groups = categorizeRejections(trace, new Set());
     const aiGroup = groups.find(g => g.stage === 'ai_rejected');
@@ -2961,12 +2961,12 @@ test('categorizeRejections: AI rejected cross-references other stages', () => {
 test('categorizeRejections: full trace with all 8 categories', () => {
     const trace = {
         gatedOut: [{ title: 'A', requires: ['X'], excludes: [] }],
-        contextualGatingRemoved: ['B'],
+        contextualGatingRemoved: [{ title: 'B', reason: 'r' }],
         keywordMatched: [{ title: 'C', matchedBy: 'key' }, { title: 'D', matchedBy: 'key2' }],
         aiSelected: [{ title: 'D' }],
-        cooldownRemoved: ['E'],
+        cooldownRemoved: [{ title: 'E', reason: 'Cooldown active' }],
         budgetCut: [{ title: 'F', tokens: 100 }],
-        stripDedupRemoved: ['G'],
+        stripDedupRemoved: [{ title: 'G', reason: 'Already in context' }],
         probabilitySkipped: [{ title: 'H' }],
         warmupFailed: [{ title: 'I' }],
     };

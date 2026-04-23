@@ -36,7 +36,6 @@ export const TOOL_ACTIONS = {
     'scribe-history': '/dle-scribe-history',
     'setup': '/dle-setup',
     'pins-blocks': '/dle-pins',
-    'help': '/dle-help',
     'refresh': '/dle-refresh',
 };
 

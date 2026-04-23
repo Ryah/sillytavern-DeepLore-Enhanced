@@ -10,10 +10,6 @@ import { validateSettings } from './core/utils.js';
 
 export const MODULE_NAME = 'deeplore_enhanced';
 
-/** String enum constants to avoid magic strings */
-export const GATING_TOLERANCE = { STRICT: 'strict', MODERATE: 'moderate', LENIENT: 'lenient' };
-export const PIPELINE_MODE = { TWO_STAGE: 'two-stage', AI_ONLY: 'ai-only', KEYWORDS_ONLY: 'keywords-only' };
-export const CONFLICT_RESOLUTION = { FIRST: 'first', LAST: 'last', MERGE: 'merge', ALL: 'all' };
 export const PROMPT_TAG = 'deeplore_enhanced';
 export const PROMPT_TAG_PREFIX = 'deeplore_';
 
@@ -254,7 +250,7 @@ export const defaultSettings = {
     librarianRelatedEntriesMaxChars: 4000, // max chars for related entries context
     librarianDraftMaxChars: 4000,       // max chars for draft JSON in session prompt
     librarianChatContextMaxChars: 4000, // max chars for chat context in session prompt
-    librarianSystemPromptMode: 'default', // 'default' | 'append' | 'override'
+    librarianSystemPromptMode: 'default', // 'default' | 'append' | 'override' | 'strict-override'
     librarianCustomSystemPrompt: '',    // custom system prompt text (used in append/override modes)
     librarianShowToolCalls: true,      // show "Consulted lore vault" dropdown on assistant messages
     librarianPerMessageActivity: false, // tie gap/flag records to messages — clear on new generation, keep on swipe, delete on message delete
@@ -264,33 +260,6 @@ export const defaultSettings = {
     _wizardCompleted: false,
     // Settings version — increment to trigger migrations
     settingsVersion: 3,
-};
-
-/**
- * Canonical icon classes for every DLE tool/action.
- * Import this from settings.js to keep icons consistent across drawer, settings popup, and commands.
- * All values are FA class names WITHOUT the "fa-solid " prefix.
- */
-export const ICON_REGISTRY = {
-    // Tools
-    scribe:         'fa-feather-pointed',
-    autoSuggest:    'fa-wand-magic-sparkles',
-    librarian:      'fa-book-bookmark',
-    aiSearch:       'fa-brain',
-    aiNotepad:      'fa-robot',
-    authorNotebook: 'fa-book',
-    graph:          'fa-diagram-project',
-    summarize:      'fa-wand-magic-sparkles',
-    optimizeKeys:   'fa-key',
-    import:         'fa-file-import',
-    cartographer:   'fa-circle-question',
-    // Actions
-    settings:       'fa-gear',
-    refresh:        'fa-sync',
-    newLore:        'fa-plus',
-    health:         'fa-heartbeat',
-    // Sections
-    features:       'fa-puzzle-piece',
 };
 
 /**
@@ -435,6 +404,7 @@ export const settingsConstraints = {
     // BUG-344: string-enum whitelist — validateSettings resets to defaults on mismatch.
     injectionMode: { enum: ['extension', 'prompt_list'] },
     librarianConnectionMode: { enum: ['inherit', 'profile', 'proxy'] },
+    librarianSystemPromptMode: { enum: ['default', 'append', 'override', 'strict-override'] },
 };
 
 // BUG-088: No settings cache. ST's native pattern is to read `extension_settings[MODULE_NAME]`
@@ -492,6 +462,9 @@ export function getSettings() {
     if (storedVersion < currentVersion) {
         runMigrations(s, storedVersion, currentVersion);
         s.settingsVersion = currentVersion;
+        // Re-validate after migration so any mutated values are clamped/reset by the
+        // current constraint whitelist before first use.
+        validateSettings(s, settingsConstraints, defaultSettings);
         // Persist migration result so it doesn't re-run on next load
         try { saveSettingsDebounced(); } catch { /* may not be available pre-init */ }
     }

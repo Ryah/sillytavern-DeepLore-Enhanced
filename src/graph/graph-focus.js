@@ -223,7 +223,10 @@ export function initFocus(gs, dbg) {
             delete n._targetY;
         }
 
-        // Restore pre-focus positions if available, else randomize
+        // Restore pre-focus positions if available, else randomize.
+        // Restored positions are already settled → keep physics cold so nodes don't drift
+        // and hover doesn't bump neighbors. Random fallback needs reheat to settle.
+        let restored = false;
         if (gs._preFocusPositions) {
             for (const n of nodes) {
                 const saved = gs._preFocusPositions.get(n.id);
@@ -234,6 +237,7 @@ export function initFocus(gs, dbg) {
                 n.vx = 0; n.vy = 0;
             }
             gs._preFocusPositions = null;
+            restored = true;
         } else {
             for (const n of nodes) {
                 if (!n.pinned) {
@@ -252,9 +256,15 @@ export function initFocus(gs, dbg) {
         gs._egoLerpActive = false;
         gs.cachedVisibleCount = nodes.length;
 
-        gs.alpha = 0.8; gs.simFrame = 0;
+        if (restored) {
+            gs.alpha = 0;
+            gs.maxDelta = 0;
+            gs.hasSpringEnergy = false;
+        } else {
+            gs.alpha = 0.8; gs.simFrame = 0;
+            gs.hasSpringEnergy = true;
+        }
         gs.needsDraw = true;
-        gs.hasSpringEnergy = true;
 
         const backBtn = document.getElementById('dle-graph-back');
         if (backBtn) backBtn.style.display = 'none';

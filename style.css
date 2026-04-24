@@ -434,6 +434,19 @@ dle-notes { display: none !important; }
     border-radius: var(--dle-radius-sm);
 }
 
+/* --- Cartographer token bar (per-entry, distinct from drawer's container/fill) --- */
+.dle-carto-token-bar {
+    height: 6px;
+    background: var(--dle-border);
+    border-radius: var(--dle-radius-sm);
+    overflow: hidden;
+    margin: 4px 0;
+}
+.dle-carto-token-bar-fill {
+    height: 100%;
+    border-radius: var(--dle-radius-sm);
+}
+
 /* --- Keyword highlight --- */
 .dle-highlight {
     background: color-mix(in srgb, var(--SmartThemeQuoteColor) 30%, transparent);
@@ -2704,8 +2717,9 @@ button.dle-browse-block.dle-block-active {
 .dle-ctx-detail {
     display: grid;
     grid-template-rows: 0fr;
+    grid-auto-rows: 0fr;
     opacity: 0;
-    transition: grid-template-rows 250ms ease-out, opacity 200ms ease;
+    transition: grid-template-rows 250ms ease-out, grid-auto-rows 250ms ease-out, opacity 200ms ease;
 }
 .dle-ctx-detail > * {
     min-height: 0;
@@ -2713,6 +2727,7 @@ button.dle-browse-block.dle-block-active {
 }
 .dle-ctx-detail.dle-ctx-expanded {
     grid-template-rows: 1fr;
+    grid-auto-rows: 1fr;
     opacity: 1;
     margin-top: var(--dle-space-1);
 }

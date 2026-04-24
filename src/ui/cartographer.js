@@ -146,8 +146,8 @@ export function showSourcesPopup(sources, opts = {}) {
             html += ` <button class="dle-carto-browse-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
             html += `<span class="dle-text-xs" style="color: ${barColor};">~${src.tokens} tok</span>`;
             html += `</div>`;
-            html += `<div class="dle-token-bar">`;
-            html += `<div class="dle-token-bar-fill" style="background: ${barColor}; width: ${pct}%;"></div>`;
+            html += `<div class="dle-carto-token-bar">`;
+            html += `<div class="dle-carto-token-bar-fill" style="background: ${barColor}; width: ${pct}%;"></div>`;
             html += `</div>`;
             const vaultLabel = src.vaultSource && (settings.vaults || []).length > 1 ? ` · <em>${escapeHtml(src.vaultSource)}</em>` : '';
             const folderLabel = src.entry?.folderPath ? ` · <span class="dle-entry-folder">${escapeHtml(src.entry.folderPath)}</span>` : '';

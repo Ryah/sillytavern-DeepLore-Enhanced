@@ -29,8 +29,8 @@ import {
     invalidateTemperatureCache,
 } from './drawer-state.js';
 import {
-    renderStatusZone, renderInjectionTab, renderBrowseTab, renderBrowseWindow,
-    renderGatingTab, renderTimers, renderFooter,
+    renderStatusZone, renderInjectionTab, updateInjectionCountBadges,
+    renderBrowseTab, renderBrowseWindow, renderGatingTab, renderTimers, renderFooter,
 } from './drawer-render.js';
 import { renderLibrarianTab } from './drawer-render-librarian.js';
 import {
@@ -631,18 +631,19 @@ export async function createDrawerPanel() {
 
     // Per-chat injection counts — Browse badges + Why? tab reflect the count; without this
     // subscriber the UI stays stale between pipeline runs that mutate via direct .set().
+    // Why? tab uses a surgical badge update (no DOM rebuild / no animation restart).
     drawerListeners.stateObservers.push(onChatInjectionCountsUpdated(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderBrowseTab);
-        scheduleRender(renderInjectionTab);
+        scheduleRender(updateInjectionCountBadges);
     }));
 
-    // Pipeline trace updates — rejected-entry lookup + Why-Not fallback display.
-    // Dedicated observer (not onPipelineComplete) so SR does NOT announce "Pipeline complete"
-    // for every trace mutation.
+    // Pipeline trace updates — Browse tab's rejected-entry lookup depends on this.
+    // Why? tab NOT re-rendered here: onInjectionSourcesReady already covers the same
+    // pipeline commit (trace and sources are set together), and CHAT_CHANGED's trace
+    // clear is covered by onPipelineComplete's empty-sources branch.
     drawerListeners.stateObservers.push(onPipelineTraceUpdated(() => {
         if (drawerDestroyed) return;
-        scheduleRender(renderInjectionTab);
         scheduleRender(renderBrowseTab);
     }));
 

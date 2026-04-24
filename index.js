@@ -1922,21 +1922,22 @@ jQuery(async function () {
             // fire before the index is built, and pruning against an empty index would wipe
             // all legitimate counts.
             const savedCounts = chat_metadata?.deeplore_chat_counts;
+            let nextCounts;
             if (savedCounts && vaultIndex.length > 0) {
                 const validKeys = new Set(vaultIndex.map(e => trackerKey(e)));
-                const filtered = new Map();
+                nextCounts = new Map();
                 for (const [k, v] of Object.entries(savedCounts)) {
-                    if (validKeys.has(k)) filtered.set(k, v);
+                    if (validKeys.has(k)) nextCounts.set(k, v);
                 }
-                setChatInjectionCounts(filtered);
                 // Persist pruned map so orphans don't keep hydrating next reload
-                if (filtered.size !== Object.keys(savedCounts).length) {
-                    chat_metadata.deeplore_chat_counts = Object.fromEntries(filtered);
+                if (nextCounts.size !== Object.keys(savedCounts).length) {
+                    chat_metadata.deeplore_chat_counts = Object.fromEntries(nextCounts);
                     saveMetadataDebounced();
                 }
             } else {
-                setChatInjectionCounts(savedCounts ? new Map(Object.entries(savedCounts)) : new Map());
+                nextCounts = savedCounts ? new Map(Object.entries(savedCounts)) : new Map();
             }
+            setChatInjectionCounts(nextCounts);
 
             // BUG-074: Validate deeplore_folder_filter against current folderList.
             // Stale folder names (after a rename/delete in the vault) would otherwise

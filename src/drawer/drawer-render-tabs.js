@@ -26,6 +26,8 @@ let _cachedExpandedPreviewHtml = null;
 let _cachedExpandedPreviewKey = null;
 let _cachedFieldValues = null;
 let _cachedFieldValuesIndexLen = -1;
+// Hash of last renderInjectionTab inputs — skip render when inputs haven't changed.
+let _lastInjectionRenderHash = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Why? Tab
@@ -40,6 +42,20 @@ export function renderInjectionTab() {
     const sources = lastInjectionSources;
     const prev = previousSources;
     const trace = lastPipelineTrace;
+
+    // Content-hash guard — skip full re-render when inputs are unchanged.
+    // Captures everything this tab renders from: sources (title/tokens/matchedBy/vaultSource),
+    // filter state, and trace's rejected-entry summary. Counts are updated surgically via
+    // updateInjectionCountBadges() and are intentionally excluded from the hash.
+    const _hashParts = [
+        ds.whyTabFilter || '',
+        generationLock ? '1' : '0',
+        sources ? sources.map(s => `${s.title}|${s.tokens}|${s.matchedBy}|${s.vaultSource || ''}`).join(';') : 'null',
+        trace ? `${trace.injected?.length ?? 0}:${trace.matched?.length ?? 0}:${trace.aiSelected?.length ?? 0}:${trace.budgetCut?.length ?? 0}` : 'null',
+    ];
+    const _hash = _hashParts.join('#');
+    if (_hash === _lastInjectionRenderHash) return;
+    _lastInjectionRenderHash = _hash;
     const $list = $drawer.find('.dle-why-list');
     const $empty = $drawer.find('#dle-panel-injection .dle-empty-state');
     const $diff = $drawer.find('.dle-section-diff');
@@ -114,7 +130,8 @@ export function renderInjectionTab() {
             const matchLabel = getMatchLabel(src.matchedBy);
 
             const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens != null ? src.tokens : 'unknown'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
-            h += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}" data-title="${escapeHtml(src.title)}">`;
+            const countKey = `${src.vaultSource || ''}:${src.title}`;
+            h += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}" data-title="${escapeHtml(src.title)}" data-count-key="${escapeHtml(countKey)}">`;
             h += `<span class="dle-why-title">`;
             if (uri) {
                 h += `<a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">${escapeHtml(src.title)}</a>`;
@@ -202,6 +219,41 @@ export function renderInjectionTab() {
     } else {
         $whyNotSection.removeClass('dle-visible');
     }
+}
+
+/**
+ * Surgically update `×N` count badges on Why? tab entries without rebuilding DOM.
+ * Called in place of renderInjectionTab when only chatInjectionCounts changed —
+ * avoids nuking the entry list (which would replay stagger-in animations) and
+ * preserves DOM identity.
+ */
+export function updateInjectionCountBadges() {
+    const $drawer = ds.$drawer;
+    if (!$drawer) return;
+    const $entries = $drawer.find('.dle-why-list .dle-why-entry');
+    if (!$entries.length) return;
+    $entries.each(function () {
+        const $entry = $(this);
+        const key = $entry.attr('data-count-key');
+        if (!key) return;
+        const count = chatInjectionCounts.get(key) || 0;
+        const $meta = $entry.find('.dle-why-meta');
+        let $badge = $meta.find('.dle-inject-count');
+        if (count > 0) {
+            const label = `Injected ${count} times this chat`;
+            if ($badge.length === 0) {
+                // Insert before the match-type label so badge order matches buildWhyHtml.
+                const $matchLabel = $meta.find('.dle-why-match');
+                const badgeHtml = `<span class="dle-inject-count" title="${label}" aria-label="${label}">${count}×</span>`;
+                if ($matchLabel.length) $matchLabel.before(badgeHtml);
+                else $meta.append(badgeHtml);
+            } else {
+                $badge.text(`${count}×`).attr('title', label).attr('aria-label', label);
+            }
+        } else if ($badge.length) {
+            $badge.remove();
+        }
+    });
 }
 
 // ════════════════════════════════════════════════════════════════════════════

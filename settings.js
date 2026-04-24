@@ -126,7 +126,7 @@ export const defaultSettings = {
     aiSearchProxyUrl: 'http://localhost:42069',
     aiSearchModel: '',
     aiSearchMaxTokens: 1024,
-    aiSearchTimeout: 10000,
+    aiSearchTimeout: 20000,
     aiSearchMode: 'two-stage',
     aiSearchScanDepth: 4,
     aiSearchSystemPrompt: '',

@@ -284,6 +284,11 @@ export async function createDrawerPanel() {
         $drawer.find('#deeploreDrawerIcon').addClass('drawerPinnedOpen');
     }
 
+    // Apply compact-tabs class if opted in
+    if (drawerSettings.drawerCompactTabs) {
+        $drawer.find('.dle-tab-bar').addClass('dle-compact-tabs');
+    }
+
     // Wire up pin toggle — matches ST's native drawer pin pattern
     $drawer.find('#dle-drawer-pin').on('click', function () {
         const pinned = $(this).prop('checked');

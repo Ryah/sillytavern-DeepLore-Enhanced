@@ -15,6 +15,7 @@ import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
 import { showBrowsePopup } from './popups.js';
 import { parseWorldInfoJson, importEntries } from '../vault/import.js';
 import { world_names, loadWorldInfo } from '../../../../../world-info.js';
+import { dedupWarning } from '../toast-dedup.js';
 
 export function registerVaultCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -222,6 +223,17 @@ export function registerVaultCommands() {
                     console.warn('[DLE] Import errors:', result.errors);
                 } else {
                     toastr.success(`Imported ${result.imported} entries${renamedNote}.`, 'DeepLore Enhanced');
+                }
+
+                // C.2: Warn about the WI 'Order' → DLE 'priority' semantic flip. Priorities
+                // round-tripped as raw numbers, but WI sorts high-first while DLE sorts
+                // low-first — user-visible behavior differs. One-shot toast per import.
+                if (result.imported > 0) {
+                    dedupWarning(
+                        "WI 'Order' is inverted in DLE Priority (lower = higher priority). Verify your entries sort as expected.",
+                        'wi_import_priority_flip',
+                        { timeOut: 15000 },
+                    );
                 }
 
                 // BUG-108: Single buildIndex at the end to avoid two sequential rebuilds

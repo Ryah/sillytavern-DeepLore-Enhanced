@@ -294,6 +294,17 @@ export function convertWiEntry(wiEntry, lorebookTag) {
         fm.push(`probability: ${(wiEntry.probability / 100).toFixed(2)}`);
     }
     if (wiEntry.scanDepth) fm.push(`scanDepth: ${wiEntry.scanDepth}`);
+    // C.3: Preserve WI fields that DLE doesn't yet implement (BUG-047 sticky,
+    // BUG-048 delay, BUG-052 group/group_weight). Round-trip via customFields;
+    // parseVaultFile emits W_NOT_IMPLEMENTED per field for /dle-lint surface.
+    if (wiEntry.sticky != null && wiEntry.sticky !== 0) fm.push(`sticky: ${Number(wiEntry.sticky)}`);
+    if (wiEntry.delay != null && wiEntry.delay !== 0) fm.push(`delay: ${Number(wiEntry.delay)}`);
+    if (wiEntry.group && typeof wiEntry.group === 'string' && wiEntry.group.trim()) {
+        fm.push(`group: ${yamlEscape(wiEntry.group.trim())}`);
+    }
+    if (wiEntry.groupWeight != null && Number(wiEntry.groupWeight) !== 100) {
+        fm.push(`group_weight: ${Number(wiEntry.groupWeight)}`);
+    }
     fm.push(`summary: "Imported from SillyTavern World Info"`);
     fm.push('---');
 

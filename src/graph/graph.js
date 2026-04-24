@@ -412,7 +412,7 @@ export async function showGraphPopup() {
             </div>
         </div>
         <div class="dle-graph-footer">
-            <small id="dle-graph-hints" class="dle-dimmed">Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit</small>
+            <small id="dle-graph-hints" class="dle-dimmed">Drag to move · Right-click for menu · Scroll to zoom · Click+drag to pan · Double-click to focus · 0 to fit · E to exit focus · Backspace to close</small>
             <details class="dle-text-sm dle-graph-sr-details">
                 <summary class="dle-graph-sr-summary">Screen reader summary</summary>
                 <div class="dle-graph-sr-content">${summaryHtml}</div>

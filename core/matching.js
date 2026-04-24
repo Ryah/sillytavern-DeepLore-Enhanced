@@ -70,15 +70,24 @@ function getCachedRegexes(entry, settings) {
         const truncatedKey = rawKey.length > MAX_KEYWORD_LENGTH ? rawKey.substring(0, MAX_KEYWORD_LENGTH) : rawKey;
         const key = settings.caseSensitive ? truncatedKey : truncatedKey.normalize('NFC').toLowerCase();
         if (settings.matchWholeWords) {
-            const escaped = escapeRegex(key);
-            const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
-            const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
-            cache.primary.push({
-                rawKey,
-                key,
-                regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
-                regexG: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? 'g' : 'gi'),
-            });
+            // BUG-044: Align multi-word behavior with SillyTavern World Info.
+            // ST's world-info.js matchKeys() falls back to substring match when a
+            // key contains whitespace (see SillyTavern/public/scripts/world-info.js
+            // single-word vs multi-word branch). DLE previously wrapped multi-word
+            // keys in `\b...\b`, which silently diverged from imported WI books.
+            if (/\s/.test(key)) {
+                cache.primary.push({ rawKey, key, regex: null, regexG: null, isMultiWord: true });
+            } else {
+                const escaped = escapeRegex(key);
+                const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
+                const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
+                cache.primary.push({
+                    rawKey,
+                    key,
+                    regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
+                    regexG: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? 'g' : 'gi'),
+                });
+            }
         } else {
             cache.primary.push({ rawKey, key, regex: null, regexG: null });
         }
@@ -87,14 +96,19 @@ function getCachedRegexes(entry, settings) {
         for (const rk of entry.refineKeys) {
             const rKey = settings.caseSensitive ? rk : rk.normalize('NFC').toLowerCase();
             if (settings.matchWholeWords) {
-                // M13: Smart word boundary for refine keys (same logic as primary keys)
-                const escaped = escapeRegex(rKey);
-                const prefix = /^\w/.test(rKey) ? '\\b' : '(?<!\\w)';
-                const suffix = /\w$/.test(rKey) ? '\\b' : '(?!\\w)';
-                cache.refine.push({
-                    rKey,
-                    regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
-                });
+                // BUG-044: Same multi-word substring fallback as primary keys.
+                if (/\s/.test(rKey)) {
+                    cache.refine.push({ rKey, regex: null, isMultiWord: true });
+                } else {
+                    // M13: Smart word boundary for refine keys (same logic as primary keys)
+                    const escaped = escapeRegex(rKey);
+                    const prefix = /^\w/.test(rKey) ? '\\b' : '(?<!\\w)';
+                    const suffix = /\w$/.test(rKey) ? '\\b' : '(?!\\w)';
+                    cache.refine.push({
+                        rKey,
+                        regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
+                    });
+                }
             } else {
                 cache.refine.push({ rKey, regex: null });
             }
@@ -130,8 +144,10 @@ export function testEntryMatch(entry, scanText, settings) {
     let primaryMatch = null;
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            // Test against normalized text to match NFC-normalized regex pattern
-            if (item.regex.test(haystack)) { primaryMatch = item.rawKey; break; }
+            // BUG-044: multi-word keys fall through regex === null and match by substring (ST parity).
+            if (item.isMultiWord) {
+                if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
+            } else if (item.regex.test(haystack)) { primaryMatch = item.rawKey; break; }
         } else {
             if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
         }
@@ -142,6 +158,8 @@ export function testEntryMatch(entry, scanText, settings) {
     if (cached.refine.length > 0) {
         const hasRefine = cached.refine.some(item => {
             if (settings.matchWholeWords) {
+                // BUG-044: multi-word refine keys fall through regex === null and match by substring.
+                if (item.isMultiWord) return haystack.includes(item.rKey);
                 return item.regex.test(haystack);
             }
             return haystack.includes(item.rKey);
@@ -176,7 +194,10 @@ export function testPrimaryMatchOnly(entry, scanText, settings) {
 
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            if (item.regex.test(haystack)) return item.rawKey;
+            // BUG-044: multi-word keys use substring fallback (ST parity).
+            if (item.isMultiWord) {
+                if (haystack.includes(item.key)) return item.rawKey;
+            } else if (item.regex.test(haystack)) return item.rawKey;
         } else {
             if (haystack.includes(item.key)) return item.rawKey;
         }
@@ -208,8 +229,17 @@ export function countKeywordOccurrences(entry, scanText, settings) {
     }
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            const matches = text.match(item.regexG); // use normalized text (consistent with testEntryMatch)
-            if (matches) count += matches.length;
+            // BUG-044: multi-word keys have regexG === null; count substring occurrences (ST parity).
+            if (item.isMultiWord) {
+                let idx = 0;
+                while ((idx = text.indexOf(item.key, idx)) !== -1) {
+                    count++;
+                    idx += item.key.length;
+                }
+            } else {
+                const matches = text.match(item.regexG); // use normalized text (consistent with testEntryMatch)
+                if (matches) count += matches.length;
+            }
         } else {
             let idx = 0;
             while ((idx = text.indexOf(item.key, idx)) !== -1) {

@@ -19,6 +19,7 @@ import {
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
     chatEpoch, buildEpoch,
     fieldDefinitions, setFieldDefinitions,
+    setIndexBuildReport,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS, parseFieldDefinitionYaml } from '../fields.js';
 import { resolveLinks } from '../../core/matching.js';
@@ -320,6 +321,18 @@ export async function buildIndex() {
             guideTag: settings.librarianGuideTag,
         };
 
+        // B.1/B.4: Per-build parser ledger. Populated by parseVaultFile's onSkip
+        // callback + per-entry `_parserWarnings`. Published via setIndexBuildReport
+        // before finalizeIndex so /dle-lint and the summary toast can read it.
+        const buildReport = {
+            okCount: 0,
+            warnCount: 0,
+            skipCount: 0,
+            skipped: [],
+            entriesWithWarnings: [],
+        };
+        const lenientAuthoring = settings.lenientAuthoring !== false;
+
         let totalFiles = 0;
         let vaultFetchFailed = false;
         let vaultFailCount = 0;
@@ -384,10 +397,26 @@ export async function buildIndex() {
 
                 for (const file of data.files) {
                     // BUG-305: parse with the locally-loaded defs, not the (possibly stale) global.
-                    const entry = parseVaultFile(file, tagConfig, loadedFieldDefs);
+                    const entry = parseVaultFile(file, tagConfig, loadedFieldDefs, {
+                        lenientAuthoring,
+                        onSkip: (reason) => {
+                            buildReport.skipped.push({ filename: file.filename, reason });
+                            buildReport.skipCount++;
+                        },
+                    });
                     if (entry) {
                         entry.vaultSource = vault.name;
                         entry._contentHash = simpleHash(file.content);
+                        if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                            buildReport.warnCount++;
+                            buildReport.entriesWithWarnings.push({
+                                filename: file.filename,
+                                title: entry.title,
+                                warnings: entry._parserWarnings,
+                            });
+                        } else {
+                            buildReport.okCount++;
+                        }
                         entries.push(entry);
                     }
                 }
@@ -466,7 +495,22 @@ export async function buildIndex() {
         console.log('[DLE] Index built: %d entries in %dms (mode: fresh)', entries.length, Math.round(performance.now() - _buildStart));
 
         if (isZombie()) return;
+        // B.1/B.4: publish parser ledger BEFORE finalizeIndex so any observer
+        // triggered by finalize (stats refresh, health check) can read it.
+        setIndexBuildReport(buildReport);
         await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
+
+        // B.5: Loud summary toast when the parser flagged warnings or skips.
+        if (buildReport.warnCount > 0 || buildReport.skipCount > 0) {
+            const parts = [`DLE indexed ${entries.length} entries.`];
+            if (buildReport.warnCount > 0) parts.push(`${buildReport.warnCount} warning${buildReport.warnCount === 1 ? '' : 's'}`);
+            if (buildReport.skipCount > 0) parts.push(`${buildReport.skipCount} skipped`);
+            dedupWarning(
+                `${parts.join(', ').replace(/,([^,]*)$/, ';$1')}. Run /dle-lint for details.`,
+                'parser_ledger_summary',
+                { timeOut: OBSIDIAN_TOAST_TIMEOUT },
+            );
+        }
 
         // Zero-entry warning when connection succeeded but no lorebook-tagged entries found
         if (entries.length === 0 && !vaultFetchFailed) {
@@ -695,6 +739,18 @@ export async function buildIndexWithReuse() {
         let newCount = 0, modifiedCount = 0, removedCount = 0;
         let _reuseTokenizerFailCount = 0;
         const allEntries = [];
+        // B.1/B.4: parser ledger for the reuse path. Only re-parsed files contribute
+        // warnings/skips; unchanged reused entries carry forward their own
+        // `_parserWarnings` from the previous build (which are already reflected in
+        // the prior indexBuildReport).
+        const buildReport = {
+            okCount: 0,
+            warnCount: 0,
+            skipCount: 0,
+            skipped: [],
+            entriesWithWarnings: [],
+        };
+        const lenientAuthoring = settings.lenientAuthoring !== false;
         setLastVaultAttemptCount(enabledVaults.length);
 
         for (const vault of enabledVaults) {
@@ -714,6 +770,16 @@ export async function buildIndexWithReuse() {
                     for (const entry of indexSnapshot) {
                         if (entry.vaultSource === vault.name) {
                             allEntries.push(entry);
+                            if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                                buildReport.warnCount++;
+                                buildReport.entriesWithWarnings.push({
+                                    filename: entry.filename,
+                                    title: entry.title,
+                                    warnings: entry._parserWarnings,
+                                });
+                            } else {
+                                buildReport.okCount++;
+                            }
                         }
                     }
                     continue;
@@ -735,12 +801,31 @@ export async function buildIndexWithReuse() {
                     const fileHash = simpleHash(file.content);
 
                     if (existing && existing._contentHash === fileHash && !fieldDefsChanged) {
-                        // Unchanged — reuse existing parsed entry
+                        // Unchanged — reuse existing parsed entry.
+                        // B.1/B.4: roll forward cached `_parserWarnings` into this
+                        // build's ledger so /dle-lint still shows them even on
+                        // reuse-sync builds.
                         allEntries.push(existing);
+                        if (existing._parserWarnings && existing._parserWarnings.length > 0) {
+                            buildReport.warnCount++;
+                            buildReport.entriesWithWarnings.push({
+                                filename: existing.filename,
+                                title: existing.title,
+                                warnings: existing._parserWarnings,
+                            });
+                        } else {
+                            buildReport.okCount++;
+                        }
                     } else {
                         // New or modified — re-parse
                         hasChanges = true;
-                        const entry = parseVaultFile(file, tagConfig, newFieldDefs);
+                        const entry = parseVaultFile(file, tagConfig, newFieldDefs, {
+                            lenientAuthoring,
+                            onSkip: (reason) => {
+                                buildReport.skipped.push({ filename: file.filename, reason });
+                                buildReport.skipCount++;
+                            },
+                        });
                         if (entry) {
                             entry.vaultSource = vault.name;
                             entry._contentHash = fileHash;
@@ -749,6 +834,16 @@ export async function buildIndexWithReuse() {
                             } catch {
                                 entry.tokenEstimate = Math.ceil(entry.content.length / 4.0);
                                 _reuseTokenizerFailCount++;
+                            }
+                            if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                                buildReport.warnCount++;
+                                buildReport.entriesWithWarnings.push({
+                                    filename: file.filename,
+                                    title: entry.title,
+                                    warnings: entry._parserWarnings,
+                                });
+                            } else {
+                                buildReport.okCount++;
                             }
                             allEntries.push(entry);
                             if (existing) modifiedCount++;
@@ -765,6 +860,16 @@ export async function buildIndexWithReuse() {
                 for (const entry of indexSnapshot) {
                     if (entry.vaultSource === vault.name) {
                         allEntries.push(entry);
+                        if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                            buildReport.warnCount++;
+                            buildReport.entriesWithWarnings.push({
+                                filename: entry.filename,
+                                title: entry.title,
+                                warnings: entry._parserWarnings,
+                            });
+                        } else {
+                            buildReport.okCount++;
+                        }
                     }
                 }
                 continue;
@@ -786,6 +891,9 @@ export async function buildIndexWithReuse() {
                 // finalizeIndex() already sets it after a successful full build.
                 setIndexEverLoaded(true);
             }
+            // B.1/B.4: publish ledger even on no-change early-return so /dle-lint
+            // still reflects the live index's warning state after a reuse-sync tick.
+            setIndexBuildReport(buildReport);
             if (settings.debugMode) {
                 console.debug(`[DLE] Reuse sync: no changes detected${anyVaultFailed ? ' (some vaults failed)' : ''}`);
             }
@@ -832,12 +940,28 @@ export async function buildIndexWithReuse() {
         setVaultIndex(dedupedEntries);
         setIndexTimestamp(Date.now());
 
+        // B.1/B.4: publish parser ledger BEFORE finalizeIndex so observers that
+        // fire on finalize can read it consistently with buildIndex semantics.
+        setIndexBuildReport(buildReport);
         // Intentional asymmetry with buildIndex: no skipCacheSave here. The reuse
         // path carries forward last-known entries for failed vaults via dedupedEntries,
         // so the cache already represents the best known state and is safe to persist.
         // (buildIndex passes skipCacheSave:vaultFetchFailed because a full rebuild with
         // a failed vault could write an empty or partial cache.)
         await finalizeIndex({ entries: dedupedEntries, settings });
+
+        // B.5: summary toast — mirrors buildIndex. Only fires when we actually
+        // re-parsed something (hasChanges === true path) AND there's news to share.
+        if (buildReport.warnCount > 0 || buildReport.skipCount > 0) {
+            const parts = [`DLE indexed ${dedupedEntries.length} entries.`];
+            if (buildReport.warnCount > 0) parts.push(`${buildReport.warnCount} warning${buildReport.warnCount === 1 ? '' : 's'}`);
+            if (buildReport.skipCount > 0) parts.push(`${buildReport.skipCount} skipped`);
+            dedupWarning(
+                `${parts.join(', ').replace(/,([^,]*)$/, ';$1')}. Run /dle-lint for details.`,
+                'parser_ledger_summary',
+                { timeOut: OBSIDIAN_TOAST_TIMEOUT },
+            );
+        }
 
         // BUG-368: finalizeIndex has now replaced previousIndexSnapshot with one built from
         // (fresh entries + carried-forward entries). For vaults that FAILED this cycle, we must

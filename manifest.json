@@ -1,5 +1,6 @@
 {
-    "display_name": "DeepLore Enhanced",
+    "display_name": "DeepLore Enhanced (Obsidian required)",
+    "description": "Requires Obsidian with the Local REST API plugin. AI-powered lorebook for SillyTavern that reads Markdown notes from an Obsidian vault.",
     "loading_order": 1,
     "requires": [],
     "optional": [],

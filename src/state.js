@@ -24,6 +24,16 @@ function pushEventSafe(kind, data) {
 
 /** @type {import('../core/pipeline.js').VaultEntry[]} */
 export let vaultIndex = [];
+
+// Index build report — populated by vault.js on each buildIndex/buildIndexWithReuse pass.
+// Consumed by /dle-lint and the post-index summary toast.
+export let indexBuildReport = {
+    okCount: 0,
+    warnCount: 0,
+    skipCount: 0,
+    skipped: [],      // [{ filename, reason }]
+    entriesWithWarnings: [], // [{ filename, title, warnings[] }]
+};
 /** Computed folder list from vault index: [{path, entryCount}] sorted by count desc */
 export let folderList = [];
 export let indexTimestamp = 0;
@@ -117,6 +127,9 @@ export function trackerKey(entry) {
 // modules to update the state.
 
 export function setVaultIndex(v) { vaultIndex = v; }
+
+export function setIndexBuildReport(r) { indexBuildReport = r; }
+export function getIndexBuildReport() { return indexBuildReport; }
 
 /**
  * Returns vault entries that are safe to show to the writing AI.

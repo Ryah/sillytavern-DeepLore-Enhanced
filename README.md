@@ -26,6 +26,14 @@
   <img alt="SillyTavern" src="https://img.shields.io/badge/SillyTavern-1.12.6%2B-purple">
 </p>
 
+> **Requires [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin.** Your lore lives in a Markdown vault — DLE does not store entries itself.
+
+<p align="center">
+  <strong>New here?</strong> → <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Quick-Start">Quick Start</a>
+  &nbsp;·&nbsp;
+  <strong>Coming from World Info?</strong> → <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/For-World-Info-Users">For World Info Users</a>
+</p>
+
 ---
 
 ### What people are saying:

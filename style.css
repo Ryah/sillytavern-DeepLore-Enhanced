@@ -908,6 +908,18 @@ dle-notes { display: none !important; }
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 6px;
+}
+
+/* Inline tab text — shown by default, hidden in compact mode */
+.dle-tab-text {
+    font-size: var(--dle-text-sm);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.dle-tab-bar.dle-compact-tabs .dle-tab-text {
+    display: none;
 }
 
 .dle-tab:hover {
@@ -1204,6 +1216,17 @@ button.dle-chip-x:hover {
     min-width: 36px;
     min-height: 36px;
     justify-content: center;
+}
+
+.dle-action-btn-labeled {
+    gap: 6px;
+    padding-left: 8px;
+    padding-right: 8px;
+}
+
+.dle-action-label {
+    font-size: var(--dle-text-sm);
+    white-space: nowrap;
 }
 
 .dle-action-btn:focus-visible {

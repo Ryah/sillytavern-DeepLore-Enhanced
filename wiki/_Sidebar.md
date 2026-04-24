@@ -5,6 +5,7 @@
 - [[Installation]]
 - [[Quick Start]]
 - [[First Steps]]
+- [[For World Info Users]]
 
 **Reference**
 - [[Features]]

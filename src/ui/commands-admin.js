@@ -30,6 +30,7 @@ export const DLE_COMMANDS = [
     { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (alias: /dle-context)' },
     { cmd: '/dle-inspect', desc: 'Inspect what happened in the last message (alias: /dle-i)' },
     { cmd: '/dle-health', desc: 'Run vault health check (alias: /dle-h)' },
+    { cmd: '/dle-lint', desc: 'Show parser warnings and skipped entries from last index build (alias: /dle-l)' },
     { cmd: '/dle-refresh', desc: 'Rebuild vault index from Obsidian (alias: /dle-r)' },
     { cmd: '/dle-status', desc: 'Show extension status and stats' },
     { cmd: '/dle-simulate', desc: 'Replay chat showing entry activation timeline' },

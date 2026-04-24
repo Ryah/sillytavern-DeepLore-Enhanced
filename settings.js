@@ -186,6 +186,11 @@ export const defaultSettings = {
     vaults: [],
     // UI State
     drawerPinned: false,
+    drawerCompactTabs: false,              // Drawer tabs: false = icon + text (default), true = icon-only
+    // Authoring leniency — when true, parser auto-fixes common frontmatter mistakes (case-mismatched
+    // field names, quoted numbers, comma-string keys) and records a warning instead of silently skipping.
+    // When false, parser behavior matches pre-v2 exactly (strict type checks, silent drops).
+    lenientAuthoring: true,
     advancedVisible: {},
     // AI Search advanced
     aiConfidenceThreshold: 'low',          // E1: low (all), medium (medium+high), high (high only)

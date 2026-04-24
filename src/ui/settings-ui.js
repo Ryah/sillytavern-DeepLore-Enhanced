@@ -2059,6 +2059,12 @@ function bindPopupEvents($container) {
     $c('#dle-sp-review-tokens').on('input', function () { settings.reviewResponseTokens = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle-sp-debug').on('change', function () { settings.debugMode = $(this).prop('checked'); saveSettingsDebounced(); });
 
+    // ── Re-run Setup Wizard ──
+    $c('#dle-sp-rerun-wizard').on('click', async function () {
+        const { showSetupWizard } = await import('./setup-wizard.js');
+        await showSetupWizard();
+    });
+
     // ── Reset All Settings ──
     $c('#dle-sp-reset-defaults').on('click', async function () {
         const confirmed = await callGenericPopup(

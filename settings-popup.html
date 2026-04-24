@@ -1216,11 +1216,9 @@
              role="tabpanel" aria-labelledby="dle-sp-tab-about">
 
             <div style="text-align: center;" class="dle-my-3">
-                <div id="dle-sp-mascot" class="dle-about-logo" title="Who tends the deep lore?"></div>
                 <h3 style="margin: 0;">DeepLore Enhanced</h3>
                 <span class="dle-text-xs dle-muted" id="dle-sp-version">v2.0.0-beta</span>
             </div>
-            <p class="dle-section-desc" style="text-align: center;">AI-powered Obsidian vault lorebook for SillyTavern with keyword and semantic search.</p>
 
             <div class="dle-settings-section" style="text-align: center;">
                 <label class="checkbox_label" for="dle-sp-enabled" title="Master on/off switch. When disabled, no entries are matched, no AI calls are made, and no prompts are injected." style="display: inline-flex;">
@@ -1228,6 +1226,11 @@
                     <span>Enable DeepLore Enhanced</span>
                 </label>
             </div>
+
+            <div style="text-align: center;" class="dle-my-3">
+                <div id="dle-sp-mascot" class="dle-about-logo" title="Who tends the deep lore?"></div>
+            </div>
+            <p class="dle-section-desc" style="text-align: center;">AI-powered Obsidian vault lorebook for SillyTavern with keyword and semantic search.</p>
 
             <div style="display: flex; flex-direction: row; justify-content: center; flex-wrap: wrap; gap: 8px; margin: 16px 0;">
                 <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced" target="_blank" rel="noopener noreferrer" class="menu_button menu_button_icon" style="display: inline-flex; gap: 6px; text-decoration: none;">
@@ -1278,11 +1281,16 @@
             </small>
 
             <hr>
-            <h4>Danger Zone</h4>
+            <h4>Troubleshooting</h4>
             <p class="dle-muted dle-mb-2" style="text-align: center; font-size: 0.85em;">
-                Your vault connections and AI connection profiles will be preserved. Everything else (matching, budget, injection, features) resets to defaults.
+                Re-run the guided setup wizard, or reset settings to defaults. Vault connections and AI connection profiles are preserved in both cases.
             </p>
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 8px 0;">
+            <div style="display: flex; flex-direction: row; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 8px 0;">
+                <div id="dle-sp-rerun-wizard" class="menu_button menu_button_icon" role="button" tabindex="0"
+                     title="Open the guided setup wizard again — reconfigure Obsidian connection, tags, and search mode.">
+                    <i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                    <span>Re-run Setup Wizard</span>
+                </div>
                 <div id="dle-sp-reset-defaults" class="menu_button menu_button_icon dle-danger-btn" role="button" tabindex="0" title="Reset all DeepLore Enhanced settings to their defaults. Vault and AI connections are preserved.">
                     <i class="fa-solid fa-arrow-rotate-left" aria-hidden="true"></i>
                     <span>Reset All Settings to Defaults</span>

@@ -44,6 +44,12 @@ export { computeEntityDerivedState, deduplicateMultiVault, detectCrossVaultDupli
 const OBSIDIAN_TOAST_TIMEOUT = 15000;
 const CACHE_FALLBACK_TOAST_TIMEOUT = 10000;
 
+// Parser-ledger summary toast ("DLE indexed N entries; X skipped…") should fire
+// once per page load at most — module-scoped flag resets only on browser refresh.
+// Any rebuild during the session (periodic refresh, settings change, manual re-index)
+// is background noise the user doesn't need re-announced.
+let _parserLedgerToastShown = false;
+
 // computeEntityDerivedState and deduplicateMultiVault — extracted to vault-pure.js, imported above
 
 /**
@@ -519,7 +525,8 @@ export async function buildIndex() {
         await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
 
         // B.5: Loud summary toast when the parser flagged warnings or skips.
-        if (buildReport.warnCount > 0 || buildReport.skipCount > 0) {
+        // Fire at most once per page load — subsequent rebuilds stay silent.
+        if (!_parserLedgerToastShown && (buildReport.warnCount > 0 || buildReport.skipCount > 0)) {
             const parts = [`DLE indexed ${entries.length} entries.`];
             if (buildReport.warnCount > 0) parts.push(`${buildReport.warnCount} warning${buildReport.warnCount === 1 ? '' : 's'}`);
             if (buildReport.skipCount > 0) parts.push(`${buildReport.skipCount} skipped`);
@@ -528,6 +535,7 @@ export async function buildIndex() {
                 'parser_ledger_summary',
                 { timeOut: OBSIDIAN_TOAST_TIMEOUT },
             );
+            _parserLedgerToastShown = true;
         }
 
         // Zero-entry warning when connection succeeded but no lorebook-tagged entries found
@@ -970,7 +978,8 @@ export async function buildIndexWithReuse() {
 
         // B.5: summary toast — mirrors buildIndex. Only fires when we actually
         // re-parsed something (hasChanges === true path) AND there's news to share.
-        if (buildReport.warnCount > 0 || buildReport.skipCount > 0) {
+        // Once-per-page-load guard matches buildIndex — no re-announce on rebuilds.
+        if (!_parserLedgerToastShown && (buildReport.warnCount > 0 || buildReport.skipCount > 0)) {
             const parts = [`DLE indexed ${dedupedEntries.length} entries.`];
             if (buildReport.warnCount > 0) parts.push(`${buildReport.warnCount} warning${buildReport.warnCount === 1 ? '' : 's'}`);
             if (buildReport.skipCount > 0) parts.push(`${buildReport.skipCount} skipped`);
@@ -979,6 +988,7 @@ export async function buildIndexWithReuse() {
                 'parser_ledger_summary',
                 { timeOut: OBSIDIAN_TOAST_TIMEOUT },
             );
+            _parserLedgerToastShown = true;
         }
 
         // BUG-368: finalizeIndex has now replaced previousIndexSnapshot with one built from

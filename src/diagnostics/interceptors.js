@@ -20,6 +20,12 @@ export const errorBuffer = new RingBuffer(100);
  *  Populated by recordAiCall() from ai.js after each callAI invocation. */
 export const aiCallBuffer = new RingBuffer(20);
 
+/** AI prompt replay buffer — full system+user prompt text for replay/reproduction.
+ *  PII-SENSITIVE: only populated when `debugMode === true` (user opt-in).
+ *  Kept small (10 slots) and passed through scrubber on export. User can drain
+ *  locally via `__DLE_DEBUG.buffers.aiPrompts` to reproduce failing calls. */
+export const aiPromptBuffer = new RingBuffer(10);
+
 /** Lifecycle event buffer — settings changes, chat switches, index builds, circuit transitions.
  *  Populated by pushEvent() calls from various DLE modules. */
 export const eventBuffer = new RingBuffer(100);

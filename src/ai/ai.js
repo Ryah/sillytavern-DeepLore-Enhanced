@@ -16,7 +16,7 @@ import {
     fieldDefinitions,
 } from '../state.js';
 import { dedupWarning, dedupError } from '../toast-dedup.js';
-import { aiCallBuffer } from '../diagnostics/interceptors.js';
+import { aiCallBuffer, aiPromptBuffer } from '../diagnostics/interceptors.js';
 // Re-export pure functions from helpers.js for consumers that import from ai.js
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch, LOREBOOK_INFRA_TAGS } from '../helpers.js';
 // buildCandidateManifest extracted to manifest.js for testability
@@ -284,9 +284,34 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
         _callEntry.status = err.timedOut ? 'timeout' : err.userAborted ? 'aborted' : 'error';
         _callEntry.error = (err?.message || String(err)).slice(0, 200);
         try { aiCallBuffer.push(_callEntry); } catch { /* noop */ }
+        // PII-sensitive prompt replay — only captured when debugMode is ON (user opt-in).
+        // Scrubber strips PII on export; in-memory buffer is user-local only.
+        try {
+            if (getSettings().debugMode) {
+                aiPromptBuffer.push({
+                    t: _callStart, caller: connectionConfig.caller || 'unknown',
+                    mode, model: model || null, status: _callEntry.status,
+                    durationMs: _callEntry.durationMs,
+                    systemPrompt, userMessage,
+                    response: null, error: _callEntry.error,
+                });
+            }
+        } catch { /* noop */ }
         throw err;
     }
     try { aiCallBuffer.push(_callEntry); } catch { /* noop */ }
+    try {
+        if (getSettings().debugMode) {
+            aiPromptBuffer.push({
+                t: _callStart, caller: connectionConfig.caller || 'unknown',
+                mode, model: model || null, status: 'ok',
+                durationMs: _callEntry.durationMs,
+                systemPrompt, userMessage,
+                response: result?.text ?? null,
+                inputTokens: _callEntry.inputTokens, outputTokens: _callEntry.outputTokens,
+            });
+        }
+    } catch { /* noop */ }
     // Only stamp throttle on success, and only for non-skipped calls
     if (!connectionConfig.skipThrottle) {
         _lastAiCallTimestamp = Date.now();

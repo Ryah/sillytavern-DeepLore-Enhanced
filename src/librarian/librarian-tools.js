@@ -365,16 +365,19 @@ export async function searchLoreAction(args) {
             const failGap = {
                 id: gapId(), type: 'search', query,
                 reason: `AI searched for "${query}" but vault index was not ready`,
+                failureReason: 'index_not_ready',
                 createdAt: Date.now(), timestamp: Date.now(), generation: generationCount,
                 status: 'pending', frequency: 1, urgency: 'medium',
                 hadResults: false, resultTitles: [],
+                retryCount: 0, lastAttemptMs: Date.now(),
             };
             const existing = findSimilarGap(loreGaps, query, 'search');
             // Re-flag resurfaces a hidden gap (clears `hidden`) but leaves `dismissed` alone.
             if (existing) clearHiddenSilently(existing.id);
             const updated = existing
-                ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now() } : g)
+                ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), retryCount: (existing.retryCount || 0) + 1, lastAttemptMs: Date.now(), failureReason: existing.failureReason || 'index_not_ready' } : g)
                 : [...loreGaps, failGap];
+            if (debug) console.debug('[DLE] searchLore: gap %s query="%s" reason=index_not_ready retry=%d', existing ? 'merged' : 'created', query, existing ? (existing.retryCount || 0) + 1 : 0);
             if (epoch === chatEpoch) {
                 persistGaps(updated);
             } else if (debug) {
@@ -422,9 +425,9 @@ export async function searchLoreAction(args) {
             const existing = findSimilarGap(loreGaps, query, 'search');
             if (existing) clearHiddenSilently(existing.id);
             const gapUpdate = existing
-                ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: false } : g)
-                : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [] }];
-            if (debug) console.debug('[DLE] searchLore: no-result gap %s for "%s"', existing ? 'merge' : 'create', query);
+                ? loreGaps.map(g => g === existing ? { ...existing, frequency: existing.frequency + 1, timestamp: Date.now(), hadResults: false, retryCount: (existing.retryCount || 0) + 1, lastAttemptMs: Date.now(), failureReason: existing.failureReason || 'no_results' } : g)
+                : [...loreGaps, { id: gapId(), type: 'search', query, reason: `AI searched for "${query}" during generation`, failureReason: 'no_results', createdAt: Date.now(), timestamp: Date.now(), generation: generationCount, status: 'pending', frequency: 1, urgency: 'medium', hadResults: false, resultTitles: [], retryCount: 0, lastAttemptMs: Date.now() }];
+            if (debug) console.debug('[DLE] searchLore: no-result gap %s for "%s" retry=%d', existing ? 'merged' : 'created', query, existing ? (existing.retryCount || 0) + 1 : 0);
             if (epoch === chatEpoch) {
                 persistGaps(gapUpdate);
             } else if (debug) {
@@ -446,6 +449,7 @@ export async function searchLoreAction(args) {
         const existingGap = findSimilarGap(loreGaps, query, 'search');
         if (existingGap) {
             const cleaned = loreGaps.filter(g => g !== existingGap);
+            if (debug) console.debug('[DLE] searchLore: gap cleared (results found) query="%s" priorReason=%s priorRetries=%d gapsBefore=%d after=%d', query, existingGap.failureReason || 'unknown', existingGap.retryCount || 0, loreGaps.length, cleaned.length);
             if (epoch === chatEpoch) persistGaps(cleaned);
         }
     }

@@ -124,9 +124,13 @@ function getCachedRegexes(entry, settings) {
  * @param {import('./pipeline.js').VaultEntry} entry
  * @param {string} scanText
  * @param {{ caseSensitive: boolean, matchWholeWords: boolean }} settings
+ * @param {Array<object>} [trace] - Optional diagnostic collector. If provided, a record
+ *   `{ title, vaultSource, result, primaryMatched, refineKeys, reason }` is pushed
+ *   on any outcome where the entry had keys (match, no-primary, blocked-by-refine).
+ *   Callers opt in — pipeline passes one only when debugMode is on.
  * @returns {string|null} The matched key, or null if no match
  */
-export function testEntryMatch(entry, scanText, settings) {
+export function testEntryMatch(entry, scanText, settings, trace = null) {
     if (entry.keys.length === 0) return null;
 
     const cached = getCachedRegexes(entry, settings);
@@ -152,7 +156,10 @@ export function testEntryMatch(entry, scanText, settings) {
             if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
         }
     }
-    if (!primaryMatch) return null;
+    if (!primaryMatch) {
+        if (trace) trace.push({ title: entry.title, vaultSource: entry.vaultSource, result: 'no-primary', primaryMatched: null, refineKeys: cached.refine.map(r => r.rKey), reason: 'no primary key in scan text' });
+        return null;
+    }
 
     // Refine keys: if non-empty, at least one must also match (AND_ANY mode)
     if (cached.refine.length > 0) {
@@ -164,8 +171,12 @@ export function testEntryMatch(entry, scanText, settings) {
             }
             return haystack.includes(item.rKey);
         });
-        if (!hasRefine) return null;
+        if (!hasRefine) {
+            if (trace) trace.push({ title: entry.title, vaultSource: entry.vaultSource, result: 'refine-blocked', primaryMatched: primaryMatch, refineKeys: cached.refine.map(r => r.rKey), reason: `primary matched "${primaryMatch}" but no refine_keys present in scan text` });
+            return null;
+        }
     }
+    if (trace) trace.push({ title: entry.title, vaultSource: entry.vaultSource, result: 'match', primaryMatched: primaryMatch, refineKeys: cached.refine.map(r => r.rKey), reason: null });
     return primaryMatch;
 }
 

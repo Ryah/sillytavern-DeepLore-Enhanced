@@ -13,7 +13,7 @@
 
 import { scrubDeep, makeCtx } from './scrubber.js';
 import { captureStateSnapshot } from './state-snapshot.js';
-import { consoleBuffer, networkBuffer, errorBuffer, eventBuffer, aiCallBuffer, installFailures } from './interceptors.js';
+import { consoleBuffer, networkBuffer, errorBuffer, eventBuffer, aiCallBuffer, aiPromptBuffer, installFailures } from './interceptors.js';
 import { generationBuffer } from './flight-recorder.js';
 import { longTaskBuffer, captureMemorySnapshot } from './performance.js';
 
@@ -644,6 +644,9 @@ export async function buildDiagnosticReport() {
     const rawErrors  = errorBuffer.drain();
     const rawEvents  = eventBuffer.drain();
     const rawAiCalls = aiCallBuffer.drain();
+    // aiPromptBuffer only populated when debugMode=true (user opt-in). Drained so
+    // it doesn't linger across exports; content passes through scrubDeep below.
+    const rawAiPrompts = aiPromptBuffer.drain();
     const rawLong    = longTaskBuffer.drain();
     const rawMemory  = captureMemorySnapshot();
     const rawSnapshot = captureStateSnapshot();
@@ -675,6 +678,8 @@ export async function buildDiagnosticReport() {
         errorLog: rawErrors,
         eventLog: rawEvents,
         aiCallLog: rawAiCalls,
+        // PII-scrubbed below via scrubDeep; only present when debugMode was on during calls.
+        aiPromptLog: rawAiPrompts.length > 0 ? rawAiPrompts : undefined,
         longTasks: rawLong,
         memory: rawMemory,
         interceptorInstallFailures: installFailures.length > 0 ? installFailures : undefined,
@@ -691,6 +696,7 @@ export async function buildDiagnosticReport() {
         verbose.errorLog = verbose.errorLog?.slice(-50) ?? [];
         verbose.eventLog = verbose.eventLog?.slice(-50) ?? [];
         verbose.longTasks = verbose.longTasks?.slice(-50) ?? [];
+        if (verbose.aiPromptLog) verbose.aiPromptLog = verbose.aiPromptLog.slice(-3);
         verbose.__truncated = true;
         json = JSON.stringify(verbose);
     }

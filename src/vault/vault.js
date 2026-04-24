@@ -20,6 +20,7 @@ import {
     chatEpoch, buildEpoch,
     fieldDefinitions, setFieldDefinitions,
     setIndexBuildReport,
+    entityRegexVersion,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS, parseFieldDefinitionYaml } from '../fields.js';
 import { resolveLinks } from '../../core/matching.js';
@@ -174,6 +175,11 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
     // BUG-370/374: mentionWeights, folderList, vaultAvgTokens computed in shared helper
     computeDerivedIndexFields(entries, settings);
 
+    // Capture pre-rebuild state for cache-invalidation diagnostic.
+    const _preRegexVersion = entityRegexVersion;
+    const _preCacheResultCount = aiSearchCache?.results?.length ?? 0;
+    const _preCacheHadHash = !!aiSearchCache?.hash;
+
     // Pre-compute entity names and short-name regexes for AI cache sliding window
     computeEntityDerivedState(entries);
 
@@ -184,7 +190,19 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
         setFuzzySearchIndex(null);
     }
 
-    // Invalidate AI search cache on re-index
+    // Invalidate AI search cache on re-index. Log the reason so "why did my cache
+    // go stale mid-session" is diagnosable post-facto without repro.
+    if (_preCacheHadHash || _preCacheResultCount > 0) {
+        pushEvent('cache_invalidate', {
+            trigger: 'index_rebuild',
+            regexVersionBefore: _preRegexVersion,
+            regexVersionAfter: entityRegexVersion,
+            cachedResultsCleared: _preCacheResultCount,
+            entriesAfter: entries.length,
+        });
+        console.debug('[DLE][DIAG] aiSearchCache cleared: trigger=index_rebuild regex v%d→v%d cachedResults=%d entriesAfter=%d',
+            _preRegexVersion, entityRegexVersion, _preCacheResultCount, entries.length);
+    }
     resetAiSearchCache();
 
     // Vault change detection

@@ -69,7 +69,7 @@ import { resetAiThrottle, callAI } from './src/ai/ai.js';
 import { runPipeline } from './src/pipeline/pipeline.js';
 import { setupSyncPolling } from './src/vault/sync.js';
 import { runScribe } from './src/ai/scribe.js';
-import { pushEvent, consoleBuffer, networkBuffer, errorBuffer, aiCallBuffer, eventBuffer } from './src/diagnostics/interceptors.js';
+import { pushEvent, consoleBuffer, networkBuffer, errorBuffer, aiCallBuffer, aiPromptBuffer, eventBuffer } from './src/diagnostics/interceptors.js';
 import { generationBuffer } from './src/diagnostics/flight-recorder.js';
 import { runAutoSuggest, showSuggestionPopup } from './src/ai/auto-suggest.js';
 import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/ui/cartographer.js';
@@ -2172,6 +2172,8 @@ jQuery(async function () {
                     network: networkBuffer.drain(),
                     errors: errorBuffer.drain(),
                     aiCalls: aiCallBuffer.drain(),
+                    // PII-sensitive; only populated when debugMode=true. Local inspection only.
+                    aiPrompts: aiPromptBuffer.drain(),
                     events: eventBuffer.drain(),
                     generations: generationBuffer.drain(),
                 };

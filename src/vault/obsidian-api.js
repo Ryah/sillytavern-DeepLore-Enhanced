@@ -278,6 +278,7 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
         signal.addEventListener('abort', onExternalAbort, { once: true });
     }
 
+    const _startMs = Date.now();
     try {
         const protocol = useHttps ? 'https' : 'http';
         const response = await fetch(`${protocol}://${host || '127.0.0.1'}:${port}${path}`, {
@@ -287,31 +288,42 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
             signal: controller.signal,
         });
         const data = await response.text();
+        const _durMs = Date.now() - _startMs;
         // Track server errors (5xx) and rate limits (429) as circuit breaker failures.
         // BUG-H5: 429 (rate limit) must trip breaker to prevent thundering herd.
         // Don't count auth errors (401/403) or client errors (404) — they are persistent config issues, not transient server failures.
         if (response.status >= 500 || response.status === 429) {
             recordFailure(circuitKey);
+            const cs = getCircuitState(circuitKey);
+            pushEvent('obsidian_fetch', { result: 'http_err', status: response.status, durationMs: _durMs, circuit: cs.state, failures: cs.failures, vault: circuitKey });
+            console.warn('[DLE] obsidianFetch: HTTP %d after %dms — circuit=%s failures=%d vault=%s', response.status, _durMs, cs.state, cs.failures, circuitKey);
         } else if (response.status >= 200 && response.status < 300) {
             recordSuccess(circuitKey);
         }
         return { status: response.status, data };
     } catch (err) {
+        const _durMs = Date.now() - _startMs;
         if (err.name === 'AbortError') {
             // Don't count aborts (timeout / page teardown / cancelled scans) as circuit failures.
             // BUG-256: if the external signal fired, tag as user-abort; otherwise it's our timeout.
             if (signal?.aborted) {
+                pushEvent('obsidian_fetch', { result: 'user_abort', durationMs: _durMs, vault: circuitKey });
                 const abortErr = new Error('Request aborted by user');
                 abortErr.name = 'AbortError';
                 abortErr.userAborted = true;
                 throw abortErr;
             }
+            pushEvent('obsidian_fetch', { result: 'timeout', durationMs: _durMs, timeoutMs: timeout, vault: circuitKey });
+            console.warn('[DLE] obsidianFetch: timeout after %dms (limit %dms) vault=%s', _durMs, timeout, circuitKey);
             const timeoutErr = new Error('Request timed out', { cause: err });
             timeoutErr.name = 'AbortError';
             timeoutErr.timedOut = true;
             throw timeoutErr;
         }
         recordFailure(circuitKey);
+        const cs = getCircuitState(circuitKey);
+        pushEvent('obsidian_fetch', { result: 'error', durationMs: _durMs, circuit: cs.state, failures: cs.failures, vault: circuitKey, errName: err.name, errMsg: (err.message || '').slice(0, 160) });
+        console.warn('[DLE] obsidianFetch: %s after %dms — circuit=%s failures=%d vault=%s msg=%s', err.name || 'Error', _durMs, cs.state, cs.failures, circuitKey, (err.message || '').slice(0, 160));
         throw err;
     } finally {
         clearTimeout(timer);

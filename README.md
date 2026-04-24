@@ -1,9 +1,11 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/icon-dark.svg">
-  <img src="docs/icon-light.svg" alt="DeepLore" width="120" align="right">
-</picture>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/icon-dark.svg">
+    <img src="docs/icon-light.svg" alt="DeepLore" width="96">
+  </picture>
+</p>
 
-# DeepLore
+<h1 align="center">DeepLore</h1>
 
 **World Info keyword matching breaks at scale. DeepLore reads your Obsidian vault instead: keywords plus AI retrieval, so the right lore fires even when the word wasn't typed.**
 

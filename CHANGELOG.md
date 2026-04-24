@@ -2,20 +2,20 @@
 
 ## 2.0-beta (2026-04-11)
 
-> The Librarian update. Emma ensures your lore stays alive -- the AI writes with your world in mind.
+> The Librarian update. Your lorebook grows with your story — the writing AI flags what's missing, Emma helps you write it.
 
 ### The Librarian (Emma)
 
-DeepLore now has a built-in AI assistant named Emma. She catches lore gaps and keeps your vault consistent with your story -- automatically as you write, or on demand through chat commands.
+DeepLore now has Emma, your librarian. As you roleplay, the writing AI reaches for details it needs; when one isn't in your vault, it flags the gap. You open the flag, chat with Emma, and she helps you author a vault-accurate entry. Your lorebook grows alongside your story.
 
-- **Automatic gap detection** -- Emma spots what you've forgotten to define so you can fill it in before it breaks your story. Gaps are tracked with two levels of dismissal: hide one to suppress it, dismiss to bury it for good. Re-flagging a hidden gap resurfaces it.
+- **Automatic gap detection** -- As the writing AI reaches for lore that isn't in your vault, it flags the gap to a dedicated inbox. Two dismissal tiers: hide to suppress, dismiss to bury. Re-flagging a hidden gap resurfaces it.
 - **Vault audits** -- `/dle-librarian audit` walks through your entire vault and flags gaps, inconsistencies, and entries that need updating.
-- **Generation tools** -- Three tools the AI calls automatically mid-generation: `search_lore` queries your vault for relevant entries, `flag_lore` silently flags gaps and stale entries, and `get_writing_guide` fetches your style references. You don't have to do anything -- they run in the background when the Librarian is enabled.
-- **Chat tools** -- A dozen on-demand commands available through AI tool use: search your vault, retrieve full entry content, pull recent context, browse links and backlinks, find similar entries, flag stale lore, compare entries against your story, and fetch writing guides.
-- **Writing guides** -- Tag any vault entry with `lorebook-guide` to make it a Librarian-only style reference. Emma can fetch these guides to inform her suggestions, but they never reach the writing AI through any path.
-- **Graph-aware search** -- When Emma searches your vault, results consider entry relationships from the relationship graph, not just keywords.
-- **Behind-the-scenes UX** -- Tool calls are hidden during generation and consolidated into a single expandable dropdown on the final message. Real-time status shows what Emma is doing ("Choosing Lore...", "Consulting vault...", "Generating...") and cleans up when done.
-- **Session continuity** -- Emma's draft state (gaps, flags, session context) persists across page reloads and chat switches, so you can pick up where you left off.
+- **Generation tools** -- Writing AI gets two tools it calls automatically mid-generation: `search` queries your vault for relevant entries, `flag` silently notes gaps and stale entries. Runs in the background when the Librarian is enabled.
+- **Emma's toolset** -- In her chat session, Emma has a dozen tools: `search_vault`, `get_entry`, `get_full_content`, `find_similar`, `list_flags`, `get_links`, `get_backlinks`, `list_entries`, `get_recent_chat`, `flag_entry_update`, `compare_entry_to_chat`, and `get_writing_guide`.
+- **Writing guides** -- Tag any vault entry with `lorebook-guide` to make it a Librarian-only style reference. Emma fetches these guides via `get_writing_guide` to inform her suggestions; they never reach the writing AI through any path.
+- **Graph-aware search** -- Writing AI's `search` tool resolves linked entries from `resolvedLinks`, not just BM25 matches — results pull in directly-related lore automatically.
+- **Behind-the-scenes UX** -- Tool calls are hidden during generation and consolidated into a single expandable dropdown on the final message. Real-time status ("Choosing Lore...", "Consulting vault...", "Generating...") shows pipeline and writing-AI tool progress, and cleans up when done.
+- **Session continuity** -- Emma's chat session (messages, draft state, work queue) persists in `chat_metadata` across page reloads and chat switches. Gaps flagged by the writing AI persist separately. Pick up where you left off.
 - **Librarian drawer tab** -- See your gap list, flagged entries, and session stats at a glance with quick-dismiss controls.
 - **Customizable persona** -- Tweak Emma's personality and focus through an editable prompt. Make her chattier, more formal, or focused on specific aspects of your world.
 - **Auto-enables function calling** -- Turning on the Librarian automatically enables function calling on your active API connection, so you don't have to hunt for the setting.

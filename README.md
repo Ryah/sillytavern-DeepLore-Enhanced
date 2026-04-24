@@ -17,8 +17,11 @@
 
 ---
 
-![DeepLore drawer with injection list and graph](https://i.imgur.com/vx4EJeD.png)
-*What 200 lorebook entries looks like when retrieval actually works.*
+<p align="center">
+  <img src="https://i.imgur.com/vx4EJeD.png" alt="DeepLore drawer with injection list and graph" width="800">
+</p>
+
+<p align="center"><em>What 200 lorebook entries looks like when retrieval actually works.</em></p>
 
 ---
 
@@ -58,7 +61,9 @@ Your story fills in your world. Your world fires back into your story.
 - `lorebook-guide` entries reach Emma only, never the writing AI
 - Tool-calling provider required for both (Claude, Gemini, OpenAI-compat, Cohere)
 
-![Librarian tab with a flagged worldbuilding gap opened](https://i.imgur.com/V8RnLdy.png)
+<p align="center">
+  <img src="https://i.imgur.com/V8RnLdy.png" alt="Librarian tab with a flagged worldbuilding gap opened" width="640">
+</p>
 
 <video src="assets/emma-action.mp4" controls width="720"></video>
 
@@ -82,7 +87,9 @@ It hollows you. The chain pulls at everything you used to love until there's
 nothing left to pull at.
 ```
 
-![Entry open in Obsidian](https://i.imgur.com/QA75e7J.png)
+<p align="center">
+  <img src="https://i.imgur.com/QA75e7J.png" alt="Entry open in Obsidian" width="640">
+</p>
 
 Write it in Obsidian. DeepLore reads it. The AI writes as if it always knew how Bloodchains work, even if the word "Bloodchain" was never said.
 
@@ -96,7 +103,9 @@ The Local REST API plugin ships with a self-signed HTTPS cert. Browsers block it
 - Full OS-level trust-store walkthrough for Windows / macOS / Linux if you want HTTPS
 - Scans localhost for responding vault instances
 
-![HTTPS diagnostic panel](https://i.imgur.com/x74FYZV.png)
+<p align="center">
+  <img src="https://i.imgur.com/x74FYZV.png" alt="HTTPS diagnostic panel" width="640">
+</p>
 
 ## Relationship Graph
 
@@ -116,7 +125,9 @@ Vault content goes to your configured LLM provider during retrieval and generati
 
 Diagnostics exports for bug reports are pseudonymized before they leave your machine: IPs, hostnames, API keys, profile names, vault names, character names all masked. Readable format, auditable before you share:
 
-![Diagnostics export with anonymization summary](https://i.imgur.com/OhOUjLw.png)
+<p align="center">
+  <img src="https://i.imgur.com/OhOUjLw.png" alt="Diagnostics export with anonymization summary" width="640">
+</p>
 
 ## What people are saying
 
@@ -142,11 +153,15 @@ Diagnostics exports for bug reports are pseudonymized before they leave your mac
 2. Paste: `https://github.com/pixelnull/sillytavern-DeepLore-Enhanced`
 3. Run `/dle-setup`, which walks through vault connection, tags, search mode, and provider
 
-![Setup wizard first page](https://i.imgur.com/8Mktt2y.png)
+<p align="center">
+  <img src="https://i.imgur.com/8Mktt2y.png" alt="Setup wizard first page" width="640">
+</p>
 
 ## What's in the box
 
-![Entry browser](https://i.imgur.com/vzqxpr5.png)
+<p align="center">
+  <img src="https://i.imgur.com/vzqxpr5.png" alt="Entry browser" width="640">
+</p>
 
 - **Librarian (Emma)** - your lorebook grows as you roleplay: writing AI flags gaps mid-generation, Emma helps you author the entries
 - **Two-stage AI retrieval** - keywords + AI selection
@@ -158,12 +173,12 @@ Diagnostics exports for bug reports are pseudonymized before they leave your mac
 
 <table>
   <tr>
-    <td align="center"><a href="https://i.imgur.com/rqEeOVX.png"><img src="https://i.imgur.com/rqEeOVX.png" width="280"></a><br><sub>Health Check - 30+ automated audits</sub></td>
-    <td align="center"><a href="https://i.imgur.com/MD6ILH8.png"><img src="https://i.imgur.com/MD6ILH8.png" width="280"></a><br><sub>Activation Simulation - replay chat, see entry timeline</sub></td>
+    <td align="center" width="50%"><a href="https://i.imgur.com/rqEeOVX.png"><img src="https://i.imgur.com/rqEeOVX.png" height="180"></a><br><sub>Health Check - 30+ automated audits</sub></td>
+    <td align="center" width="50%"><a href="https://i.imgur.com/MD6ILH8.png"><img src="https://i.imgur.com/MD6ILH8.png" height="180"></a><br><sub>Activation Simulation - replay chat, see entry timeline</sub></td>
   </tr>
   <tr>
-    <td align="center"><a href="https://i.imgur.com/0yX5UHC.png"><img src="https://i.imgur.com/0yX5UHC.png" width="280"></a><br><sub>Custom Gating - visual rule builder for user-defined fields</sub></td>
-    <td align="center"><a href="https://i.imgur.com/RwCNQca.png"><img src="https://i.imgur.com/RwCNQca.png" width="280"></a><br><sub>Status - connection & index info at a glance</sub></td>
+    <td align="center" width="50%"><a href="https://i.imgur.com/0yX5UHC.png"><img src="https://i.imgur.com/0yX5UHC.png" height="180"></a><br><sub>Custom Gating - visual rule builder for user-defined fields</sub></td>
+    <td align="center" width="50%"><a href="https://i.imgur.com/RwCNQca.png"><img src="https://i.imgur.com/RwCNQca.png" height="180"></a><br><sub>Status - connection & index info at a glance</sub></td>
   </tr>
 </table>
 

@@ -259,7 +259,20 @@ export async function runAgenticLoop(options) {
                         results.push({ id: tc.id, name: tc.name, result: 'Error: Response already submitted. Use flag to record any issues, then end your turn.' });
                         break;
                     }
-                    prose = tc.input.content || '';
+                    // H10: Empty-content guard. AI sometimes emits write() with `content: ""`
+                    // or a missing content field (token-budget truncation, refusal, confusion).
+                    // Returning an error instead of silently committing an empty bubble gives
+                    // the AI a chance to retry in the next iteration within the same phase.
+                    const writeContent = typeof tc.input?.content === 'string' ? tc.input.content : '';
+                    if (!writeContent.trim()) {
+                        results.push({
+                            id: tc.id,
+                            name: tc.name,
+                            result: 'Error: The `content` argument was empty or missing. You MUST put your complete prose/story response in the `content` argument. Call write again with your actual response text.',
+                        });
+                        break;
+                    }
+                    prose = writeContent;
                     writeDone = true;
                     phase = PHASE_FLAG; // Phase transition
 
@@ -308,9 +321,11 @@ export async function runAgenticLoop(options) {
         }
     }
 
-    // Fallback: if write was never called but there's text content in the last response
+    // Fallback: if write was never called with usable content, log the terminal state.
+    // (prose='' is a legitimate outcome when every write attempt was empty and got
+    // rejected by the H10 guard — not the same as "write was never called".)
     if (!prose) {
-        if (debug) console.debug('[DLE] Agentic loop: no write() call detected, checking for text fallback');
+        if (debug) console.debug('[DLE] Agentic loop: exited without prose (writeDone=%s, iterations=%d, exit=%s)', writeDone, iterations, exitReason);
     }
 
     console.log('[DLE] Librarian: %d iterations, %d searches, %d flags, prose=%d chars, exit=%s',

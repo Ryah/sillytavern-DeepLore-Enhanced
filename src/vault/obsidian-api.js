@@ -3,7 +3,7 @@
  * Direct browser → Obsidian communication (CORS enabled by Obsidian REST API plugin).
  */
 
-import { pushEvent } from '../diagnostics/interceptors.js';
+import { pushEvent, abortWith } from '../diagnostics/interceptors.js';
 
 const DEFAULT_TIMEOUT = 30000;
 const OBSIDIAN_BATCH_SIZE = 50;
@@ -262,7 +262,7 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
+    const timer = setTimeout(() => abortWith(controller, 'obsidian:timeout'), timeout);
     // BUG-256: wire external signal (caller-supplied user-cancel) to this controller
     // so vault sync/scan/import are actually cancellable. Bail early if already aborted.
     let onExternalAbort = null;
@@ -274,7 +274,7 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
             err.userAborted = true;
             throw err;
         }
-        onExternalAbort = () => controller.abort();
+        onExternalAbort = () => abortWith(controller, signal.reason?.message || 'obsidian:external_signal');
         signal.addEventListener('abort', onExternalAbort, { once: true });
     }
 

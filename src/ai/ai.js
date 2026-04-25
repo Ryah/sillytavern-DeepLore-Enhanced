@@ -16,7 +16,7 @@ import {
     fieldDefinitions,
 } from '../state.js';
 import { dedupWarning, dedupError } from '../toast-dedup.js';
-import { aiCallBuffer, aiPromptBuffer } from '../diagnostics/interceptors.js';
+import { aiCallBuffer, aiPromptBuffer, abortWith } from '../diagnostics/interceptors.js';
 // Re-export pure functions from helpers.js for consumers that import from ai.js
 import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch, LOREBOOK_INFRA_TAGS } from '../helpers.js';
 // buildCandidateManifest extracted to manifest.js for testability
@@ -59,7 +59,7 @@ export function getProfileModelHint() {
  * @param {string} [modelOverride] - Model override (defaults to aiSearchModel)
  * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
  */
-export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, modelOverride, externalSignal, jsonSchema) {
+export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, modelOverride, externalSignal, jsonSchema, disableThinkingOnClaude = false) {
     const settings = getSettings();
     const resolvedProfileId = profileId || settings.aiSearchProfileId;
     const resolvedModel = modelOverride !== undefined ? modelOverride : settings.aiSearchModel;
@@ -108,12 +108,22 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         ];
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
+    const timer = setTimeout(() => abortWith(controller, 'ai:timeout'), timeout);
     let onExternalAbort = null;
     // Wire external signal (user cancellation) to abort the internal controller
     if (externalSignal) {
-        if (externalSignal.aborted) { clearTimeout(timer); const err = new Error('Request aborted'); err.name = 'AbortError'; throw err; }
-        onExternalAbort = () => controller.abort();
+        if (externalSignal.aborted) {
+            clearTimeout(timer);
+            const reason = externalSignal.reason?.message || 'ai:external_pre_aborted';
+            const err = new Error('Request aborted');
+            err.name = 'AbortError';
+            err.abortReason = reason;
+            throw err;
+        }
+        onExternalAbort = () => {
+            const reason = externalSignal.reason?.message || 'ai:external';
+            abortWith(controller, reason);
+        };
         externalSignal.addEventListener('abort', onExternalAbort, { once: true });
     }
 
@@ -123,7 +133,10 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         // BUG-028: Use Promise.race to enforce timeout even if CMRS ignores AbortSignal
         const timeoutPromise = new Promise((_, reject) => {
             backupTimer = setTimeout(() => {
-                if (!settled) reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' }));
+                if (!settled) {
+                    abortWith(controller, 'ai:backup_timeout');
+                    reject(Object.assign(new Error(`Request timed out (${Math.round(timeout / 1000)}s)`), { name: 'AbortError' }));
+                }
             }, timeout + 500);
         });
         // Build override payload. ST's chat-completions route translates `json_schema`
@@ -145,6 +158,17 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         const overridePayload = {};
         if (resolvedModel) overridePayload.model = resolvedModel;
         if (jsonSchema && !isClaudeModel) overridePayload.json_schema = jsonSchema;
+        // Anthropic API rejects forced tool_choice when extended thinking is enabled
+        // ("Thinking may not be enabled when tool_choice forces tool use." — 400). ST
+        // translates `json_schema` to forced `tool_choice` on Claude, and Librarian sends
+        // tools every turn. Setting `reasoning_effort: 'auto'` makes ST's
+        // calculateClaudeBudgetTokens (prompt-converters.js) return null → ST does NOT
+        // add `requestBody.thinking`, sidestepping the conflict. Per-request only —
+        // doesn't mutate the user's preset. Claude-only guard: harmless to override on
+        // non-Claude providers but irrelevant, so skip to keep override surface minimal.
+        if (disableThinkingOnClaude && isClaudeModel) {
+            overridePayload.reasoning_effort = 'auto';
+        }
         const result = await Promise.race([
             ConnectionManagerRequestService.sendRequest(
                 resolvedProfileId,
@@ -174,6 +198,11 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         // Enhance error with profile context for diagnosability
         const profileLabel = resolvedProfileId ? ` [profile: ${resolvedProfileId}]` : '';
         const modelLabel = resolvedModel ? ` [model: ${resolvedModel}]` : '';
+        // Capture abort attribution from native signal.reason (set via abortWith).
+        // Either signal can win the race; prefer controller-side, fall back to external.
+        const controllerReason = controller.signal.reason?.message || null;
+        const externalReason = externalSignal?.reason?.message || null;
+        const abortReason = controllerReason || externalReason || null;
         // BUG-234/251/252: Distinguish user-abort from timeout. Preserve err.name='AbortError'
         // on both so downstream checks work without regex fallback. Only rewrite message as
         // "Request timed out" when the cause was actually our timeout timer, not a user Stop.
@@ -182,11 +211,13 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
                 const abortErr = new Error(`Request aborted by user${profileLabel}${modelLabel}`);
                 abortErr.name = 'AbortError';
                 abortErr.userAborted = true;
+                abortErr.abortReason = abortReason;
                 throw abortErr;
             }
             const timeoutErr = new Error(`Request timed out (${Math.round(timeout / 1000)}s)${profileLabel}${modelLabel}`);
             timeoutErr.name = 'AbortError';
             timeoutErr.timedOut = true;
+            timeoutErr.abortReason = abortReason;
             throw timeoutErr;
         }
         // Detect role-related failures and surface targeted guidance
@@ -219,6 +250,7 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         const rethrow = new Error(`${err.message}${profileLabel}${modelLabel}`, { cause: err });
         if (err.name && err.name !== 'Error') rethrow.name = err.name;
         if (err.status) rethrow.status = err.status;
+        if (abortReason) rethrow.abortReason = abortReason;
         throw rethrow;
     } finally {
         if (externalSignal && onExternalAbort) externalSignal.removeEventListener('abort', onExternalAbort);
@@ -258,12 +290,24 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
         }
     }
 
-    const { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints, signal, jsonSchema } = connectionConfig;
+    const { mode, profileId, proxyUrl, model, maxTokens, timeout, cacheHints, signal, jsonSchema, disableThinkingOnClaude } = connectionConfig;
 
     // Check if already aborted before making the call
     if (signal?.aborted) {
+        const preReason = signal.reason?.message || 'pre_call_abort';
+        // Buffer a stub entry so the diagnostic trail isn't broken by an early-throw bypass.
+        try {
+            aiCallBuffer.push({
+                t: Date.now(), caller: connectionConfig.caller || 'unknown',
+                mode, model: model || null, timeoutMs: timeout,
+                systemLen: systemPrompt?.length ?? 0, userLen: userMessage?.length ?? 0,
+                durationMs: 0, status: 'aborted', abortReason: preReason,
+                error: 'pre_call_abort',
+            });
+        } catch { /* noop */ }
         const err = new Error('Request aborted');
         err.name = 'AbortError';
+        err.abortReason = preReason;
         throw err;
     }
 
@@ -278,7 +322,7 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
     let result;
     try {
         if (mode === 'profile') {
-            result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model, signal, jsonSchema);
+            result = await callViaProfile(systemPrompt, userMessage, maxTokens, timeout, profileId, model, signal, jsonSchema, disableThinkingOnClaude);
         } else {
             // Proxy mode
             result = await callProxyViaCorsBridge(
@@ -301,6 +345,9 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
         _callEntry.durationMs = Date.now() - _callStart;
         _callEntry.status = err.timedOut ? 'timeout' : err.userAborted ? 'aborted' : 'error';
         _callEntry.error = (err?.message || String(err)).slice(0, 200);
+        // Read native abort attribution from either the inner controller (via abortWith)
+        // or the caller's external signal. Inner wins; falls back to external.
+        _callEntry.abortReason = err.abortReason || signal?.reason?.message || null;
         try { aiCallBuffer.push(_callEntry); } catch { /* noop */ }
         // PII-sensitive prompt replay — only captured when debugMode is ON (user opt-in).
         // Scrubber strips PII on export; in-memory buffer is user-local only.
@@ -312,11 +359,13 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
                     durationMs: _callEntry.durationMs,
                     systemPrompt, userMessage,
                     response: null, error: _callEntry.error,
+                    abortReason: _callEntry.abortReason,
                 });
             }
         } catch { /* noop */ }
         throw err;
     }
+    _callEntry.abortReason = null;
     try { aiCallBuffer.push(_callEntry); } catch { /* noop */ }
     try {
         if (getSettings().debugMode) {
@@ -327,6 +376,7 @@ export async function callAI(systemPrompt, userMessage, connectionConfig) {
                 systemPrompt, userMessage,
                 response: result?.text ?? null,
                 inputTokens: _callEntry.inputTokens, outputTokens: _callEntry.outputTokens,
+                abortReason: null,
             });
         }
     } catch { /* noop */ }

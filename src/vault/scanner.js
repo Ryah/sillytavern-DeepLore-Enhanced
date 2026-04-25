@@ -7,6 +7,8 @@
  * Distinguishes "cert untrusted but HTTP works" so the UI can show that as actionable dual entry.
  */
 
+import { abortWith } from '../diagnostics/interceptors.js';
+
 const DEFAULT_OPTS = {
     portCenter: 27124,
     radius: 25,
@@ -56,11 +58,11 @@ export async function scanVaults(opts = {}) {
         const { port, scheme } = task;
         const url = `${scheme}://${host}:${port}/`;
         const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), o.perRequestTimeout);
+        const t = setTimeout(() => abortWith(ctrl, 'scanner:per_request_timeout'), o.perRequestTimeout);
         let onExternalAbort = null;
         if (externalSignal) {
             if (externalSignal.aborted) { clearTimeout(t); return null; }
-            onExternalAbort = () => ctrl.abort();
+            onExternalAbort = () => abortWith(ctrl, externalSignal.reason?.message || 'scanner:external_signal');
             externalSignal.addEventListener('abort', onExternalAbort, { once: true });
         }
         try {

@@ -18,17 +18,17 @@ export const errorBuffer = new RingBuffer(100);
 
 /** AI call buffer — per-call details for diagnosing AI failures without debugMode.
  *  Populated by recordAiCall() from ai.js after each callAI invocation. */
-export const aiCallBuffer = new RingBuffer(20);
+export const aiCallBuffer = new RingBuffer(40);
 
 /** AI prompt replay buffer — full system+user prompt text for replay/reproduction.
  *  PII-SENSITIVE: only populated when `debugMode === true` (user opt-in).
- *  Kept small (10 slots) and passed through scrubber on export. User can drain
+ *  Kept small and passed through scrubber on export. User can drain
  *  locally via `__DLE_DEBUG.buffers.aiPrompts` to reproduce failing calls. */
-export const aiPromptBuffer = new RingBuffer(10);
+export const aiPromptBuffer = new RingBuffer(20);
 
 /** Lifecycle event buffer — settings changes, chat switches, index builds, circuit transitions.
  *  Populated by pushEvent() calls from various DLE modules. */
-export const eventBuffer = new RingBuffer(100);
+export const eventBuffer = new RingBuffer(200);
 
 /**
  * Record a DLE lifecycle event. Safe to call from anywhere — never throws.
@@ -37,6 +37,20 @@ export const eventBuffer = new RingBuffer(100);
  */
 export function pushEvent(kind, data) {
     try { eventBuffer.push({ ...data, t: Date.now(), kind }); } catch { /* never throw */ }
+}
+
+/**
+ * Single chokepoint for AbortController.abort() across DLE.
+ * Stamps the source onto signal.reason so post-mortem catch blocks can attribute the abort.
+ * Reviewers: reject any direct controller.abort() — use this instead. See docs/gotchas.md.
+ * @param {AbortController} controller
+ * @param {string} reason - Flat snake_case source identifier (e.g. 'ai:timeout', 'popup_closing')
+ */
+export function abortWith(controller, reason) {
+    try {
+        if (!controller || controller.signal?.aborted) return;
+        controller.abort(new DOMException(String(reason || 'unknown'), 'AbortError'));
+    } catch { /* never throw */ }
 }
 
 // ── Single install guard (HMR / double-import safe).

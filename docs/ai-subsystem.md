@@ -69,7 +69,9 @@ Dispatches to `callViaProfile()` when `mode === 'profile'`, or `callProxyViaCors
 
 **`caller` label**: All callers now pass a `caller` string (e.g. `'aiSearch'`, `'scribe'`, `'autoSuggest'`, `'hierarchicalPreFilter'`, `'aiNotepad'`, `'optimizeKeys'`). This label is recorded in the `aiCallBuffer` for per-call diagnostics.
 
-**`aiCallBuffer` recording**: `callAI()` wraps the actual dispatch in a recording layer that pushes to the `aiCallBuffer` (RingBuffer 20 in `src/diagnostics/interceptors.js`). Each entry captures: `caller`, `mode`, `model`, `systemLen` (system prompt length), `userLen` (user message length), `timeoutMs`, `durationMs`, `status` (success/error/timeout/abort), `responseLen`, `tokens` (usage object), `error` (truncated error message on failure).
+**`aiCallBuffer` recording**: `callAI()` wraps the actual dispatch in a recording layer that pushes to the `aiCallBuffer` (RingBuffer 40 in `src/diagnostics/interceptors.js`). Each entry captures: `caller`, `mode`, `model`, `systemLen` (system prompt length), `userLen` (user message length), `timeoutMs`, `durationMs`, `status` (success/error/timeout/abort), `responseLen`, `tokens` (usage object), `error` (truncated error message on failure), `abortReason` (string|null — populated when call ended via abort; identifies source, e.g. `'ai:timeout'`, `'popup_closing'`, `'controller_replace'`).
+
+**Abort attribution**: All `.abort()` calls in DLE go through `abortWith(controller, reason)` (in `src/diagnostics/interceptors.js`). The reason rides on native `signal.reason` as a `DOMException`. Catch blocks read `controller.signal.reason?.message` AND `externalSignal?.reason?.message` and pick whichever is non-empty (controller wins) — written to `aiCallBuffer.abortReason` and `aiPromptBuffer.abortReason`. Direct `controller.abort()` loses post-mortem attribution.
 
 `skipThrottle: true` is used by `hierarchicalPreFilter` which chains with `aiSearch` -- both calls in one generation must not throttle each other.
 

@@ -3,6 +3,7 @@
  * Routes proxy-mode AI calls through SillyTavern's built-in CORS proxy (/proxy/:url).
  * Requires enableCorsProxy: true in SillyTavern's config.yaml.
  */
+import { abortWith } from '../diagnostics/interceptors.js';
 
 /**
  * Call an Anthropic-compatible API through the ST CORS proxy.
@@ -74,15 +75,19 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
     const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
+    const timer = setTimeout(() => abortWith(controller, 'proxy:timeout'), timeout);
     let onExternalAbort = null;
 
     // Wire external signal (user cancellation) to our internal controller
     if (externalSignal) {
         if (externalSignal.aborted) {
-            controller.abort();
+            const reason = externalSignal.reason?.message || 'proxy:external_pre_aborted';
+            abortWith(controller, reason);
         } else {
-            onExternalAbort = () => controller.abort();
+            onExternalAbort = () => {
+                const reason = externalSignal.reason?.message || 'proxy:external';
+                abortWith(controller, reason);
+            };
             externalSignal.addEventListener('abort', onExternalAbort, { once: true });
         }
     }
@@ -147,18 +152,24 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
             usage: parsed.usage || { input_tokens: 0, output_tokens: 0 },
         };
     } catch (err) {
+        const controllerReason = controller.signal.reason?.message || null;
+        const externalReason = externalSignal?.reason?.message || null;
+        const abortReason = controllerReason || externalReason || null;
         if (err.name === 'AbortError') {
             if (externalSignal?.aborted) {
                 const abortErr = new Error('Request aborted by user');
                 abortErr.name = 'AbortError';
                 abortErr.userAborted = true;
+                abortErr.abortReason = abortReason;
                 throw abortErr;
             }
             const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`, { cause: err });
             timeoutErr.name = 'AbortError';
             timeoutErr.timedOut = true;
+            timeoutErr.abortReason = abortReason;
             throw timeoutErr;
         }
+        if (abortReason) err.abortReason = abortReason;
         throw err;
     } finally {
         if (externalSignal && onExternalAbort) externalSignal.removeEventListener('abort', onExternalAbort);

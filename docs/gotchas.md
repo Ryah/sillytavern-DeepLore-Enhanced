@@ -401,3 +401,15 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Why (BUG-396):** Strip-dedup uses `deeplore_injection_log` to suppress entries "already in context." If a user deletes a message and clears picks, the log still contains entries from the deleted message — strip-dedup removes them as duplicates even though the injected content is gone. The user sees entries vanish despite their keywords appearing in chat.
 
 **Where:** `src/drawer/drawer-events.js` Clear Picks handler. The three things it must clear: (1) `aiSearchCache` — AI selection results, (2) `lastInjectionSources` — drawer display, (3) `chat_metadata.deeplore_injection_log` — strip-dedup history.
+
+---
+
+## 38. All `.abort()` Calls Go Through `abortWith`
+
+**Rule:** All `.abort()` calls in DLE MUST go through `abortWith(controller, reason)` (in `src/diagnostics/interceptors.js`). Direct `controller.abort()` is forbidden. Reviewers should reject PRs that bypass it.
+
+**Why:** `AbortSignal.reason` is read-only post-construction — only settable via `controller.abort(reason)`. `abortWith` calls `controller.abort(new DOMException(reason, 'AbortError'))` so the reason rides on native `signal.reason`. Catch blocks read `controller.signal.reason?.message` AND `externalSignal?.reason?.message` to populate `aiCallBuffer.abortReason` / `aiPromptBuffer.abortReason` and post-mortem diag exports. Direct `controller.abort()` loses post-mortem attribution — diag report shows "aborted" but not WHO fired it (timeout? popup close? user stop button? external signal? non-DLE actor?). The 2026-04-25 Emma stuck-generating bug report (`dle-diagnostics-2026-04-25T02-03-57-482Z.md`) was unresolvable for exactly this reason.
+
+**`onExternalAbort` listeners** must propagate the upstream reason: `() => abortWith(localController, externalSignal.reason?.message || 'fallback_label')`. Stamping a generic reason on the local controller hides which upstream source fired.
+
+**Where:** Every file that creates an `AbortController`. Current sites: `src/ai/ai.js`, `src/ai/proxy-api.js`, `src/librarian/agentic-api.js`, `src/librarian/librarian-review.js`, `src/vault/obsidian-api.js`, `src/vault/scanner.js`. `scribe.js` / `auto-suggest.js` use `generateQuietPrompt` (no abort).

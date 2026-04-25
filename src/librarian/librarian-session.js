@@ -11,6 +11,18 @@ import { getSettings, resolveConnectionConfig } from '../../settings.js';
 import { vaultIndex, fuzzySearchIndex, loreGaps, setLoreGaps, chatEpoch } from '../state.js';
 import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
 import { executeToolCall, buildToolsPromptSection } from './librarian-chat-tools.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
+
+/** Snapshot client/runtime state used to attribute mid-flight aborts to non-DLE actors
+ *  (browser tab teardown, OS sleep, network drop). All optional — never throws. */
+function captureBrowserState() {
+    try {
+        return {
+            visibilityState: typeof document !== 'undefined' ? document.visibilityState : null,
+            onLine: typeof navigator !== 'undefined' ? navigator.onLine : null,
+        };
+    } catch { return { visibilityState: null, onLine: null }; }
+}
 import {
     buildLibrarianBootstrapSystemPrompt,
     EMMA_FIRSTRUN_GREETING,
@@ -692,7 +704,16 @@ Each option has a \`label\` (user-facing description) and \`fields\` (draft fiel
  * @returns {object} connectionConfig for callAI()
  */
 function getConnectionConfig() {
-    return { ...resolveConnectionConfig('librarian'), skipThrottle: true };
+    // disableThinkingOnClaude: Anthropic rejects requests when extended thinking is
+    // enabled AND tool_choice forces tool use ("Thinking may not be enabled when
+    // tool_choice forces tool use." — 400 invalid_request_error). Librarian sends
+    // tools every turn, and ST translates `json_schema` to forced tool_choice on
+    // Claude — so any preset with reasoning_effort != 'auto' breaks the loop.
+    // Reddit research: setting reasoning_effort='auto' makes ST's
+    // calculateClaudeBudgetTokens return null, so no `thinking` field is added.
+    // Guard: only applied when callViaProfile detects a Claude model — no-op for
+    // OpenAI/Gemini/etc. Librarian-only flag; doesn't affect aiSearch/scribe/etc.
+    return { ...resolveConnectionConfig('librarian'), skipThrottle: true, disableThinkingOnClaude: true };
 }
 
 /**
@@ -721,11 +742,13 @@ export async function sendMessage(session, userMessage, options = {}) {
     let committed = false;
     const abortReturn = () => {
         if (!committed) session.messages = historySnapshot.map(m => ({ ...m }));
+        pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'aborted', outerIteration: outerIterations, toolCallCount, ...captureBrowserState() });
         return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
     };
     // BUG-273: Reuse the same snapshot-restore path for epoch mismatch — no second snapshot needed.
     const epochReturn = () => {
         if (!committed) session.messages = historySnapshot.map(m => ({ ...m }));
+        pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'epoch', outerIteration: outerIterations, toolCallCount });
         return { parsed: null, valid: false, exhausted: false, lastErrors: ['Chat changed during librarian send'] };
     };
 
@@ -758,7 +781,9 @@ export async function sendMessage(session, userMessage, options = {}) {
         // BUG-232: Hard iteration cap — prevents unbounded loop when AI ignores
         // the tool-call budget nudge and keeps returning tool_call responses.
         outerIterations++;
+        pushEvent('librarian', { surface: 'session', action: 'iteration', outerIteration: outerIterations, toolCallCount });
         if (outerIterations > MAX_AGENTIC_ITERATIONS) {
+            pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'iter_cap', outerIteration: outerIterations, toolCallCount });
             return {
                 parsed: null,
                 valid: false,
@@ -783,9 +808,30 @@ export async function sendMessage(session, userMessage, options = {}) {
             }
 
             let result;
+            const callStartMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+            pushEvent('librarian', { surface: 'session', action: 'call_start', outerIteration: outerIterations, toolCallCount, attempt });
             try {
                 result = await callAI(systemPrompt, messageToSend, { ...connectionConfig, caller: 'librarian' });
+                pushEvent('librarian', {
+                    surface: 'session', action: 'call_end', ok: true, outerIteration: outerIterations, toolCallCount, attempt,
+                    abortedAt: 'neither', controllerReason: null, externalReason: null,
+                    durationMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - callStartMs),
+                    ...captureBrowserState(),
+                });
             } catch (err) {
+                const externalReason = signal?.reason?.message || null;
+                const controllerReason = err?.abortReason || null;
+                let abortedAt = 'neither';
+                if (controllerReason && externalReason) abortedAt = 'both';
+                else if (externalReason || signal?.aborted) abortedAt = 'external';
+                else if (controllerReason || err?.name === 'AbortError') abortedAt = 'controller';
+                pushEvent('librarian', {
+                    surface: 'session', action: 'call_end', ok: false, outerIteration: outerIterations, toolCallCount, attempt,
+                    abortedAt, controllerReason, externalReason,
+                    errName: err?.name || null,
+                    durationMs: Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - callStartMs),
+                    ...captureBrowserState(),
+                });
                 if (err.name === 'AbortError' || signal?.aborted) {
                     return abortReturn();
                 }
@@ -801,6 +847,7 @@ export async function sendMessage(session, userMessage, options = {}) {
                 // AI did respond successfully. Accumulate rather than overwrite so earlier
                 // parse/validation errors from prior attempts aren't lost.
                 lastErrors = [...lastErrors, `AI call failed: ${err.message || err}`];
+                pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'transport_error', outerIteration: outerIterations, toolCallCount });
                 return { parsed: null, valid: false, exhausted: true, lastErrors };
             }
 
@@ -845,6 +892,7 @@ export async function sendMessage(session, userMessage, options = {}) {
 
         // Validation retries exhausted without a valid response
         if (!validParsed) {
+            pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'validation_exhausted', outerIteration: outerIterations, toolCallCount });
             return { parsed: null, valid: false, exhausted: true, lastErrors };
         }
 
@@ -887,6 +935,7 @@ export async function sendMessage(session, userMessage, options = {}) {
 
             // Check tool call budget
             if (toolCallCount >= MAX_TOOL_CALLS_PER_TURN) {
+                pushEvent('librarian', { surface: 'session', action: 'forced_finalize', outerIteration: outerIterations, toolCallCount });
                 // BUG-319: Force-finalize nudge. Flagged `synthetic:true` so regenerateResponse
                 // can't mistake it for the user's real prompt when walking the history backwards.
                 // Role kept as 'user' for buildUserPromptFromHistory rendering (ST chat format has
@@ -920,6 +969,7 @@ export async function sendMessage(session, userMessage, options = {}) {
         }
         session.messages.push({ role: 'assistant', content: validParsed.message || '' });
         committed = true;
+        pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'success', outerIteration: outerIterations, toolCallCount });
         return { parsed: validParsed, valid: true, exhausted: false, lastErrors: [] };
     }
 }

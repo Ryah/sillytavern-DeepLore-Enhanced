@@ -136,8 +136,19 @@ export async function runAgenticLoop(options) {
         }
         if (signal.aborted) {
             exitReason = 'aborted';
+            const externalReason = signal.reason?.message || null;
+            try {
+                pushEvent('librarian', {
+                    surface: 'loop', action: 'abort',
+                    iteration, phase, searchCount, flagCount,
+                    controllerReason: null, externalReason,
+                    visibilityState: typeof document !== 'undefined' ? document.visibilityState : null,
+                    onLine: typeof navigator !== 'undefined' ? navigator.onLine : null,
+                });
+            } catch { /* never throw from diag */ }
             const err = new Error('Agentic loop aborted');
             err.name = 'AbortError';
+            err.abortReason = externalReason;
             throw err;
         }
 
@@ -165,6 +176,14 @@ export async function runAgenticLoop(options) {
 
         // C9: Keep generation lock alive before API call
         setGenerationLockTimestamp(Date.now());
+
+        try {
+            pushEvent('librarian', {
+                surface: 'loop', action: 'iteration',
+                iteration, phase, searchCount, flagCount,
+                toolsAvailable: tools.map(t => t.function.name),
+            });
+        } catch { /* never throw from diag */ }
 
         if (debug) console.debug(`[DLE] Agentic loop: iteration ${iteration}, phase=${phase}, tools=[${tools.map(t => t.function.name)}]`);
 

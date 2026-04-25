@@ -10,6 +10,7 @@ import { main_api, amount_gen } from '../../../../../../script.js';
 import { getContext } from '../../../../../extensions.js';
 import { resolveConnectionConfig } from '../../settings.js';
 import { validateProxyUrl } from '../ai/proxy-api.js';
+import { abortWith } from '../diagnostics/interceptors.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Provider Detection
@@ -155,14 +156,18 @@ async function callWithToolsViaProxy(connConfig, messages, tools, toolChoice, ma
     const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeout);
+    const timer = setTimeout(() => abortWith(controller, 'agentic-api:timeout'), timeout);
     let onExternalAbort = null;
 
     if (signal) {
         if (signal.aborted) {
-            controller.abort();
+            const reason = signal.reason?.message || 'agentic-api:external_pre_aborted';
+            abortWith(controller, reason);
         } else {
-            onExternalAbort = () => controller.abort();
+            onExternalAbort = () => {
+                const reason = signal.reason?.message || 'agentic-api:external';
+                abortWith(controller, reason);
+            };
             signal.addEventListener('abort', onExternalAbort, { once: true });
         }
     }
@@ -213,18 +218,24 @@ async function callWithToolsViaProxy(connConfig, messages, tools, toolChoice, ma
         // Return raw Anthropic response — parseToolCalls/getTextContent/getUsage handle Claude format
         return parsed;
     } catch (err) {
+        const controllerReason = controller.signal.reason?.message || null;
+        const externalReason = signal?.reason?.message || null;
+        const abortReason = controllerReason || externalReason || null;
         if (err.name === 'AbortError') {
             if (signal?.aborted) {
                 const abortErr = new Error('Request aborted by user');
                 abortErr.name = 'AbortError';
                 abortErr.userAborted = true;
+                abortErr.abortReason = abortReason;
                 throw abortErr;
             }
             const timeoutErr = new Error(`Proxy request timed out (${Math.round(timeout / 1000)}s)`, { cause: err });
             timeoutErr.name = 'AbortError';
             timeoutErr.timedOut = true;
+            timeoutErr.abortReason = abortReason;
             throw timeoutErr;
         }
+        if (abortReason) err.abortReason = abortReason;
         throw err;
     } finally {
         if (signal && onExternalAbort) signal.removeEventListener('abort', onExternalAbort);
@@ -274,6 +285,18 @@ export async function callWithTools(messages, tools, toolChoice, maxTokens, sign
         tools,
         ...(normalizedToolChoice != null && { tool_choice: normalizedToolChoice }),
     };
+
+    // Anthropic API rejects forced tool_choice when extended thinking is enabled
+    // ("Thinking may not be enabled when tool_choice forces tool use." — 400). Even
+    // with tool_choice='auto', ST may translate `json_schema` from the active preset
+    // into a forced tool_choice on Claude. Setting `reasoning_effort: 'auto'` makes
+    // ST's calculateClaudeBudgetTokens (prompt-converters.js) return null → ST does
+    // NOT add `requestBody.thinking`, sidestepping the conflict. Per-request only —
+    // doesn't mutate the user's preset. Claude-only: format guard above ensures we
+    // only touch this path when ST will actually route to the Claude backend.
+    if (format === 'claude') {
+        overridePayload.reasoning_effort = 'auto';
+    }
 
     const result = await ConnectionManagerRequestService.sendRequest(
         getActiveProfileId(),

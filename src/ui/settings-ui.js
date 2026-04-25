@@ -22,6 +22,7 @@ import {
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     librarianSessionStats, librarianChatStats,
     claudeAutoEffortBad, claudeAutoEffortDetail, onClaudeAutoEffortChanged,
+    notifyDebugModeChanged,
 } from '../state.js';
 import { ensureIndexFresh } from '../vault/vault.js';
 import {
@@ -781,7 +782,7 @@ function updateAccordionBadge($container, toolKey) {
             $badge.text('No profile selected').css('opacity', '0.5');
         }
     } else if (mode === 'proxy') {
-        const url = settings[config.proxyUrlKey] || 'http://localhost:42069';
+        const url = settings[config.proxyUrlKey] || 'http://127.0.0.1:42069';
         try {
             const u = new URL(url);
             $badge.text(`Proxy: ${u.hostname}:${u.port || '80'}`).css('opacity', '0.7');
@@ -847,7 +848,7 @@ function bindAccordionEvents($container) {
         const $accordion = $(this).closest('.dle-conn-accordion');
         const toolKey = $accordion.data('tool');
         const config = TOOL_CONNECTION_CONFIGS[toolKey];
-        settings[config.proxyUrlKey] = String($(this).val()).trim() || 'http://localhost:42069';
+        settings[config.proxyUrlKey] = String($(this).val()).trim() || 'http://127.0.0.1:42069';
         invalidateSettingsCache();
         saveSettingsDebounced();
         updateAccordionBadge($container, toolKey);
@@ -2104,7 +2105,7 @@ function bindPopupEvents($container) {
     $c('#dle-sp-rebuild-gen-interval').on('input', function () { settings.indexRebuildGenerationInterval = numVal($(this).val(), 10); saveSettingsDebounced(); });
     $c('#dle-sp-show-sync-toasts').on('change', function () { settings.showSyncToasts = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-review-tokens').on('input', function () { settings.reviewResponseTokens = numVal($(this).val(), 0); saveSettingsDebounced(); });
-    $c('#dle-sp-debug').on('change', function () { settings.debugMode = $(this).prop('checked'); saveSettingsDebounced(); });
+    $c('#dle-sp-debug').on('change', function () { settings.debugMode = $(this).prop('checked'); saveSettingsDebounced(); notifyDebugModeChanged(); });
 
     // ── Re-run Setup Wizard ──
     $c('#dle-sp-rerun-wizard').on('click', async function () {
@@ -2219,12 +2220,21 @@ function bindPopupEvents($container) {
 // Load Settings UI (stub — extension panel is gutted)
 // ============================================================================
 
+// BUG-AUDIT: track every state-observer unsubscriber so teardown can release
+// them. Without tracking, re-init via the _dleInitialized guard accumulates
+// duplicate handlers (drawer already does this; settings-ui didn't).
+let _settingsUiUnsubs = [];
+
 export function loadSettingsUI() {
+    // Idempotency guard: if a prior init left observers registered, release them
+    // before re-registering. Prevents duplicate handlers on hot-reload.
+    if (_settingsUiUnsubs.length > 0) teardownSettingsUI();
+
     const settings = getSettings();
     $('#dle-enabled').prop('checked', settings.enabled);
     updateStubStatus();
 
-    onIndexUpdated(() => {
+    _settingsUiUnsubs.push(onIndexUpdated(() => {
         updateStubStatus();
         setTimeout(() => {
             try {
@@ -2232,14 +2242,22 @@ export function loadSettingsUI() {
                 setLastHealthResult(health);
             } catch { /* noop */ }
         }, 0);
-    });
-    onAiStatsUpdated(() => updateStubStatus());
-    onCircuitStateChanged(() => { updateStubStatus(); updateHeaderBadge(); });
-    onClaudeAutoEffortChanged(() => {
+    }));
+    _settingsUiUnsubs.push(onAiStatsUpdated(() => updateStubStatus()));
+    _settingsUiUnsubs.push(onCircuitStateChanged(() => { updateStubStatus(); updateHeaderBadge(); }));
+    _settingsUiUnsubs.push(onClaudeAutoEffortChanged(() => {
         // Refresh the AI Connections banner if the popup is currently open.
         const $popup = $('#dle-settings-popup');
         if ($popup.length) refreshClaudeEffortBanner($popup);
-    });
+    }));
+}
+
+/** Release every state observer registered by loadSettingsUI. */
+export function teardownSettingsUI() {
+    for (const unsub of _settingsUiUnsubs) {
+        try { unsub(); } catch { /* ignore — best-effort cleanup */ }
+    }
+    _settingsUiUnsubs = [];
 }
 
 function updateStubStatus() {

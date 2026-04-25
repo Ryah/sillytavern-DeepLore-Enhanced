@@ -74,8 +74,13 @@ export function detectCrossVaultDuplicates(entries) {
  * @param {string} mode - Conflict resolution mode ('all'|'first'|'last'|'merge')
  * @returns {Array} Deduplicated entries
  */
+// BUG-AUDIT (Fix 12): defensive guard. Settings whitelist enforces the enum on save,
+// but settings imports / hand-edited config can land an invalid value here — without
+// this guard the invalid mode falls through every branch and silently behaves like
+// 'first' (drops duplicates after the first). Treat unknown as 'all' (safest: preserve).
+const VALID_DEDUPE_MODES = new Set(['all', 'first', 'last', 'merge']);
 export function deduplicateMultiVault(entries, mode) {
-    if (!mode || mode === 'all') return entries;
+    if (!mode || !VALID_DEDUPE_MODES.has(mode) || mode === 'all') return entries;
     const titleMap = new Map();
     for (const entry of entries) {
         const key = entry.title.toLowerCase();

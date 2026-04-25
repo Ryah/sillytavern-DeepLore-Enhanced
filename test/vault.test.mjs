@@ -822,8 +822,9 @@ test('F1: takeIndexSnapshot: creates snapshot with contentHash, title, keys', ()
     assertNotNull(snap.titleMap, 'titleMap present');
     assertNotNull(snap.keyMap, 'keyMap present');
     assertNotNull(snap.timestamp, 'timestamp present');
-    assert(snap.contentHashes.has('Dragon.md'), 'entry tracked by filename');
-    assertEqual(snap.titleMap.get('Dragon.md'), 'Dragon', 'title mapped');
+    // BUG-AUDIT (Fix 25): keys are `vaultSource:filename`. Default vaultSource is ''.
+    assert(snap.contentHashes.has(':Dragon.md'), 'entry tracked by vaultSource:filename');
+    assertEqual(snap.titleMap.get(':Dragon.md'), 'Dragon', 'title mapped');
 });
 
 test('F2: takeIndexSnapshot: empty array creates empty snapshot', () => {
@@ -928,15 +929,16 @@ test('F9: detectChanges: multiple simultaneous changes', () => {
     assert(changes.hasChanges, 'hasChanges true');
 });
 
-test('F10: takeIndexSnapshot: entries tracked by filename not title', () => {
+test('F10: takeIndexSnapshot: entries tracked by vaultSource:filename', () => {
     const entries = [
         makeEntry('Dragon', { content: 'Fire.', filename: 'Lore/Dragon.md' }),
         makeEntry('Dragon Alt', { content: 'Ice.', filename: 'Lore/DragonAlt.md' }),
     ];
     const snap = takeIndexSnapshot(entries);
     assertEqual(snap.contentHashes.size, 2, 'two separate entries');
-    assert(snap.contentHashes.has('Lore/Dragon.md'), 'tracked by filename path');
-    assert(snap.contentHashes.has('Lore/DragonAlt.md'), 'second tracked by filename path');
+    // BUG-AUDIT (Fix 25): keys are `vaultSource:filename`.
+    assert(snap.contentHashes.has(':Lore/Dragon.md'), 'tracked by vaultSource:filename');
+    assert(snap.contentHashes.has(':Lore/DragonAlt.md'), 'second tracked by vaultSource:filename');
 });
 
 test('F11: detectChanges: content+keys both changed counts as modified (not double-counted)', () => {
@@ -952,7 +954,8 @@ test('F11: detectChanges: content+keys both changed counts as modified (not doub
 test('F12: takeIndexSnapshot: keys serialized as JSON for comparison', () => {
     const entries = [makeEntry('Dragon', { keys: ['fire', 'ice'], filename: 'Dragon.md' })];
     const snap = takeIndexSnapshot(entries);
-    assertEqual(snap.keyMap.get('Dragon.md'), JSON.stringify(['fire', 'ice']), 'keys JSON-serialized');
+    // BUG-AUDIT (Fix 25): keys are `vaultSource:filename`.
+    assertEqual(snap.keyMap.get(':Dragon.md'), JSON.stringify(['fire', 'ice']), 'keys JSON-serialized');
 });
 
 // ============================================================================

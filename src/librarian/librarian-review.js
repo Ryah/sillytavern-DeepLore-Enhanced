@@ -11,7 +11,7 @@ import { writeNote } from '../vault/obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
 import { getContext } from '../../../../../extensions.js';
 import { accountStorage } from '../../../../../util/AccountStorage.js';
-import { loreGaps, setLoreGaps } from '../state.js';
+import { loreGaps, setLoreGaps, chatEpoch } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession, pickFlavorIntro } from './librarian-session.js';
 import { getSessionActivityLog, buildLibrarianActivityFeed } from './librarian-tools.js';
@@ -22,6 +22,21 @@ const emmaAvatarUrl = new URL('../../assets/companions/Emma-STChar.png', import.
 // ════════════════════════════════════════════════════════════════════════════
 // Helpers — Unified document format
 // ════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Strip a leading H1 from content when its text matches the draft title
+ * (case-insensitive, whitespace-tolerant). The system prompt instructs Emma
+ * to start content with `# Title`, but the write/format paths already prepend
+ * `# ${draft.title}` — without this, the saved file gets two H1s. Only strips
+ * when the H1 text matches the title; intentional alternate H1s pass through.
+ * BUG-AUDIT (Fix 10).
+ */
+function stripLeadingMatchingH1(s, title) {
+    if (!s || !title) return s;
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`^\\s*#\\s+${escaped}\\s*\\n+`, 'i');
+    return s.replace(re, '');
+}
 
 /**
  * Serialize a draft state object into a full Obsidian-style document string.
@@ -43,7 +58,8 @@ function formatEntryAsDocument(draft, settings) {
     let doc = `---\n${fileClassLine}type: ${yamlEscape(typeStr)}\nstatus: active\npriority: ${priority}\ntags:\n${tagsYaml}\nkeys:\n${keysYaml}\nsummary: "${summary}"\n---`;
 
     if (draft.title || draft.content) {
-        doc += `\n# ${draft.title || 'Untitled'}\n\n${draft.content || ''}`;
+        const cleanedContent = stripLeadingMatchingH1(draft.content || '', draft.title || 'Untitled');
+        doc += `\n# ${draft.title || 'Untitled'}\n\n${cleanedContent}`;
     }
     return doc;
 }
@@ -182,6 +198,12 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
     // Allow openLibrarianPopup(null, { mode: 'guide-firstrun' }) — guide modes default entryPoint to 'new'.
     if (entryPoint === null || entryPoint === undefined) entryPoint = 'new';
     const isGuideMode = options.mode === 'guide-firstrun' || options.mode === 'guide-adhoc';
+
+    // BUG-AUDIT (Fix 7): capture chatEpoch at popup open. Every save/clear that
+    // fires from this popup's debounced timers or onClosing callbacks passes
+    // openEpoch back to saveSessionState/clearSessionState — when the user
+    // switches chats, the helpers refuse to write into the new chat's metadata.
+    const openEpoch = chatEpoch;
 
     // Check for saved session from a previous page refresh
     let session;
@@ -826,11 +848,11 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     const chosen = options[idx];
                     if (!chosen?.fields) return;
 
-                    // Apply chosen fields to draft
-                    const filtered = Object.fromEntries(
-                        Object.entries(chosen.fields).filter(([, v]) => v != null),
-                    );
-                    session.draftState = { ...session.draftState, ...filtered };
+                    // BUG-AUDIT (Fix 11): preserve explicit nulls. Previous filter `!= null`
+                    // dropped both null and undefined, so options proposing `cooldown: null`
+                    // (clear the cooldown) were silently ignored. Main draft merge preserves
+                    // null elsewhere; align with that contract.
+                    session.draftState = { ...session.draftState, ...chosen.fields };
                     dirty = true;
                     updateFieldsFromDraft();
 
@@ -1059,7 +1081,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             // ─── Session persistence ───
             function debouncedSaveSession() {
                 clearTimeout(_saveTimer);
-                _saveTimer = setTimeout(() => saveSessionState(session), 500);
+                _saveTimer = setTimeout(() => saveSessionState(session, openEpoch), 500);
             }
 
             // ─── Restore session from saved state ───
@@ -1143,15 +1165,15 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     '', { okButton: 'Discard', cancelButton: 'Keep for Later' },
                 );
                 if (confirmResult === POPUP_RESULT.AFFIRMATIVE) {
-                    clearSessionState();
+                    clearSessionState(openEpoch);
                     return true;
                 }
                 // "Keep for Later" — save and close
-                saveSessionState(session);
+                saveSessionState(session, openEpoch);
                 return true;
             }
             // No unsaved changes — clear saved state
-            clearSessionState();
+            clearSessionState(openEpoch);
             return true;
         },
     });
@@ -1198,7 +1220,9 @@ async function writeToVault(session, opts = {}) {
 
     const tags = draft.tags?.length ? draft.tags : [settings.lorebookTag || 'lorebook'];
     const typeStr = draft.type || 'lore';
-    const safeContent = stripObsidianSyntax(draft.content || '');
+    // BUG-AUDIT (Fix 10): strip the model's leading `# ${title}` to prevent
+    // duplicate H1 on disk. The write line below unconditionally prepends one.
+    const safeContent = stripLeadingMatchingH1(stripObsidianSyntax(draft.content || ''), draft.title);
     let frontmatterBlock;
     if (session.frontmatterUserEdited && typeof session.frontmatterOverride === 'string' && session.frontmatterOverride.trim()) {
         // Honor the user's hand-edited frontmatter verbatim. They own it now.

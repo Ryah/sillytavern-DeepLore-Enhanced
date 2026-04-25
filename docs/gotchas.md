@@ -413,3 +413,57 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **`onExternalAbort` listeners** must propagate the upstream reason: `() => abortWith(localController, externalSignal.reason?.message || 'fallback_label')`. Stamping a generic reason on the local controller hides which upstream source fired.
 
 **Where:** Every file that creates an `AbortController`. Current sites: `src/ai/ai.js`, `src/ai/proxy-api.js`, `src/librarian/agentic-api.js`, `src/librarian/librarian-review.js`, `src/vault/obsidian-api.js`, `src/vault/scanner.js`. `scribe.js` / `auto-suggest.js` use `generateQuietPrompt` (no abort).
+
+---
+
+## 39. Tool-Calling Gate Is Per-Model, Not Just Per-Source
+
+**Rule:** `isToolCallingSupported()` MUST check the resolved model against `NO_TOOLS_MODELS` regex set, not just the chat-completion source against `NO_TOOLS_SOURCES`.
+
+**Why:** Reasoning-only models (`deepseek-reasoner`, OpenAI `o1`/`o3`/`o4`, OpenRouter `*-r1` relays) belong to sources that DO support tool calling for their non-reasoning siblings. ST has no per-model tool gate (verified against staging `tool-calling.js`, 2026-04-24). Without the per-model check, DLE dispatches Librarian against a reasoner, the API returns no tool_calls, the loop exits with `exitReason='no_tools'`, and the model's reasoning narrative leaks into the assistant message as if it were prose. Silent failure.
+
+**Where:** `src/librarian/agentic-api.js` — `NO_TOOLS_MODELS` regex set, `isReasoningOnlyModel(model)` predicate, `isToolCallingSupported(model?)` checks both.
+
+**Also:** `getTextContent()` strips `<think>...</think>` blocks defensively. Thinking-capable but tool-supporting models (Claude 3.7+, deepseek-chat with thinking on, GLM-4.6) emit `<think>` tags around reasoning even when caller wants only the final reply. ST's `removeReasoningFromString` is gated on `power_user.reasoning.auto_parse` so cannot be relied upon.
+
+---
+
+## 40. Claude Detection Must Cover OpenRouter Relays
+
+**Rule:** Code that gates Claude-specific REQUEST mitigations (thinking-vs-tool_choice 400 sidestep, `json_schema` skip) MUST use `isUnderlyingClaude(model)` — not `getProviderFormat() === 'claude'` and not bare `/^claude-/i.test(model)`.
+
+**Why:** OpenRouter's source string is `'openrouter'`, so `getProviderFormat()` returns `'openai'` even for `anthropic/claude-*` models. OpenRouter forwards `reasoning.effort` to Anthropic upstream, so the same 400 ("Thinking may not be enabled when tool_choice forces tool use") fires for OR-Claude users. Json_schema also leaks because the bare regex `/^claude-/i` does not match `anthropic/claude-3.5-sonnet`.
+
+**Where:** `src/librarian/agentic-api.js: callWithToolsViaProfile()` (`reasoning_effort` override fires for `format === 'claude' || isUnderlyingClaude()`); `src/ai/ai.js: callViaProfile()` (`isClaudeModel = isUnderlyingClaude(effectiveModel)`).
+
+**Do NOT change `getProviderFormat()` itself** — parsing must stay OpenAI-shape for OR responses, regardless of what the underlying model is. The two helpers answer different questions: format = "how do I parse the response", underlying-claude = "what backend will run this".
+
+---
+
+## 41. Gemini Multi-Turn Messages MUST Be OpenAI Shape
+
+**Rule:** `buildAssistantMessage()` and `buildToolResults()` MUST emit OpenAI-shape messages for `format === 'google'` profile mode. Native Gemini shape (`{role:'model', parts:[]}`, `{role:'function', parts:[]}`) is silently dropped.
+
+**Why:** ST's `convertGooglePrompt()` (in `src/prompt-converters.js`) only reads `message.content` from input messages — it ignores any pre-existing `parts` array. Verified against ST staging branch 2026-04-24. If DLE pushes a `{role:'model', parts:[functionCall]}` assistant message back into the conversation, `convertGooglePrompt` sees `message.content === undefined` and emits `{role:'model', content:[{type:'text', text:''}]}`, then converts to `parts:[{text:''}]`. The tool_use round-trip is lost. Every assistant turn after the first becomes empty text. Multi-turn Librarian on Gemini is broken without this fix.
+
+**Round-trip contract:** `parseToolCalls()` stamps a synthetic id (`gemini-{timestamp}-{rand}`) onto the raw `responseContent.parts[i]` via `_dleSyntheticId`. `buildAssistantMessage()` reads it back when constructing OpenAI-shape `tool_calls[].id`. `buildToolResults()` emits `tool_call_id` matching that id. ST's `convertGooglePrompt` builds its own `toolNameMap` from the assistant turn's `tool_calls` and resolves the function name when emitting the next `functionResponse`. If the id mapping breaks, `toolNameMap[id] === 'unknown'` and Gemini sees `functionResponse.name = 'unknown'`.
+
+**Where:** `src/librarian/agentic-api.js` — `parseToolCalls` (id stamp), `buildAssistantMessage` (OpenAI-shape emit for google), `buildToolResults` (OpenAI-shape emit for google).
+
+**Also:** `getTextContent()` filters `p.thought !== true` for google — Gemini 2.5/3 emit reasoning as `parts[].thought=true` which would otherwise leak into prose.
+
+**Also:** `callWithTools()` wraps `sendRequest` in try/catch and re-throws Gemini-specific errors (`/blocked|SAFETY|RECITATION|promptFeedback|Candidate text empty/i`) as `SafetyBlockError` so callers can surface user-actionable guidance instead of generic "Generation failed".
+
+---
+
+## 42. Stepped Thinking Re-Entry Guard
+
+**Rule:** When `inSteppedThinking` is true, `onGenerate()` MUST early-return BEFORE any pipeline work. The flag is set/cleared by listeners on the literal-string events `'GENERATION_MUTEX_CAPTURED'` and `'GENERATION_MUTEX_RELEASED'` (custom events from `cierru/st-stepped-thinking/interconnection.js`, not in ST's `event_types`).
+
+**Why:** Stepped Thinking calls `Generate('normal', { force_chid })` for each thought-chain step. ST's interceptor system fires `deepLoreEnhanced_onGenerate` for those passes too — `type === 'normal'`, indistinguishable from a user turn. Without the gate: every thinking step re-runs vault search + AI scoring + Librarian dispatch, multiplying cost N× and corrupting both Stepped Thinking's output (Librarian eats it) and DLE's per-chat counters/cooldowns. Verified upstream `Generate('normal', { force_chid })` in `cierru/st-stepped-thinking/thinking/engine.js`, payload `{extension_name: 'stepped-thinking'}` in `interconnection.js` (2026-04-24).
+
+**Where:** `index.js` — module-scope `inSteppedThinking` flag + `_steppedThinkingTimeout`; `_registerEs('GENERATION_MUTEX_CAPTURED', ...)` and `_registerEs('GENERATION_MUTEX_RELEASED', ...)` listeners; `onGenerate()` early-return after the `type === 'quiet'` guard but before `skipNextPipeline` check.
+
+**Safety timeout:** 10s `setTimeout` clears the flag if RELEASED never fires (Stepped Thinking error path, ST update breaking the contract, etc.). Better to risk one wasted re-entry than indefinite pipeline lockout.
+
+**RELEASED payload note:** Stepped Thinking emits RELEASED without a payload. DLE clears the flag unconditionally on RELEASED — if other extensions adopt the same mutex pattern, only stepped-thinking would have set the flag in the first place, so unconditional clear is harmless.

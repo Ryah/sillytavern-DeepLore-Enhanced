@@ -43,6 +43,8 @@ The Librarian's agentic generation loop uses a **separate API path** from `callA
 
 The Librarian profile setting (`librarianConnectionMode`, `librarianProfileId`, etc.) is also used by Emma's conversation loop in `librarian-session.js` (the review popup).
 
+**Underlying-Claude detection vs format detection.** `getProviderFormat()` keys off `oai_settings.chat_completion_source` only — for OpenRouter it returns `'openai'` even when the routed model is `anthropic/claude-3.5-sonnet`. This is correct for response parsing (OR returns OpenAI-shape responses regardless of upstream provider). But Claude-specific REQUEST mitigations (the `reasoning_effort: 'auto'` override that disables thinking-vs-tool_choice 400; the `json_schema` skip in `ai.js`) must fire for OR-Claude too. Use `isUnderlyingClaude(model?)` for any decision that depends on what the model actually IS rather than how the response will be SHAPED. The two helpers are intentionally split: `getProviderFormat()` answers "how do I parse" and `isUnderlyingClaude()` answers "what backend will eventually run this".
+
 ### AI Call Throttle -- ai.js module-top constants
 
 ```js

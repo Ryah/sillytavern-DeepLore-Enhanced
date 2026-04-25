@@ -22,6 +22,58 @@ const NO_TOOLS_SOURCES = new Set([
 ]);
 
 /**
+ * Reasoning-only models that silently fail when sent `tools` payload — no
+ * tool_calls returned, reasoning narrative leaks as prose. ST has no per-model
+ * gate (verified against ST staging tool-calling.js, 2026-04-24), so DLE must
+ * maintain this list. Source-prefixed entries cover OpenRouter relays.
+ *
+ * BUG-AUDIT (Fix 29): narrowed from `^o[1-9]` to `^o1` only. OpenAI's o3, o3-mini,
+ * and o4-mini all support function calling per current model docs — the broad
+ * pattern was over-blocking and forcing Librarian fallback for tool-capable models.
+ * o1 (and only o1) is the genuine reasoning-only OpenAI model.
+ */
+const NO_TOOLS_MODELS = [
+    /^deepseek-reasoner/i,
+    /^deepseek\/.*r1/i,
+    /-r1(-|$|:)/i,
+    /^o1(-|$)/i,
+    /^openai\/o1/i,
+    /^anthropic\/.*-thinking/i,
+];
+
+/**
+ * Test a model id against NO_TOOLS_MODELS.
+ * @param {string} model
+ * @returns {boolean}
+ */
+export function isReasoningOnlyModel(model) {
+    if (!model || typeof model !== 'string') return false;
+    return NO_TOOLS_MODELS.some(re => re.test(model));
+}
+
+/**
+ * Resolve the active model id for the Librarian connection.
+ * Proxy mode: Librarian's configured model. Profile mode: CMRS profile model
+ * first (most accurate), then `oai_settings.{source}_model` fallback.
+ * @returns {string} model id, or '' if unresolvable
+ */
+export function getResolvedModel() {
+    if (getLibrarianMode() === 'proxy') {
+        return resolveConnectionConfig('librarian').model || '';
+    }
+    try {
+        const profileId = getActiveProfileId();
+        if (profileId) {
+            const profile = ConnectionManagerRequestService.getProfile?.(profileId);
+            if (profile?.model) return profile.model;
+        }
+    } catch { /* noop */ }
+    const source = oai_settings?.chat_completion_source;
+    if (source) return oai_settings[`${source}_model`] || '';
+    return '';
+}
+
+/**
  * Get the resolved Librarian connection mode.
  * @returns {'proxy'|'profile'|'inherit'}
  */
@@ -32,21 +84,33 @@ function getLibrarianMode() {
 /**
  * Check if the current connection supports tool calling.
  * Proxy mode always supports tools (Anthropic Messages API).
- * Profile mode checks the main ST chat completion source.
+ * Profile mode checks the main ST chat completion source AND the resolved
+ * model against NO_TOOLS_MODELS — reasoner-only models (deepseek-reasoner,
+ * o-series, *-r1, etc.) silently fail tool calls and leak reasoning as prose.
+ * @param {string} [model] Optional explicit model id; resolved if omitted.
  * @returns {boolean}
  */
-export function isToolCallingSupported() {
-    if (getLibrarianMode() === 'proxy') {
-        // Pre-validate proxy config so dispatch doesn't start an agentic loop that
-        // would throw mid-flight via validateProxyUrl, after abort() + button-flip.
-        const cfg = resolveConnectionConfig('librarian');
-        if (!cfg.proxyUrl || !cfg.model) return false;
+export function isToolCallingSupported(model) {
+    // BUG-AUDIT (Fix 1): use the resolved mode so inherit→profile is also gated.
+    // Calling getActiveProfileId() throws when no profile is selected; reach into
+    // the context directly so this gate can return false without raising.
+    const resolved = resolveConnectionConfig('librarian');
+    if (resolved.mode === 'proxy') {
+        if (!resolved.proxyUrl || !resolved.model) return false;
+        if (isReasoningOnlyModel(resolved.model)) return false;
         return true;
     }
     if (main_api !== 'openai') return false;
     const source = oai_settings?.chat_completion_source;
     if (!source) return false;
-    return !NO_TOOLS_SOURCES.has(source);
+    if (NO_TOOLS_SOURCES.has(source)) return false;
+    if (resolved.mode === 'profile') {
+        const ctx = getContext();
+        if (!ctx?.extensionSettings?.connectionManager?.selectedProfile) return false;
+    }
+    const resolvedModel = model || getResolvedModel();
+    if (resolvedModel && isReasoningOnlyModel(resolvedModel)) return false;
+    return true;
 }
 
 /**
@@ -63,19 +127,32 @@ export function getProviderFormat() {
 }
 
 /**
- * Get max response tokens.
- * Proxy mode uses the Librarian's configured maxTokens.
- * Profile mode uses the active ST preset.
+ * Detect Claude regardless of source — covers OpenRouter relays
+ * (`anthropic/claude-*`) that the source-only `getProviderFormat()` misses.
+ * Used to gate Claude-specific request mitigations (thinking-vs-tool_choice
+ * 400, json_schema skip) without changing the message-shape parser, which
+ * must stay OpenAI-shape for OR responses.
+ * @param {string} [model] Optional explicit model id; resolved if omitted.
+ * @returns {boolean}
+ */
+export function isUnderlyingClaude(model) {
+    const m = model || getResolvedModel();
+    if (!m || typeof m !== 'string') return false;
+    return /^claude-/i.test(m) || /^anthropic\/claude/i.test(m);
+}
+
+/**
+ * Get max response tokens for Librarian calls.
+ * BUG-AUDIT (Fix 33): always honor `librarianSessionMaxTokens` (resolved via the
+ * 'librarian' connection alias, default 4096). Previously profile mode read
+ * `oai_settings.openai_max_tokens` — the user's main chat preset, often a low
+ * fallback like 300 — which made the dedicated Librarian budget setting dead
+ * in profile mode. CMRS accepts the third argument as a real override, so this
+ * reaches the wire as intended.
  * @returns {number}
  */
 export function getActiveMaxTokens() {
-    if (getLibrarianMode() === 'proxy') {
-        const config = resolveConnectionConfig('librarian');
-        return config.maxTokens || 4096;
-    }
-    return main_api === 'openai'
-        ? (oai_settings?.openai_max_tokens || 300)
-        : (amount_gen || 300);
+    return resolveConnectionConfig('librarian').maxTokens || 4096;
 }
 
 /**
@@ -265,7 +342,12 @@ export async function callWithTools(messages, tools, toolChoice, maxTokens, sign
     // Normalize tool_choice for provider-specific formats.
     // ST's server wraps the value for each provider — we must match what each backend expects.
     // Claude backend: `{ type: request.body.tool_choice }` — expects a Claude type string.
-    // Google backend: does its own mapping from OpenAI strings.
+    // Google backend: ST's chat-completions.js translates string tool_choice
+    // ('auto'/'required'/'none') → body.toolConfig.functionCallingConfig with the
+    // proper Gemini AUTO/ANY/NONE mapping. The adapter's `typeof === 'string'`
+    // check rejects object form, so DLE must NOT pre-translate to {mode:'AUTO'}
+    // — that bypasses the adapter and makes required/none silently degrade to
+    // Gemini's default (AUTO). Pass the raw string. (Fix 32)
     // OpenAI/others: pass through as-is.
     let normalizedToolChoice = toolChoice;
     if (typeof toolChoice === 'string') {
@@ -273,12 +355,8 @@ export async function callWithTools(messages, tools, toolChoice, maxTokens, sign
             // ST wraps in {type: X}, so pass Claude's raw type strings ('auto'|'any'|'none')
             const claudeModeMap = { auto: 'auto', required: 'any', none: 'none' };
             normalizedToolChoice = claudeModeMap[toolChoice] || 'auto';
-        } else if (format === 'google') {
-            // G6: Google Gemini uses {mode: 'AUTO'|'ANY'|'NONE'}
-            const geminiModeMap = { auto: 'AUTO', required: 'ANY', none: 'NONE' };
-            normalizedToolChoice = { mode: geminiModeMap[toolChoice] || 'AUTO' };
         }
-        // OpenAI/Cohere: string values ('auto', 'required', 'none') pass through as-is
+        // google / openai / cohere: string values pass through as-is.
     }
 
     const overridePayload = {
@@ -292,25 +370,61 @@ export async function callWithTools(messages, tools, toolChoice, maxTokens, sign
     // into a forced tool_choice on Claude. Setting `reasoning_effort: 'auto'` makes
     // ST's calculateClaudeBudgetTokens (prompt-converters.js) return null → ST does
     // NOT add `requestBody.thinking`, sidestepping the conflict. Per-request only —
-    // doesn't mutate the user's preset. Claude-only: format guard above ensures we
-    // only touch this path when ST will actually route to the Claude backend.
-    if (format === 'claude') {
+    // doesn't mutate the user's preset.
+    //
+    // OR-Claude: source is `openrouter` so `format === 'openai'`, but the underlying
+    // model is Claude and OpenRouter forwards `reasoning.effort` to Anthropic. Without
+    // the second arm, OR users on `anthropic/claude-*` hit the same 400. Parser stays
+    // OpenAI-shape because OpenRouter returns OpenAI-shape responses regardless of
+    // the upstream provider.
+    if (format === 'claude' || isUnderlyingClaude()) {
         overridePayload.reasoning_effort = 'auto';
     }
 
-    const result = await ConnectionManagerRequestService.sendRequest(
-        getActiveProfileId(),
-        messages,
-        maxTokens,
-        {
-            stream: false,
-            signal,
-            extractData: false,
-            includePreset: true,
-            includeInstruct: true,
-        },
-        overridePayload,
-    );
+    let result;
+    try {
+        result = await ConnectionManagerRequestService.sendRequest(
+            getActiveProfileId(),
+            messages,
+            maxTokens,
+            {
+                stream: false,
+                signal,
+                extractData: false,
+                includePreset: true,
+                includeInstruct: true,
+            },
+            overridePayload,
+        );
+    } catch (err) {
+        // Tag Gemini safety blocks distinctly. ST returns blockReason / SAFETY /
+        // RECITATION / promptFeedback in the error message body; without typed
+        // throw, callers show generic "Couldn't load your lore" toast which
+        // hides the actual user-actionable cause (relax safety, rephrase).
+        // Also covers ST's "Candidate text empty" which fires when Gemini returns
+        // only thought parts — distinct user guidance is helpful there too.
+        //
+        // BUG-AUDIT (Fix 31): walk the `cause` chain. CMRS wraps backend failures
+        // as `new Error('API request failed', { cause: realError })`, so reading
+        // `err.message` alone always gets "API request failed" and the regex never
+        // matches. The actual provider-specific detail lives in `err.cause`.
+        // Bounded depth prevents pathological cycles.
+        const messages = [];
+        let cur = err;
+        let depth = 0;
+        while (cur && depth++ < 10) {
+            if (cur.message) messages.push(String(cur.message));
+            cur = cur.cause;
+        }
+        const combined = messages.join(' | ');
+        if (/blocked|SAFETY|RECITATION|promptFeedback|Candidate text empty/i.test(combined)) {
+            const tagged = new Error(messages[0] || 'Safety block');
+            tagged.name = 'SafetyBlockError';
+            tagged.cause = err;
+            throw tagged;
+        }
+        throw err;
+    }
 
     return result;
 }
@@ -350,14 +464,19 @@ export function parseToolCalls(data) {
     }
 
     // 2. Google Gemini/Vertex: data.responseContent.parts[].functionCall
+    // Stamp synthetic ID onto the raw part so buildAssistantMessage can reuse
+    // the same id for the OpenAI-shape `tool_calls[].id`. This closes the
+    // round-trip — buildToolResults emits `tool_call_id` matching the assistant
+    // message's tool_calls[].id, and ST's convertGooglePrompt.toolNameMap
+    // resolves the function name from the id when sending the next turn.
     if (data.responseContent?.parts) {
         const functionCalls = data.responseContent.parts.filter(p => p.functionCall);
         if (functionCalls.length > 0) {
-            return functionCalls.map(p => ({
-                id: `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-                name: p.functionCall.name,
-                input: p.functionCall.args || {},
-            }));
+            return functionCalls.map(p => {
+                const id = p._dleSyntheticId || `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+                p._dleSyntheticId = id;
+                return { id, name: p.functionCall.name, input: p.functionCall.args || {} };
+            });
         }
     }
 
@@ -383,36 +502,50 @@ export function parseToolCalls(data) {
 }
 
 /**
+ * Strip reasoning markers that leak into prose. Thinking-capable but
+ * tool-supporting models (Claude 3.7+, deepseek-chat with thinking on,
+ * GLM-4.6) emit `<think>...</think>` blocks even when caller wants only
+ * the final reply. Reasoning-only models (deepseek-reasoner, o-series)
+ * are gated upstream by isToolCallingSupported, so this is a defensive
+ * second pass for the partial-reasoning case.
+ */
+function stripReasoningTags(text) {
+    if (!text || typeof text !== 'string') return text || '';
+    return text.replace(/<think>[\s\S]*?<\/think>\s*/gi, '');
+}
+
+/**
  * Extract text content from a raw API response (excluding tool calls).
+ * Filters Gemini `thought` parts (2.5/3 emit `p.thought=true` for reasoning
+ * blocks) and strips `<think>` tags from prose.
  * @param {object} data - Raw API response
  * @returns {string}
  */
 export function getTextContent(data) {
     if (!data) return '';
 
+    let text = '';
+
     // Claude: text blocks in content array
     if (Array.isArray(data.content)) {
         const textBlocks = data.content.filter(b => b.type === 'text');
-        if (textBlocks.length > 0) return textBlocks.map(b => b.text).join('');
+        if (textBlocks.length > 0) text = textBlocks.map(b => b.text).join('');
     }
-
-    // Google: text parts
-    if (data.responseContent?.parts) {
-        const textParts = data.responseContent.parts.filter(p => p.text != null);
-        if (textParts.length > 0) return textParts.map(p => p.text).join('');
+    // Google: text parts (filter thought parts so reasoning doesn't leak)
+    else if (data.responseContent?.parts) {
+        const textParts = data.responseContent.parts.filter(p => p.text != null && p.thought !== true);
+        if (textParts.length > 0) text = textParts.map(p => p.text).join('');
     }
-
     // OpenAI-compatible
-    if (data.choices?.[0]?.message?.content != null) {
-        return data.choices[0].message.content;
+    else if (data.choices?.[0]?.message?.content != null) {
+        text = data.choices[0].message.content;
     }
-
     // Cohere
-    if (data.message?.content?.[0]?.text != null) {
-        return data.message.content[0].text;
+    else if (data.message?.content?.[0]?.text != null) {
+        text = data.message.content[0].text;
     }
 
-    return '';
+    return stripReasoningTags(text);
 }
 
 /**
@@ -448,7 +581,33 @@ export function buildAssistantMessage(data) {
     }
 
     if (format === 'google') {
-        return { role: 'model', parts: data.responseContent?.parts || [] };
+        // Emit OpenAI shape so ST's convertGooglePrompt translates correctly.
+        // Native {role:'model', parts:[]} shape is silently dropped by
+        // convertGooglePrompt — it only reads message.content (verified ST
+        // staging prompt-converters.js, 2026-04-24). Without this, every
+        // assistant turn after the first becomes parts:[{text:''}], breaking
+        // multi-turn tool loops on Gemini entirely.
+        const parts = data.responseContent?.parts || [];
+        const textParts = parts.filter(p => typeof p.text === 'string' && p.thought !== true);
+        const fnParts = parts.filter(p => p.functionCall);
+        const result = { role: 'assistant' };
+        if (textParts.length > 0) result.content = textParts.map(p => p.text).join('\n\n');
+        if (fnParts.length > 0) {
+            result.tool_calls = fnParts.map((p, i) => {
+                // Reuse the synthetic id stamped by parseToolCalls so the round-trip
+                // matches when buildToolResults emits tool_call_id.
+                const id = p._dleSyntheticId || `gemini-${Date.now()}-${i}`;
+                return {
+                    id,
+                    type: 'function',
+                    function: {
+                        name: p.functionCall.name,
+                        arguments: JSON.stringify(p.functionCall.args || {}),
+                    },
+                };
+            });
+        }
+        return result;
     }
 
     // OpenAI / Cohere
@@ -481,15 +640,15 @@ export function buildToolResults(results) {
     }
 
     if (format === 'google') {
-        return {
-            role: 'function',
-            parts: results.map(r => ({
-                functionResponse: {
-                    name: r.name,
-                    response: { content: r.result },
-                },
-            })),
-        };
+        // Emit OpenAI shape — matches buildAssistantMessage google branch
+        // which emits {role:'assistant', tool_calls:[{id, ...}]}. ST's
+        // convertGooglePrompt resolves tool_call_id → function name via its
+        // toolNameMap built from the prior assistant turn's tool_calls.
+        return results.map(r => ({
+            role: 'tool',
+            tool_call_id: r.id,
+            content: r.result,
+        }));
     }
 
     // OpenAI / Cohere: array of tool messages

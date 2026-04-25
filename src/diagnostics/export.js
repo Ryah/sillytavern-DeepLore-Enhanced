@@ -634,19 +634,21 @@ function buildConnectionsReference(rawSnapshot) {
  * and show scrub stats in the confirmation popup.
  */
 export async function buildDiagnosticReport() {
-    // 1. Atomic drain — one snapshot moment, one truth.
-    //    All buffers are drained BEFORE captureStateSnapshot() because
+    // 1. Atomic snapshot — one moment, one truth.
+    //    All buffers are read BEFORE captureStateSnapshot() because
     //    snapshot -> runHealthCheck() can trigger console.log, which would
-    //    push new items between drains if we interleaved them.
+    //    push new items between reads if we interleaved them.
+    //    aiPromptBuffer is FLUSHED (destructive) — it holds PII-sensitive
+    //    prompts when debugMode=true and must not survive an export. Other
+    //    buffers use drain() (non-destructive snapshot) so the in-page
+    //    inspector (__DLE_DEBUG.buffers) keeps history.
     const rawGens    = generationBuffer.drain();
     const rawConsole = consoleBuffer.drain();
     const rawNetwork = networkBuffer.drain();
     const rawErrors  = errorBuffer.drain();
     const rawEvents  = eventBuffer.drain();
     const rawAiCalls = aiCallBuffer.drain();
-    // aiPromptBuffer only populated when debugMode=true (user opt-in). Drained so
-    // it doesn't linger across exports; content passes through scrubDeep below.
-    const rawAiPrompts = aiPromptBuffer.drain();
+    const rawAiPrompts = aiPromptBuffer.flush();
     const rawLong    = longTaskBuffer.drain();
     const rawMemory  = captureMemorySnapshot();
     const rawSnapshot = captureStateSnapshot();

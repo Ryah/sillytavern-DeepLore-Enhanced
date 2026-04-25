@@ -79,13 +79,21 @@ export function runHealthCheck() {
         const parts = e.filename.split('/');
         return parts[parts.length - 1].replace(/\.md$/, '').toLowerCase();
     }));
-    const titleCounts = new Map();
+    // BUG-AUDIT: vault-aware duplicate detection. Same-vault duplicates are
+    // authoring errors. Cross-vault duplicates are valid in `multiVaultConflictResolution=all`
+    // (the documented default) — flag them as info, not error, so two-vault setups
+    // don't trip false-positive errors.
+    const titleCounts = new Map();      // trackerKey → count (within-vault duplicates)
+    const inVaultDupes = new Map();      // title → Set<vaultSource> (cross-vault tracking)
     const keywordMap = new Map();
     let constantTokenTotal = 0;
 
     for (const entry of vaultIndex) {
-        // Duplicate titles
-        titleCounts.set(entry.title, (titleCounts.get(entry.title) || 0) + 1);
+        // Duplicate titles — within-vault detection (same-vault dupes are real errors)
+        const tk = `${entry.vaultSource || ''}:${entry.title}`;
+        titleCounts.set(tk, (titleCounts.get(tk) || 0) + 1);
+        if (!inVaultDupes.has(entry.title)) inVaultDupes.set(entry.title, new Set());
+        inVaultDupes.get(entry.title).add(entry.vaultSource || '');
 
         // Empty keys on non-constant, non-bootstrap entries
         if (!entry.constant && !entry.bootstrap && entry.keys.length === 0) {
@@ -226,10 +234,22 @@ export function runHealthCheck() {
         }
     }
 
-    // Duplicate titles
-    for (const [title, count] of titleCounts) {
+    // Duplicate titles — within-vault duplicates are authoring errors
+    for (const [tk, count] of titleCounts) {
         if (count > 1) {
-            issues.push({ type: 'Entry Config', severity: 'error', entry: title, detail: `Duplicate title — ${count} entries share this name` });
+            const colonIdx = tk.indexOf(':');
+            const titleOnly = colonIdx >= 0 ? tk.slice(colonIdx + 1) : tk;
+            issues.push({ type: 'Entry Config', severity: 'error', entry: titleOnly, detail: `Duplicate title within vault — ${count} entries share this name` });
+        }
+    }
+    // Cross-vault duplicates — only flagged as info when conflictResolution='all'
+    // (the documented multi-vault pattern). In other modes, deduplicateMultiVault
+    // collapses them at index time, so they wouldn't reach this loop.
+    if (settings.multiVaultConflictResolution === 'all') {
+        for (const [title, vaults] of inVaultDupes) {
+            if (vaults.size > 1) {
+                issues.push({ type: 'Entry Config', severity: 'info', entry: title, detail: `Title "${title}" appears in ${vaults.size} vaults — disambiguated by vault source.` });
+            }
         }
     }
 
@@ -427,7 +447,9 @@ export function diagnoseEntry(entry, chatMsgs) {
         const cm = globalThis.chat_metadata || {};
         const folderFilter = cm.deeplore_folder_filter;
         if (Array.isArray(folderFilter) && folderFilter.length > 0 && entry.folderPath) {
-            if (!folderFilter.some(f => entry.folderPath.startsWith(f))) {
+            // Match stages.js applyFolderFilter — exact match OR slash-bounded prefix.
+            // Raw startsWith would say "CharactersOld" passes filter ['Characters'].
+            if (!folderFilter.some(f => entry.folderPath === f || entry.folderPath.startsWith(f + '/'))) {
                 result.stage = 'folder_filter';
                 result.detail = `Entry is in folder "${entry.folderPath}" which is not in the active folder filter.`;
                 result.suggestions.push('Clear the folder filter or add this entry\'s folder to the filter.');

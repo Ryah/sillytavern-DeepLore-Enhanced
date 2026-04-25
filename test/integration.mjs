@@ -407,8 +407,9 @@ test('D20: AI empty response — constants still inject', () => {
     setVaultIndex(entries);
 
     // Simulate: AI returns empty, keyword matching returns nothing, but constants should still be present
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey (`${vaultSource}:${title}`).
     const policy = buildExemptionPolicy(entries, [], []);
-    assert(policy.forceInject.has('constant1'), 'constant should be in forceInject (lowercase)');
+    assert(policy.forceInject.has(':Constant1'), 'constant should be in forceInject by trackerKey');
 
     // applyPinBlock with empty pipeline results but constant in vault
     const matchedKeys = new Map();
@@ -894,15 +895,16 @@ test('J60: Circuit breaker awareness in polling', () => {
 // ============================================================================
 
 test('Stage: buildExemptionPolicy identifies constants and pins', () => {
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey (`${vaultSource}:${title}`).
     const entries = [
         makeEntry('Always', { constant: true }),
         makeEntry('Normal'),
         makeEntry('Pinned'),
     ];
     const policy = buildExemptionPolicy(entries, ['Pinned'], ['Blocked']);
-    assert(policy.forceInject.has('always'), 'constant should be forceInject (lowercase)');
-    assert(policy.forceInject.has('pinned'), 'pinned should be forceInject (lowercase)');
-    assert(!policy.forceInject.has('normal'), 'normal should not be forceInject');
+    assert(policy.forceInject.has(':Always'), 'constant should be in forceInject by trackerKey');
+    assert(policy.forceInject.has(':Pinned'), 'pinned should be in forceInject by trackerKey');
+    assert(!policy.forceInject.has(':Normal'), 'normal should not be in forceInject');
     assert(policy.blocks.some(b => b.title.toLowerCase() === 'blocked'), 'blocked should be in blocks');
 });
 
@@ -1233,18 +1235,22 @@ test('BUG-025: AI circuit breaker probe resets on failure', () => {
 // Wave 4 Regression Tests — Pipeline Stages (BUG-011, BUG-016, BUG-029, BUG-030)
 // ============================================================================
 
-test('BUG-011: buildExemptionPolicy normalizes titles to lowercase', () => {
-    const entries = [makeEntry('Eris', { constant: true })];
-    const policy = buildExemptionPolicy(entries, ['Alice'], []);
-    assert(policy.forceInject.has('eris'), 'constant title should be lowercase in forceInject');
-    assert(policy.forceInject.has('alice'), 'pin title should be lowercase in forceInject');
-    assert(!policy.forceInject.has('Eris'), 'forceInject should not contain original case');
-    assert(!policy.forceInject.has('Alice'), 'forceInject should not contain original case');
+test('BUG-011 / BUG-399: buildExemptionPolicy uses trackerKey, not lowercased title', () => {
+    // BUG-399 (Fix 2) supersedes BUG-011 lowercase semantics. Multi-vault disambiguation
+    // via trackerKey is the new contract; case is preserved in keys. matchesPinBlock
+    // still does case-insensitive comparison, so a lowercased pin still matches the
+    // capitalized vault entry — but the resulting forceInject key uses the entry's case.
+    const eris = makeEntry('Eris', { constant: true });
+    const policy = buildExemptionPolicy([eris], ['Alice'], []);
+    assert(policy.forceInject.has(':Eris'), 'constant title preserved in trackerKey');
+    assert(!policy.forceInject.has(':Alice'), 'pin "Alice" with no matching vault entry produces no key');
+    assert(!policy.forceInject.has('eris'), 'legacy lowercase-title key must not be present');
 });
 
 test('BUG-011: applyRequiresExcludesGating exempts pinned entries case-insensitively', () => {
+    // matchesPinBlock is case-insensitive on title; trackerKey adds the entry's actual case.
     const eris = makeEntry('Eris', { requires: ['Raven'] });
-    const policy = buildExemptionPolicy([], ['eris'], []);
+    const policy = buildExemptionPolicy([eris], ['eris'], []);
     const { result } = applyRequiresExcludesGating([eris], policy, false);
     assert(result.length === 1, 'pinned entry should bypass requires gating');
     assertEqual(result[0].title, 'Eris', 'Eris should survive');

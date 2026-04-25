@@ -117,23 +117,30 @@ export function registerAiCommands() {
             try {
             await ensureIndexFresh();
 
-            if (vaultIndex.length === 0) {
+            // BUG-AUDIT (Fix 21): filter lorebook-guide entries — they are Librarian-only
+            // and must never reach the writing AI through any surface. /dle-review previously
+            // dumped raw vaultIndex, leaking guide content as a visible user message that
+            // would also persist in chat history. Same writer-visible contract as
+            // getWriterVisibleEntries() / matchTextForExternal.
+            const reviewEntries = vaultIndex.filter(e => !e.guide);
+
+            if (reviewEntries.length === 0) {
                 toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
                 return '';
             }
 
             const settings = getSettings();
-            const totalTokens = vaultIndex.reduce((sum, e) => sum + e.tokenEstimate, 0);
+            const totalTokens = reviewEntries.reduce((sum, e) => sum + e.tokenEstimate, 0);
 
             const confirmed = await callGenericPopup(
-                `<p>This will send <b>${vaultIndex.length}</b> entries (~${totalTokens} tokens) as a visible user message and generate an AI response.</p>
+                `<p>This will send <b>${reviewEntries.length}</b> entries (~${totalTokens} tokens) as a visible user message and generate an AI response.</p>
                 <p class="dle-text-xs dle-muted">Warning: The review message will remain in chat history and may influence subsequent AI responses. Consider starting a new chat or deleting the messages afterward if you don't want this.</p>
                 <p>This may be expensive. Continue?</p>`,
                 POPUP_TYPE.CONFIRM, '', {},
             );
             if (!confirmed) return '';
 
-            const loreDump = vaultIndex.map(entry => {
+            const loreDump = reviewEntries.map(entry => {
                 return `## ${entry.title}\n${entry.content}`;
             }).join('\n\n---\n\n');
 
@@ -144,12 +151,12 @@ export function registerAiCommands() {
             const defaultQuestion = 'Review this lorebook/world-building vault. Comment on consistency, gaps, interesting connections between entries, and any suggestions for improvement.';
             const question = (userPrompt && userPrompt.trim()) ? userPrompt.trim() : defaultQuestion;
 
-            const message = `[DeepLore Enhanced Review — ${vaultIndex.length} entries, ~${totalTokens} tokens]\n\n${loreDump}\n\n---\n\n${question}${budgetHint}`;
+            const message = `[DeepLore Enhanced Review — ${reviewEntries.length} entries, ~${totalTokens} tokens]\n\n${loreDump}\n\n---\n\n${question}${budgetHint}`;
             if (settings.debugMode) {
                 console.log('[DLE] Lore review prompt:', message);
             }
 
-            toastr.info(`Sending ${vaultIndex.length} entries (~${totalTokens} tokens)...`, 'DeepLore Enhanced', { timeOut: 5000 });
+            toastr.info(`Sending ${reviewEntries.length} entries (~${totalTokens} tokens)...`, 'DeepLore Enhanced', { timeOut: 5000 });
 
             setSkipNextPipeline(true); // Bypass DLE pipeline for this generation
             try {

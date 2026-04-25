@@ -115,7 +115,7 @@ export const defaultSettings = {
     aiNotepadExtractPrompt: '', // custom extraction prompt for extract mode (empty = default)
     aiNotepadConnectionMode: 'inherit', // extract mode connection: 'inherit' | 'profile' | 'proxy'
     aiNotepadProfileId: '',
-    aiNotepadProxyUrl: 'http://localhost:42069',
+    aiNotepadProxyUrl: 'http://127.0.0.1:42069',
     aiNotepadModel: '',
     aiNotepadMaxTokens: 1024,
     aiNotepadTimeout: 30000,
@@ -123,7 +123,7 @@ export const defaultSettings = {
     aiSearchEnabled: false,
     aiSearchConnectionMode: 'profile',
     aiSearchProfileId: '',
-    aiSearchProxyUrl: 'http://localhost:42069',
+    aiSearchProxyUrl: 'http://127.0.0.1:42069',
     aiSearchModel: '',
     aiSearchMaxTokens: 1024,
     aiSearchTimeout: 20000,
@@ -143,7 +143,7 @@ export const defaultSettings = {
     scribePrompt: '',
     scribeConnectionMode: 'inherit',
     scribeProfileId: '',
-    scribeProxyUrl: 'http://localhost:42069',
+    scribeProxyUrl: 'http://127.0.0.1:42069',
     scribeModel: '',
     scribeMaxTokens: 1024,
     scribeTimeout: 60000,
@@ -158,7 +158,7 @@ export const defaultSettings = {
     autoSuggestInterval: 10,
     autoSuggestConnectionMode: 'inherit',
     autoSuggestProfileId: '',
-    autoSuggestProxyUrl: 'http://localhost:42069',
+    autoSuggestProxyUrl: 'http://127.0.0.1:42069',
     autoSuggestModel: '',
     autoSuggestMaxTokens: 2048,
     autoSuggestTimeout: 30000,
@@ -173,7 +173,7 @@ export const defaultSettings = {
     optimizeKeysPrompt: '',
     optimizeKeysConnectionMode: 'inherit',
     optimizeKeysProfileId: '',
-    optimizeKeysProxyUrl: 'http://localhost:42069',
+    optimizeKeysProxyUrl: 'http://127.0.0.1:42069',
     optimizeKeysModel: '',
     optimizeKeysMaxTokens: 1024,
     optimizeKeysTimeout: 30000,
@@ -247,7 +247,7 @@ export const defaultSettings = {
     librarianWriteFolder: '',           // destination folder for written entries
     librarianConnectionMode: 'inherit',  // 'inherit' | 'profile' | 'proxy' (inherits from AI Search by default)
     librarianProfileId: '',
-    librarianProxyUrl: 'http://localhost:42069',
+    librarianProxyUrl: 'http://127.0.0.1:42069',
     librarianModel: '',                  // override model (blank = inherit from AI Search)
     librarianSessionMaxTokens: 4096,    // max tokens for session responses
     librarianSessionTimeout: 120000,    // session AI call timeout (ms) — 120s headroom for opus-4-6 forced-final-response (large context + thinking models can exceed 60s)
@@ -410,6 +410,10 @@ export const settingsConstraints = {
     injectionMode: { enum: ['extension', 'prompt_list'] },
     librarianConnectionMode: { enum: ['inherit', 'profile', 'proxy'] },
     librarianSystemPromptMode: { enum: ['default', 'append', 'override', 'strict-override'] },
+    // BUG-AUDIT (Fix 12): missing from whitelist let invalid imports/migrations land an
+    // unrecognized value, which deduplicateMultiVault would silently treat like 'first'
+    // (drop duplicates instead of preserving). Keep the safe default = 'all'.
+    multiVaultConflictResolution: { enum: ['all', 'first', 'last', 'merge'] },
 };
 
 // BUG-088: No settings cache. ST's native pattern is to read `extension_settings[MODULE_NAME]`

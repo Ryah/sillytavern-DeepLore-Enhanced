@@ -179,6 +179,18 @@ export function setClaudeAutoEffortState(bad, detail) {
     }
 }
 export function onClaudeAutoEffortChanged(cb) { claudeAutoEffortObservers.add(cb); return () => claudeAutoEffortObservers.delete(cb); }
+
+// Debug-mode observer. Subscribers (notably the __DLE_DEBUG namespace installer)
+// fire when settings.debugMode flips. Settings write paths must call
+// notifyDebugModeChanged() after mutating debugMode.
+const debugModeObservers = new Set();
+export function onDebugModeChanged(cb) { debugModeObservers.add(cb); return () => debugModeObservers.delete(cb); }
+export function notifyDebugModeChanged() {
+    for (const cb of [...debugModeObservers]) {
+        try { cb(); } catch (err) { console.warn('[DLE] debugMode observer callback error:', err?.message); }
+    }
+}
+
 export function setLastScribeSummary(v) { lastScribeSummary = v; }
 export function setPreviousIndexSnapshot(v) { previousIndexSnapshot = v; }
 export function setCooldownTracker(v) { cooldownTracker = v; }

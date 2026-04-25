@@ -368,7 +368,11 @@ export async function matchTextForExternal(scanInput) {
         ? [{ name: 'context', mes: scanInput, is_user: true }]
         : scanInput;
 
-    const { matched } = matchEntries(fakeChat);
+    // BUG-AUDIT (Fix 6): pass the writer-visible snapshot. Without this, matchEntries
+    // falls back to raw vaultIndex and leaks lorebook-guide entries to external
+    // consumers (e.g. globalThis.deepLoreEnhanced_matchText callers), violating the
+    // CLAUDE.md "guides never reach the writing AI" contract.
+    const { matched } = matchEntries(fakeChat, getWriterVisibleEntries());
     clearScanTextCache();
     const policy = buildExemptionPolicy(matched, [], []);
     const { result: gated } = applyRequiresExcludesGating(matched, policy, false);

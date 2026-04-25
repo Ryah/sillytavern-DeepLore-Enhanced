@@ -13,7 +13,7 @@ import { getSettings, getPrimaryVault } from '../../settings.js';
 import { fetchScribeNotes } from '../vault/obsidian-api.js';
 import {
     vaultIndex, aiSearchStats, indexTimestamp, trackerKey,
-    fieldDefinitions,
+    fieldDefinitions, notifyDebugModeChanged,
 } from '../state.js';
 import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
 import { loadIndexFromCache, clearIndexCache } from '../vault/cache.js';
@@ -465,6 +465,7 @@ export function registerAdminCommands() {
             else if (arg === 'off') settings.debugMode = false;
             else settings.debugMode = !settings.debugMode;
             saveSettingsDebounced();
+            notifyDebugModeChanged();
             toastr.success(`Debug mode ${settings.debugMode ? 'ON' : 'OFF'}`, 'DeepLore Enhanced');
             return '';
         },

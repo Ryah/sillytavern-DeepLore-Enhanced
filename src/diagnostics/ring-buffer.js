@@ -29,9 +29,20 @@ export class RingBuffer {
         } catch { /* never throw from a diagnostic interceptor */ }
     }
 
-    /** Return a shallow copy of the current contents (oldest → newest). */
+    /** Return a shallow copy of the current contents (oldest → newest). Non-destructive. */
     drain() {
         return this.items.slice();
+    }
+
+    /**
+     * Snapshot-and-clear. Returns the current contents and resets the buffer.
+     * Use for export paths where the caller intends destructive read; use
+     * drain() for inspectors and developer tooling that should not mutate.
+     */
+    flush() {
+        const snapshot = this.items.slice();
+        this.items = [];
+        return snapshot;
     }
 
     get length() { return this.items.length; }

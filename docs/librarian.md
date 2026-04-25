@@ -83,9 +83,11 @@ Four provider response formats are handled:
 | OpenAI-compatible | default | `data.choices[0].message.tool_calls` | `data.choices[0].message.content` |
 | Cohere | (via OpenAI path) | `data.message.tool_calls` | `data.message.content[0].text` |
 
-`isToolCallingSupported()` returns false for `main_api !== 'openai'` or sources in `NO_TOOLS_SOURCES` (ai21, perplexity, nanogpt, pollinations, moonshot).
+`isToolCallingSupported(model?)` returns false for `main_api !== 'openai'`, sources in `NO_TOOLS_SOURCES` (ai21, perplexity, nanogpt, pollinations, moonshot), OR resolved model in `NO_TOOLS_MODELS` (reasoning-only models that silently fail tool calls — `deepseek-reasoner`, `^o[1-9]`, `*-r1`, `openai/o[1-9]`, `anthropic/*-thinking`). When omitted, `model` is resolved via `getResolvedModel()` (CMRS profile model first, then `oai_settings.{source}_model`). Reasoning-only model rejection emits a distinct `dedupWarning` keyed `librarian_no_tools_reasoner` so the user sees model-specific guidance rather than generic provider-doesn't-support guidance.
 
 Google Gemini `tool_choice` normalization (G6): string values mapped to `{ mode: 'AUTO'|'ANY'|'NONE' }`.
+
+**Multi-turn message-shape contract.** Response parsing uses provider-native shapes (table above), but multi-turn messages pushed BACK into the conversation MUST be OpenAI shape for ALL profile-mode formats — including Google. ST's `convertGooglePrompt` only reads `message.content` from input messages and ignores any pre-built `parts` array (verified ST staging 2026-04-24). `buildAssistantMessage()` and `buildToolResults()` emit OpenAI-shape (`{role:'assistant', content, tool_calls:[{id, type:'function', function:{name, arguments}}]}` and `{role:'tool', tool_call_id, content}`) for `format === 'google'`; ST translates per-provider downstream. The synthetic id stamped by `parseToolCalls()` onto `responseContent.parts[i]._dleSyntheticId` carries through `buildAssistantMessage` → `buildToolResults` so ST's internal `toolNameMap` resolves `functionResponse.name` correctly. See gotcha #41 for the full round-trip contract.
 
 ### Message Assembly (agentic-messages.js)
 
@@ -272,18 +274,26 @@ These tools are available ONLY inside Emma's conversation loop (`sendMessage`). 
 
 | Tool | Read/Write | Notes |
 |---|---|---|
-| `search_vault` | Read | BM25 search, top_k up to 20, min score 0.3 |
-| `get_entry` | Read | Truncated preview (~2000 chars), metadata |
-| `get_full_content` | Read + side effect | Full content (cap 16000 chars). Populates `session.draftState` automatically |
+| `search_vault` | Read | BM25 search, top_k up to 20, min score 0.3. Hit rows include `vaultSource` when set so the model can disambiguate (BUG-400). |
+| `get_entry` | Read | Truncated preview (~2000 chars), metadata. Optional `vault_source` param (BUG-400). |
+| `get_full_content` | Read + side effect | Full content (cap 16000 chars). Populates `session.draftState` automatically. Optional `vault_source` param (BUG-400). |
 | `find_similar` | Read | Duplicate detection before creating new entries |
 | `list_flags` | Read | Lists `loreGaps` records |
 | `get_links` | Read | Outgoing `resolvedLinks` from an entry |
 | `get_backlinks` | Read | All entries whose `resolvedLinks` include the target |
 | `list_entries` | Read | Filter by type and/or tag |
 | `get_recent_chat` | Read | Last N messages from `getContext().chat` (max 50) |
-| `flag_entry_update` | **Write** | Creates a gap record in `loreGaps`/`chat_metadata` |
-| `compare_entry_to_chat` | Read | Side-by-side entry + recent chat (cap 6000 chars) |
+| `flag_entry_update` | **Write** | Creates a gap record in `loreGaps`/`chat_metadata`. Optional `vault_source` param; gap record carries `vaultSource` when known (BUG-400). |
+| `compare_entry_to_chat` | Read | Side-by-side entry + recent chat (cap 6000 chars). Optional `vault_source` param (BUG-400). |
 | `get_writing_guide` | Read | Dynamic -- only available when `lorebook-guide` entries exist in vault |
+
+### Vault-aware `findEntry` (BUG-400 / Fix 8)
+
+`findEntry(title, vaultSource = null)` is the internal lookup used by `get_entry`, `get_full_content`, `compare_entry_to_chat`, and `flag_entry_update`. With `multiVaultConflictResolution = 'all'` (default), duplicate-title entries from different vaults are intentionally preserved in `vaultIndex`. Without `vaultSource`, `findEntry` returns the first match (legacy behavior). With `vaultSource`, it returns only the entry whose `entry.vaultSource === vaultSource`, or `null` if none match.
+
+Tools that take `title` also accept an optional `vault_source` arg, forwarded to `findEntry`. `search_vault` results include `vaultSource: <name>` per hit (omitted when empty for single-vault setups), so the model has the info it needs to disambiguate on follow-up calls.
+
+Gap records persisted by `flag_entry_update` carry `vaultSource` when known. The drawer gap UI tolerates `vaultSource: undefined` for legacy gaps written before this fix.
 
 ### `get_writing_guide` tool
 

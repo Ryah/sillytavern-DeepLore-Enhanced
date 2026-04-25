@@ -12,7 +12,7 @@ buildExemptionPolicy(vaultSnapshot, pins, blocks)
 ```
 **Location:** `src/stages.js:buildExemptionPolicy()`
 
-`forceInject` is a Set of lowercased titles. An entry in `forceInject` skips:
+`forceInject` is a `Set<string>` keyed by `trackerKey(entry)` (i.e. `${vaultSource}:${title}`, preserving original title case). All five consumers below look up via `policy.forceInject.has(trackerKey(e))`. An entry in `forceInject` skips:
 - Contextual gating (Stage 2)
 - Folder filtering (Stage 2b)
 - Re-injection cooldown (Stage 3)
@@ -22,10 +22,12 @@ buildExemptionPolicy(vaultSnapshot, pins, blocks)
 **Pinned entries receive `priority=10` to give them the best chance of surviving budget truncation (Stage 6), but `formatAndGroup` is not exemption-aware — it applies budget limits equally to all entries.**
 
 Entries added to `forceInject`:
-- All `constant` entries (lorebook-always)
-- All `seed` entries (lorebook-seed)
-- All `bootstrap` entries (lorebook-bootstrap)
-- All pinned entries (from `chat_metadata.deeplore_pins`)
+- All `constant` entries (lorebook-always) → `trackerKey(entry)`
+- All `seed` entries (lorebook-seed) → `trackerKey(entry)`
+- All `bootstrap` entries (lorebook-bootstrap) → `trackerKey(entry)`
+- All pinned entries (from `chat_metadata.deeplore_pins`) — see pin walk below
+
+**Pin walk (BUG-399 / Fix 2).** A normalized pin can have `vaultSource: null` (legacy bare-string pin) or a concrete `vaultSource`. The build walks `vaultSnapshot` and adds `trackerKey(entry)` for every entry where `matchesPinBlock(pin, entry)` returns true — so one legacy pin can fan out to N keys (matching the same title across multiple vaults), while a vault-scoped structured pin produces exactly one key. Multi-vault duplicates with different exemption status (e.g. vault-A's constant "Castle" vs vault-B's non-constant "Castle") no longer collapse — vault-B's copy is gated normally.
 
 Pin/block normalization: `normalizePinBlock()` (called at top of `buildExemptionPolicy()`) converts bare title strings to `{title, vaultSource: null}` for backward compatibility.
 

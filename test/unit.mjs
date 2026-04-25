@@ -988,7 +988,26 @@ test('takeIndexSnapshot: creates snapshot from vault index', () => {
     ];
     const snapshot = takeIndexSnapshot(index);
     assertEqual(snapshot.contentHashes.size, 2, 'should hash both entries');
-    assertEqual(snapshot.titleMap.get('Eris.md'), 'Eris', 'should map filename to title');
+    // BUG-AUDIT (Fix 25): keys are `vaultSource:filename`, not bare filename.
+    // makeEntry defaults vaultSource: '' → key = ':Eris.md'.
+    assertEqual(snapshot.titleMap.get(':Eris.md'), 'Eris', 'should map vaultSource:filename to title');
+});
+
+test('takeIndexSnapshot: multi-vault same-filename entries do not collide', () => {
+    // Regression for Fix 25: filename-only keys would let vault-B's "Castle" overwrite vault-A's
+    const index = [
+        makeEntry('Castle', { content: 'A vault', keys: ['castle'], vaultSource: 'VaultA', filename: 'Places/Castle.md' }),
+        makeEntry('Castle', { content: 'B vault', keys: ['castle'], vaultSource: 'VaultB', filename: 'Places/Castle.md' }),
+    ];
+    const snapshot = takeIndexSnapshot(index);
+    assertEqual(snapshot.contentHashes.size, 2, 'multi-vault same-filename should produce two distinct keys');
+    assertEqual(snapshot.titleMap.get('VaultA:Places/Castle.md'), 'Castle', 'VaultA key resolves');
+    assertEqual(snapshot.titleMap.get('VaultB:Places/Castle.md'), 'Castle', 'VaultB key resolves');
+    assertNotEqual(
+        snapshot.contentHashes.get('VaultA:Places/Castle.md'),
+        snapshot.contentHashes.get('VaultB:Places/Castle.md'),
+        'distinct content → distinct hashes',
+    );
 });
 
 // ============================================================================
@@ -1569,25 +1588,26 @@ import {
 // -- buildExemptionPolicy --
 
 test('buildExemptionPolicy: constants are in forceInject', () => {
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey (`${vaultSource}:${title}`).
     const vault = [makeEntry('A', { constant: true }), makeEntry('B')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(policy.forceInject.has('a'), 'constant A should be in forceInject (lowercase)');
-    assert(!policy.forceInject.has('b'), 'non-constant B should NOT be in forceInject');
+    assert(policy.forceInject.has(':A'), 'constant A should be in forceInject by trackerKey');
+    assert(!policy.forceInject.has(':B'), 'non-constant B should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: pins are in forceInject', () => {
     const vault = [makeEntry('A'), makeEntry('B')];
     const policy = buildExemptionPolicy(vault, ['A'], []);
-    assert(policy.forceInject.has('a'), 'pinned A should be in forceInject (lowercase)');
-    assert(!policy.forceInject.has('b'), 'non-pinned B should NOT be in forceInject');
+    assert(policy.forceInject.has(':A'), 'pinned A should be in forceInject by trackerKey');
+    assert(!policy.forceInject.has(':B'), 'non-pinned B should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: bootstrap and seed entries ARE in forceInject (exempt from contextual gating)', () => {
     const vault = [makeEntry('Boot', { bootstrap: true }), makeEntry('Seed', { seed: true }), makeEntry('Normal')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(policy.forceInject.has('boot'), 'bootstrap should be in forceInject (exempt from gating)');
-    assert(policy.forceInject.has('seed'), 'seed should be in forceInject (exempt from gating)');
-    assert(!policy.forceInject.has('normal'), 'normal should NOT be in forceInject');
+    assert(policy.forceInject.has(':Boot'), 'bootstrap should be in forceInject (exempt from gating)');
+    assert(policy.forceInject.has(':Seed'), 'seed should be in forceInject (exempt from gating)');
+    assert(!policy.forceInject.has(':Normal'), 'normal should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: blocks stored lowercase in policy', () => {
@@ -1608,7 +1628,7 @@ test('buildExemptionPolicy: pin and constant overlap is deduplicated', () => {
     const vault = [makeEntry('A', { constant: true })];
     const policy = buildExemptionPolicy(vault, ['A'], []);
     assertEqual(policy.forceInject.size, 1, 'A appears once despite being constant and pinned');
-    assert(policy.forceInject.has('a'), 'A is in forceInject (lowercase)');
+    assert(policy.forceInject.has(':A'), 'A is in forceInject by trackerKey');
 });
 
 // -- applyPinBlock --
@@ -1704,7 +1724,8 @@ test('applyContextualGating: entry with era dropped when no era active (strict)'
 
 test('applyContextualGating: forceInject entries bypass era gating', () => {
     const entries = [makeEntry('A', { customFields: { era: ['golden'] } })];
-    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set(['a']) }, false, {}, DEFAULT_FIELD_DEFINITIONS);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey (`${vaultSource}:${title}`).
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set([':A']) }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'forceInject entry kept despite era mismatch');
 });
 
@@ -1782,7 +1803,8 @@ test('applyReinjectionCooldown: old injection passes cooldown', () => {
 test('applyReinjectionCooldown: forceInject entries always pass', () => {
     const a = makeEntry('A', { vaultSource: '' });
     const history = new Map([[':A', 5]]);
-    const result = applyReinjectionCooldown([a], { forceInject: new Set(['a']) }, history, 6, 3, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const result = applyReinjectionCooldown([a], { forceInject: new Set([':A']) }, history, 6, 3, false);
     assertEqual(result.length, 1, 'forceInject bypasses cooldown');
 });
 
@@ -1824,14 +1846,15 @@ test('applyRequiresExcludesGating: entry with triggered excludes removed', () =>
 
 test('applyRequiresExcludesGating: forceInject entry with unmet requires kept (NEW behavior)', () => {
     const entries = [makeEntry('B', { requires: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['b']) }, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set([':B']) }, false);
     assertEqual(result.length, 1, 'forceInject B kept despite unmet requires');
     assertEqual(result[0].title, 'B', 'B is in result');
 });
 
 test('applyRequiresExcludesGating: forceInject entry with triggered excludes kept', () => {
     const entries = [makeEntry('A'), makeEntry('B', { excludes: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['b']) }, false);
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set([':B']) }, false);
     assertEqual(result.length, 2, 'forceInject B kept despite excludes match');
 });
 
@@ -1864,7 +1887,8 @@ test('applyRequiresExcludesGating: cascade removal via third-party excludes', ()
 
 test('applyRequiresExcludesGating: circular requires with one forceInject breaks cycle', () => {
     const entries = [makeEntry('A', { requires: ['B'] }), makeEntry('B', { requires: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['a']) }, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set([':A']) }, false);
     // A is forceInject so it stays. B requires A which is present → B also stays.
     assertEqual(result.length, 2, 'forceInject A breaks the cycle');
 });
@@ -1923,7 +1947,8 @@ test('applyStripDedup: recently injected entry filtered', () => {
 test('applyStripDedup: forceInject entries never stripped', () => {
     const entries = [makeEntry('A', { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 })];
     const log = [{ gen: 1, entries: [{ title: 'A', pos: 1, depth: 4, role: 0, contentHash: '' }] }];
-    const result = applyStripDedup(entries, { forceInject: new Set(['a']) }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const result = applyStripDedup(entries, { forceInject: new Set([':A']) }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
     assertEqual(result.length, 1, 'forceInject bypasses dedup');
 });
 

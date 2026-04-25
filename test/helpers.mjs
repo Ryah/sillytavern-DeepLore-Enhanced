@@ -276,6 +276,8 @@ export function makeEntry(title, opts = {}) {
         filename: opts.filename || `${title}.md`,
         customFields: opts.customFields || {},
         enabled: opts.enabled !== false,
+        guide: opts.guide || false,
+        folderPath: opts.folderPath || '',
     };
 }
 
@@ -320,6 +322,91 @@ export function makeSettings(overrides = {}) {
         analyticsData: {},
         vaults: [{ name: 'Test', port: 27123, apiKey: 'test', enabled: true }],
         contextualGatingTolerance: 'strict',
+        multiVaultConflictResolution: 'all',
+        librarianConnectionMode: 'profile',
+        librarianSessionMaxTokens: 4096,
+        autoSuggestSkipReview: false,
+        connectionManager: overrides.connectionManager || { selectedProfile: 'test-profile' },
         ...overrides,
+    };
+}
+
+// ============================================================================
+// Extended Factories — Multi-Vault, Librarian, Diagnostics
+// ============================================================================
+
+/**
+ * Build a chat_metadata stub for popup-binding tests.
+ * Includes deeplore_* keys that DLE reads/writes.
+ * @param {object} [overrides]
+ * @returns {object}
+ */
+export function makeChatMetadata(overrides = {}) {
+    return {
+        deeplore_pins: [],
+        deeplore_blocks: [],
+        deeplore_context: {},
+        deeplore_injection_log: [],
+        deeplore_chat_counts: {},
+        deeplore_lore_gaps: [],
+        deeplore_librarian_session: null,
+        deeplore_notebook: '',
+        deeplore_ai_notepad: '',
+        deeplore_folder_filter: null,
+        deeplore_swipe_injected_keys: {},
+        ...overrides,
+    };
+}
+
+/**
+ * Build a Librarian session stub for sendMessage/regenerate tests.
+ * @param {object} [opts]
+ * @param {Array} [opts.messages] - Pre-existing message history
+ * @param {object} [opts.draftState]
+ * @returns {object}
+ */
+export function makeLibrarianSession(opts = {}) {
+    return {
+        messages: opts.messages || [],
+        draftState: opts.draftState ?? null,
+        entryPoint: opts.entryPoint || 'manual',
+        gapRecord: opts.gapRecord || null,
+        manifest: opts.manifest || '',
+        chatContext: opts.chatContext || '',
+        relatedEntries: opts.relatedEntries || [],
+        workQueue: opts.workQueue || [],
+        lastOptions: opts.lastOptions || null,
+        mode: opts.mode || null,
+        guideBootstrap: opts.guideBootstrap || '',
+    };
+}
+
+/**
+ * Build an option-card payload for option-apply tests.
+ * Used for verifying explicit-null preservation (Fix 11).
+ * @param {object} fields - Field overrides for the proposed option
+ * @returns {object}
+ */
+export function makeDraftOption(fields = {}) {
+    return {
+        label: 'Test option',
+        fields,
+    };
+}
+
+/**
+ * Build a fetch-response stub for vault.js per-file failure tests.
+ * @param {object} [opts]
+ * @param {Array} [opts.files] - File entries
+ * @param {number} [opts.failed] - Per-file failure count
+ * @param {number} [opts.total] - Total files attempted
+ * @returns {object}
+ */
+export function makeFetchResponse(opts = {}) {
+    const files = opts.files || [];
+    return {
+        files,
+        failed: opts.failed ?? 0,
+        total: opts.total ?? files.length,
     };
 }

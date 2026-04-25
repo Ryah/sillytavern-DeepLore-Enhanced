@@ -76,6 +76,21 @@ function pseudonymizeTitle(title) {
     return p;
 }
 
+// Per-snapshot vaultSource pseudonymizer. The vaultSource is the user's vault
+// name (story/project name) and leaks PII just like titles. Same cardinality
+// preservation pattern as titles. Empty vaultSource (single-vault setups)
+// passes through unchanged.
+let _vaultSourceMap, _vaultSourceCounter;
+function pseudonymizeVaultSource(vs) {
+    if (!vs) return vs;
+    let p = _vaultSourceMap.get(vs);
+    if (!p) {
+        p = `<vault-${++_vaultSourceCounter}>`;
+        _vaultSourceMap.set(vs, p);
+    }
+    return p;
+}
+
 /**
  * Summarize a single VaultEntry into metadata only.
  * NEVER include `content` or `summary` body text.
@@ -86,7 +101,7 @@ function summarizeEntry(e) {
     return {
         title: pseudonymizeTitle(e.title),
         filename: pseudonymizeTitle(e.filename),
-        vaultSource: e.vaultSource,
+        vaultSource: pseudonymizeVaultSource(e.vaultSource),
         priority: e.priority,
         constant: !!e.constant,
         seed: !!e.seed,
@@ -109,18 +124,18 @@ function summarizeEntry(e) {
 }
 
 /** Convert a Map to a plain object with at most `maxEntries` keys.
- *  Tracker keys (vaultSource:title) have their title portion pseudonymized. */
+ *  Tracker keys (vaultSource:title) have BOTH portions pseudonymized — vault
+ *  name leaks story/project identity just like titles do. */
 function mapToObj(m, maxEntries = 200) {
     if (!m || typeof m.entries !== 'function') return null;
     const out = {};
     let n = 0;
     for (const [k, v] of m.entries()) {
         if (n++ >= maxEntries) { out.__truncated = true; break; }
-        // Tracker keys are "vaultSource:title" — pseudonymize the title part
         const ks = String(k);
         const colonIdx = ks.indexOf(':');
         const safeKey = colonIdx >= 0
-            ? `${ks.slice(0, colonIdx)}:${pseudonymizeTitle(ks.slice(colonIdx + 1))}`
+            ? `${pseudonymizeVaultSource(ks.slice(0, colonIdx))}:${pseudonymizeTitle(ks.slice(colonIdx + 1))}`
             : ks;
         out[safeKey] = v;
     }
@@ -351,6 +366,8 @@ export function captureStateSnapshot() {
     // Fresh pseudonym/mask tables per snapshot — aliases are NOT correlated across exports
     _titleMap = new Map();
     _titleCounter = 0;
+    _vaultSourceMap = new Map();
+    _vaultSourceCounter = 0;
     resetMaskCaches();
 
     const snap = {

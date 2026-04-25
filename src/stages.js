@@ -31,19 +31,27 @@ function _isDebug() {
  * @returns {{ forceInject: Set<string>, pins: Array<{title:string, vaultSource:string|null}>, blocks: Array<{title:string, vaultSource:string|null}> }}
  */
 export function buildExemptionPolicy(vaultSnapshot, pins, blocks) {
-    // BUG-011: Normalize all titles to lowercase for case-insensitive matching
     // BUG-AUDIT-9: Seeds and bootstraps are also exempt from contextual gating.
     // They are designed to be always-available in their respective scenarios, so
     // gating should not suppress them.
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey(entry) = `${vaultSource}:${title}`
+    // so multi-vault duplicates don't collapse — vault-A's constant "Castle" no longer
+    // exempts vault-B's non-constant "Castle".
     const forceInject = new Set();
     for (const entry of vaultSnapshot) {
-        if (entry.constant || entry.seed || entry.bootstrap) forceInject.add(entry.title.toLowerCase());
+        if (entry.constant || entry.seed || entry.bootstrap) forceInject.add(trackerKey(entry));
     }
     // H23: Normalize pin/block items to structured form (backward compat with bare strings)
     const normalizedPins = (pins || []).map(normalizePinBlock);
     const normalizedBlocks = (blocks || []).map(normalizePinBlock);
-    // Pins are treated as constants with priority 10 — add them to forceInject
-    for (const pb of normalizedPins) forceInject.add(pb.title.toLowerCase());
+    // Pins are treated as constants with priority 10 — add them to forceInject.
+    // Legacy bare-string pins have vaultSource=null (matches any vault), so walk the snapshot
+    // and add trackerKey for every matching entry — one pin can produce N keys.
+    for (const pb of normalizedPins) {
+        for (const entry of vaultSnapshot) {
+            if (matchesPinBlock(pb, entry)) forceInject.add(trackerKey(entry));
+        }
+    }
     return {
         forceInject,
         pins: normalizedPins,
@@ -163,7 +171,7 @@ export function applyContextualGating(entries, context, policy, debugMode, setti
 
     const before = entries.length;
     const result = entries.filter(e => {
-        if (policy.forceInject.has(e.title.toLowerCase())) return true;
+        if (policy.forceInject.has(trackerKey(e))) return true;
 
         for (const fd of fieldDefs) {
             if (!fd.gating || !fd.gating.enabled) continue;
@@ -231,7 +239,7 @@ export function applyFolderFilter(entries, selectedFolders, policy, debugMode) {
 
     const before = entries.length;
     const result = entries.filter(e => {
-        if (policy.forceInject.has(e.title.toLowerCase())) return true;
+        if (policy.forceInject.has(trackerKey(e))) return true;
         if (!e.folderPath) return true; // root entries always pass
         return selectedFolders.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));
     });
@@ -264,7 +272,7 @@ export function applyReinjectionCooldown(entries, policy, injectionHistory, gene
 
     const before = entries.length;
     const result = entries.filter(e => {
-        if (policy.forceInject.has(e.title.toLowerCase())) return true;
+        if (policy.forceInject.has(trackerKey(e))) return true;
         const lastGen = injectionHistory.get(trackerKey(e));
         if (lastGen !== undefined && (generationCount - lastGen) < reinjectionCooldown) {
             if (debugMode) {
@@ -313,7 +321,7 @@ export function applyRequiresExcludesGating(entries, policy, debugMode) {
         const nextResult = [];
         for (const entry of result) {
             // ForceInject entries skip requires/excludes gating entirely
-            if (policy.forceInject.has(entry.title.toLowerCase())) { nextResult.push(entry); continue; }
+            if (policy.forceInject.has(trackerKey(entry))) { nextResult.push(entry); continue; }
 
             if (entry.requires && entry.requires.length > 0) {
                 const allPresent = entry.requires.every(r => activeTitles.has(r.toLowerCase()));
@@ -420,7 +428,7 @@ export function applyStripDedup(entries, policy, injectionLog, lookbackDepth, de
 
     const before = entries.length;
     const result = entries.filter(e => {
-        const forceExempt = policy.forceInject.has(e.title.toLowerCase());
+        const forceExempt = policy.forceInject.has(trackerKey(e));
         if (forceExempt) {
             if (debugMode) console.debug(`[DLE][DIAG] strip-dedup-entry-check EXEMPT "${e.title}" (forceInject)`);
             return true;

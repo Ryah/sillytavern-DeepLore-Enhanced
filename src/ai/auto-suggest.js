@@ -163,7 +163,58 @@ export async function runAutoSuggest() {
 }
 
 /**
+ * Build the vault file content + filename for a single suggestion. Pure;
+ * no UI, no network, no state mutation. Extracted so the review-popup path
+ * and the skip-review batch path can share the same write semantics.
+ * @param {object} s — single suggestion {title, type, keys, summary, content}
+ * @param {object} settings — getSettings() output (lorebookTag, autoSuggestFolder)
+ * @returns {{ filename: string, fileContent: string, safeTitle: string }}
+ */
+function _buildSuggestionFile(s, settings) {
+    const folder = settings.autoSuggestFolder || '';
+    let safeTitle = s.title.replace(/[<>:"/\\|?*]/g, '_');
+    safeTitle = safeTitle.replace(/^\.+|\.+$/g, '');
+    safeTitle = safeTitle.trimEnd();
+    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(safeTitle)) safeTitle = '_' + safeTitle;
+    if (!safeTitle) safeTitle = 'Untitled';
+    const filename = folder ? `${folder}/${safeTitle}.md` : `${safeTitle}.md`;
+    const keysYaml = (s.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
+    const safeContent = stripObsidianSyntax(s.content || '').replace(/^---$/gm, '- - -');
+    const fileContent = `---
+type: ${yamlEscape(s.type || 'lore')}
+priority: 50
+tags:
+  - ${settings.lorebookTag}
+keys:
+${keysYaml}
+summary: "${(s.summary || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')}"
+---
+# ${s.title}
+
+${safeContent}`;
+    return { filename, fileContent, safeTitle };
+}
+
+/**
+ * Write a single suggestion to the vault. No UI updates — caller handles those.
+ * Returns { ok, title, filename, error? } so the caller can render outcome.
+ */
+async function writeSuggestionToVault(s, settings) {
+    try {
+        const { filename, fileContent } = _buildSuggestionFile(s, settings);
+        const suggestVault = getPrimaryVault(settings);
+        const data = await writeNote(suggestVault.host, suggestVault.port, suggestVault.apiKey, filename, fileContent, !!suggestVault.https);
+        if (data?.ok) return { ok: true, title: s.title, filename };
+        return { ok: false, title: s.title, filename, error: data?.error || 'unknown' };
+    } catch (err) {
+        return { ok: false, title: s.title, error: err?.message || String(err) };
+    }
+}
+
+/**
  * Show suggestion popup with editable fields and accept/reject buttons.
+ * Honors `settings.autoSuggestSkipReview` — when true, writes all suggestions
+ * directly without the review popup and shows a single summary toast.
  */
 export async function showSuggestionPopup(suggestions) {
     if (!suggestions || suggestions.length === 0) {
@@ -178,6 +229,43 @@ export async function showSuggestionPopup(suggestions) {
     const popupEpoch = chatEpoch;
 
     const settings = getSettings();
+
+    // BUG-AUDIT (Fix 26): honor autoSuggestSkipReview. The setting was previously
+    // displayed as a checkbox and saved on toggle, but no code branched on it —
+    // user expectation ("Write directly") was a UX promise the code never delivered.
+    if (settings.autoSuggestSkipReview) {
+        // Continue-on-failure: write every suggestion, summarize at end.
+        const results = [];
+        for (const s of suggestions) {
+            // Stale-chat bail: same epoch contract as the per-card Accept handler.
+            if (popupEpoch !== chatEpoch) {
+                toastr.warning('Chat changed — remaining suggestions skipped.', 'DeepLore Enhanced');
+                break;
+            }
+            const r = await writeSuggestionToVault(s, settings);
+            results.push(r);
+        }
+        const successes = results.filter(r => r.ok);
+        const failures = results.filter(r => !r.ok);
+        if (successes.length > 0) {
+            const failNote = failures.length > 0 ? `, ${failures.length} failed: ${failures.map(f => f.title).join(', ')}` : '';
+            toastr.success(`Wrote ${successes.length}/${results.length}${failNote}`, 'DeepLore Enhanced');
+            // One reindex at the end (per-card flow does one per accept).
+            try { await buildIndex(); } catch (reidxErr) {
+                console.warn('[DLE] Auto-suggest batch reindex failed:', reidxErr?.message);
+                try {
+                    toastr.warning(
+                        `Entries saved, but reindex failed: ${reidxErr?.message || 'unknown error'}. Refresh manually from the drawer.`,
+                        'DeepLore Enhanced',
+                        { timeOut: 10000 },
+                    );
+                } catch { /* toastr unavailable */ }
+            }
+        } else if (failures.length > 0) {
+            toastr.error(`All ${failures.length} writes failed. Check vault connection.`, 'DeepLore Enhanced');
+        }
+        return;
+    }
     const container = document.createElement('div');
     container.classList.add('dle-popup');
 

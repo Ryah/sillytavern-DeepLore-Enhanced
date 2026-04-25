@@ -199,9 +199,15 @@ function getChatMetadata() {
 /**
  * Save session state to chat_metadata so it's scoped to the current chat
  * and survives page refreshes. If no chat is active, silently no-ops.
+ * BUG-AUDIT (Fix 7): callers can pass `expectedEpoch` (captured when the
+ * popup opened) so a debounced save firing after a chat switch doesn't
+ * persist this session into the new chat's metadata. Legacy callers pass
+ * undefined and keep the old behavior.
  * @param {LibrarianSession} session
+ * @param {number} [expectedEpoch] chatEpoch captured at popup open
  */
-export function saveSessionState(session) {
+export function saveSessionState(session, expectedEpoch) {
+    if (expectedEpoch !== undefined && expectedEpoch !== chatEpoch) return;
     try {
         const md = getChatMetadata();
         if (!md) return; // No active chat — nothing to persist into
@@ -261,8 +267,12 @@ export function loadSessionState() {
 
 /**
  * Clear saved session state from chat_metadata (and any lingering legacy localStorage key).
+ * BUG-AUDIT (Fix 7): same epoch contract as saveSessionState — refuse to clear
+ * a different chat's session if the popup outlived the chat switch.
+ * @param {number} [expectedEpoch] chatEpoch captured at popup open
  */
-export function clearSessionState() {
+export function clearSessionState(expectedEpoch) {
+    if (expectedEpoch !== undefined && expectedEpoch !== chatEpoch) return;
     try {
         const md = getChatMetadata();
         if (md && SESSION_METADATA_KEY in md) {
@@ -752,12 +762,11 @@ export async function sendMessage(session, userMessage, options = {}) {
         return { parsed: null, valid: false, exhausted: false, lastErrors: ['Chat changed during librarian send'] };
     };
 
-    // Append user message to history — include current editor state
-    const editorTitle = session.draftState?.title;
-    const editorNote = editorTitle
-        ? `[Editor currently loaded: "${editorTitle}"]`
-        : '[Editor is empty — no entry loaded]';
-    session.messages.push({ role: 'user', content: `${editorNote}\n${userMessage}` });
+    // BUG-AUDIT (Fix 9): store the raw user message. The `[Editor ...]` decoration
+    // is now applied at prompt-build time (buildUserPromptFromHistory) for the
+    // current turn only. Storing the prefix in history caused regenerate to copy
+    // it back, then sendMessage to re-prepend, doubling on every regen.
+    session.messages.push({ role: 'user', content: userMessage });
 
     const systemPrompt = buildSystemPrompt(session);
     const connectionConfig = { ...getConnectionConfig(), signal };
@@ -792,7 +801,14 @@ export async function sendMessage(session, userMessage, options = {}) {
             };
         }
 
-        let messageToSend = buildUserPromptFromHistory(session.messages);
+        // BUG-AUDIT (Fix 9): compute the editor note fresh each iteration so the
+        // model always sees the live editor state — get_full_content can mutate
+        // draftState mid-loop, and the prompt should reflect that on the next call.
+        const editorTitle = session.draftState?.title;
+        const editorNote = editorTitle
+            ? `[Editor currently loaded: "${editorTitle}"]`
+            : '[Editor is empty — no entry loaded]';
+        let messageToSend = buildUserPromptFromHistory(session.messages, editorNote);
         let lastErrors = [];
         let validParsed = null;
 
@@ -980,7 +996,7 @@ export async function sendMessage(session, userMessage, options = {}) {
  * @param {Array<{role: string, content: string}>} messages
  * @returns {string}
  */
-function buildUserPromptFromHistory(messages) {
+function buildUserPromptFromHistory(messages, editorNote) {
     // Keep last N messages to bound prompt growth.
     // BUG-317: Slice cannot start on a tool_result — that would orphan it from
     // its triggering assistant tool_call and let the model hallucinate calls it
@@ -993,10 +1009,23 @@ function buildUserPromptFromHistory(messages) {
     const prefix = start > 0
         ? `[...${start} earlier messages omitted]\n\n`
         : '';
-    return prefix + recent.map(m => {
+    // BUG-AUDIT (Fix 9): the editor note used to be persisted into the user
+    // message at send-time, then regenerate copied the stored content (with
+    // the prefix already in it) and re-sent through sendMessage which
+    // prepended ANOTHER prefix — stacking on every regen. Store raw user
+    // turns; decorate only the LAST user turn at prompt-build with the live
+    // editor state. Falsy editorNote means "no decoration" (legacy callers).
+    let lastUserIdx = -1;
+    if (editorNote) {
+        for (let i = recent.length - 1; i >= 0; i--) {
+            if (recent[i].role === 'user') { lastUserIdx = i; break; }
+        }
+    }
+    return prefix + recent.map((m, i) => {
         if (m.role === 'tool_result') return `Tool Results:\n${m.content}`;
         const role = m.role === 'user' ? 'User' : 'Assistant';
-        return `${role}: ${m.content}`;
+        const content = (i === lastUserIdx) ? `${editorNote}\n${m.content}` : m.content;
+        return `${role}: ${content}`;
     }).join('\n\n');
 }
 

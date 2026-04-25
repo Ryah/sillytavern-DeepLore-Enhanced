@@ -32,46 +32,137 @@ const allFiles = [
 ].filter(f => existsSync(f) && !f.endsWith('verify-imports.mjs'));
 
 const importRegex = /^\s*(?:import|export)\s+.*?from\s+['"](\.[^'"]+)['"]/gm;
+const importBareRegex = /^\s*import\s+['"](\.[^'"]+)['"]\s*;?/gm;
+const dynamicLiteralRegex = /\bimport\(\s*['"](\.[^'"]+)['"]\s*\)/g;
+const dynamicNonLiteralRegex = /\bimport\(\s*[^'")][^)]*\)/g;
 const namedImportRegex = /^\s*import\s+\{([^}]+)\}\s+from\s+['"](\.[^'"]+)['"]/gm;
 
 let broken = 0;
 let total = 0;
 let stImports = 0;
+let bareImports = 0;
+let dynamicImports = 0;
+let nonLiteralWarnings = 0;
 
 // ── Check 1: File existence ──────────────────────────────────────────────
 
+function getLineNumber(content, offset) {
+    return content.slice(0, offset).split('\n').length;
+}
+
+function checkResolvableImport(file, content, importPath, matchOffset, kind) {
+    const resolved = resolve(dirname(file), importPath);
+    // Skip SillyTavern imports (resolve outside project root)
+    if (!resolved.startsWith(ROOT)) {
+        stImports++;
+        return;
+    }
+    if (!existsSync(resolved)) {
+        const rel = relative(ROOT, file).replace(/\\/g, '/');
+        const target = relative(ROOT, resolved).replace(/\\/g, '/');
+        const line = getLineNumber(content, matchOffset);
+        console.log(`BROKEN [${kind}]: ${rel}:${line} -> ${importPath}  (resolves to ${target})`);
+        broken++;
+    }
+}
+
+// Strip block comments (incl. JSDoc) and line comments to avoid false-positive
+// matches on `@param {import('...')}` type annotations and commented-out imports.
+function stripComments(src) {
+    let out = '';
+    let i = 0;
+    let inSingle = false, inDouble = false, inTmpl = false, inLine = false, inBlock = false;
+    while (i < src.length) {
+        const c = src[i], n = src[i + 1];
+        if (inLine) {
+            if (c === '\n') { inLine = false; out += c; }
+            i++; continue;
+        }
+        if (inBlock) {
+            if (c === '*' && n === '/') { inBlock = false; out += '  '; i += 2; continue; }
+            // preserve newlines so line numbers are stable
+            out += (c === '\n') ? '\n' : ' ';
+            i++; continue;
+        }
+        if (inSingle) {
+            if (c === '\\' && i + 1 < src.length) { out += c + src[i + 1]; i += 2; continue; }
+            if (c === '\'') inSingle = false;
+            out += c; i++; continue;
+        }
+        if (inDouble) {
+            if (c === '\\' && i + 1 < src.length) { out += c + src[i + 1]; i += 2; continue; }
+            if (c === '"') inDouble = false;
+            out += c; i++; continue;
+        }
+        if (inTmpl) {
+            if (c === '\\' && i + 1 < src.length) { out += c + src[i + 1]; i += 2; continue; }
+            if (c === '`') inTmpl = false;
+            out += c; i++; continue;
+        }
+        if (c === '/' && n === '/') { inLine = true; i += 2; continue; }
+        if (c === '/' && n === '*') { inBlock = true; i += 2; continue; }
+        if (c === '\'') { inSingle = true; out += c; i++; continue; }
+        if (c === '"') { inDouble = true; out += c; i++; continue; }
+        if (c === '`') { inTmpl = true; out += c; i++; continue; }
+        out += c; i++;
+    }
+    return out;
+}
+
 for (const file of allFiles) {
-    const content = readFileSync(file, 'utf8');
+    const rawContent = readFileSync(file, 'utf8');
+    const content = stripComments(rawContent);
     let m;
+
+    // 1a: `import ... from '...'` and `export ... from '...'`
     importRegex.lastIndex = 0;
     while ((m = importRegex.exec(content)) !== null) {
-        const importPath = m[1];
-        const resolved = resolve(dirname(file), importPath);
-        total++;
-
-        // Skip SillyTavern imports (resolve outside project root)
-        if (!resolved.startsWith(ROOT)) {
-            stImports++;
-            continue;
-        }
-
         // Skip string literals in test descriptions (not real imports)
         if (file.endsWith('.mjs') && m[0].includes("'...")) continue;
+        total++;
+        checkResolvableImport(file, content, m[1], m.index, 'static');
+    }
 
-        if (!existsSync(resolved)) {
-            const rel = relative(ROOT, file).replace(/\\/g, '/');
-            const target = relative(ROOT, resolved).replace(/\\/g, '/');
-            console.log(`BROKEN: ${rel} -> ${importPath}  (resolves to ${target})`);
-            broken++;
-        }
+    // 1b: `import './foo.js';` (side-effect / bare import)
+    importBareRegex.lastIndex = 0;
+    while ((m = importBareRegex.exec(content)) !== null) {
+        total++;
+        bareImports++;
+        checkResolvableImport(file, content, m[1], m.index, 'bare');
+    }
+
+    // 1c: `import('./foo.js')` (dynamic, string-literal)
+    dynamicLiteralRegex.lastIndex = 0;
+    while ((m = dynamicLiteralRegex.exec(content)) !== null) {
+        total++;
+        dynamicImports++;
+        checkResolvableImport(file, content, m[1], m.index, 'dynamic');
+    }
+
+    // 1d: `import(<non-literal>)` — warn-only, can't resolve
+    dynamicNonLiteralRegex.lastIndex = 0;
+    while ((m = dynamicNonLiteralRegex.exec(content)) !== null) {
+        // Skip if it's actually a literal (already counted in 1c).
+        const after = m[0].slice('import('.length).trimStart();
+        if (after.startsWith("'") || after.startsWith('"')) continue;
+        const rel = relative(ROOT, file).replace(/\\/g, '/');
+        const line = getLineNumber(content, m.index);
+        console.log(`WARN [dynamic-nonliteral]: ${rel}:${line} — non-literal dynamic import, manual review required`);
+        nonLiteralWarnings++;
     }
 }
 
 console.log('---');
 console.log(`Total relative imports checked: ${total}`);
+console.log(`  static (import/export from):  ${total - bareImports - dynamicImports}`);
+console.log(`  bare side-effect imports:     ${bareImports}`);
+console.log(`  dynamic literal imports:      ${dynamicImports}`);
 console.log(`SillyTavern imports (skipped file-exist, not in repo): ${stImports}`);
 console.log(`Project imports verified: ${total - stImports}`);
 console.log(`Broken: ${broken}`);
+if (nonLiteralWarnings > 0) {
+    console.log(`Non-literal dynamic imports (warn-only): ${nonLiteralWarnings}`);
+}
 
 // ── Check 2: ST import path depth consistency ────────────────────────────
 // Files at the same directory depth from ROOT should use the same number of

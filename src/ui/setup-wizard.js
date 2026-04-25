@@ -993,7 +993,7 @@ async function applyWizardSettings() {
         if (aiMode === 'profile') {
             settings.aiSearchProfileId = $wizard.find('#dle-wiz-ai-profile').val() || '';
         } else {
-            settings.aiSearchProxyUrl = $wizard.find('#dle-wiz-ai-proxy-url').val().trim() || 'http://localhost:42069';
+            settings.aiSearchProxyUrl = $wizard.find('#dle-wiz-ai-proxy-url').val().trim() || 'http://127.0.0.1:42069';
             settings.aiSearchModel = $wizard.find('#dle-wiz-ai-model').val().trim() || '';
         }
     }

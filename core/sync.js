@@ -5,7 +5,22 @@
 import { simpleHash } from './utils.js';
 
 /**
+ * Compose the canonical sync-snapshot key for an entry.
+ * BUG-AUDIT: keyed by `vaultSource:filename` to avoid multi-vault collisions
+ * when two vaults contain the same relative path. Filename-only keys would
+ * misclassify edits/removals across vaults. Pure helper — exported so
+ * callers (e.g. vault.js's BUG-368 carry-forward loop) can reproduce the
+ * exact format.
+ * @param {{ vaultSource?: string, filename: string }} entry
+ * @returns {string}
+ */
+export function snapshotKey(entry) {
+    return `${entry.vaultSource || ''}:${entry.filename}`;
+}
+
+/**
  * Take a snapshot of the current vault index for change detection.
+ * Keys are vaultSource:filename — see snapshotKey().
  * @param {import('./pipeline.js').VaultEntry[]} vaultIndex
  * @returns {{ contentHashes: Map<string, string>, titleMap: Map<string, string>, keyMap: Map<string, string>, timestamp: number }}
  */
@@ -18,9 +33,10 @@ export function takeIndexSnapshot(vaultIndex) {
     };
 
     for (const entry of vaultIndex) {
-        snapshot.contentHashes.set(entry.filename, simpleHash(entry.content));
-        snapshot.titleMap.set(entry.filename, entry.title);
-        snapshot.keyMap.set(entry.filename, JSON.stringify(entry.keys));
+        const key = snapshotKey(entry);
+        snapshot.contentHashes.set(key, simpleHash(entry.content));
+        snapshot.titleMap.set(key, entry.title);
+        snapshot.keyMap.set(key, JSON.stringify(entry.keys));
     }
 
     return snapshot;

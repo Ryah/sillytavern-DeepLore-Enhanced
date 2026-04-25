@@ -39,6 +39,7 @@ const LIBRARIAN_TOOLS = [
         description: 'Get metadata and a TRUNCATED preview of a vault entry (frontmatter + ~2000 chars). For YOUR internal use only — checking tags, comparing entries, planning edits, drafting. The preview is often incomplete. NEVER show truncated content to the user; use get_full_content when the user asks to see, read, or review an entry.',
         parameters: {
             title: { type: 'string', required: true, description: 'Entry title (case-insensitive)' },
+            vault_source: { type: 'string', required: false, description: 'Optional vault source name when multiple vaults contain entries with the same title (see search_vault results).' },
         },
     },
     {
@@ -60,6 +61,7 @@ const LIBRARIAN_TOOLS = [
         description: 'Get the COMPLETE untruncated content of a vault entry AND automatically load it into the entry editor. REQUIRED whenever the user wants to see, read, review, or inspect an entry — "show me", "pull up", "what does it say", "let me see", etc. The editor populates automatically; you do NOT need to echo the content back as a draft.',
         parameters: {
             title: { type: 'string', required: true, description: 'Entry title (case-insensitive)' },
+            vault_source: { type: 'string', required: false, description: 'Optional vault source name when multiple vaults contain entries with the same title (see search_vault results).' },
         },
     },
     {
@@ -99,6 +101,7 @@ const LIBRARIAN_TOOLS = [
             title: { type: 'string', required: true, description: 'Title of the vault entry that needs updating' },
             reason: { type: 'string', required: true, description: 'Why this entry needs updating' },
             fields: { type: 'string', required: false, description: 'Comma-separated list of specific fields that need attention (e.g. "summary, content, keys")' },
+            vault_source: { type: 'string', required: false, description: 'Optional vault source name when multiple vaults contain entries with the same title (see search_vault results).' },
         },
     },
     {
@@ -107,6 +110,7 @@ const LIBRARIAN_TOOLS = [
         parameters: {
             title: { type: 'string', required: true, description: 'Entry title to compare against recent chat' },
             chat_count: { type: 'number', required: false, description: 'Number of recent chat messages to include (default 15)' },
+            vault_source: { type: 'string', required: false, description: 'Optional vault source name when multiple vaults contain entries with the same title (see search_vault results).' },
         },
     },
 ];
@@ -116,14 +120,19 @@ const LIBRARIAN_TOOLS = [
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Find an entry by title (case-insensitive).
+ * Find an entry by title (case-insensitive). Optionally narrow by vault source
+ * when multiple vaults contain entries with the same title (BUG-AUDIT Fix 8 / BUG-400).
  * @param {string} title
+ * @param {string|null} [vaultSource]
  * @returns {object|null}
  */
-function findEntry(title) {
+export function findEntry(title, vaultSource = null) {
     if (!title) return null;
     const lower = title.toLowerCase();
-    return vaultIndex.find(e => e.title.toLowerCase() === lower) || null;
+    const matches = vaultIndex.filter(e => e.title.toLowerCase() === lower);
+    if (matches.length === 0) return null;
+    if (vaultSource) return matches.find(e => e.vaultSource === vaultSource) || null;
+    return matches[0];
 }
 
 /**
@@ -193,7 +202,10 @@ function toolSearchVault(args) {
     const lines = hits.map((h, i) => {
         const e = h.entry;
         const snippet = truncate(e.summary || e.content || '', 200);
-        return `${i + 1}. **${e.title}** (${e.type || '?'}, p${e.priority || 50}, score ${h.score.toFixed(2)})\n   Keys: ${(e.keys || []).join(', ')}\n   ${snippet}`;
+        // BUG-400: emit vaultSource on hit rows so the model can disambiguate
+        // duplicate-title entries across vaults via vault_source on later tool calls.
+        const vaultLine = e.vaultSource ? `\n   vaultSource: ${e.vaultSource}` : '';
+        return `${i + 1}. **${e.title}** (${e.type || '?'}, p${e.priority || 50}, score ${h.score.toFixed(2)})${vaultLine}\n   Keys: ${(e.keys || []).join(', ')}\n   ${snippet}`;
     });
     return truncate(lines.join('\n\n'), TOOL_RESULT_MAX_CHARS);
 }
@@ -202,7 +214,7 @@ function toolGetEntry(args) {
     const title = args.title?.trim();
     if (!title) return 'Error: title is required.';
 
-    const entry = findEntry(title);
+    const entry = findEntry(title, args.vault_source?.trim() || null);
     if (!entry) {
         // Suggest close matches
         if (fuzzySearchIndex) {
@@ -239,7 +251,7 @@ const FULL_CONTENT_MAX_CHARS = 16000;
 function toolGetFullContent(args, session = null) {
     const title = args.title?.trim();
     if (!title) return 'Error: title is required.';
-    const entry = findEntry(title);
+    const entry = findEntry(title, args.vault_source?.trim() || null);
     if (!entry) return `Entry "${title}" not found.`;
 
     // Populate the editor draft directly — no AI round-trip needed
@@ -399,7 +411,7 @@ function toolFlagEntryUpdate(args) {
     if (!reason) return 'Error: reason is required.';
 
     // Verify entry exists
-    const entry = findEntry(title);
+    const entry = findEntry(title, args.vault_source?.trim() || null);
     if (!entry) return `Error: Entry "${title}" not found in vault.`;
 
     const fields = args.fields?.trim() || null;
@@ -408,12 +420,15 @@ function toolFlagEntryUpdate(args) {
     // Snapshot epoch for stale-guard
     const epoch = chatEpoch;
 
-    // Create update flag record — late-read loreGaps to minimize race window
+    // Create update flag record — late-read loreGaps to minimize race window.
+    // BUG-400: include vaultSource so multi-vault same-title entries are disambiguated;
+    // legacy gaps without vaultSource still render (drawer tolerates undefined).
     const newGap = {
         id: gapId(),
         type: 'flag',
         subtype: 'update',
         entryTitle: entry.title, // Use canonical title from vault
+        vaultSource: entry.vaultSource || undefined,
         query: entry.title,
         reason: fullReason,
         timestamp: Date.now(),
@@ -447,12 +462,13 @@ function toolCompareEntryToChat(args) {
     const title = args.title?.trim();
     if (!title) return 'Error: title is required.';
 
-    const entry = findEntry(title);
+    const vaultSource = args.vault_source?.trim() || null;
+    const entry = findEntry(title, vaultSource);
     if (!entry) return `Entry "${title}" not found.`;
 
     const chatCount = Math.min(Math.max(Number(args.chat_count) || 15, 1), 50);
     const chatText = toolGetRecentChat({ count: chatCount });
-    const entryText = toolGetEntry({ title: entry.title });
+    const entryText = toolGetEntry({ title: entry.title, vault_source: entry.vaultSource });
 
     return truncate(
         `## Entry: ${entry.title}\n${entryText}\n\n---\n\n## Recent Chat (last ${chatCount} messages)\n${chatText}`,

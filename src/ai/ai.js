@@ -7,6 +7,7 @@ import { ConnectionManagerRequestService } from '../../../../shared.js';
 import { truncateToSentence, simpleHash, buildAiChatContext, escapeXml } from '../../core/utils.js';
 import { getSettings, DEFAULT_AI_SYSTEM_PROMPT } from '../../settings.js';
 import { callProxyViaCorsBridge } from './proxy-api.js';
+import { isUnderlyingClaude } from '../librarian/agentic-api.js';
 import {
     vaultIndex, aiSearchCache, aiSearchStats, decayTracker, lastScribeSummary,
     trackerKey, setAiSearchCache, entityNameSet, entityShortNameRegexes, consecutiveInjections,
@@ -154,7 +155,9 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
             try { return ConnectionManagerRequestService.getProfile(resolvedProfileId)?.model || ''; }
             catch { return ''; }
         })();
-        const isClaudeModel = /^claude-/i.test(effectiveModel);
+        // Use shared helper so OR-Claude (anthropic/claude-*) is detected too —
+        // bare `^claude-/i` regex misses OpenRouter-prefixed model ids.
+        const isClaudeModel = isUnderlyingClaude(effectiveModel);
         const overridePayload = {};
         if (resolvedModel) overridePayload.model = resolvedModel;
         if (jsonSchema && !isClaudeModel) overridePayload.json_schema = jsonSchema;
@@ -644,7 +647,11 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // BUG-020: Hash the system prompt content (not just length) to detect meaningful changes
     // BUG-021: Include manifestSummaryMode and summaryLength in cache key
     const promptHash = simpleHash(settings.aiSearchSystemPrompt || '');
-    const settingsKey = `${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${promptHash}|${settings.aiSearchConnectionMode}|${settings.aiSearchProfileId}|${settings.aiSearchModel}|${settings.aiConfidenceThreshold || 'low'}|${settings.manifestSummaryMode || 'prefer_summary'}|${settings.aiSearchManifestSummaryLength || 600}`;
+    // BUG-AUDIT (Fix 3): version stamp in settingsKey forces all old caches to miss
+    // and rewrite in the new vaultSource-aware shape. Bump this whenever cache shape
+    // changes so callers don't read stale records keyed by the old format.
+    const CACHE_SHAPE_VERSION = 'v2';
+    const settingsKey = `${CACHE_SHAPE_VERSION}|${settings.aiSearchMode}|${settings.aiSearchScanDepth}|${settings.maxEntries}|${settings.unlimitedEntries}|${promptHash}|${settings.aiSearchConnectionMode}|${settings.aiSearchProfileId}|${settings.aiSearchModel}|${settings.aiConfidenceThreshold || 'low'}|${settings.manifestSummaryMode || 'prefer_summary'}|${settings.aiSearchManifestSummaryLength || 600}`;
     const manifestHash = simpleHash(settingsKey + candidateManifest);
     const chatHash = simpleHash(chatContext);
     // Defer chatLines split until after exact cache hit check (avoid unnecessary work)
@@ -655,13 +662,16 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     // BUG-382: Replay ONLY against the current candidate set — never against the full
     // vault index. Using vaultIndex here leaks blocked/gated entries to drawer/Carto
     // (the cache was built from a narrower set; widening it at read time defeats that).
+    // BUG-AUDIT (Fix 3): map keyed by `vaultSource:title` so multi-vault duplicates
+    // resolve back to the correct entry. Title-only collapsed them at replay time.
+    const cacheKey = (vaultSource, title) => `${vaultSource || ''}:${(title || '').toLowerCase()}`;
     const resolveCachedResults = (cached) => {
         const replayPool = Array.isArray(candidateEntries) && candidateEntries.length > 0
             ? candidateEntries
             : (snapshot || vaultIndex);
-        const titleMap = new Map(replayPool.map(e => [e.title.toLowerCase(), e]));
+        const composite = new Map(replayPool.map(e => [cacheKey(e.vaultSource, e.title), e]));
         return cached
-            .map(r => ({ entry: titleMap.get(r.title.toLowerCase()), confidence: r.confidence, reason: r.reason }))
+            .map(r => ({ entry: composite.get(cacheKey(r.vaultSource, r.title)), confidence: r.confidence, reason: r.reason }))
             .filter(r => r.entry);
     };
 
@@ -713,8 +723,8 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         const cachedSet = aiSearchCache.matchedEntrySet;
         let isSubset = true;
         for (const e of candidateEntries) {
-            const t = (e?.title || '').toLowerCase();
-            if (t && !cachedSet.has(t)) { isSubset = false; break; }
+            const k = cacheKey(e?.vaultSource, e?.title);
+            if (k !== ':' && !cachedSet.has(k)) { isSubset = false; break; }
         }
         if (isSubset) {
             aiSearchStats.cachedHits++;
@@ -1005,11 +1015,15 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
                 return allowedTiers.includes(r.confidence);
             });
 
-        // Cache results by title (not entry reference) to survive index rebuilds.
-        // Also store the keyword-matched candidate set so subsequent calls can do
-        // cheap subset checks ("keyword-stable hit") even when chat hash drifts.
+        // Cache results by (vaultSource, title) so multi-vault duplicates don't collapse
+        // on replay. Also store the keyword-matched candidate set in the same composite
+        // form for cheap subset checks. BUG-AUDIT (Fix 3): old shape was title-only.
         const matchedEntrySet = Array.isArray(candidateEntries)
-            ? new Set(candidateEntries.map(e => (e?.title || '').toLowerCase()).filter(Boolean))
+            ? new Set(
+                candidateEntries
+                    .map(e => cacheKey(e?.vaultSource, e?.title))
+                    .filter(k => k !== ':'),
+            )
             : null;
         const _cachePayload = {
             hash: chatHash,
@@ -1019,7 +1033,12 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             // If existing chat lines are edited in-place, the prefix hash will differ
             // and the sliding window will correctly miss instead of returning stale results.
             prefixHash: simpleHash(getChatLines().join('\n')),
-            results: filteredResults.map(r => ({ title: r.entry.title, confidence: r.confidence, reason: r.reason })),
+            results: filteredResults.map(r => ({
+                title: r.entry.title,
+                vaultSource: r.entry.vaultSource || '',
+                confidence: r.confidence,
+                reason: r.reason,
+            })),
             matchedEntrySet,
             // BUG-394: stamp regex version so sliding-window hits are skipped when
             // entityShortNameRegexes has been rebuilt since this cache entry was written.

@@ -25,7 +25,7 @@ import {
 import { DEFAULT_FIELD_DEFINITIONS, parseFieldDefinitionYaml } from '../fields.js';
 import { resolveLinks } from '../../core/matching.js';
 import { parseVaultFile } from '../../core/pipeline.js';
-import { takeIndexSnapshot, detectChanges } from '../../core/sync.js';
+import { takeIndexSnapshot, detectChanges, snapshotKey } from '../../core/sync.js';
 import { showChangesToast } from './sync.js';
 import { saveIndexToCache, loadIndexFromCache, pruneOrphanedCacheKeys } from './cache.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
@@ -43,6 +43,15 @@ export { computeEntityDerivedState, deduplicateMultiVault, detectCrossVaultDupli
 // (display duration in ms), never as an actual fetch/abort timeout.
 const OBSIDIAN_TOAST_TIMEOUT = 15000;
 const CACHE_FALLBACK_TOAST_TIMEOUT = 10000;
+
+// BUG-AUDIT: per-file fetch failures threshold. Both the user-facing warning
+// toast AND the cache-skip flag must use the same threshold; drift between
+// them re-introduces the bug where a partial vault gets cached as a deletion.
+const PARTIAL_FETCH_FAILURE_THRESHOLD = { absolute: 5, rate: 0.1 };
+function isPartialFetchFailure(failed, total) {
+    const rate = total > 0 ? failed / total : 0;
+    return failed >= PARTIAL_FETCH_FAILURE_THRESHOLD.absolute || rate >= PARTIAL_FETCH_FAILURE_THRESHOLD.rate;
+}
 
 // Parser-ledger summary toast ("DLE indexed N entries; X skipped…") should fire
 // once per page load at most — module-scoped flag resets only on browser refresh.
@@ -255,11 +264,14 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
         }
     }
 
-    // Persist to IndexedDB for instant hydration on next page load
+    // Persist to IndexedDB for instant hydration on next page load.
+    // BUG-AUDIT: prune sequenced AFTER save success. Previously fire-and-forget
+    // racing with each other — a failed current save plus concurrent prune could
+    // delete the prior good cache key and leave nothing for the next hydration.
     if (!skipCacheSave) {
-        saveIndexToCache(entries).catch(err => console.warn('[DLE] Cache save failed:', err?.message));
-        // H20: Clean up orphaned cache keys from previous vault configurations
-        pruneOrphanedCacheKeys().catch(err => console.warn('[DLE] Cache prune failed:', err?.message));
+        saveIndexToCache(entries)
+            .then(() => pruneOrphanedCacheKeys())
+            .catch(err => console.warn('[DLE] Cache save/prune failed:', err?.message));
     }
 
     // Diagnostic breadcrumb: record index build completion
@@ -408,15 +420,16 @@ export async function buildIndex() {
 
                 totalFiles += data.total || data.files.length;
 
-                // Warn if a significant portion of files failed to fetch
-                if (data.failed > 0) {
-                    const failRate = data.total > 0 ? data.failed / data.total : 0;
-                    if (data.failed >= 5 || failRate >= 0.1) {
-                        dedupWarning(
-                            `Some entries in "${vault.name}" couldn't be loaded (${data.failed} of ${data.total}). They'll be included on the next refresh.`,
-                            'vault_fetch_partial',
-                        );
-                    }
+                // Warn AND skip cache when a significant portion of files failed.
+                // BUG-AUDIT: previously only warned. Cache wrote the truncated vault,
+                // and missing entries looked like deletions on next hydration → cooldown
+                // trackers wiped, dedup logs cleared, lore evaporated until manual refresh.
+                if (data.failed > 0 && isPartialFetchFailure(data.failed, data.total)) {
+                    vaultFetchFailed = true;
+                    dedupWarning(
+                        `Some entries in "${vault.name}" couldn't be loaded (${data.failed} of ${data.total}). They'll be included on the next refresh — cache not updated.`,
+                        'vault_fetch_partial',
+                    );
                 }
 
                 for (const file of data.files) {
@@ -1000,26 +1013,29 @@ export async function buildIndexWithReuse() {
         if (failedVaultNames.size > 0 && priorPrevSnapshot) {
             const newSnap = previousIndexSnapshot;
             if (newSnap) {
-                const failedFilenames = new Set(
+                // BUG-AUDIT: keys are now `vaultSource:filename` (see core/sync.js
+                // snapshotKey). Filename-only keys would silently no-op against
+                // multi-vault snapshots and break BUG-368's recovery guard.
+                const failedKeys = new Set(
                     dedupedEntries
                         .filter(e => failedVaultNames.has(e.vaultSource))
-                        .map(e => e.filename),
+                        .map(e => snapshotKey(e)),
                 );
-                for (const fname of failedFilenames) {
-                    if (priorPrevSnapshot.contentHashes.has(fname)) {
-                        newSnap.contentHashes.set(fname, priorPrevSnapshot.contentHashes.get(fname));
+                for (const key of failedKeys) {
+                    if (priorPrevSnapshot.contentHashes.has(key)) {
+                        newSnap.contentHashes.set(key, priorPrevSnapshot.contentHashes.get(key));
                     } else {
-                        newSnap.contentHashes.delete(fname);
+                        newSnap.contentHashes.delete(key);
                     }
-                    if (priorPrevSnapshot.titleMap.has(fname)) {
-                        newSnap.titleMap.set(fname, priorPrevSnapshot.titleMap.get(fname));
+                    if (priorPrevSnapshot.titleMap.has(key)) {
+                        newSnap.titleMap.set(key, priorPrevSnapshot.titleMap.get(key));
                     } else {
-                        newSnap.titleMap.delete(fname);
+                        newSnap.titleMap.delete(key);
                     }
-                    if (priorPrevSnapshot.keyMap.has(fname)) {
-                        newSnap.keyMap.set(fname, priorPrevSnapshot.keyMap.get(fname));
+                    if (priorPrevSnapshot.keyMap.has(key)) {
+                        newSnap.keyMap.set(key, priorPrevSnapshot.keyMap.get(key));
                     } else {
-                        newSnap.keyMap.delete(fname);
+                        newSnap.keyMap.delete(key);
                     }
                 }
             }
@@ -1035,8 +1051,15 @@ export async function buildIndexWithReuse() {
         console.warn('[DLE] Reuse sync error:', err.message);
         _reuseResult = false;
     } finally {
-        setIndexing(false);
-        setBuildPromise(null); // BUG-044: Clear stale buildPromise
+        // BUG-AUDIT: epoch-gate cleanup. If force-release bumped buildEpoch
+        // mid-coroutine and a fresh build started, this zombie's finally must
+        // NOT clear the new build's lock/promise. buildIndex() already does this;
+        // reuse-sync didn't. Rule (gotchas.md): every finally touching
+        // indexing/buildPromise must epoch-gate.
+        if (!isZombie()) {
+            setIndexing(false);
+            setBuildPromise(null); // BUG-044: Clear stale buildPromise
+        }
         _reuseResolve(_reuseResult);
     }
     })().catch(err => { _reuseReject(err); });

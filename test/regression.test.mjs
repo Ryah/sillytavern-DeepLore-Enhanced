@@ -214,7 +214,8 @@ test('Gotcha #5: guide entries NOT in forceInject set', () => {
     guide.guide = true;
     const constant = makeEntry('Always', { constant: true });
     const policy = buildExemptionPolicy([guide, constant], [], []);
-    assert(policy.forceInject.has('always'), 'constant should be in forceInject');
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey, not lowercased title.
+    assert(policy.forceInject.has(trackerKey(constant)), 'constant should be in forceInject');
     // guide entries go through normal matching, NOT forceInject
     // (guide alone doesn't make it constant/seed/bootstrap)
     assert(!guide.constant && !guide.seed && !guide.bootstrap,
@@ -973,12 +974,13 @@ test('BUG-H8: lenient tolerance passes match_any non-match', () => {
     assertEqual(result.length, 1, 'match_any mismatch with lenient tolerance should pass through');
 });
 
-test('BUG-011: case-insensitive title matching in exemption policy', () => {
-    // Titles should be normalized to lowercase in forceInject
+test('BUG-011 / BUG-399: forceInject keyed by trackerKey, not lowercased title', () => {
+    // BUG-399 (Fix 2) supersedes BUG-011: forceInject keys are now `${vaultSource}:${title}`
+    // (preserving original title case). Multi-vault duplicates no longer collapse.
     const entry = makeEntry('ERIS THE GODDESS', { constant: true });
     const policy = buildExemptionPolicy([entry], [], []);
-    assert(policy.forceInject.has('eris the goddess'), 'should find lowercase version');
-    assert(!policy.forceInject.has('ERIS THE GODDESS'), 'should NOT find original case');
+    assert(policy.forceInject.has(trackerKey(entry)), 'should find via trackerKey');
+    assert(!policy.forceInject.has('eris the goddess'), 'should NOT find legacy lowercase title key');
 });
 
 test('BUG-015: build epoch zombie guard concept', () => {
@@ -1372,6 +1374,137 @@ test('buildScanText: filters system messages', () => {
     ];
     const text = buildScanText(chat, 10);
     assert(!text.includes('System info'), 'system message should be filtered');
+});
+
+// ============================================================================
+// X. Multi-Vault Exemption Policy (BUG-399 / Fix 2)
+// ============================================================================
+
+section('X. Multi-Vault Exemption Policy (BUG-399)');
+
+test('BUG-399: vault-A constant does NOT exempt vault-B duplicate from contextual gating', () => {
+    // Pre-fix: forceInject Set keyed by lowercase title, so vault-A's "Castle" (constant)
+    // collapsed with vault-B's "Castle" (non-constant) and shared the exemption.
+    // Post-fix: forceInject keyed by trackerKey, vaults disambiguated.
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA', constant: true, customFields: { era: ['medieval'] } });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB', customFields: { era: ['medieval'] } });
+    const vault = [castleA, castleB];
+    const policy = buildExemptionPolicy(vault, [], []);
+
+    // Distinct keys in the Set
+    assert(policy.forceInject.has(trackerKey(castleA)), 'vault-A constant should be in forceInject');
+    assert(!policy.forceInject.has(trackerKey(castleB)), 'vault-B non-constant must NOT be in forceInject');
+
+    // Functional gate: with active context "futuristic", vault-A survives via forceInject;
+    // vault-B is filtered out because its era doesn't match and it has no exemption.
+    const fieldDefs = [
+        { name: 'era', label: 'Era', type: 'string', multi: true, gating: { enabled: true, operator: 'match_any', tolerance: 'strict' }, values: [], contextKey: 'era' },
+    ];
+    const gated = applyContextualGating([castleA, castleB], { era: ['futuristic'] }, policy, false, makeSettings(), fieldDefs);
+    const survivors = gated.map(e => `${e.vaultSource}:${e.title}`);
+    assert(survivors.includes('VaultA:Castle'), 'vault-A constant survives gating');
+    assert(!survivors.includes('VaultB:Castle'), 'vault-B duplicate filtered by gating (no exemption)');
+});
+
+test('BUG-399: legacy bare-string pin (vaultSource=null) exempts ALL matching entries across vaults', () => {
+    // normalizePinBlock("Castle") → {title:"Castle", vaultSource:null}. Per matchesPinBlock,
+    // a null vaultSource matches any vault. The fix walks vaultSnapshot and adds a forceInject
+    // key for each matching entry — one pin can produce N keys.
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA' });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB' });
+    const policy = buildExemptionPolicy([castleA, castleB], ['Castle'], []);
+
+    assert(policy.forceInject.has(trackerKey(castleA)), 'legacy pin exempts vault-A copy');
+    assert(policy.forceInject.has(trackerKey(castleB)), 'legacy pin exempts vault-B copy');
+});
+
+test('BUG-399: structured pin with explicit vaultSource exempts only that vault', () => {
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA' });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB' });
+    const policy = buildExemptionPolicy([castleA, castleB], [{ title: 'Castle', vaultSource: 'VaultB' }], []);
+
+    assert(!policy.forceInject.has(trackerKey(castleA)), 'vault-A copy not exempted by VaultB-scoped pin');
+    assert(policy.forceInject.has(trackerKey(castleB)), 'vault-B copy exempted by VaultB-scoped pin');
+});
+
+// ============================================================================
+// Y. Vault-aware findEntry in Librarian chat tools (BUG-400 / Fix 8)
+// ============================================================================
+//
+// BUG-400: librarian-chat-tools.js findEntry() returned the first vaultIndex
+// match by lowercased title only. With multiVaultConflictResolution='all'
+// (default), duplicate-title entries from different vaults are intentionally
+// preserved, but findEntry() couldn't reach the second one — making get_entry,
+// get_full_content, compare_entry_to_chat, and flag_entry_update unable to
+// disambiguate. Fix: optional vaultSource parameter.
+//
+// findEntry imports getContext from ST's extensions.js and cannot be loaded
+// outside ST. This test contract-mirrors the function so a regression in its
+// signature or behavior fails the suite. Keep aligned with src/librarian/librarian-chat-tools.js.
+
+section('Y. Vault-aware findEntry (BUG-400)');
+
+function findEntryMirror(vaultIdx, title, vaultSource = null) {
+    if (!title) return null;
+    const lower = title.toLowerCase();
+    const matches = vaultIdx.filter(e => e.title.toLowerCase() === lower);
+    if (matches.length === 0) return null;
+    if (vaultSource) return matches.find(e => e.vaultSource === vaultSource) || null;
+    return matches[0];
+}
+
+test('BUG-400: findEntry without vaultSource returns first match (legacy behavior)', () => {
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA' });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB' });
+    const idx = [castleA, castleB];
+
+    const found = findEntryMirror(idx, 'Castle');
+    assertNotNull(found, 'findEntry returns a match');
+    assertEqual(found.vaultSource, 'VaultA', 'first match wins when vaultSource omitted');
+});
+
+test('BUG-400: findEntry with vaultSource="VaultA" returns vault-A copy', () => {
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA' });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB' });
+    const idx = [castleA, castleB];
+
+    const found = findEntryMirror(idx, 'Castle', 'VaultA');
+    assertNotNull(found, 'findEntry returns a match for VaultA');
+    assertEqual(found.vaultSource, 'VaultA', 'returns VaultA copy');
+});
+
+test('BUG-400: findEntry with vaultSource="VaultB" returns vault-B copy', () => {
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA' });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB' });
+    const idx = [castleA, castleB];
+
+    const found = findEntryMirror(idx, 'Castle', 'VaultB');
+    assertNotNull(found, 'findEntry returns a match for VaultB');
+    assertEqual(found.vaultSource, 'VaultB', 'returns VaultB copy');
+});
+
+test('BUG-400: findEntry with unknown vaultSource returns null (no fallback)', () => {
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA' });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB' });
+    const idx = [castleA, castleB];
+
+    const found = findEntryMirror(idx, 'Castle', 'VaultZ');
+    assertNull(found, 'unknown vaultSource must NOT fall back to first match');
+});
+
+test('BUG-400: findEntry with no matches returns null regardless of vaultSource', () => {
+    const idx = [makeEntry('Other', { vaultSource: 'VaultA' })];
+    assertNull(findEntryMirror(idx, 'Castle'), 'no title match returns null');
+    assertNull(findEntryMirror(idx, 'Castle', 'VaultA'), 'no title match returns null even with vaultSource');
+});
+
+test('BUG-400: findEntry case-insensitive on title, exact on vaultSource', () => {
+    const castle = makeEntry('Castle', { vaultSource: 'VaultA' });
+    const idx = [castle];
+
+    assertEqual(findEntryMirror(idx, 'CASTLE')?.title, 'Castle', 'title match is case-insensitive');
+    assertEqual(findEntryMirror(idx, 'castle', 'VaultA')?.title, 'Castle', 'lowercase title with matching vaultSource still hits');
+    assertNull(findEntryMirror(idx, 'Castle', 'vaulta'), 'vaultSource match is case-sensitive');
 });
 
 // ============================================================================

@@ -8,7 +8,7 @@
 
 import {
     assert, assertEqual, assertNotEqual, assertGreaterThan, assertLessThan,
-    assertNull, assertNotNull, test, section, summary, makeEntry, makeSettings,
+    assertNull, assertNotNull, assertContains, test, section, summary, makeEntry, makeSettings,
 } from './helpers.mjs';
 
 import {
@@ -169,31 +169,37 @@ test('B1: Constants, seeds, bootstraps all in forceInject', () => {
     const n = makeEntry('Normal');
     const policy = buildExemptionPolicy([c, s, b, n], [], []);
 
-    assert(policy.forceInject.has('constant'), 'B1: constant should be in forceInject');
-    assert(policy.forceInject.has('seed'), 'B1: seed should be in forceInject');
-    assert(policy.forceInject.has('bootstrap'), 'B1: bootstrap should be in forceInject');
-    assert(!policy.forceInject.has('normal'), 'B1: normal entry should NOT be in forceInject');
+    // BUG-399 (Fix 2): forceInject is keyed by trackerKey(entry), not lowercased title.
+    assert(policy.forceInject.has(trackerKey(c)), 'B1: constant should be in forceInject');
+    assert(policy.forceInject.has(trackerKey(s)), 'B1: seed should be in forceInject');
+    assert(policy.forceInject.has(trackerKey(b)), 'B1: bootstrap should be in forceInject');
+    assert(!policy.forceInject.has(trackerKey(n)), 'B1: normal entry should NOT be in forceInject');
 });
 
-test('B2: forceInject is case-insensitive', () => {
+test('B2: forceInject preserves title case via trackerKey', () => {
+    // BUG-399 (Fix 2): trackerKey uses entry.title as-is (no lowercasing). Multi-vault
+    // disambiguation via vaultSource is the new contract; title-case normalization is
+    // not part of forceInject any more. With makeEntry default vaultSource='', the key
+    // for "Mixed CASE Entry" is ":Mixed CASE Entry".
     const entry = makeEntry('Mixed CASE Entry', { constant: true });
     const policy = buildExemptionPolicy([entry], [], []);
 
-    assert(policy.forceInject.has('mixed case entry'), 'B2: forceInject should use lowercase keys');
+    assert(policy.forceInject.has(trackerKey(entry)), 'B2: forceInject should be keyed by trackerKey');
+    assert(!policy.forceInject.has('mixed case entry'), 'B2: legacy lowercase-title key must not be present');
 });
 
 test('B3: Pins added to forceInject', () => {
     const entry = makeEntry('Pinned One');
     const policy = buildExemptionPolicy([entry], ['Pinned One'], []);
 
-    assert(policy.forceInject.has('pinned one'), 'B3: pinned entry should be in forceInject');
+    assert(policy.forceInject.has(trackerKey(entry)), 'B3: pinned entry should be in forceInject');
 });
 
 test('B4: Blocks NOT in forceInject', () => {
     const entry = makeEntry('Blocked One');
     const policy = buildExemptionPolicy([entry], [], ['Blocked One']);
 
-    assert(!policy.forceInject.has('blocked one'), 'B4: blocked entry should NOT be in forceInject');
+    assert(!policy.forceInject.has(trackerKey(entry)), 'B4: blocked entry should NOT be in forceInject');
 });
 
 test('B5: Empty pins/blocks produce empty arrays', () => {
@@ -211,13 +217,28 @@ test('B6: Null pins/blocks handled gracefully', () => {
     assertEqual(policy.blocks.length, 0, 'B6: null blocks should produce empty array');
 });
 
-test('B7: Multiple vault entries with same title but different vaultSource', () => {
+test('B7: Multi-vault same title — distinct keys, only constant exempted', () => {
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey, so vault-A's constant must NOT
+    // exempt vault-B's non-constant duplicate.
     const a = makeEntry('Shared', { vaultSource: 'VaultA', constant: true });
     const b = makeEntry('Shared', { vaultSource: 'VaultB' });
     const policy = buildExemptionPolicy([a, b], [], []);
 
-    // Both have same lowercase title, forceInject is a Set of lowercase titles
-    assert(policy.forceInject.has('shared'), 'B7: shared title should be in forceInject (constant)');
+    assert(policy.forceInject.has(trackerKey(a)), 'B7: vault-A constant should be in forceInject');
+    assert(!policy.forceInject.has(trackerKey(b)), 'B7: vault-B non-constant must NOT be in forceInject');
+    assertNotEqual(trackerKey(a), trackerKey(b), 'B7: trackerKeys for vault-A and vault-B must be distinct');
+
+    // Functional check: gating exempts a but filters b when both fail contextual gating.
+    const fieldDefs = [
+        { name: 'era', label: 'Era', type: 'string', multi: true, gating: { enabled: true, operator: 'match_any', tolerance: 'strict' }, values: [], contextKey: 'era' },
+    ];
+    const aWithEra = { ...a, customFields: { era: ['medieval'] } };
+    const bWithEra = { ...b, customFields: { era: ['medieval'] } };
+    const policy2 = buildExemptionPolicy([aWithEra, bWithEra], [], []);
+    const gated = applyContextualGating([aWithEra, bWithEra], { era: ['futuristic'] }, policy2, false, makeSettings(), fieldDefs);
+    const titles = gated.map(e => `${e.vaultSource}:${e.title}`);
+    assertContains(titles, 'VaultA:Shared', 'B7: vault-A constant survives gating via forceInject');
+    assert(!titles.includes('VaultB:Shared'), 'B7: vault-B non-constant filtered by gating');
 });
 
 test('B8: Pin with structured {title, vaultSource} object normalizes correctly', () => {
@@ -227,7 +248,7 @@ test('B8: Pin with structured {title, vaultSource} object normalizes correctly',
     assertEqual(policy.pins.length, 1, 'B8: should have one normalized pin');
     assertEqual(policy.pins[0].title, 'Structured Pin', 'B8: pin title should match');
     assertEqual(policy.pins[0].vaultSource, 'TestVault', 'B8: pin vaultSource should match');
-    assert(policy.forceInject.has('structured pin'), 'B8: structured pin should be in forceInject');
+    assert(policy.forceInject.has(trackerKey(entry)), 'B8: structured pin should be in forceInject');
 });
 
 // ============================================================================
@@ -1223,7 +1244,7 @@ test('I9: Bootstrap entry in forceInject and survives all stages', () => {
     ];
     const policy = buildExemptionPolicy(vault, [], []);
 
-    assert(policy.forceInject.has('intro'), 'I9: bootstrap should be in forceInject');
+    assert(policy.forceInject.has(trackerKey(bootstrap)), 'I9: bootstrap should be in forceInject');
 
     let entries = [bootstrap];
     entries = applyContextualGating(entries, { era: ['ancient'] }, policy, false, settings, fieldDefs);

@@ -62,6 +62,7 @@ import {
     skipNextPipeline, setSkipNextPipeline,
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
     buildPromise,
+    onDebugModeChanged,
 } from './src/state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from './src/fields.js';
 import { buildIndex, ensureIndexFresh, hydrateFromCache, buildIndexWithReuse } from './src/vault/vault.js';
@@ -69,11 +70,11 @@ import { resetAiThrottle, callAI } from './src/ai/ai.js';
 import { runPipeline } from './src/pipeline/pipeline.js';
 import { setupSyncPolling } from './src/vault/sync.js';
 import { runScribe } from './src/ai/scribe.js';
-import { pushEvent, consoleBuffer, networkBuffer, errorBuffer, aiCallBuffer, aiPromptBuffer, eventBuffer } from './src/diagnostics/interceptors.js';
+import { pushEvent, consoleBuffer, networkBuffer, errorBuffer, aiCallBuffer, aiPromptBuffer, eventBuffer, abortWith } from './src/diagnostics/interceptors.js';
 import { generationBuffer } from './src/diagnostics/flight-recorder.js';
 import { runAutoSuggest, showSuggestionPopup } from './src/ai/auto-suggest.js';
 import { injectSourcesButton, showSourcesPopup, resetCartographer } from './src/ui/cartographer.js';
-import { loadSettingsUI, bindSettingsEvents } from './src/ui/settings-ui.js';
+import { loadSettingsUI, bindSettingsEvents, teardownSettingsUI } from './src/ui/settings-ui.js';
 import { registerSlashCommands } from './src/ui/commands.js';
 import { dedupError, dedupWarning } from './src/toast-dedup.js';
 import { createDrawerPanel, resetDrawerState, destroyDrawerPanel } from './src/drawer/drawer.js';
@@ -83,7 +84,7 @@ import { clearSessionActivityLog, persistGaps } from './src/librarian/librarian-
 import { injectLibrarianDropdown, removeLibrarianDropdown } from './src/librarian/librarian-ui.js';
 import { clearSessionState as clearLibrarianSessionState } from './src/librarian/librarian-session.js';
 import { runAgenticLoop } from './src/librarian/agentic-loop.js';
-import { isToolCallingSupported, getActiveMaxTokens } from './src/librarian/agentic-api.js';
+import { isToolCallingSupported, getActiveMaxTokens, isReasoningOnlyModel, getResolvedModel } from './src/librarian/agentic-api.js';
 import { buildChatMessages } from './src/librarian/agentic-messages.js';
 
 // ============================================================================
@@ -104,6 +105,21 @@ let _dleBeforeUnloadHandler = null;
 // CHAT_CHANGED and beforeunload flush this so in-flight batches aren't lost.
 let _analyticsPendingSave = false;
 
+// Stepped Thinking coexistence guard. The ST extension `cierru/st-stepped-thinking`
+// fires `Generate('normal', { force_chid })` for each thought-chain step. Without
+// this gate, DLE re-runs the full pipeline (vault search, AI scoring, Librarian
+// dispatch) for every thinking pass — N× cost, vault traffic, cooldown pollution,
+// and Librarian eats the thinking output. Stepped Thinking emits literal-string
+// events `'GENERATION_MUTEX_CAPTURED'` with payload `{extension_name: 'stepped-thinking'}`
+// (verified upstream `interconnection.js`, 2026-04-24) and `'GENERATION_MUTEX_RELEASED'`
+// (no payload). 10s safety timeout clears the flag if RELEASED never fires.
+let inSteppedThinking = false;
+let _steppedThinkingTimeout = null;
+
+// Unsubscriber for the debugMode observer that installs/uninstalls __DLE_DEBUG.
+// Captured at init, released by _teardownDleExtension so re-init doesn't double-register.
+let _debugNamespaceUnsub = null;
+
 function _registerEs(event, handler, { once = false } = {}) {
     if (!event) { console.debug('[DLE] _registerEs: skipped undefined event type'); return; } // feature-detect guard: skip if event type doesn't exist in this ST version
     _dleListeners.eventSource.push({ event, handler, once });
@@ -120,6 +136,21 @@ function _teardownDleExtension() {
         try { eventSource.removeListener?.(event, handler); } catch { /* ignore */ }
     }
     _dleListeners.eventSource = [];
+    // BUG-AUDIT: clear the Stepped Thinking safety timeout. A pending timeout
+    // would fire after teardown and flip inSteppedThinking on the next module
+    // instance — same closure scope under the _dleInitialized re-init guard.
+    try { clearTimeout(_steppedThinkingTimeout); } catch { /* ignore */ }
+    _steppedThinkingTimeout = null;
+    inSteppedThinking = false;
+    // BUG-AUDIT: release settings-ui observers. loadSettingsUI() registers four
+    // state observers (onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
+    // onClaudeAutoEffortChanged) — without this, re-init accumulates duplicates.
+    try { teardownSettingsUI(); } catch (err) { console.warn('[DLE] teardownSettingsUI failed:', err?.message); }
+    // Release the debugMode observer that gates __DLE_DEBUG install/uninstall.
+    if (_debugNamespaceUnsub) {
+        try { _debugNamespaceUnsub(); } catch { /* ignore */ }
+        _debugNamespaceUnsub = null;
+    }
     // Tear down the drawer (removes its own listeners + DOM)
     try { destroyDrawerPanel(); } catch (err) { console.warn('[DLE] destroyDrawerPanel failed:', err?.message); }
     // BUG-062: detach Cartographer's namespaced delegated handler from #chat
@@ -215,6 +246,16 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         return;
     }
 
+    // Stepped Thinking coexistence: skip pipeline + Librarian dispatch while a
+    // stepped-thinking generation pass is in flight. See `inSteppedThinking`
+    // declaration for the rationale (would otherwise re-enter pipeline N× per
+    // user turn and corrupt thinking output via Librarian).
+    if (inSteppedThinking) {
+        if (settings.debugMode) console.debug('[DLE] Pipeline skipped — Stepped Thinking active');
+        try { generationBuffer.push({ t: Date.now(), skipped: true, reason: 'stepped_thinking' }); } catch { /* noop */ }
+        return;
+    }
+
     // Vault review bypass: skip the full pipeline when commanded (e.g. /dle-review)
     if (skipNextPipeline) {
         setSkipNextPipeline(false);
@@ -287,10 +328,14 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
 
     // BUG-233: Per-generation AbortController so ST's Stop button can cancel the pipeline.
     // Wired to GENERATION_STOPPED + CHAT_CHANGED; torn down in finally to avoid leaks.
+    // BUG-AUDIT (Fix 4): route through abortWith so signal.reason carries attribution.
+    // Direct .abort() loses post-mortem attribution that aiCallBuffer.abortReason and
+    // diagnostic export depend on. Split into two handlers so each fires its own reason.
     const pipelineAbort = new AbortController();
-    const onStop = () => { try { pipelineAbort.abort(); } catch { /* noop */ } };
+    const onStop = () => abortWith(pipelineAbort, 'pipeline:generation_stopped');
+    const onChatChange = () => abortWith(pipelineAbort, 'pipeline:chat_changed');
     try { eventSource.on(event_types.GENERATION_STOPPED, onStop); } catch { console.warn('[DLE] Could not register GENERATION_STOPPED abort handler'); }
-    try { eventSource.on(event_types.CHAT_CHANGED, onStop); } catch { console.warn('[DLE] Could not register CHAT_CHANGED abort handler'); }
+    try { eventSource.on(event_types.CHAT_CHANGED, onChatChange); } catch { console.warn('[DLE] Could not register CHAT_CHANGED abort handler'); }
 
     // Remove pipeline status on first streaming token (one-shot). Torn down in finally.
     const onFirstToken = () => { _removePipelineStatus(); };
@@ -962,7 +1007,10 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
             if (settings.debugMode) console.debug('[DLE] Agentic loop suppressed for this generation (one-shot)');
         } else if (settings.librarianEnabled && isToolCallingSupported()
             && type !== 'continue' && type !== 'append' && type !== 'appendFinal') {
-            abort(); // Prevent ST from generating
+            // BUG-AUDIT (Fix 30): pass `true` so ST's runGenerationInterceptors breaks
+            // the chain immediately. Plain abort() flags aborted=true but lets every
+            // later interceptor run against the chat DLE has already replaced.
+            abort(true); // Prevent ST from generating; stop further interceptors
 
             // C1: Re-entrancy guard — abort() re-enables send via unblockGeneration(), lock it again
             setSendButtonState(true);
@@ -1082,6 +1130,11 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                     // If prose was already shown, the error is from FLAG phase — save what we have
                     if (proseMsg) {
                         await saveChatConditional();
+                    } else if (err?.name === 'SafetyBlockError') {
+                        // Gemini safety block / RECITATION / empty candidate \u2014 distinct user guidance
+                        // so the user can act (relax safety in preset, rephrase, or change model)
+                        // instead of seeing the generic "Generation failed" toast.
+                        dedupError('Gemini blocked or returned an empty response. Try rephrasing, relaxing safety in your profile preset, or using a different model.', 'agentic_safety_block', { hint: err.message?.slice(0, 200) });
                     } else {
                         dedupError('Generation failed \u2014 try again or disable Librarian.', 'agentic_error');
                     }
@@ -1099,9 +1152,17 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         }
         // === End Agentic Loop Dispatch ===
 
-        // Warn if Librarian is on but tools aren't supported (silent fallback to normal generation)
+        // Warn if Librarian is on but tools aren't supported (silent fallback to normal generation).
+        // Reasoning-only models (deepseek-reasoner, o-series, *-r1) need a distinct message —
+        // user picked a model that physically cannot tool-call, vs a provider/source that doesn't.
         if (settings.librarianEnabled && !isToolCallingSupported() && !suppressNextAgenticLoop) {
-            dedupWarning('Librarian is on but your connection doesn\'t support function calling — falling back to normal generation. Check DLE Settings → Connection.', 'librarian_no_tools');
+            const modelForWarning = getResolvedModel();
+            if (modelForWarning && isReasoningOnlyModel(modelForWarning)) {
+                dedupWarning(`Librarian skipped: ${modelForWarning} is a reasoning-only model and can't use function calling. Pick a tool-capable model.`, 'librarian_no_tools_reasoner');
+                try { generationBuffer.push({ t: Date.now(), event: 'librarian-skip', reason: 'no_tools_model', model: modelForWarning }); } catch { /* noop */ }
+            } else {
+                dedupWarning('Librarian is on but your connection doesn\'t support function calling — falling back to normal generation. Check DLE Settings → Connection.', 'librarian_no_tools');
+            }
         }
 
     } catch (err) {
@@ -1117,8 +1178,9 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
         }
     } finally {
         // BUG-233: Always tear down the abort listeners to avoid accumulation across generations.
+        // BUG-AUDIT (Fix 4): split handlers — onStop and onChatChange are now distinct functions.
         try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ }
-        try { eventSource.removeListener(event_types.CHAT_CHANGED, onStop); } catch { /* noop */ }
+        try { eventSource.removeListener(event_types.CHAT_CHANGED, onChatChange); } catch { /* noop */ }
         try { eventSource.removeListener(event_types.STREAM_TOKEN_RECEIVED, onFirstToken); } catch { /* noop */ }
         // BUG-FIX-4/12: Always remove pipeline status on exit — covers all early return paths.
         _removePipelineStatus();
@@ -1412,6 +1474,28 @@ jQuery(async function () {
         // where an await resolves between the pipeline's abort check and its commit phase — the
         // epoch bump invalidates any late writes the in-flight pipeline is about to do. Safe even
         // when no pipeline is running; cheap no-op.
+        // Stepped Thinking coexistence — see `inSteppedThinking` declaration.
+        // Custom string events (not in `event_types`); Stepped Thinking emits
+        // them via `eventSource.emit('GENERATION_MUTEX_CAPTURED', {extension_name})`.
+        // Subscribing via literal string works since eventSource accepts any key.
+        _registerEs('GENERATION_MUTEX_CAPTURED', (payload) => {
+            if (payload?.extension_name === 'stepped-thinking') {
+                inSteppedThinking = true;
+                clearTimeout(_steppedThinkingTimeout);
+                // Safety: clear flag after 10s if RELEASED never fires (Stepped
+                // Thinking error path, ST update, etc.) — better to risk one
+                // re-entry than indefinite pipeline lockout.
+                _steppedThinkingTimeout = setTimeout(() => { inSteppedThinking = false; }, 10_000);
+            }
+        });
+        _registerEs('GENERATION_MUTEX_RELEASED', () => {
+            // RELEASED has no payload — clear flag unconditionally. Other
+            // extensions that may use the same mutex pattern would also clear,
+            // but DLE only sets the flag for stepped-thinking so that's harmless.
+            inSteppedThinking = false;
+            clearTimeout(_steppedThinkingTimeout);
+        });
+
         _registerEs(event_types.GENERATION_STOPPED, () => {
             try {
                 _removePipelineStatus();
@@ -2155,31 +2239,47 @@ jQuery(async function () {
 
         // Developer debug namespace — read-only access to internal state and buffers.
         // Usage: in browser console, type `__DLE_DEBUG.state`, `__DLE_DEBUG.trace`, `__DLE_DEBUG.buffers`.
-        globalThis.__DLE_DEBUG = Object.freeze({
-            get state() {
-                return {
-                    vaultIndex, generationCount, chatEpoch, generationLock,
-                    generationLockEpoch, indexing, indexEverLoaded,
-                    cooldownTracker: Object.fromEntries(cooldownTracker),
-                    injectionHistory: Object.fromEntries(injectionHistory),
-                    decayTracker: Object.fromEntries(decayTracker),
-                    fieldDefinitions,
-                };
-            },
-            get trace() { return lastPipelineTrace; },
-            get buffers() {
-                return {
-                    console: consoleBuffer.drain(),
-                    network: networkBuffer.drain(),
-                    errors: errorBuffer.drain(),
-                    aiCalls: aiCallBuffer.drain(),
-                    // PII-sensitive; only populated when debugMode=true. Local inspection only.
-                    aiPrompts: aiPromptBuffer.drain(),
-                    events: eventBuffer.drain(),
-                    generations: generationBuffer.drain(),
-                };
-            },
-        });
+        // BUG-AUDIT: gated on debugMode. Same-page scripts (other extensions, browser
+        // extensions, devtools snippets) shouldn't get a live vault reference unless
+        // the user opted in. State getters return clones so live mutation through the
+        // shallow Object.freeze can't reach back into module state.
+        function installDebugNamespace() {
+            if (!getSettings().debugMode) {
+                try { delete globalThis.__DLE_DEBUG; } catch { /* ignore */ }
+                // PII safety: when debugMode flips off, drop any prompts captured
+                // during the on-window so a later turn-on doesn't expose them.
+                try { aiPromptBuffer.clear(); } catch { /* ignore */ }
+                return;
+            }
+            globalThis.__DLE_DEBUG = Object.freeze({
+                get state() {
+                    return {
+                        vaultIndex: vaultIndex.slice(),
+                        generationCount, chatEpoch, generationLock,
+                        generationLockEpoch, indexing, indexEverLoaded,
+                        cooldownTracker: Object.fromEntries(cooldownTracker),
+                        injectionHistory: Object.fromEntries(injectionHistory),
+                        decayTracker: Object.fromEntries(decayTracker),
+                        fieldDefinitions: fieldDefinitions.slice(),
+                    };
+                },
+                get trace() { return lastPipelineTrace; },
+                get buffers() {
+                    return {
+                        console: consoleBuffer.drain(),
+                        network: networkBuffer.drain(),
+                        errors: errorBuffer.drain(),
+                        aiCalls: aiCallBuffer.drain(),
+                        // PII-sensitive; only populated when debugMode=true. Local inspection only.
+                        aiPrompts: aiPromptBuffer.drain(),
+                        events: eventBuffer.drain(),
+                        generations: generationBuffer.drain(),
+                    };
+                },
+            });
+        }
+        _debugNamespaceUnsub = onDebugModeChanged(installDebugNamespace);
+        installDebugNamespace();
 
         _dleInitCount++;
         pushEvent('init', { initCount: _dleInitCount, vaultCount: (getSettings().vaults || []).filter(v => v.enabled).length });

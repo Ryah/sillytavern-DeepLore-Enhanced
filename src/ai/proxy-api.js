@@ -7,7 +7,7 @@ import { abortWith } from '../diagnostics/interceptors.js';
 
 /**
  * Call an Anthropic-compatible API through the ST CORS proxy.
- * @param {string} proxyUrl - Base URL of the AI proxy (e.g. http://localhost:42069)
+ * @param {string} proxyUrl - Base URL of the AI proxy (e.g. http://127.0.0.1:42069). NOTE: literal "localhost" rejected by validateProxyUrl — use 127.0.0.1.
  * @param {string} model - Model identifier
  * @param {string} systemPrompt - System prompt text
  * @param {string} userMessage - User message content

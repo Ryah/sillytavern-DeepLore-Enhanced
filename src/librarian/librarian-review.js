@@ -15,6 +15,7 @@ import { loreGaps, setLoreGaps } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { createSession, sendMessage, editMessage, regenerateResponse, updateGapStatus, saveSessionState, loadSessionState, clearSessionState, restoreSession, pickFlavorIntro } from './librarian-session.js';
 import { getSessionActivityLog, buildLibrarianActivityFeed } from './librarian-tools.js';
+import { abortWith } from '../diagnostics/interceptors.js';
 
 const emmaAvatarUrl = new URL('../../assets/companions/Emma-STChar.png', import.meta.url).href;
 
@@ -380,6 +381,54 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }
 
+            /**
+             * Render a rich error message in the chat. Currently special-cases timeout
+             * errors (err.timedOut, set by callViaProfile when our setTimeout fires) by
+             * embedding a "Open Librarian timeout setting" link that opens the Settings
+             * popup pre-positioned on the timeout slider with a pulse highlight.
+             * Falls back to plain text via appendMessage for all other errors.
+             */
+            function appendErrorMessage(err) {
+                const isTimeout = !!(err && err.timedOut);
+                if (!isTimeout) {
+                    appendMessage('ai', `Error: ${classifyError(err)}`);
+                    return;
+                }
+                if (popupEl.classList.contains('dle-librarian-chat-collapsed')) {
+                    _chatUnreadCount++;
+                    updateUnreadBadge();
+                }
+                const div = document.createElement('div');
+                const msgIdx = msgCounter++;
+                div.className = 'dle-lib-msg dle-lib-msg-ai';
+                div.dataset.msgIdx = msgIdx;
+                // escapeHtml the dynamic body, then assemble. Avatar + content + clickable link.
+                const body = escapeHtml(
+                    'That request timed out. Likely the model + context is too big to finish in the configured window — common with large vault contexts and thinking-enabled Claude models on the forced-final-response step.'
+                );
+                const linkText = escapeHtml('Open Librarian timeout setting →');
+                div.innerHTML = `<img class="dle-lib-avatar" src="${emmaAvatarUrl}" alt="">`
+                    + `<div class="dle-lib-msg-content">${body}<br><br>`
+                    + `<a href="#" class="dle-lib-timeout-link dle-notice-link" role="button">${linkText}</a>`
+                    + `</div>`;
+                messagesDiv.appendChild(div);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                // Wire the link to open the Settings popup pre-positioned on the timeout slider.
+                // Async import keeps the settings-ui.js bundle out of the librarian critical path.
+                div.querySelector('.dle-lib-timeout-link')?.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    try {
+                        const m = await import('../ui/settings-ui.js');
+                        m.openSettingsPopup?.({
+                            tab: 'connection',
+                            subtab: 'ai-connections',
+                            toolKey: 'librarian',
+                            target: 'dle-conn-librarian-timeout',
+                        });
+                    } catch (e2) { console.warn('[DLE] open settings (timeout link) failed:', e2); }
+                });
+            }
+
             // Edit user message
             messagesDiv.addEventListener('click', async (e) => {
                 const editBtn = e.target.closest('.dle-lib-msg-edit');
@@ -469,8 +518,8 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                         processAIResponse(response);
                     } catch (err) {
                         showLoading(false);
-                        if (err.name !== 'AbortError') {
-                            appendMessage('ai', `Error: ${classifyError(err)}`);
+                        if (err.name !== 'AbortError' || err.timedOut) {
+                            appendErrorMessage(err);
                         }
                     }
                     sending = false;
@@ -500,8 +549,8 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                     processAIResponse(response);
                 } catch (err) {
                     showLoading(false);
-                    if (err.name !== 'AbortError') {
-                        appendMessage('ai', `Error: ${classifyError(err)}`);
+                    if (err.name !== 'AbortError' || err.timedOut) {
+                        appendErrorMessage(err);
                     }
                 }
                 sending = false;
@@ -538,7 +587,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
 
             // ─── Stop button ───
             stopBtn.addEventListener('click', () => {
-                if (abortController) abortController.abort();
+                if (abortController) abortWith(abortController, 'stop_button');
                 sending = false;
                 setSendingUI(false);
                 showLoading(false);
@@ -670,7 +719,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 // BUG-254/255: Abort any prior in-flight controller before replacing it,
                 // otherwise the prior call's listener still references the stale controller
                 // and the user can't stop it.
-                if (abortController) { try { abortController.abort(); } catch { /* noop */ } }
+                if (abortController) { try { abortWith(abortController, 'controller_replace'); } catch { /* noop */ } }
                 abortController = new AbortController();
                 turnToolDivs = [];
                 let currentToolDiv = null;
@@ -757,7 +806,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 dismissBtn.textContent = 'Dismiss';
                 dismissBtn.addEventListener('click', () => {
                     // Abort any in-flight call
-                    if (abortController) abortController.abort();
+                    if (abortController) abortWith(abortController, 'dismiss_options');
                     sending = false;
                     setSendingUI(false);
                     showLoading(false);
@@ -837,8 +886,8 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
                 } catch (err) {
                     if (!isStillMine()) return;
                     showLoading(false);
-                    if (err.name !== 'AbortError') {
-                        appendMessage('ai', `Error: ${classifyError(err)}`);
+                    if (err.name !== 'AbortError' || err.timedOut) {
+                        appendErrorMessage(err);
                     }
                 }
                 if (!isStillMine()) return;
@@ -885,7 +934,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             const clearChatBtn = container.querySelector('#dle-lib-clear-chat');
             clearChatBtn.addEventListener('click', () => {
                 // Abort any in-flight call
-                if (abortController) abortController.abort();
+                if (abortController) abortWith(abortController, 'clear_chat');
                 sending = false;
                 setSendingUI(false);
                 showLoading(false);
@@ -1078,7 +1127,7 @@ export async function openLibrarianPopup(entryPoint = 'new', options = {}) {
             // (X button / Escape / Close). Without this, the call keeps burning tokens
             // until the provider returns, and any resulting history mutation becomes
             // a ghost write against a closed session.
-            if (abortController) { try { abortController.abort(); } catch { /* noop */ } }
+            if (abortController) { try { abortWith(abortController, 'popup_closing'); } catch { /* noop */ } }
             // Clear auto-send timer to prevent wasted API call
             if (session._autoSendTimer) clearTimeout(session._autoSendTimer);
             clearTimeout(_saveTimer);

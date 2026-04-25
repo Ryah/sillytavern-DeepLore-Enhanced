@@ -250,7 +250,7 @@ export const defaultSettings = {
     librarianProxyUrl: 'http://localhost:42069',
     librarianModel: '',                  // override model (blank = inherit from AI Search)
     librarianSessionMaxTokens: 4096,    // max tokens for session responses
-    librarianSessionTimeout: 60000,     // session AI call timeout (ms)
+    librarianSessionTimeout: 120000,    // session AI call timeout (ms) — 120s headroom for opus-4-6 forced-final-response (large context + thinking models can exceed 60s)
     librarianManifestMaxChars: 8000,    // max chars for vault manifest in session prompt
     librarianRelatedEntriesMaxChars: 4000, // max chars for related entries context
     librarianDraftMaxChars: 4000,       // max chars for draft JSON in session prompt

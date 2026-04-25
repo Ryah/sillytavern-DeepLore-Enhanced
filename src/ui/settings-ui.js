@@ -919,7 +919,7 @@ function updatePopupIndexStats() {
 /**
  * Open the settings popup with tabbed layout and live data binding.
  */
-export async function openSettingsPopup() {
+export async function openSettingsPopup(navigateTo = null) {
     // BUG-341: opportunistic drain of any queued prompt_list PM cleanup now
     // that PromptManager is (likely) available.
     drainPendingPromptListCleanup();
@@ -961,6 +961,33 @@ export async function openSettingsPopup() {
     if (lastTab) {
         const $lastTab = $container.find(`.dle-settings-tab[data-settings-tab="${lastTab}"]`);
         if ($lastTab.length) switchSettingsTab($lastTab);
+    }
+
+    // navigateTo override: callers (e.g. Emma timeout error link) pre-position the popup
+    // on a specific tab/subtab/accordion/field. Runs AFTER lastTab restore so it wins.
+    // Final scroll + pulse is deferred to onOpen below (runs after dialog is in the DOM).
+    function applyNavigateTo() {
+        if (!navigateTo) return;
+        try {
+            if (navigateTo.tab) {
+                const $t = $container.find(`.dle-settings-tab[data-settings-tab="${navigateTo.tab}"]`);
+                if ($t.length) switchSettingsTab($t);
+            }
+            if (navigateTo.subtab) {
+                const $cs = $container.find(`.dle-connection-subtab[data-connection-subtab="${navigateTo.subtab}"]`);
+                if ($cs.length) switchConnectionSubtab($cs);
+                const $fs = $container.find(`.dle-features-subtab[data-features-subtab="${navigateTo.subtab}"]`);
+                if ($fs.length) switchFeaturesSubtab($fs);
+            }
+            if (navigateTo.toolKey) {
+                const $accordion = $container.find(`.dle-conn-accordion[data-tool="${navigateTo.toolKey}"]`);
+                const $header = $accordion.find('.dle-conn-accordion-header');
+                if ($header.attr('aria-expanded') !== 'true') {
+                    $header.attr('aria-expanded', 'true');
+                    $accordion.find('.dle-conn-accordion-body').show();
+                }
+            }
+        } catch (e) { console.warn('[DLE] applyNavigateTo failed:', e); }
     }
 
     // ── Features sidebar expand/collapse + sub-tab switching ──────
@@ -1152,12 +1179,32 @@ export async function openSettingsPopup() {
     bindPopupEvents($container);
     initPromptPresets($container, getSettings());
 
+    // Pre-position tabs/subtabs/accordion before the dialog renders so the user
+    // sees the right panel from the first frame.
+    applyNavigateTo();
+
     await callGenericPopup($container, POPUP_TYPE.DISPLAY, '', {
         large: true,
         wide: true,
         allowVerticalScrolling: true,
         onOpen: (popup) => {
             updatePopupIndexStats();
+            // Scroll + pulse the target field once dialog is mounted in the DOM.
+            // Two requestAnimationFrames: first lets layout settle after dialog open,
+            // second runs after the slideToggle/scroll finishes painting.
+            if (navigateTo?.target) {
+                requestAnimationFrame(() => requestAnimationFrame(() => {
+                    try {
+                        const el = $container.find(`#${navigateTo.target}`)[0]
+                            || $container.find(`[data-setting-id="${navigateTo.target}"]`)[0];
+                        if (el) {
+                            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            el.classList.add('dle-pulse');
+                            setTimeout(() => el.classList.remove('dle-pulse'), 2000);
+                        }
+                    } catch (e) { console.warn('[DLE] navigateTo scroll/pulse failed:', e); }
+                }));
+            }
             // BUG-102: Use popup.completeCancelled() instead of reaching into .popup-button-close.
             // Click-outside-to-dismiss: clicking the ::backdrop area of the <dialog>
             // fires a click on the dialog element itself with target === dialog.

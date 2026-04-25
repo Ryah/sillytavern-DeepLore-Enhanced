@@ -90,7 +90,7 @@ export function registerAdminCommands() {
                 const { saveMetadataDebounced } = await import('../../../../../extensions.js');
                 chat_metadata.deeplore_ai_notepad = '';
                 saveMetadataDebounced();
-                toastr.success('AI Notebook cleared for this chat.', 'DeepLore Enhanced');
+                toastr.success('AI Notepad cleared for this chat.', 'DeepLore Enhanced');
                 return '';
             }
             await showAiNotepadPopup();

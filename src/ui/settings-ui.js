@@ -2057,7 +2057,7 @@ function bindPopupEvents($container) {
         // Tag mode never calls AI — hide its connection accordion
         $c('.dle-conn-accordion[data-tool="aiNotepad"]').toggle(!isTag);
     });
-    $c('#dle-sp-open-ai-notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notebook checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
+    $c('#dle-sp-open-ai-notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notepad checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
 
     // ── Features — Scribe ──
     $c('#dle-sp-scribe-enabled').on('change', function () {

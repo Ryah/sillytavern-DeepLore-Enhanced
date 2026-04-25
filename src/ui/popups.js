@@ -163,7 +163,7 @@ export async function showAiNotepadPopup() {
     const container = document.createElement('div');
     container.classList.add('dle-popup');
     container.innerHTML = `
-        <h3>AI Notebook</h3>
+        <h3>AI Notepad</h3>
         <p class="dle-muted dle-text-sm">Session notes written by the AI using &lt;dle-notes&gt; tags. These are stripped from visible chat and reinjected into future messages.</p>
         <textarea id="dle-ai-notepad-textarea" class="text_pole dle-w-full" rows="15" placeholder="No AI notes yet for this chat.">${escapeHtml(currentNotes)}</textarea>
         <span id="dle-ai-notepad-token-count" class="dle-text-xs dle-faint"></span>

@@ -55,8 +55,8 @@ Respond with a JSON array of objects. Each object has:
 Example: [{"title": "Eris", "confidence": "high", "reason": "directly mentioned by name"}, {"title": "The Dark Council", "confidence": "medium", "reason": "linked from Eris, thematically relevant"}]
 If no entries are relevant, respond with: []`;
 
-/** Default instruction prompt for the AI Notebook feature. */
-export const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notebook Instructions]
+/** Default instruction prompt for the AI Notepad feature. */
+export const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notepad Instructions]
 You have a private notebook. After your roleplay response, you may append a <dle-notes> block. This block is AUTOMATICALLY HIDDEN from the reader — they will never see it. Your notes are saved and returned to you in future messages as "[Your previous session notes]" above.
 
 FORMAT — place this AFTER your entire response, on a new line:

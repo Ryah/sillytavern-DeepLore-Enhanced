@@ -1315,7 +1315,7 @@ jQuery(async function () {
                 [`${PROMPT_TAG_PREFIX}constants`]: 'DLE Constants',
                 [`${PROMPT_TAG_PREFIX}lore`]: 'DLE Lore Entries',
                 'deeplore_notebook': 'DLE Author\'s Notebook',
-                'deeplore_ai_notepad': 'DLE AI Notebook',
+                'deeplore_ai_notepad': 'DLE AI Notepad',
             };
             const registerPmEntries = () => {
                 if (!promptManager) return false;
@@ -1993,7 +1993,7 @@ jQuery(async function () {
             // Re-register PM entries for the new active character (prompt_list mode)
             if (getSettings().injectionMode === 'prompt_list' && promptManager?.activeCharacter) {
                 const ids = [`${PROMPT_TAG_PREFIX}constants`, `${PROMPT_TAG_PREFIX}lore`, 'deeplore_notebook', 'deeplore_ai_notepad'];
-                const pmNames = { [`${PROMPT_TAG_PREFIX}constants`]: 'DLE Constants', [`${PROMPT_TAG_PREFIX}lore`]: 'DLE Lore Entries', 'deeplore_notebook': 'DLE Author\'s Notebook', 'deeplore_ai_notepad': 'DLE AI Notebook' };
+                const pmNames = { [`${PROMPT_TAG_PREFIX}constants`]: 'DLE Constants', [`${PROMPT_TAG_PREFIX}lore`]: 'DLE Lore Entries', 'deeplore_notebook': 'DLE Author\'s Notebook', 'deeplore_ai_notepad': 'DLE AI Notepad' };
                 for (const id of ids) {
                     const existing = promptManager.getPromptById(id);
                     if (!existing) {

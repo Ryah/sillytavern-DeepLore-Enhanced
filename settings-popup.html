@@ -46,7 +46,7 @@
                 <i class="fa-solid fa-book" aria-hidden="true"></i><span>Author Notebook</span>
             </button>
             <button class="dle-features-subtab" data-features-subtab="ai-notebook">
-                <i class="fa-solid fa-robot" aria-hidden="true"></i><span>AI Notebook</span>
+                <i class="fa-solid fa-robot" aria-hidden="true"></i><span>AI Notepad</span>
             </button>
             <button class="dle-features-subtab" data-features-subtab="session-scribe">
                 <i class="fa-solid fa-feather-pointed" aria-hidden="true"></i><span>Session Scribe</span>
@@ -479,15 +479,15 @@
                     </div>
                 </div>
 
-                <!-- AI Notebook -->
+                <!-- AI Notepad -->
                 <div class="dle-injection-row">
                     <div class="dle-injection-type">
                         <i class="fa-solid fa-robot" aria-hidden="true"></i>
-                        <span>AI Notebook</span>
+                        <span>AI Notepad</span>
                     </div>
                     <div class="dle-injection-controls">
                         <div class="dle-injection-ext-controls">
-                            <select id="dle-sp-ai-notepad-position" class="text_pole widthNatural" title="Where to inject the AI Notebook content.">
+                            <select id="dle-sp-ai-notepad-position" class="text_pole widthNatural" title="Where to inject the AI Notepad content.">
                                 <option value="2">Before Main Prompt</option>
                                 <option value="0">After Main Prompt</option>
                                 <option value="1">In-chat</option>
@@ -503,7 +503,7 @@
                                 </select>
                             </span>
                         </div>
-                        <span class="dle-injection-pm-name" style="display:none"><code>DLE AI Notebook</code></span>
+                        <span class="dle-injection-pm-name" style="display:none"><code>DLE AI Notepad</code></span>
                     </div>
                     <div class="dle-injection-status">
                         <span id="dle-sp-inj-notepad-status" class="dle-text-xs dle-muted"></span>
@@ -752,16 +752,16 @@
             </div>
             </div>
 
-            <!-- Sub-panel: AI Notebook -->
+            <!-- Sub-panel: AI Notepad -->
             <div class="dle-features-subpanel" id="dle-sp-feat-ai-notebook" data-features-subpanel="ai-notebook"
                  role="tabpanel" hidden>
             <div class="dle-settings-section">
-            <h4>AI Notebook</h4>
+            <h4>AI Notepad</h4>
             <p class="dle-section-desc">Automatically capture session notes from AI responses. Notes are stored per-chat and reinjected into future messages so the AI remembers what happened.</p>
             <div class="flex-container flexFlowColumn">
-                <label class="checkbox_label" for="dle-sp-ai-notepad-enabled" title="Enable AI Notebook — session notes are captured and reinjected into future messages.">
+                <label class="checkbox_label" for="dle-sp-ai-notepad-enabled" title="Enable AI Notepad — session notes are captured and reinjected into future messages.">
                     <input id="dle-sp-ai-notepad-enabled" type="checkbox" class="checkbox">
-                    <span>Enable AI Notebook</span>
+                    <span>Enable AI Notepad</span>
                 </label>
 
                 <div id="dle-sp-ai-notepad-mode-controls">
@@ -789,7 +789,7 @@
                 <div class="flex-container">
                     <div id="dle-sp-open-ai-notepad" class="menu_button menu_button_icon" role="button" tabindex="0" title="View accumulated AI notes for this chat.">
                         <i class="fa-solid fa-robot" aria-hidden="true"></i>
-                        <span>View AI Notebook</span>
+                        <span>View AI Notepad</span>
                     </div>
                 </div>
                 <span class="dle-text-xs dle-muted">Injection position: configured in the <a href="#" class="dle-goto-tab-link" data-goto-tab="injection">Injection tab</a>.</span>

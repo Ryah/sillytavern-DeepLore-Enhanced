@@ -1029,6 +1029,11 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                     // deeplore_sources + deeplore_ai_notes.
                     await saveReply({ type, getMessage: proseText });
 
+                    // Re-check after every await — chat switch during MESSAGE_RECEIVED /
+                    // CHARACTER_MESSAGE_RENDERED handlers would attach proseMsg to the wrong
+                    // chat and saveChatConditional would persist into the new active chat.
+                    if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) return;
+
                     // Captured for post-loop tool_calls attachment.
                     proseMsg = chat[chat.length - 1];
 
@@ -1038,6 +1043,10 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                     // saveReply does NOT persist to disk. ST's Generate() normally does that,
                     // but we called abort() so it returned early. Save now.
                     await saveChatConditional();
+                    if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
+                        proseMsg = null;
+                        return;
+                    }
                 };
 
                 setPipelinePhase('writing');
@@ -1746,7 +1755,11 @@ jQuery(async function () {
             if (dirty) saveMetadataDebounced();
         };
 
-        _registerEs(event_types.MESSAGE_SWIPE_DELETED, (messageId) => {
+        _registerEs(event_types.MESSAGE_SWIPE_DELETED, (payload) => {
+            // ST emits `{ messageId, swipeId, newSwipeId }` (script.js: eventSource.emit).
+            // Earlier code took `(messageId)` as a scalar — cleanup + reindex silently no-op'd.
+            const messageId = (payload && typeof payload === 'object') ? Number(payload.messageId) : Number(payload);
+            if (!Number.isInteger(messageId)) return;
             try { _cleanupMessageExtras(messageId); } catch (err) { console.warn('[DLE] MESSAGE_SWIPE_DELETED cleanup failed:', err.message); }
             // Reindex perSwipeInjectedKeys — `${messageId}|${swipeId}` keys pointing at
             // no-longer-existing swipe slots leak memory + persisted metadata bytes.
@@ -2028,7 +2041,7 @@ jQuery(async function () {
                     setTimeout(() => injectAllChatLoadUI(attempt + 1), 200 * (attempt + 1));
                     return;
                 }
-                requestAnimationFrame(() => { if (injectEpoch !== chatEpoch) return; try {
+                requestAnimationFrame(async () => { if (injectEpoch !== chatEpoch) return; try {
                     const settings = getSettings();
                     const start = Math.max(0, chat.length - 50);
                     let needsSave = false;
@@ -2118,7 +2131,16 @@ jQuery(async function () {
                     if (needsSave && !migrationDone) {
                         chat_metadata.deeplore_migration_v2 = true;
                     }
-                    if (needsSave) saveMetadataDebounced();
+                    if (needsSave) {
+                        // Persist message extras + sentinel atomically. saveMetadataDebounced
+                        // is debounced (~1s) — a chat switch before the timer fires drops the
+                        // save AND the sentinel, so we'd lose tool_calls migration on every
+                        // reload until a non-debounced save happens. saveChatConditional is
+                        // immediate; a re-check of injectEpoch guards against stale writes.
+                        if (injectEpoch !== chatEpoch) return;
+                        try { await saveChatConditional(); }
+                        catch (saveErr) { console.warn('[DLE] Chat load migration save failed:', saveErr?.message); }
+                    }
                 } catch (err) { console.error('[DLE] Chat load UI injection error:', err); }
                 });
             };

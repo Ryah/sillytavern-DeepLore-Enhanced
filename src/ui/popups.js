@@ -14,10 +14,11 @@ import { writeNote, obsidianFetch, encodeVaultPath } from '../vault/obsidian-api
 import {
     vaultIndex, trackerKey, chatEpoch,
     setVaultIndex, setIndexTimestamp,
+    notifyPinBlockChanged,
 } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { callAutoSuggest } from '../ai/auto-suggest.js';
-import { extractAiResponseClient, buildObsidianURI, STAGE_COLORS } from '../helpers.js';
+import { extractAiResponseClient, buildObsidianURI, STAGE_COLORS, normalizePinBlock } from '../helpers.js';
 import { diagnoseEntry } from './diagnostics.js';
 import { computeEntryTemperatures } from '../drawer/drawer-state.js';
 
@@ -225,6 +226,7 @@ export async function showBrowsePopup() {
                 <option value="injected_desc">Most injected</option>
                 <option value="injected_asc">Least injected</option>
             </select>
+            <button type="button" id="dle-browse-reset" class="menu_button menu_button_icon" title="Reset all filters" aria-label="Reset all filters"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
         </div>
         <div id="dle-browse-list" class="dle-scroll-region"></div>
         <span id="dle-browse-count" class="dle-text-xs dle-faint"></span>
@@ -317,8 +319,15 @@ export async function showBrowsePopup() {
 
             const temp = tempMap.get(trackerKey(entry));
             const tempAttr = temp && temp.hue !== 'neutral' ? ` data-temp="${temp.hue}"` : '';
+            const isPinned = pins.has(entry.title.toLowerCase());
+            const isBlocked = blocks.has(entry.title.toLowerCase());
+            const rowActions = `<span class="dle-browse-row-actions" data-no-toggle="1">`
+                + `<button type="button" class="dle-browse-row-pin menu_button_icon dle-text-xs" data-title="${escapeHtml(entry.title)}" data-vault="${escapeHtml(entry.vaultSource || '')}" title="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(entry.title)}" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(entry.title)}"><i class="fa-solid fa-thumbtack${isPinned ? '' : ''}" aria-hidden="true" style="${isPinned ? 'color:var(--dle-success,#3a3);' : 'opacity:0.5;'}"></i></button>`
+                + `<button type="button" class="dle-browse-row-block menu_button_icon dle-text-xs" data-title="${escapeHtml(entry.title)}" data-vault="${escapeHtml(entry.vaultSource || '')}" title="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(entry.title)}" aria-label="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(entry.title)}"><i class="fa-solid fa-ban" aria-hidden="true" style="${isBlocked ? 'color:var(--dle-error,#a33);' : 'opacity:0.5;'}"></i></button>`
+                + `<button type="button" class="dle-browse-row-copy menu_button_icon dle-text-xs" data-title="${escapeHtml(entry.title)}" title="Copy title" aria-label="Copy ${escapeHtml(entry.title)}"><i class="fa-solid fa-clipboard" aria-hidden="true" style="opacity:0.6;"></i></button>`
+                + `</span>`;
             html += `<tr class="dle-entry-toggle dle-browse-table-row" data-target="dle-entry-${entryId}" aria-expanded="false"${tempAttr}>`;
-            html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</td>`;
+            html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')} ${rowActions}</td>`;
             html += `<td class="dle-browse-table-keys">${keysDisplay || '<em class="dle-muted">none</em>'}</td>`;
             html += `<td class="dle-text-center">P${entry.priority}</td>`;
             html += `<td class="dle-text-right">~${entry.tokenEstimate}</td>`;
@@ -342,11 +351,32 @@ export async function showBrowsePopup() {
             html += `</td></tr>`;
         }
         html += '</tbody></table>';
-        listEl.innerHTML = html || '<p class="dle-dimmed">No entries match filters.</p>';
+        if (filtered.length === 0) {
+            const hasActiveFilters = !!search || (status !== 'all') || !!tag;
+            if (hasActiveFilters) {
+                listEl.innerHTML = '<div class="dle-empty-state"><i class="fa-solid fa-filter-circle-xmark" aria-hidden="true"></i><p>No entries match your filters.</p><button type="button" id="dle-browse-reset-empty" class="menu_button">Clear all filters</button></div>';
+            } else {
+                listEl.innerHTML = '<p class="dle-dimmed">No entries.</p>';
+            }
+        } else {
+            listEl.innerHTML = html;
+        }
+    }
+
+    function resetBrowseFilters() {
+        const searchEl = container.querySelector('#dle-browse-search');
+        const statusEl = container.querySelector('#dle-browse-status');
+        const tagEl = container.querySelector('#dle-browse-tag');
+        if (searchEl) searchEl.value = '';
+        if (statusEl) statusEl.value = 'all';
+        if (tagEl) tagEl.value = '';
+        renderList();
     }
 
     // Delegation registered once on container — not per render.
     container.addEventListener('click', (e) => {
+        // Skip the row-toggle when the click landed in the inline action group.
+        if (e.target.closest('[data-no-toggle="1"]')) return;
         const toggle = e.target.closest('.dle-entry-toggle');
         if (!toggle) return;
         const targetId = toggle.dataset.target;
@@ -355,6 +385,64 @@ export async function showBrowsePopup() {
             targetEl.classList.toggle('dle-hidden');
             toggle.setAttribute('aria-expanded', !targetEl.classList.contains('dle-hidden'));
         }
+    });
+
+    // Reset filters (header button + 0-results CTA).
+    container.addEventListener('click', (e) => {
+        if (e.target.closest('#dle-browse-reset') || e.target.closest('#dle-browse-reset-empty')) {
+            e.stopPropagation();
+            resetBrowseFilters();
+        }
+    });
+
+    // Per-row pin / block / copy actions.
+    container.addEventListener('click', (e) => {
+        const pinBtn = e.target.closest('.dle-browse-row-pin');
+        const blockBtn = e.target.closest('.dle-browse-row-block');
+        const copyBtn = e.target.closest('.dle-browse-row-copy');
+        if (!pinBtn && !blockBtn && !copyBtn) return;
+        e.stopPropagation();
+        const btn = pinBtn || blockBtn || copyBtn;
+        const title = btn.dataset.title;
+        if (!title) return;
+        if (copyBtn) {
+            navigator.clipboard?.writeText(title).then(() => {
+                toastr.success(`Copied "${title}"`, 'DeepLore Enhanced', { timeOut: 1200 });
+            }).catch(() => { /* clipboard unavailable */ });
+            return;
+        }
+        const vaultSource = btn.dataset.vault || null;
+        const tl = title.toLowerCase();
+        const matches = (p) => {
+            const n = normalizePinBlock(p);
+            return n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null);
+        };
+        if (pinBtn) {
+            if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
+            const idx = chat_metadata.deeplore_pins.findIndex(matches);
+            if (idx !== -1) {
+                chat_metadata.deeplore_pins.splice(idx, 1);
+                toastr.info(`Unpinned: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            } else {
+                chat_metadata.deeplore_pins.push({ title, vaultSource });
+                if (chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(p => !matches(p));
+                toastr.info(`Pinned: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            }
+        } else {
+            if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
+            const idx = chat_metadata.deeplore_blocks.findIndex(matches);
+            if (idx !== -1) {
+                chat_metadata.deeplore_blocks.splice(idx, 1);
+                toastr.info(`Unblocked: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            } else {
+                chat_metadata.deeplore_blocks.push({ title, vaultSource });
+                if (chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => !matches(p));
+                toastr.info(`Blocked: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            }
+        }
+        saveMetadataDebounced();
+        notifyPinBlockChanged();
+        renderList();
     });
 
     container.addEventListener('click', (e) => {

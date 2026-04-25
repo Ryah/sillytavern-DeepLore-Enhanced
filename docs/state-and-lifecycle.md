@@ -227,6 +227,8 @@ Deferred via `setTimeout` + `requestAnimationFrame`. Epoch-guarded (`injectEpoch
 - **Migration pass 2**: `deeplore_sources` from empty intermediates → correct reply
 - **UI injection**: Cartographer buttons + Librarian dropdowns on last 50 messages
 
+**Save semantics:** When migration mutated `m.extra.*` and/or set the `deeplore_migration_v2` sentinel, persistence MUST go through `await saveChatConditional()`, not `saveMetadataDebounced()`. The debounced metadata save can be cancelled by a CHAT_CHANGED that fires before the timer expires — the sentinel and message extras would both be lost, so the migration would re-run on the next reload while the dropdown UI vanishes for the current session. The RAF callback is async; re-check `injectEpoch === chatEpoch` immediately before the await.
+
 ---
 
 ## Event Subscriptions

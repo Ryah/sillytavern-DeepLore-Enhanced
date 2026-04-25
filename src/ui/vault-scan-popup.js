@@ -51,10 +51,13 @@ export async function openVaultScanPopup(opts = {}) {
 
     let selected = null;
 
-    function renderResults(vaults, certUntrusted) {
+    function renderResults(vaults, certUntrusted, isFinal = false) {
         if (!results) return;
         if (vaults.length === 0 && certUntrusted.length === 0) {
-            results.innerHTML = '<div class="dle-vault-scan-empty">No responding vaults found yet.</div>';
+            // In-progress: noncommittal. Final: actionable empty state.
+            results.innerHTML = isFinal
+                ? '<div class="dle-vault-scan-empty"><strong>No vaults responded.</strong><br><span class="dle-text-xs dle-muted">Make sure Obsidian is running with the Local REST API plugin enabled. If using HTTPS with self-signed certs, see the cert-trust help below.</span><br><button type="button" class="menu_button dle-vault-scan-retry-wider" style="margin-top:8px;">Retry with wider port range</button></div>'
+                : '<div class="dle-vault-scan-empty">No responding vaults found yet.</div>';
             return;
         }
         const rows = [];
@@ -64,7 +67,7 @@ export async function openVaultScanPopup(opts = {}) {
                 : '<span class="dle-vault-scan-badge dle-warn">no auth</span>';
             const schemeBadge = `<span class="dle-vault-scan-badge dle-scheme">${esc(v.scheme.toUpperCase())}</span>`;
             rows.push(`
-                <div class="dle-vault-scan-row" data-port="${v.port}" data-scheme="${esc(v.scheme)}">
+                <div class="dle-vault-scan-row dle-vault-scan-row-clickable" role="button" tabindex="0" data-port="${v.port}" data-scheme="${esc(v.scheme)}">
                     <div class="dle-vault-scan-row-main">
                         <strong>${esc(v.vaultName)}</strong>
                         <span class="dle-vault-scan-port">${esc(v.host)}:${v.port}</span>
@@ -86,16 +89,46 @@ export async function openVaultScanPopup(opts = {}) {
         }
         results.innerHTML = rows.join('');
 
-        results.querySelectorAll('.dle-vault-scan-pick').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const row = e.currentTarget.closest('.dle-vault-scan-row');
-                const port = parseInt(row?.dataset.port || '0', 10);
-                const scheme = row?.dataset.scheme;
-                selected = vaults.find(v => v.port === port && v.scheme === scheme) || null;
-                const okBtn = document.querySelector('.popup_ok');
-                if (okBtn) okBtn.click();
-            }, { once: true });
+        const pickRow = (row) => {
+            const port = parseInt(row?.dataset.port || '0', 10);
+            const scheme = row?.dataset.scheme;
+            selected = vaults.find(v => v.port === port && v.scheme === scheme) || null;
+            const okBtn = document.querySelector('.popup_ok');
+            if (okBtn) okBtn.click();
+        };
+        // Whole-row click selects (the inner button still works because click bubbles).
+        results.querySelectorAll('.dle-vault-scan-row-clickable').forEach(row => {
+            row.addEventListener('click', () => pickRow(row));
+            row.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickRow(row); }
+            });
         });
+
+        // Retry-wider CTA on the empty-final state — re-runs scan with double radius.
+        const retryBtn = results.querySelector('.dle-vault-scan-retry-wider');
+        if (retryBtn) {
+            retryBtn.addEventListener('click', async () => {
+                retryBtn.disabled = true;
+                retryBtn.textContent = 'Scanning…';
+                try {
+                    const widerOpts = { ...opts, radius: (opts.radius || 25) * 2 };
+                    const res = await scanVaults({
+                        host: widerOpts.host || '127.0.0.1',
+                        apiKey: widerOpts.apiKey,
+                        portCenter: widerOpts.portCenter || 27124,
+                        radius: widerOpts.radius,
+                        signal: scanAbort.signal,
+                        onProgress: ({ scanned, total, found }) => {
+                            if (fill) fill.style.width = `${Math.round((scanned / total) * 100)}%`;
+                            if (text) text.textContent = `Scanned ${scanned} / ${total} probes — ${found} vault${found === 1 ? '' : 's'} found`;
+                        },
+                    });
+                    renderResults(res.vaults, res.certUntrusted, true);
+                } catch (err) {
+                    results.innerHTML = `<div class="dle-vault-scan-error">Scan failed: ${esc(err.message || String(err))}</div>`;
+                }
+            }, { once: true });
+        }
     }
 
     // BUG-235: cancel aborts in-flight probes so `await scanPromise` below doesn't
@@ -114,7 +147,7 @@ export async function openVaultScanPopup(opts = {}) {
         },
     }).then(({ vaults, certUntrusted, scanDurationMs }) => {
         if (text) text.textContent = `Done in ${(scanDurationMs / 1000).toFixed(1)}s — ${vaults.length} vault${vaults.length === 1 ? '' : 's'}`;
-        renderResults(vaults, certUntrusted);
+        renderResults(vaults, certUntrusted, true);
     }).catch(err => {
         if (results) results.innerHTML = `<div class="dle-vault-scan-error">Scan failed: ${esc(err.message || String(err))}</div>`;
     });

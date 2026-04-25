@@ -210,6 +210,10 @@ Tool call data (search and flag activity records) is stored on `message.extra.de
 
 In the agentic loop, tool activity is returned as `result.toolActivity` and stored directly on the message object during construction in `onGenerate`. No intermediate buffer or GENERATION_ENDED consolidation needed -- the loop completes before the message is created.
 
+### Search-result push contract
+
+Only successful searches (`titleMatches.length > 0`) push a `'search'` record onto `toolActivity` in `agentic-loop.js`. No-result searches do NOT create a dropdown record — they create a gap record via `searchLoreAction()` instead. An empty `resultTitles` array would render an empty dropdown row, which the UI would otherwise display as a misleading "search ran, found nothing" entry that looks like a successful search with zero hits. Gap records carry the same query/timestamp data and are surfaced via the gap UI instead.
+
 ---
 
 ## 6. Librarian Session

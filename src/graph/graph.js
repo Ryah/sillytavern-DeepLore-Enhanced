@@ -196,11 +196,11 @@ export async function showGraphPopup() {
         if (count > maxInjectionCount) maxInjectionCount = count;
     }
 
-    const allTags = new Set();
+    const tagCounts = new Map();
     for (const n of nodes) {
-        for (const t of n.tags) allTags.add(t);
+        for (const t of n.tags) tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
     }
-    const tagList = [...allTags].sort();
+    const tagList = [...tagCounts.keys()].sort();
 
     // Screen-reader summary — surfaced inside <details> at footer.
     const typeCounts = { regular: 0, constant: 0, seed: 0, bootstrap: 0 };
@@ -234,7 +234,7 @@ export async function showGraphPopup() {
         ? `<p class="dle-error dle-text-sm">⚠ ${circularPairs.length} circular require pair(s) detected</p>`
         : '';
 
-    const tagOptions = tagList.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+    const tagOptions = tagList.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)} (${tagCounts.get(t) || 0})</option>`).join('');
 
     container.innerHTML = `
         <h3 class="dle-graph-title">Entry Relationship Graph (${nodes.length} nodes, ${edges.length} edges)</h3>

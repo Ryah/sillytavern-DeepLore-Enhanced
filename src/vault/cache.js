@@ -39,7 +39,7 @@ function getCacheKey() {
         // H-06: tag and conflict mode are part of the fingerprint so changing either
         // invalidates the cache instead of serving stale data.
         const tag = settings.lorebookTag || 'lorebook';
-        const conflict = settings.multiVaultConflictResolution || 'first';
+        const conflict = settings.multiVaultConflictResolution || 'all';
         return fp ? `index_${tag}_${conflict}_${fp}` : 'primaryIndex';
     } catch (err) {
         console.warn('[DLE] getCacheKey failed, using fallback key:', err?.message);

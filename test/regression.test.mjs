@@ -1508,6 +1508,53 @@ test('BUG-400: findEntry case-insensitive on title, exact on vaultSource', () =>
 });
 
 // ============================================================================
+// Z. Cross-vault Pin Collision (A2 — applyPinBlock keys by trackerKey)
+// ============================================================================
+
+section('Z. Cross-vault Pin Collision');
+
+test('A2: same-title entries from different vaults both pinned (not collapsed)', () => {
+    // Before fix: applyPinBlock indexed result list by lowercased title only, so
+    // pinning Vault B's "Castle" overwrote the already-matched Vault A "Castle".
+    const castleA = makeEntry('Castle', { vaultSource: 'VaultA', content: 'Vault A castle' });
+    const castleB = makeEntry('Castle', { vaultSource: 'VaultB', content: 'Vault B castle' });
+    const vault = [castleA, castleB];
+
+    // Pre-existing keyword match: Vault A castle is already in the result list.
+    const matched = [castleA];
+
+    // Pin policy targets ANY castle (bare-string pin) — both A and B should match.
+    const policy = buildExemptionPolicy(vault, ['Castle'], []);
+    const result = applyPinBlock(matched, vault, policy, new Map());
+
+    const aPresent = result.find(e => e.vaultSource === 'VaultA');
+    const bPresent = result.find(e => e.vaultSource === 'VaultB');
+    assertNotNull(aPresent, 'Vault A "Castle" must be present in result');
+    assertNotNull(bPresent, 'Vault B "Castle" must be present (bug: was collapsed)');
+    assertNotEqual(aPresent.content, bPresent.content, 'each vault keeps its own content');
+});
+
+test('A2: vault-scoped pin upgrades existing match without overwriting other vault', () => {
+    const a = makeEntry('Hero', { vaultSource: 'VaultA', priority: 200 });
+    const b = makeEntry('Hero', { vaultSource: 'VaultB', priority: 200 });
+    const vault = [a, b];
+
+    // Both already matched.
+    const matched = [a, b];
+
+    // Pin only Vault A's Hero (vault-aware pin object).
+    const policy = buildExemptionPolicy(vault, [{ title: 'Hero', vaultSource: 'VaultA' }], []);
+    const result = applyPinBlock(matched, vault, policy, new Map());
+
+    const aRes = result.find(e => e.vaultSource === 'VaultA');
+    const bRes = result.find(e => e.vaultSource === 'VaultB');
+    assertNotNull(aRes, 'Vault A Hero present');
+    assertNotNull(bRes, 'Vault B Hero present (must not be overwritten)');
+    assertEqual(aRes.priority, 10, 'Vault A pinned: priority upgraded to 10');
+    assertEqual(bRes.priority, 200, 'Vault B unpinned: priority unchanged');
+});
+
+// ============================================================================
 // Summary
 // ============================================================================
 

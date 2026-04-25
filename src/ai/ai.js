@@ -444,11 +444,19 @@ Example: ["Characters - Inner Circle", "Locations - Districts", "Lore - Magic Sy
 
         // BUG-385: Exact case-insensitive match — substring matching let generic
         // category names like "lore" or "l" match every category in the vault.
-        // Re-derive category the same way clusterEntries does (helpers.js).
+        // Re-derive category the same way clusterEntries does (helpers.js):
+        //   1. first non-infra tag,
+        //   2. fallback to top folder when entry has only infra tags + is in a folder,
+        //   3. else 'uncategorized'.
+        // Without the folder fallback, AI-selected folder categories matched zero entries
+        // because pickCategory always returned 'uncategorized' for tag-only-infra cases.
         const pickCategory = (entry) => {
             if (entry.tags && entry.tags.length > 0) {
                 const firstReal = entry.tags.find(t => !LOREBOOK_INFRA_TAGS.has(String(t).toLowerCase()));
                 if (firstReal) return firstReal.toLowerCase();
+                if (entry.filename && entry.filename.includes('/')) {
+                    return (entry.filename.split('/')[0] || 'uncategorized').toLowerCase();
+                }
             }
             return 'uncategorized';
         };
@@ -517,13 +525,6 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
 
     if (!settings.aiSearchEnabled || !candidateManifest) {
         return { results: [], error: false };
-    }
-
-    // BUG-AUDIT-1: Mutation gate — tryAcquireHalfOpenProbe, not isAiCircuitOpen.
-    if (!tryAcquireHalfOpenProbe()) {
-        if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
-        dedupWarning('AI search is resting after errors — using keywords for now.', 'ai_circuit', { timeOut: 8000, hint: 'Circuit breaker tripped after 2 consecutive failures; retrying in ~30s.' });
-        return { results: [], error: true, cached: false, errorMessage: 'AI search temporarily paused' };
     }
 
     // BUG-CACHE-FIX: Strip trailing assistant slot before hashing. During onGenerate
@@ -719,6 +720,15 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
     }
 
     if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-full-miss — all 4 tiers missed, calling AI');
+
+    // BUG-AUDIT-1: Mutation gate — tryAcquireHalfOpenProbe, not isAiCircuitOpen.
+    // Acquired AFTER cache checks: hits never hold the probe, so a half-open
+    // circuit doesn't get pinned by cached returns (probe-leak fix).
+    if (!tryAcquireHalfOpenProbe()) {
+        if (settings.debugMode) console.debug('[DLE] AI circuit breaker open — skipping AI search');
+        dedupWarning('AI search is resting after errors — using keywords for now.', 'ai_circuit', { timeOut: 8000, hint: 'Circuit breaker tripped after 2 consecutive failures; retrying in ~30s.' });
+        return { results: [], error: true, cached: false, errorMessage: 'AI search temporarily paused' };
+    }
 
     try {
         // Request 2x max so low-confidence candidates can fill remaining budget.

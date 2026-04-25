@@ -72,6 +72,13 @@ export function renderStatusZone() {
 
     const $skipBtn = $drawer.find('.dle-action-btn[data-action="skip-tools"]');
     $skipBtn.toggleClass('dle-toggle-active', suppressNextAgenticLoop);
+    const $skipLabel = $skipBtn.find('.dle-action-label');
+    if ($skipLabel.length) {
+        $skipLabel.text(suppressNextAgenticLoop ? 'Skipping Next' : 'Skip Librarian');
+    }
+    $skipBtn.attr('title', suppressNextAgenticLoop
+        ? 'Librarian will be skipped on the next reply (click to re-enable)'
+        : 'Skip Librarian tools for next generation');
     if (_lastSkipToolsState !== null && _lastSkipToolsState !== suppressNextAgenticLoop) {
         $skipBtn.removeClass('dle-skip-tools-pulse');
         requestAnimationFrame(() => {
@@ -213,19 +220,24 @@ export function renderStatusZone() {
     const $filters = $drawer.find('.dle-active-filters');
     const chips = [];
     const activeFolders = chat_metadata?.deeplore_folder_filter || [];
+    const xBtn = (label) => `<button type="button" class="dle-chip-x" aria-label="Remove filter: ${escapeHtml(label)}" title="Remove filter"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>`;
     if (activeFolders.length > 0) {
         const folderLabel = activeFolders.length === 1 ? activeFolders[0] : `${activeFolders.length} folders`;
-        chips.push(`<span class="dle-chip dle-chip-sm dle-folder-badge-chip" role="button" aria-pressed="true" tabindex="0" title="Folder filter active: ${escapeHtml(activeFolders.join(', '))}" data-action="goto-gating"><i class="fa-solid fa-folder" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>${escapeHtml(folderLabel)}</span>`);
+        chips.push(`<span class="dle-chip dle-chip-sm dle-folder-badge-chip" role="button" aria-pressed="true" tabindex="0" title="Folder filter active: ${escapeHtml(activeFolders.join(', '))}" data-action="goto-gating"><i class="fa-solid fa-folder" aria-hidden="true" style="margin-right:3px;font-size:0.8em;"></i>${escapeHtml(folderLabel)}<button type="button" class="dle-chip-x dle-chip-x-folder" aria-label="Clear folder filter" title="Clear folder filter"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
     }
     if (ctx) {
         for (const [key, val] of Object.entries(ctx)) {
             if (val == null || val === '') continue;
             if (Array.isArray(val)) {
-                for (const v of val) chips.push(`<span class="dle-chip dle-chip-sm dle-gating-value-chip" role="button" tabindex="0" data-action="goto-gating" aria-label="${escapeHtml(key)}: ${escapeHtml(v)} — click to open Filters tab">${escapeHtml(v)}</span>`);
+                for (const v of val) chips.push(`<span class="dle-chip dle-chip-sm dle-gating-value-chip" role="button" tabindex="0" data-action="goto-gating" data-ctx-key="${escapeHtml(key)}" data-ctx-val="${escapeHtml(v)}" aria-label="${escapeHtml(key)}: ${escapeHtml(v)} — click to open Filters tab">${escapeHtml(v)}${xBtn(`${key}: ${v}`)}</span>`);
             } else {
-                chips.push(`<span class="dle-chip dle-chip-sm dle-gating-value-chip" role="button" tabindex="0" data-action="goto-gating" aria-label="${escapeHtml(key)}: ${escapeHtml(val)} — click to open Filters tab">${escapeHtml(val)}</span>`);
+                chips.push(`<span class="dle-chip dle-chip-sm dle-gating-value-chip" role="button" tabindex="0" data-action="goto-gating" data-ctx-key="${escapeHtml(key)}" data-ctx-val="${escapeHtml(val)}" aria-label="${escapeHtml(key)}: ${escapeHtml(val)} — click to open Filters tab">${escapeHtml(val)}${xBtn(`${key}: ${val}`)}</span>`);
             }
         }
+    }
+    // "Clear all" chip when 2+ active filter chips are visible.
+    if (chips.length >= 2) {
+        chips.push('<button type="button" class="dle-chip dle-chip-sm dle-chip-clear-all" aria-label="Clear all active filters" title="Clear all active filters">Clear all ×</button>');
     }
     // Claude adaptive-thinking misconfiguration: persistent chip rather than spammy toasts.
     // ds.reasoningWarningDismissed is session-scoped — re-shown after reload.

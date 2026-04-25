@@ -7,8 +7,8 @@
 
     <!-- Status + stats row -->
     <div class="dle-status-row" aria-live="assertive" aria-atomic="true">
-        <span class="dle-status-dot" title="System status" role="img" aria-label="System status: loading"></span>
-        <span class="dle-pipeline-label" aria-label="Activity" aria-live="polite">Idle</span>
+        <span class="dle-status-dot dle-clickable-status" title="System status — click for full status" role="button" tabindex="0" aria-label="System status: loading. Click to open status."></span>
+        <span class="dle-pipeline-label dle-clickable-status" aria-label="Activity" aria-live="polite" role="button" tabindex="0" title="Click to open full status (/dle-status)">Idle</span>
         <span class="dle-stat-divider" aria-hidden="true">|</span>
         <span class="dle-stat" data-stat="entries" title="Vault entries indexed" aria-label="0 vault entries indexed">0</span>
         <span class="dle-stat" data-stat="mode" title="AI search mode" aria-label="Search mode: loading">—</span>
@@ -49,9 +49,9 @@
         <button class="menu_button menu_button_icon dle-action-btn" data-action="graph" title="Open relationship graph" aria-label="Open relationship graph">
             <i class="fa-solid fa-diagram-project" aria-hidden="true"></i>
         </button>
-        <button class="menu_button menu_button_icon dle-action-btn dle-action-btn-labeled" data-action="clear-picks" title="Clear AI search cache — next generation re-selects lore from scratch" aria-label="Clear AI search cache">
-            <i class="fa-solid fa-eraser" aria-hidden="true"></i>
-            <span class="dle-action-label">Clear AI Cache</span>
+        <button class="menu_button menu_button_icon dle-action-btn dle-action-btn-labeled" data-action="clear-picks" title="Reroll lore picks — clears AI search cache so next generation re-selects from scratch" aria-label="Reroll lore picks (clear AI search cache)">
+            <i class="fa-solid fa-shuffle" aria-hidden="true"></i>
+            <span class="dle-action-label">Reroll Lore</span>
         </button>
         <button class="menu_button menu_button_icon dle-action-btn dle-action-btn-labeled" data-action="skip-tools" title="Skip Librarian tools for next generation" aria-label="Skip Librarian tools for next generation">
             <i class="fa-solid fa-ban" aria-hidden="true"></i>
@@ -161,11 +161,25 @@
          role="tabpanel" aria-labelledby="dle-tab-browse">
         <div class="dle-panel-toolbar">
             <input type="text" class="text_pole dle-browse-input" placeholder="Search entries... (/)" aria-label="Search vault entries" />
+            <button type="button" class="menu_button menu_button_icon dle-browse-search-help" title="Search syntax: plain text matches title/keys/content. Prefixed: tag:wizard, folder:Locations, key:apple, summary:&quot;old gods&quot;, field:era=medieval. Combine multiple prefixes with spaces." aria-label="Browse search syntax help">
+                <i class="fa-solid fa-circle-question" aria-hidden="true"></i>
+            </button>
             <i class="fa-solid fa-spinner fa-spin dle-browse-refresh-spinner" aria-hidden="true" title="Refreshing vault index..."></i>
             <button class="dle-tab-expand" data-expand="browse" title="Open full Browse popup" aria-label="Open full Browse popup">
                 Full View <i class="fa-solid fa-up-right-from-square" aria-hidden="true"></i>
             </button>
         </div>
+        <details class="dle-browse-search-help-popover">
+            <summary class="dle-text-xs dle-muted">Search syntax</summary>
+            <div class="dle-text-xs dle-muted dle-search-syntax-grid">
+                <div><code>tag:wizard</code> — entries tagged <em>wizard</em></div>
+                <div><code>folder:Locations</code> — entries under <em>Locations/</em></div>
+                <div><code>key:apple</code> — keyword exact-match</div>
+                <div><code>summary:"old gods"</code> — phrase in summary</div>
+                <div><code>field:era=medieval</code> — custom-field match</div>
+                <div>Combine prefixes with spaces. Plain words match title/keys/content.</div>
+            </div>
+        </details>
         <div class="dle-browse-filters">
             <select class="text_pole dle-browse-filter-select" data-filter="status" aria-label="Filter by status">
                 <option value="all">Status (all)</option>

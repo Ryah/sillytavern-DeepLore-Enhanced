@@ -53,7 +53,9 @@ applyPinBlock(entries, vaultSnapshot, policy, matchedKeys)
 - Filters out any entry matching a block via `matchesPinBlock(pb, entry)` (block pass at end of `applyPinBlock()`)
 - Blocks override constants — a blocked constant is removed
 
-**Gotcha:** Uses O(1) `resultTitleIdx` Map for lookup (BUG-AUDIT-H15), not linear scan.
+**Gotcha:** Uses O(1) `resultIdx` Map for lookup (BUG-AUDIT-H15), not linear scan.
+
+**Vault-aware index keying:** The Map keys by `trackerKey(entry)` (i.e. `${vaultSource}:${title}`), not bare lowercased title. Same-title entries from different vaults must remain distinct in the result list — keying by title alone caused vault B's pinned "Castle" to overwrite vault A's already-matched "Castle" instead of being added as a separate entry.
 
 ---
 

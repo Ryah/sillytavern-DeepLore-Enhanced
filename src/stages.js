@@ -69,11 +69,14 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
 
     // H23: matchesPinBlock for vault-aware matching, backward-compat with bare strings.
     if (policy.pins.length > 0) {
-        // BUG-AUDIT-H15: title→index Map for O(1) lookup instead of findIndex per pin.
-        const resultTitleIdx = new Map();
+        // BUG-AUDIT-H15: index for O(1) lookup instead of findIndex per pin.
+        // Key by trackerKey (vaultSource:title) so same-title entries from different
+        // vaults don't collide — pinning vault B's "Castle" must not overwrite the
+        // already-matched vault A "Castle" in the result list.
+        const resultIdx = new Map();
         for (let ri = 0; ri < result.length; ri++) {
-            const lk = result[ri].title.toLowerCase();
-            if (!resultTitleIdx.has(lk)) resultTitleIdx.set(lk, ri);
+            const k = trackerKey(result[ri]);
+            if (!resultIdx.has(k)) resultIdx.set(k, ri);
         }
         for (const entry of vaultSnapshot) {
             const isPinned = policy.pins.some(pb => matchesPinBlock(pb, entry));
@@ -91,14 +94,14 @@ export function applyPinBlock(entries, vaultSnapshot, policy, matchedKeys) {
                         ? Object.fromEntries(Object.entries(entry.customFields).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v]))
                         : {},
                 };
-                const lowerTitle = entry.title.toLowerCase();
-                if (!resultTitleIdx.has(lowerTitle)) {
-                    resultTitleIdx.set(lowerTitle, result.length);
+                const k = trackerKey(entry);
+                if (!resultIdx.has(k)) {
+                    resultIdx.set(k, result.length);
                     result.push({ ...entry, constant: true, priority: 10, ...cloneFields });
                     matchedKeys.set(entry.title, '(pinned)');
                     addedCount++;
                 } else {
-                    const idx = resultTitleIdx.get(lowerTitle);
+                    const idx = resultIdx.get(k);
                     if (idx !== undefined) result[idx] = { ...entry, constant: true, priority: 10, ...cloneFields };
                     upgradedCount++;
                 }

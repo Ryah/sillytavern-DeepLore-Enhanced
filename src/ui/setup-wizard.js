@@ -179,16 +179,29 @@ function updateNavButtons() {
     const $prev = $wizard.find('#dle-wiz-prev');
     const $next = $wizard.find('#dle-wiz-next');
     const $finish = $wizard.find('#dle-wiz-finish');
+    const $reason = $wizard.find('.dle-wiz-next-reason');
 
     $prev.toggle(currentPage > 1);
 
     if (currentPage === TOTAL_PAGES) {
         $next.hide();
         $finish.show();
+        $reason.hide();
     } else {
         $next.show();
         $finish.hide();
-        $next.prop('disabled', !isPageValid(currentPage));
+        const valid = isPageValid(currentPage);
+        $next.prop('disabled', !valid);
+        // Surface why Next is disabled so the user knows what to fix without hunting.
+        if (!valid && currentPage === 2 && !connectionVerified) {
+            if (!$reason.length) {
+                $next.before('<span class="dle-wiz-next-reason dle-text-xs dle-muted" style="margin-right:8px;">Test connection to continue</span>');
+            } else {
+                $reason.text('Test connection to continue').show();
+            }
+        } else {
+            $reason.hide();
+        }
     }
 }
 

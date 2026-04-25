@@ -4,6 +4,7 @@
     "description": "Use your Obsidian vault as an AI-powered lorebook — keywords + AI selection, so your lore fires when it matters",
     "author": "pixelnull",
     "license": "MIT",
+    "type": "module",
     "repository": {
         "type": "git",
         "url": "https://github.com/pixelnull/sillytavern-DeepLore-Enhanced"
@@ -19,7 +20,10 @@
         "test:regression": "node test/regression.test.mjs",
         "test:all": "node test/unit.mjs && node test/integration.mjs && node test/fields.test.mjs && node test/stages.test.mjs && node test/contracts.test.mjs && node test/diagnostics.test.mjs && node test/vault.test.mjs && node test/regression.test.mjs && node test/verify-imports.mjs",
         "test:imports": "node test/verify-imports.mjs",
-        "lint": "npx eslint ."
+        "lint": "eslint ."
+    },
+    "devDependencies": {
+        "eslint": "^9.39.4"
     },
     "keywords": [
         "sillytavern",

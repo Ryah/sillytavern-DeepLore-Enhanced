@@ -30,13 +30,27 @@ function buildSummaryText(toolCalls) {
 
 function buildEntryHtml(call) {
     if (call.type === 'search') {
-        const resultText = call.resultCount > 0
-            ? `${call.resultCount} ${call.resultCount === 1 ? 'entry' : 'entries'} found (${call.resultTitles.join(', ')})`
-            : 'no results';
+        let resultText;
+        if (call.resultCount > 0) {
+            const titles = Array.isArray(call.resultTitles) ? call.resultTitles : [];
+            // Cap inline list at 3 — long lists overflow the chat row width and bury
+            // the icon/query.  Full list still in the title attribute for hover.
+            const visibleTitles = titles.slice(0, 3);
+            const overflow = titles.length > visibleTitles.length;
+            const visibleText = visibleTitles.join(', ') + (overflow ? `, +${titles.length - visibleTitles.length} more` : '');
+            const fullTitle = titles.join(', ');
+            resultText = `${call.resultCount} ${call.resultCount === 1 ? 'entry' : 'entries'} found (${visibleText})`;
+            return `<div class="dle-librarian-dropdown-entry">
+                <span class="dle-librarian-icon fa-solid fa-magnifying-glass"></span>
+                <span class="dle-librarian-query">${escapeHtml(call.query)}</span>
+                <span class="dle-librarian-result" title="${escapeHtml(fullTitle)}">${escapeHtml(resultText)}</span>
+            </div>`;
+        }
+        const resultTextNoHits = 'no results';
         return `<div class="dle-librarian-dropdown-entry">
             <span class="dle-librarian-icon fa-solid fa-magnifying-glass"></span>
             <span class="dle-librarian-query">${escapeHtml(call.query)}</span>
-            <span class="dle-librarian-result">${escapeHtml(resultText)}</span>
+            <span class="dle-librarian-result">${escapeHtml(resultTextNoHits)}</span>
         </div>`;
     }
     // flag (gap or update)

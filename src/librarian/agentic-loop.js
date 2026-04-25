@@ -189,7 +189,7 @@ export async function runAgenticLoop(options) {
         if (phase === PHASE_FLAG) {
             setPipelinePhase('flagging');
             try {
-                flagCount += await _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug);
+                flagCount += await _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug, flagCount);
             } catch (flagErr) {
                 if (flagErr?.name === 'AbortError') throw flagErr;
                 console.warn('[DLE] Flag phase error (prose already delivered):', flagErr?.message || flagErr);
@@ -252,13 +252,18 @@ export async function runAgenticLoop(options) {
                         .map(m => m[1]).filter(t => t !== 'Related entries:');
                     const entryTitles = [...(searchResult.matchAll(/name="([^"]+)"/g) || [])].map(m => m[1]);
                     const titleMatches = [...headingTitles, ...entryTitles];
-                    toolActivity.push({
-                        type: 'search',
-                        query: (tc.input.queries || []).join(', '),
-                        resultCount: titleMatches.length,
-                        resultTitles: titleMatches,
-                        timestamp: Date.now(),
-                    });
+                    // Contract (per CLAUDE.md): only successful-search results create dropdown
+                    // records; no-result searches create gap records only (handled by
+                    // searchLoreAction). An empty resultTitles dropdown is misleading UI.
+                    if (titleMatches.length > 0) {
+                        toolActivity.push({
+                            type: 'search',
+                            query: (tc.input.queries || []).join(', '),
+                            resultCount: titleMatches.length,
+                            resultTitles: titleMatches,
+                            timestamp: Date.now(),
+                        });
+                    }
                     break;
                 }
 
@@ -301,6 +306,13 @@ export async function runAgenticLoop(options) {
                         results.push({ id: tc.id, name: tc.name, result: 'Flag is not available yet. Call write first.' });
                         break;
                     }
+                    // Cap enforced per call. Without this, a write+flag×N response could
+                    // commit more than MAX_FLAG_CALLS flags in a single iteration since
+                    // the per-iteration tools-array gate only fires at iteration boundary.
+                    if (flagCount >= MAX_FLAG_CALLS) {
+                        results.push({ id: tc.id, name: tc.name, result: `Flag limit reached (${MAX_FLAG_CALLS}). End your turn.` });
+                        break;
+                    }
                     flagCount++;
                     const flagResult = await flagLoreAction(tc.input || {});
                     results.push({ id: tc.id, name: tc.name, result: flagResult || 'Flag recorded.' });
@@ -334,7 +346,7 @@ export async function runAgenticLoop(options) {
         if (debug) console.debug('[DLE] Agentic loop: exited without prose (writeDone=%s, iterations=%d, exit=%s)', writeDone, iterations, exitReason);
     }
 
-    console.log('[DLE] Librarian: %d iterations, %d searches, %d flags, prose=%d chars, exit=%s',
+    if (debug) console.log('[DLE] Librarian: %d iterations, %d searches, %d flags, prose=%d chars, exit=%s',
         iterations, searchCount, flagCount, (prose || '').length, exitReason);
 
     pushEvent('librarian', { action: 'completed', iterations, searches: searchCount, flags: flagCount, hadProse: !!prose });
@@ -351,7 +363,7 @@ export async function runAgenticLoop(options) {
  * Handles multiple flag calls from one response, but does not loop.
  * Mutates `messages` and `toolActivity`.
  */
-async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug) {
+async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug, outerFlagCount = 0) {
     const response = await callWithTools(messages, tools, toolChoice, maxTokens, signal);
     const toolCalls = parseToolCalls(response);
     if (toolCalls.length === 0) return 0;
@@ -362,7 +374,9 @@ async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal,
     const results = [];
     let flagCount = 0;
     for (const tc of toolCalls) {
-        if (tc.name !== 'flag' || flagCount >= MAX_FLAG_CALLS) {
+        // Cap is global across the whole loop, not per-iteration. Inline flags
+        // (write+flag×N responses) already incremented outerFlagCount; respect that here.
+        if (tc.name !== 'flag' || (flagCount + outerFlagCount) >= MAX_FLAG_CALLS) {
             results.push({ id: tc.id, name: tc.name, result: 'End your turn now.' });
             continue;
         }

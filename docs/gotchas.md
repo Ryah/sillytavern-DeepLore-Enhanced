@@ -467,3 +467,23 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Safety timeout:** 10s `setTimeout` clears the flag if RELEASED never fires (Stepped Thinking error path, ST update breaking the contract, etc.). Better to risk one wasted re-entry than indefinite pipeline lockout.
 
 **RELEASED payload note:** Stepped Thinking emits RELEASED without a payload. DLE clears the flag unconditionally on RELEASED — if other extensions adopt the same mutex pattern, only stepped-thinking would have set the flag in the first place, so unconditional clear is harmless.
+
+---
+
+## 43. `onProse` Re-Checks Epoch After Every Await
+
+**Rule:** Inside `onProse` (Librarian write-tool handler), re-check both `chatEpoch` and `generationLockEpoch` after each await — at minimum after `saveReply()` and after `saveChatConditional()`. If the epoch changed during the await, set `proseMsg = null` and bail.
+
+**Why:** `saveReply` awaits `MESSAGE_RECEIVED` and `CHARACTER_MESSAGE_RENDERED` handlers; either can yield long enough for the user to switch chats. Without a recheck, `chat[chat.length - 1]` is captured on the *new* active chat, then `saveChatConditional()` persists the captured ref into a chat that the user never asked to write to. The post-loop recheck at the outer try/catch isn't enough on its own — it stops downstream mutation but doesn't prevent the trailing `saveChatConditional()` inside `onProse` from running on the wrong chat. Pattern: any new await inside `onProse` needs another guard.
+
+**Where:** `index.js` — Librarian dispatch block (`runAgenticLoop` callback path).
+
+---
+
+## 44. `MESSAGE_SWIPE_DELETED` Emits an Object Payload
+
+**Rule:** ST emits `MESSAGE_SWIPE_DELETED` with `{ messageId, swipeId, newSwipeId }` — not a scalar `messageId`. Handlers must destructure or extract `payload.messageId` defensively.
+
+**Why:** A handler signature like `(messageId) => ...` silently receives the entire object. Downstream operations such as `chat?.[messageId]` or `Number(messageId)` produce `undefined` / `NaN` and the handler no-ops without throwing. Symptoms: stale `perSwipeInjectedKeys` accumulate after every swipe delete, `deeplore_tool_calls` / `deeplore_sources` / `deeplore_ai_notes` cleanup never fires, `chat_metadata.deeplore_swipe_injected_keys` grows monotonically. Verified upstream emit shape in `public/script.js` (ST 1.12.x).
+
+**Where:** `index.js` — `_registerEs(event_types.MESSAGE_SWIPE_DELETED, ...)`. Same applies to any new ST event handler — confirm the emit shape in upstream `script.js` before assuming scalar params.

@@ -15,7 +15,6 @@ function _resolveRoleByName(name) {
     if (!_roleByNameAttempted) {
         _roleByNameAttempted = true;
         try {
-            // eslint-disable-next-line no-undef
             const g = (typeof window !== 'undefined' ? window : globalThis);
             if (g && typeof g.getExtensionPromptRoleByName === 'function') {
                 _getExtensionPromptRoleByName = g.getExtensionPromptRoleByName;

@@ -166,13 +166,16 @@ export function registerAdminCommands() {
 
                 let html = '<div class="dle-popup">';
                 html += `<h3>Session Notes (${parsed.length})</h3>`;
+                html += '<input type="text" id="dle-scribe-history-search" class="text_pole" placeholder="Search by character, date, or note text..." aria-label="Search session notes" style="margin-bottom:8px;width:100%;" />';
+                html += '<div id="dle-scribe-history-list">';
 
                 for (const note of parsed) {
                     const dateDisplay = note.date ? new Date(note.date).toLocaleString() : 'Unknown date';
                     const preview = note.body.substring(0, 200).replace(/\n/g, ' ') + (note.body.length > 200 ? '...' : '');
                     const noteId = simpleHash(note.filename);
+                    const haystack = `${note.character || ''} ${note.date || ''} ${note.body}`.toLowerCase();
 
-                    html += `<div class="dle-card dle-popup-section">`;
+                    html += `<div class="dle-card dle-popup-section dle-scribe-history-item" data-haystack="${escapeHtml(haystack)}">`;
                     html += `<div class="dle-note-toggle dle-card-header" data-target="dle-note-${noteId}" aria-expanded="false" role="button" tabindex="0">`;
                     html += `<strong>${escapeHtml(note.character || 'Unknown')}</strong>`;
                     html += `<span class="dle-text-xs dle-muted">${escapeHtml(dateDisplay)}</span>`;
@@ -181,7 +184,7 @@ export function registerAdminCommands() {
                     html += `<div id="dle-note-${noteId}" class="dle-popup-detail">${escapeHtml(note.body)}</div>`;
                     html += `</div>`;
                 }
-                html += '</div>';
+                html += '</div></div>';
 
                 const container = document.createElement('div');
                 container.innerHTML = html;
@@ -205,6 +208,22 @@ export function registerAdminCommands() {
                     e.preventDefault();
                     _togNote(toggle);
                 });
+                // Live filter on character/date/body — case-insensitive substring against
+                // pre-computed haystacks. Keeps render simple, no re-flow.
+                const searchInput = container.querySelector('#dle-scribe-history-search');
+                if (searchInput) {
+                    let timer = null;
+                    searchInput.addEventListener('input', () => {
+                        clearTimeout(timer);
+                        timer = setTimeout(() => {
+                            const q = searchInput.value.toLowerCase().trim();
+                            container.querySelectorAll('.dle-scribe-history-item').forEach(el => {
+                                const hay = el.dataset.haystack || '';
+                                el.style.display = (!q || hay.includes(q)) ? '' : 'none';
+                            });
+                        }, 100);
+                    });
+                }
 
                 await callGenericPopup(container, POPUP_TYPE.TEXT, '', { wide: true, large: true, allowVerticalScrolling: true });
             } catch (err) {
@@ -348,6 +367,13 @@ export function registerAdminCommands() {
                 html += `<h3>Health Check: ${errors} errors, ${warnings} warnings, ${infos} info</h3>`;
                 html += buildCopyButton(plainText);
 
+                // Severity filter chips — toggle visibility per severity. Errors on by default.
+                html += '<div class="dle-health-severity-chips" role="toolbar" aria-label="Filter health issues by severity" style="margin:8px 0;">';
+                html += `<button type="button" class="menu_button dle-health-sev-chip dle-active" data-sev="error" aria-pressed="true">${errors} errors</button>`;
+                html += `<button type="button" class="menu_button dle-health-sev-chip dle-active" data-sev="warning" aria-pressed="true">${warnings} warnings</button>`;
+                html += `<button type="button" class="menu_button dle-health-sev-chip dle-active" data-sev="info" aria-pressed="true">${infos} info</button>`;
+                html += '</div>';
+
                 const grouped2 = {};
                 for (const issue of issues) {
                     if (!grouped2[issue.type]) grouped2[issue.type] = [];
@@ -364,7 +390,8 @@ export function registerAdminCommands() {
                     html += `<details ${typeErrors > 0 ? 'open' : ''}><summary class="dle-health-summary"><strong>${escapeHtml(type)}</strong> (${items.length})</summary>`;
                     html += `<ul class="dle-health-list">`;
                     for (const item of items) {
-                        html += `<li>${severityBadge(item.severity)} <strong>${escapeHtml(item.entry)}</strong>: ${escapeHtml(item.detail)}</li>`;
+                        const copyBtn = `<button type="button" class="dle-health-row-copy menu_button_icon dle-text-xs" data-copy="${escapeHtml(item.entry)}" title="Copy entry name" aria-label="Copy entry name"><i class="fa-solid fa-clipboard" aria-hidden="true"></i></button>`;
+                        html += `<li data-sev="${item.severity}">${severityBadge(item.severity)} <strong>${escapeHtml(item.entry)}</strong> ${copyBtn}: ${escapeHtml(item.detail)}</li>`;
                     }
                     html += `</ul></details>`;
                 }
@@ -373,7 +400,35 @@ export function registerAdminCommands() {
             html += '</div>';
             await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
                 wide: true, large: true, allowVerticalScrolling: true,
-                onOpen: () => attachCopyHandler(document.querySelector('.popup')),
+                onOpen: () => {
+                    const popupEl = document.querySelector('.popup');
+                    attachCopyHandler(popupEl);
+                    if (!popupEl) return;
+                    // Severity chip toggles.
+                    popupEl.querySelectorAll('.dle-health-sev-chip').forEach(btn => {
+                        btn.addEventListener('click', () => {
+                            const sev = btn.dataset.sev;
+                            const active = !btn.classList.contains('dle-active');
+                            btn.classList.toggle('dle-active', active);
+                            btn.setAttribute('aria-pressed', String(active));
+                            popupEl.querySelectorAll(`.dle-health-list li[data-sev="${sev}"]`).forEach(li => {
+                                li.style.display = active ? '' : 'none';
+                            });
+                        });
+                    });
+                    // Per-row copy.
+                    popupEl.addEventListener('click', async (ev) => {
+                        const btn = ev.target.closest('.dle-health-row-copy');
+                        if (!btn) return;
+                        ev.stopPropagation();
+                        const text = btn.dataset.copy;
+                        if (!text) return;
+                        try {
+                            await navigator.clipboard.writeText(text);
+                            toastr.success(`Copied "${text}"`, 'DeepLore Enhanced', { timeOut: 1200 });
+                        } catch { /* clipboard unavailable */ }
+                    });
+                },
             });
             return '';
         },
@@ -512,12 +567,15 @@ export function registerAdminCommands() {
             function renderList(filter) {
                 const lowerFilter = (filter || '').toLowerCase();
                 let html = '';
+                let visibleCount = 0;
                 for (const c of executableCommands) {
                     if (lowerFilter && !c.cmd.toLowerCase().includes(lowerFilter) && !c.desc.toLowerCase().includes(lowerFilter)) continue;
-                    html += `<div class="dle-palette-item menu_button" data-cmd="${escapeHtml(c.cmd)}">`;
+                    const activeClass = visibleCount === 0 ? ' dle-palette-active' : '';
+                    html += `<div class="dle-palette-item menu_button${activeClass}" data-cmd="${escapeHtml(c.cmd)}" data-idx="${visibleCount}">`;
                     html += `<code class="dle-palette-cmd">${escapeHtml(c.cmd)}</code>`;
                     html += `<span class="dle-palette-desc">${escapeHtml(c.desc)}</span>`;
                     html += `</div>`;
+                    visibleCount++;
                 }
                 if (!html) html = '<div class="dle-palette-empty dle-muted">No matching commands</div>';
                 listEl.innerHTML = html;
@@ -529,6 +587,36 @@ export function registerAdminCommands() {
             searchInput.addEventListener('input', () => renderList(searchInput.value));
 
             let clickedCmd = null;
+
+            const setActive = (newIdx) => {
+                const items = listEl.querySelectorAll('.dle-palette-item');
+                if (items.length === 0) return;
+                const idx = ((newIdx % items.length) + items.length) % items.length;
+                items.forEach((el, i) => el.classList.toggle('dle-palette-active', i === idx));
+                items[idx].scrollIntoView({ block: 'nearest' });
+            };
+
+            const currentActiveIdx = () => {
+                const items = listEl.querySelectorAll('.dle-palette-item');
+                for (let i = 0; i < items.length; i++) if (items[i].classList.contains('dle-palette-active')) return i;
+                return -1;
+            };
+
+            // Arrow keys move highlight; Enter runs highlighted command. Mouse clicks still work.
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setActive(currentActiveIdx() + 1); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(currentActiveIdx() - 1); }
+                else if (e.key === 'Enter') {
+                    const items = listEl.querySelectorAll('.dle-palette-item');
+                    const idx = currentActiveIdx();
+                    const target = idx >= 0 ? items[idx] : items[0];
+                    if (target) {
+                        e.preventDefault();
+                        clickedCmd = target.dataset.cmd;
+                        document.querySelector('.popup .popup-button-ok')?.click();
+                    }
+                }
+            });
 
             container.addEventListener('click', (e) => {
                 const item = e.target.closest('.dle-palette-item');

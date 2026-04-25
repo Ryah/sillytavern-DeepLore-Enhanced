@@ -455,8 +455,15 @@ export async function buildIndex() {
             if (dupes.length > 0) {
                 const listing = dupes.slice(0, 5).map(d => `"${d.title}" (${d.vaults.join(', ')})`).join('; ');
                 const more = dupes.length > 5 ? ` …and ${dupes.length - 5} more` : '';
+                const mode = settings.multiVaultConflictResolution || 'all';
+                const modeMsg = ({
+                    all: 'Keeping all copies (resolution mode: all). Rename one copy if you want a single canonical entry.',
+                    first: 'Keeping the first vault\'s copy. Rename one copy to avoid the conflict.',
+                    last: 'Keeping the last vault\'s copy. Rename one copy to avoid the conflict.',
+                    merge: 'Merging fields and content from all copies. Rename one copy if you don\'t want them merged.',
+                }[mode]) || 'Resolving via configured conflict mode.';
                 dedupWarning(
-                    `Duplicate entry titles across vaults: ${listing}${more}. Keeping the first vault's copy. Rename one copy to avoid issues.`,
+                    `Duplicate entry titles across vaults: ${listing}${more}. ${modeMsg}`,
                     'cross_vault_dupes',
                     { timeOut: OBSIDIAN_TOAST_TIMEOUT },
                 );

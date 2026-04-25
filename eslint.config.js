@@ -44,6 +44,6 @@ export default [
         },
     },
     {
-        ignores: ['core/**', 'node_modules/**', 'test-vault/**'],
+        ignores: ['node_modules/**', 'test-vault/**'],
     },
 ];

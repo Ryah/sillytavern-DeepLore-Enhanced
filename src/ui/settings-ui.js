@@ -31,6 +31,7 @@ import { matchEntries } from '../pipeline/pipeline.js';
 import { setupSyncPolling } from '../vault/sync.js';
 import { showNotebookPopup, showBrowsePopup, showAiNotepadPopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
+import { DLE_COMMANDS } from './commands-admin.js';
 
 // BUG-120: module-scoped so re-opening the settings popup cancels any
 // stale debounced rebuild from the prior instance.
@@ -1042,6 +1043,9 @@ export async function openSettingsPopup(navigateTo = null) {
     loadPopupSettings($container);
     bindPopupEvents($container);
     initPromptPresets($container, getSettings());
+
+    // Render Reference tab from DLE_COMMANDS (single source of truth) + click-to-copy.
+    renderReferenceTab($container);
 
     // Pre-position before dialog renders so user sees the right panel on first frame.
     applyNavigateTo();
@@ -2069,6 +2073,55 @@ export function loadSettingsUI() {
         const $popup = $('#dle-settings-popup');
         if ($popup.length) refreshClaudeEffortBanner($popup);
     }));
+}
+
+function renderReferenceTab($container) {
+    const $grid = $container.find('.dle-cmd-grid');
+    if (!$grid.length) return;
+
+    // Partition DLE_COMMANDS into columns by `sep` markers. First section gets a
+    // generic label; the rest pick up the sep's `label` field.
+    const cols = [];
+    let cur = { label: 'All Commands', items: [] };
+    for (const c of DLE_COMMANDS) {
+        if (c.sep) {
+            if (cur.items.length) cols.push(cur);
+            cur = { label: c.label || 'Commands', items: [] };
+        } else {
+            cur.items.push(c);
+        }
+    }
+    if (cur.items.length) cols.push(cur);
+
+    let html = '';
+    for (const col of cols) {
+        html += '<div class="dle-cmd-grid-col">';
+        html += `<span class="dle-cmd-grid-header">${escapeHtml(col.label)}</span>`;
+        for (const c of col.items) {
+            html += `<div class="dle-cmd-row dle-cmd-row-copyable" data-cmd="${escapeHtml(c.cmd)}" tabindex="0" role="button" title="Click to copy ${escapeHtml(c.cmd)}"><code>${escapeHtml(c.cmd)}</code><span>${escapeHtml(c.desc)}</span></div>`;
+        }
+        html += '</div>';
+    }
+    $grid.html(html);
+
+    // Click / Enter / Space copies the command to clipboard.
+    $grid.on('click keydown', '.dle-cmd-row-copyable', async function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.type === 'keydown') e.preventDefault();
+        const cmd = $(this).data('cmd');
+        if (!cmd) return;
+        try {
+            await navigator.clipboard.writeText(cmd);
+            toastr.success(`Copied ${cmd}`, 'DeepLore Enhanced', { timeOut: 1500 });
+        } catch {
+            // Clipboard API unavailable (insecure context) — fall back to selection.
+            const range = document.createRange();
+            range.selectNodeContents(this);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    });
 }
 
 export function teardownSettingsUI() {

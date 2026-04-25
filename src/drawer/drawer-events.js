@@ -296,6 +296,22 @@ export function wireStatusActions($drawer) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 
+    // Top status (dot + pipeline label) → /dle-status. Mirrors footer health icons.
+    $drawer.on('click keydown', '.dle-clickable-status', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.type === 'keydown') e.preventDefault();
+        executeCommand('/dle-status');
+    });
+
+    // Browse search help icon toggles the syntax popover beside it.
+    $drawer.on('click', '.dle-browse-search-help', function (e) {
+        e.preventDefault();
+        const $popover = $drawer.find('.dle-browse-search-help-popover');
+        if (!$popover.length) return;
+        const wasOpen = $popover.prop('open');
+        $popover.prop('open', !wasOpen);
+    });
+
     $drawer.on('click', '.dle-setup-banner-btn', async () => {
         try {
             const { showSetupWizard } = await import('../ui/setup-wizard.js');
@@ -780,6 +796,63 @@ export function wireGatingTab($drawer) {
             e.preventDefault();
             switchTab($drawer, 'gating');
         }
+    });
+
+    // Inline chip clears in the active-filters strip.
+    $drawer.on('click keydown', '.dle-active-filters .dle-chip-x', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!chat_metadata) return;
+        const $x = $(this);
+        if ($x.hasClass('dle-chip-x-folder')) {
+            chat_metadata.deeplore_folder_filter = null;
+            saveMetadataDebounced();
+            notifyGatingChanged();
+            return;
+        }
+        const $chip = $x.closest('.dle-gating-value-chip');
+        const key = $chip.data('ctx-key');
+        const val = String($chip.data('ctx-val'));
+        const ctx = chat_metadata.deeplore_context;
+        if (!key || !ctx || ctx[key] == null) return;
+        if (Array.isArray(ctx[key])) {
+            ctx[key] = ctx[key].filter(v => String(v) !== val);
+            if (ctx[key].length === 0) ctx[key] = [];
+        } else {
+            ctx[key] = null;
+        }
+        saveMetadataDebounced();
+        notifyGatingChanged();
+    });
+
+    // Clear-all chip mirrors the gating-tab "clear all" button.
+    $drawer.on('click keydown', '.dle-active-filters .dle-chip-clear-all', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!chat_metadata) return;
+        let cleared = 0;
+        if (chat_metadata.deeplore_folder_filter && chat_metadata.deeplore_folder_filter.length > 0) {
+            chat_metadata.deeplore_folder_filter = null;
+            cleared++;
+        }
+        const ctx = chat_metadata.deeplore_context;
+        if (ctx) {
+            const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+            for (const fd of allDefs) {
+                if (!fd.gating?.enabled) continue;
+                const v = ctx[fd.contextKey];
+                if (fd.multi ? (Array.isArray(v) && v.length > 0) : !!v) {
+                    ctx[fd.contextKey] = fd.multi ? [] : null;
+                    cleared++;
+                }
+            }
+        }
+        if (cleared === 0) return;
+        saveMetadataDebounced();
+        notifyGatingChanged();
+        toastr.success(`Cleared ${cleared} filter${cleared !== 1 ? 's' : ''}.`, 'DeepLore Enhanced', { timeOut: 1500 });
     });
 
     $drawer.on('click', '[data-action="goto-ai-connections"]', function (e) {

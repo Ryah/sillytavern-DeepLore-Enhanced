@@ -95,12 +95,12 @@ aiSearch(chat, candidateManifest, candidateHeader, snapshot, candidateEntries, s
 **Flow** (all steps inside `aiSearch()`):
 
 1. Guard: bail if `!aiSearchEnabled` or empty manifest
-2. Circuit breaker: `tryAcquireHalfOpenProbe()` -- blocks if breaker is open
-3. Strip trailing assistant message from chat for cache stability (BUG-CACHE-FIX)
-4. Build `chatContext` from `buildAiChatContext(chatForCache, scanDepth)`
-5. Prepend seed entries on new chats
-6. Append scribe summary if `scribeInformedRetrieval` is on
-7. **Cache check** (see sliding window below)
+2. Strip trailing assistant message from chat for cache stability (BUG-CACHE-FIX)
+3. Build `chatContext` from `buildAiChatContext(chatForCache, scanDepth)`
+4. Prepend seed entries on new chats
+5. Append scribe summary if `scribeInformedRetrieval` is on
+6. **Cache check** (see sliding window below) -- hits return without acquiring the probe so a half-open circuit isn't pinned by cached returns
+7. Circuit breaker: `tryAcquireHalfOpenProbe()` -- blocks if breaker is open. Acquired only on cache miss, just before the AI call
 8. Build system prompt with `{{maxEntries}}` substitution
 9. Build user message: manifest info + manifest + chat context
 10. Proxy mode: split into cacheHints `{stablePrefix, dynamicSuffix}`

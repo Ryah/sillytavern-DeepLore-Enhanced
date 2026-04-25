@@ -21,6 +21,7 @@
 !icon.svg
 !style.css
 !eslint.config.js
+!package-lock.json
 
 # HTML
 !drawer.html

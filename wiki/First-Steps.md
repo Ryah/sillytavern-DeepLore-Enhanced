@@ -1,24 +1,25 @@
-# First Steps
+# First steps
 
-You've installed DeepLore Enhanced and connected your vault ([Quick Start](Quick-Start)). Now what? This guide walks you through building a useful lore vault and tuning the extension for your needs.
+You've installed DeepLore and connected your vault ([[Quick Start]]). This page walks through building a useful starter vault, picking the right pipeline mode, and tuning matching for your workflow.
 
-## Understanding the Pipeline
+## Pick a pipeline mode
 
-DeepLore works in three modes:
+DLE has three modes. The setup wizard sets one for you; you can change it any time in **Settings → Matching**.
 
-| Mode | How It Works | Cost | Best For |
-|------|-------------|------|----------|
-| **Keyword Only** | Scans recent chat messages for keywords defined in your entries | Free | Small vaults (<50 entries), simple setups |
-| **Two-Stage** | Keywords pre-filter candidates, then AI picks the best matches | 1-2 API calls/generation | Medium vaults (50-200 entries) |
-| **AI Only** | AI evaluates the full vault directly | 1+ API calls/generation | Large vaults, complex lore, best results |
+| Mode | How it works | Cost | Best for |
+|------|--------------|------|----------|
+| **Keywords only** | Scans recent chat messages for keywords from your entries | Free | Small vaults (under 50 entries), no AI provider configured |
+| **Two-stage** | Keywords pre-filter, then AI search ranks the candidates against summaries | ~1 extra provider call per turn | The default. Medium and large vaults (50+ entries) |
+| **AI only** | AI search reads the entire vault manifest each turn | Higher: full manifest tokens per call | Small vaults where you want context-only matching, no keywords needed |
 
-Start with **Keyword Only** to learn the system, then upgrade to **Two-Stage** when your vault grows.
+Two-stage is the recommended default. Keyword-only is fine while you're learning the system; switch to two-stage once you have ~30+ entries and the keyword cast net starts missing things.
 
-## Writing Your First Entries
+## Write your first entries
 
-A good starter vault has 3-5 entries covering:
+A useful starter vault has 3 to 5 entries covering the kinds of things your story leans on. Examples:
 
-### 1. A Character Entry
+### A character entry
+
 ```yaml
 ---
 tags: [lorebook]
@@ -27,10 +28,12 @@ priority: 20
 summary: "Eris, the protagonist's spymaster and closest enforcer. Select when espionage, intelligence, interrogation, or loyalty comes up."
 ---
 ```
-- **Priority 20** = important character (inner circle)
-- Keys include name and title/role
 
-### 2. A Location Entry
+- **Priority 20** marks an inner-circle character (lower number = higher priority)
+- Keys cover both the name and the role title
+
+### A location entry
+
 ```yaml
 ---
 tags: [lorebook]
@@ -39,10 +42,12 @@ priority: 50
 summary: "An underground tavern serving as a neutral meeting ground. Select when taverns, drinking, underground dealings, or nightlife come up."
 ---
 ```
-- **Priority 50** = standard importance
-- Keys include the name AND generic terms that would trigger it
 
-### 3. A Lore Concept Entry
+- **Priority 50** is the standard middle priority
+- Keys cover both the proper name and generic terms that should trigger it
+
+### A lore-concept entry
+
 ```yaml
 ---
 tags: [lorebook]
@@ -51,83 +56,91 @@ priority: 35
 summary: "The biological dependency created when a vampire feeds from a mortal. Select when feeding, biting, addiction, or chattel dynamics come up."
 ---
 ```
-- **Priority 35** = core lore
+
+- **Priority 35** for core worldbuilding
 - Multiple keyword variants catch different phrasings
 
-## Constants vs Triggered Entries
+## Constants, bootstrap, and seed entries
 
-- **Regular entries** (just `lorebook` tag): Only injected when keywords match
-- **Constants** (add `lorebook-always` tag): Always injected, every generation. Use for core world rules, character sheets, or writing instructions
-- **Bootstrap entries** (add `lorebook-bootstrap` tag): Force-injected when chat is short (first few messages), then become regular entries
-- **Seed entries** (add `lorebook-seed` tag): Content sent to AI as context for better entry selection on new chats (NOT injected into the writing AI)
+Tag combinations control when entries fire:
 
-**Rule of thumb:** Keep constants minimal. Every constant uses context budget on every generation.
+- **Regular entries** (just the `lorebook` tag): inject only when keywords match (or when AI search picks them in two-stage mode)
+- **Constants** (add `lorebook-always`): always inject on every generation. Use for core world rules, persistent character sheets, writing instructions
+- **Bootstrap entries** (add `lorebook-bootstrap`): force-inject when chat is short (first few messages), then revert to regular matching once chat history grows
+- **Seed entries** (add `lorebook-seed`): sent to AI search as story context on new chats, never injected into the writing AI
 
-## Tuning Scan Depth and Budget
+Keep constants minimal. Every constant spends context budget on every generation.
 
-### Scan Depth
-How many recent chat messages DeepLore scans for keywords:
-- **2-3**: Only matches recent conversation topics (responsive but narrow)
-- **4-6**: Good default balance (recommended starting point)
-- **8-10**: Broader matching, may pull in less relevant entries
-- **0**: Disables keyword scanning entirely (use with AI-only mode)
+## Tune scan depth and budget
 
-### Token Budget
-Maximum tokens DeepLore can inject per generation:
-- **1000-2000**: Conservative, good for smaller contexts
-- **3000-5000**: Balanced, works for most setups
-- **Unlimited**: Let DeepLore use as much as it needs (watch your context usage)
+### Scan depth
 
-Start with **scan depth 4** and **budget 3000**, then adjust based on `/dle-inspect` results.
+How many recent chat messages DLE scans for keywords:
 
-## Enabling AI Search
+- **2 to 3:** matches recent conversation only. Responsive but narrow
+- **4 to 6:** the default. Good balance
+- **8 to 10:** broader matching, may pull in less relevant entries
+- **0:** disables keyword scanning entirely. Use only with AI-only mode
 
-When you're ready for smarter matching:
+### Token budget
 
-1. Go to **Search Mode** → select **Two-Stage**
-2. In the **AI Search** section of settings, pick a connection mode:
-   - **Profile**: Uses a SillyTavern Connection Manager profile (recommended)
-   - **Proxy**: Routes through a CORS proxy (for advanced setups)
-3. Select or create a connection profile with a fast, cheap model (Claude Haiku, GPT-4o-mini, etc.)
-4. Test with `/dle-status` — it should show "AI search: enabled"
+Maximum tokens DLE can inject per generation:
 
-AI search shines when your vault is large or entries have nuanced triggers that keywords can't capture.
+- **1000 to 2000:** conservative, good for smaller contexts
+- **3000 to 5000:** balanced, works for most setups
+- **Unlimited:** DLE uses as much as it needs. Watch your overall context usage
 
-## Checking Entry Quality
+Start with scan depth 4 and budget 3000, then adjust based on `/dle-inspect` output.
+
+## Enable AI search
+
+When you're ready to switch from keywords-only to two-stage:
+
+1. Go to **Settings → Matching → Search Mode** and select **Two-Stage**
+2. In **Settings → AI Search**, pick a connection mode:
+   - **Profile:** uses a SillyTavern Connection Manager profile (recommended)
+   - **Proxy:** routes through SillyTavern's CORS proxy to a custom endpoint (advanced)
+3. Select or create a connection profile pointed at a fast, cheap model (Haiku, GPT-4o-mini, or any local model that handles structured output well)
+4. Run `/dle-status`. It should show "AI search: enabled"
+
+AI search earns its keep when your vault is large or entries have nuanced triggers that keywords can't capture. Example from the README: a scene about "the consequences of breaking an oath" pulls in your Bloodchain entry without the word "Bloodchain" appearing.
+
+## Audit entry quality
 
 Run `/dle-health` regularly. It checks for:
+
 - Missing or empty keywords
 - Duplicate keywords across entries
-- Missing summaries (needed for AI search)
-- Entries too large (may dominate your budget)
+- Missing summaries (AI search needs them)
+- Oversized entries (may dominate your budget)
 - Broken wikilinks
 - Configuration issues
 
-Aim for grade **A** or **A+**.
+Aim for grade A or A+.
 
-## Verifying What's Injecting
+## Verify what's injecting
 
-Three tools help you see what's happening:
+Three diagnostics show what the pipeline picked:
 
-1. **`/dle-inspect`** — Shows the last pipeline trace: what matched, why, and what was injected
-2. **Context Cartographer** (book icon on AI messages) — Shows sources from the last generation with token counts
-3. **`/dle-simulate`** — Replays the entire chat showing which entries activate at each message
+1. **`/dle-inspect`:** shows the last pipeline trace. What matched, why, and what was injected
+2. **Context Cartographer** (book icon on AI messages): shows the per-message source list with token counts
+3. **`/dle-simulate`:** replays the entire chat showing which entries activate at each message
 
-## Common Early Mistakes
+## Common early mistakes
 
 | Mistake | Fix |
 |---------|-----|
-| Too many constants | Keep constants under 5-10. Use keywords for everything else |
-| Keywords too generic | "the", "and", "said" will match everything. Use specific terms |
+| Too many constants | Keep constants under 5 to 10. Use keywords for everything else |
+| Keywords too generic | "the", "and", "said" match everything. Use specific terms |
 | Keywords too specific | "Lord Vexathorn the Undying" won't match "Vexathorn". Add aliases |
-| No summaries | AI search needs summaries to work. Write them for every entry |
-| Huge entries (5000+ tokens) | Split into smaller focused entries or use scan depth overrides |
-| All priority 50 | Use the full range: 20 (critical), 35 (core), 50 (standard), 60+ (flavor) |
+| No summaries | AI search needs summaries to work. Write one for every entry |
+| Oversized entries (5000+ tokens) | Split into smaller focused entries or use scan-depth overrides |
+| Every entry at priority 50 | Use the full range: 20 (critical), 35 (core), 50 (standard), 60+ (flavor) |
 
-## Next Steps
+## Next steps
 
-- Read **[Features](Features)** for the full feature reference
-- Check **[AI Search](AI-Search)** for advanced AI configuration
-- See **[Writing Vault Entries](Writing-Vault-Entries)** for complete frontmatter reference
-- Browse **[Slash Commands](Slash-Commands)** for all available commands
-- If something breaks, check **[Troubleshooting](Troubleshooting)**
+- Read [[Features]] for the full feature reference
+- Check [[AI Search]] for advanced AI configuration
+- See [[Writing Vault Entries]] for the complete frontmatter reference
+- Browse [[Slash Commands]] for every available command
+- If something breaks, check [[Troubleshooting]]

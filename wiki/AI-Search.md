@@ -1,58 +1,63 @@
 # AI Search
 
-AI search adds a semantic understanding layer on top of keyword matching. Instead of only matching exact keywords, an AI model reads the recent chat context alongside a compact manifest of vault entries and selects which ones are contextually relevant, even when no exact keywords appear in the conversation.
-
-This is the feature that makes DeepLore Enhanced different from base DeepLore.
+AI search is the second pipeline stage that asks an AI to pick relevant entries from a compact manifest of candidates. It catches entries the chat needs even when no exact keyword appears. This is the layer DeepLore added on top of pure keyword matching.
 
 ![Drawer Browse tab showing AI-matched entries with contextual gating filter dropdowns and a highlighted entry selection](images/dle-browser.png)
 
----
-
-## How It Works
-
-When the **Search Mode** dropdown is set to Two-Stage or AI Only, every generation goes through a two-part process:
-
-1. **Build a manifest.** A compact summary of candidate entries is assembled (see [Manifest Format](#manifest-format) below)
-2. **Ask the AI.** The manifest, a system prompt, and recent chat messages are sent to an AI model, which returns a JSON array of selected entries with confidence levels and reasons
-
-The AI's selections (plus any constant/bootstrap entries) become the final set of entries injected into the prompt. See [[Pipeline]] for where AI search fits in the full generation flow.
+> [!NOTE]
+> Two-stage mode is the default and what you want unless you have a reason. Keywords pre-filter, an AI ranks the candidates. Adds roughly one extra provider call per turn.
 
 ---
 
-## Search Modes
+## How it works
 
-DeepLore Enhanced offers two AI search modes, selected via the **Search Mode** dropdown in [[Settings Reference]]. The third option, **Keyword Only**, disables AI search entirely.
+When **Search Mode** is set to Two-Stage or AI Only, every generation runs:
 
-### Two-Stage (default)
+1. **Build a manifest.** A compact summary of candidate entries is assembled (see [Manifest format](#manifest-format) below).
+2. **Ask the AI.** The manifest, a system prompt, and recent chat messages are sent to an AI model. The model returns a JSON array of selected entries with confidence levels and reasons.
 
-Keywords run first as a broad pre-filter. Only keyword-matched candidates are sent to the AI for final selection. This is the recommended mode because it keeps the manifest small (fewer tokens, lower cost, faster responses).
+The selected entries (plus any constants and bootstrap entries) become the final injection set. See [[Pipeline]] for where AI search sits in the full flow.
+
+---
+
+## Search modes
+
+The **Search Mode** dropdown in [[Settings Reference]] picks the mode. Three options:
+
+### Two-stage (default)
+
+Keywords run first as a broad pre-filter. Only keyword-matched candidates are sent to the AI. This keeps the manifest small (fewer tokens, lower cost, faster responses).
 
 | Step | What happens |
-|------|--------------|
+|---|---|
 | 1. Keyword scan | Matches entries against recent chat using `keys` |
 | 2. Build manifest | Only keyword-matched entries are included |
 | 3. AI selection | AI picks the most relevant from the candidates |
 | 4. Output | AI selections + constants = final injection set |
 
-**Error fallback:** If the AI returns an error or times out, the keyword results are used as-is. If the AI intentionally returns an empty array `[]`, only constants are injected.
+**Error fallback:** AI error or timeout falls back to keyword results. AI returns `[]` (intentionally empty) and only constants are injected.
 
-### AI Only
+### AI only
 
-Skips keyword matching entirely. A manifest of **all** non-constant vault entries is sent to the AI. More thorough (the AI can find entries that have no keyword overlap with the chat) but uses more tokens and takes longer.
+Skips keyword matching entirely. A manifest of **all** non-constant vault entries is sent to the AI. More thorough (the AI can pick entries with no keyword overlap with chat) but costs more tokens and takes longer.
 
 | Step | What happens |
-|------|--------------|
+|---|---|
 | 1. Build manifest | All non-constant entries are included |
 | 2. AI selection | AI picks the most relevant from the full vault |
 | 3. Output | AI selections + constants = final injection set |
 
-**Error fallback:** If the AI returns an error or times out, falls back to keyword matching (same behavior as Two-Stage error fallback). If the AI intentionally returns an empty array `[]`, only constants are injected.
+**Error fallback:** AI error or timeout falls back to keyword matching. AI returns `[]` and only constants are injected.
+
+### Keyword only
+
+Disables AI search entirely. Pure keyword + BM25 fuzzy matching, like base DeepLore. Free.
 
 ---
 
-## Connection Modes
+## Connection modes
 
-AI search needs an AI model to call. DeepLore Enhanced supports two ways to connect.
+AI search needs an AI model to call. Two connection modes are available.
 
 ### Connection Profile (recommended)
 
@@ -60,24 +65,24 @@ Uses a saved SillyTavern Connection Manager profile. Any provider works: Anthrop
 
 - No separate proxy or server needed
 - Calls are made client-side via `ConnectionManagerRequestService`
-- You can override the model (e.g., use a cheap/fast model like Haiku even if your profile defaults to a larger model)
+- You can override the model (e.g., a cheap, fast Haiku-class model even if your profile defaults to a larger one)
 - The profile dropdown shows all compatible saved profiles
 
-**Setup:** In AI Search settings, set connection mode to **Connection Profile**, select a profile from the dropdown, and optionally set a model override. Click **Test AI Search** to verify.
+**Setup:** in AI Search settings, set connection mode to **Connection Profile**, select a profile from the dropdown, and optionally set a model override. Click **Test AI Search** to verify.
 
 ### Custom Proxy
 
-Routes AI requests through an external proxy server that exposes an Anthropic-compatible Messages API at `/v1/messages`. Requests are routed through SillyTavern's built-in CORS proxy (`enableCorsProxy: true` required in `config.yaml`).
+Routes AI requests through an external proxy server that exposes an Anthropic-compatible Messages API at `/v1/messages`. Requests pass through SillyTavern's built-in CORS proxy (`enableCorsProxy: true` required in `config.yaml`).
 
 This mode exists primarily for [claude-code-proxy](https://github.com/horselock/claude-code-proxy) users.
 
-**Setup:** In AI Search settings, set connection mode to **Custom Proxy**, enter the proxy URL (e.g., `http://localhost:42069`), set the model name (e.g., `claude-haiku-4-5-20251001`), and click **Test AI Search** to verify. Make sure `enableCorsProxy: true` is set in `config.yaml`.
+**Setup:** set connection mode to **Custom Proxy**, enter the proxy URL (e.g., `http://localhost:42069`), set the model name (e.g., `claude-haiku-4-5-20251001`), and click **Test AI Search**. Confirm `enableCorsProxy: true` is set in `config.yaml`.
 
 ---
 
-## Manifest Format
+## Manifest format
 
-The manifest is a compact representation of entries sent to the AI. Each entry looks like this:
+The manifest is the compact entry list sent to the AI. Each entry looks like this:
 
 ```xml
 <entry name="EntryName">
@@ -90,35 +95,35 @@ Summary of the next entry.
 </entry>
 ```
 
-- **`<entry name="...">`:** Each entry is wrapped in XML delimiters to prevent summary content from being interpreted as manifest-level instructions.
-- **`(Ntok)`:** Estimated token cost of the full entry content. Helps the AI consider budget when selecting.
-- **`→`:** Shows wikilink relationships to other entries. Helps the AI follow relationship chains.
-- **Summary text:** Comes from the `summary` frontmatter field if present. Otherwise, the entry content is truncated to the **Manifest Summary Length** setting (default 600 characters).
+- **`<entry name="...">`:** XML delimiters prevent summary content from being interpreted as manifest-level instructions
+- **`(Ntok)`:** estimated token cost of the full entry content. Lets the AI consider budget when selecting.
+- **`→`:** wikilink relationships to other entries. Lets the AI follow chains.
+- **Summary text:** comes from the `summary` frontmatter field if present. Otherwise the entry content is truncated to **Manifest Summary Length** (default 600 characters).
 
-The manifest also includes a header that tells the AI:
+The manifest header tells the AI:
 - How many candidate entries are in the manifest
-- Total number of non-constant selectable entries from the candidate pool (in two-stage mode this is the keyword-matched count, not the full vault count)
+- Total non-constant selectable entries from the candidate pool (in two-stage mode this is the keyword-matched count, not the full vault count)
 - How many entries are always included (constants) and their token cost
 - Token budget (if not unlimited)
 
-### Why `summary` Fields Matter
+### Why `summary` fields matter
 
-If an entry has a `summary` in its frontmatter, that summary is used in the manifest instead of truncated content. Good summaries help the AI make better selections because they describe *when* to select the entry, not just what the entry contains. See [[Writing Vault Entries]] for summary guidelines.
+If an entry has a `summary` frontmatter field, that summary goes into the manifest instead of truncated content. Good summaries describe *when* to select the entry, not just what it contains. See [[Writing Vault Entries]] for summary guidelines.
 
 ---
 
-## The AI System Prompt
+## The AI system prompt
 
 The default system prompt instructs the AI to:
 
-- Act as a lore librarian for a roleplay session
+- Act as a lore librarian for the roleplay
 - Select up to `{{maxEntries}}` entries (replaced with your Max Entries setting)
-- Follow a priority order for selection:
-  1. **Direct references:** Characters, places, items, or events explicitly mentioned
-  2. **Active context:** Current location, present characters, ongoing events
-  3. **Relationship chains:** Follow `->` links between related entries
-  4. **Metadata triggers:** Match `[Triggers: ...]` fields against the conversation
-  5. **Thematic relevance:** Tone and theme matching (betrayal, romance, combat, etc.)
+- Follow this priority order:
+  1. **Direct references:** characters, places, items, or events explicitly mentioned
+  2. **Active context:** current location, present characters, ongoing events
+  3. **Relationship chains:** follow `→` links between related entries
+  4. **Metadata triggers:** match `[Triggers: ...]` fields against the conversation
+  5. **Thematic relevance:** tone and theme matching (betrayal, romance, combat, etc.)
 - Prefer fewer, highly relevant entries over many loosely related ones
 - Consider token cost when selecting
 - Return a JSON array: `[{"title": "...", "confidence": "high|medium|low", "reason": "..."}]`
@@ -128,49 +133,46 @@ You can fully customize the system prompt in [[Settings Reference]]. The `{{maxE
 
 ---
 
-## Caching (Sliding Window)
+## Sliding window cache
 
-AI search uses a sliding window cache strategy to minimize redundant API calls:
+AI search uses a single-entry sliding window cache to skip redundant API calls.
 
 - The **manifest** and **chat context** are hashed separately
 - If both hashes match the previous call, cached results are reused (exact match)
 - If the manifest hash matches but chat has new messages, the cache checks whether the new messages contain any **entity names or keys** from the vault:
-  - If no vault entities are mentioned in the new messages, cached results are reused (the new messages are irrelevant to lore selection)
-  - If vault entities are mentioned, the cache is invalidated and a fresh AI call is made
+  - No vault entities mentioned: cached results are reused (the new messages are irrelevant to lore selection)
+  - Vault entities mentioned: cache invalidated, fresh AI call made
 - **Regenerations and swipes** always reuse cached results (same chat context)
-- The cache is **single-entry**, storing only the most recent result
 - Cache is cleared on chat change
 
-Cache hits are tracked in the AI Stats display (see below).
+Cache hits show in the AI Stats display.
 
 ---
 
-## New Chat Behavior
+## New chat behavior
 
-When the chat is below the **New Chat Threshold** (default 3 messages), AI search behaves differently to help the AI understand a new conversation:
+When the chat is below **New Chat Threshold** (default 3 messages), AI search behaves differently to help the AI understand a fresh conversation:
 
-### Seed Entries
+### Seed entries
 
-Entries tagged with `#lorebook-seed` have their full content sent to the AI as **story context**, prepended before the chat messages. This gives the AI rich setting information even when the chat itself contains very little.
+Entries tagged `lorebook-seed` have their full content sent to the AI as **story context**, prepended before the chat messages. This provides rich setting information when the chat itself is sparse.
 
-### Bootstrap Entries
+### Bootstrap entries
 
-Entries tagged with `#lorebook-bootstrap` are **force-injected** like constants and removed from the manifest. They provide essential context for the start of a conversation.
+Entries tagged `lorebook-bootstrap` are **force-injected** like constants and removed from the manifest. They cover essentials at the start of a conversation.
 
-### Aggressive Selection
+### Aggressive selection
 
-On new chats, the AI is instructed to fill to `maxEntries - constantCount` selections instead of being conservative. This ensures rich context from the very first message.
+On new chats, the AI is told to fill to `maxEntries - constantCount` selections instead of being conservative. This ensures rich context from the very first message.
 
 See [[Writing Vault Entries]] for how to tag entries as seed or bootstrap.
 
 ---
 
-## Error Handling
+## Error handling
 
-AI search is designed to degrade gracefully:
-
-| Situation | Two-Stage behavior | AI-Only behavior |
-|-----------|-------------------|-----------------|
+| Situation | Two-stage behavior | AI-only behavior |
+|---|---|---|
 | AI returns error | Fall back to keyword results | Fall back to keyword matching |
 | AI times out | Same as error | Same as error |
 | AI returns `[]` | Only constants injected | Only constants injected |
@@ -178,81 +180,86 @@ AI search is designed to degrade gracefully:
 | No chat context | Skip AI search entirely | Skip AI search entirely |
 | AI search disabled | Keywords only (base DeepLore behavior) | N/A |
 
-The timeout is configurable (default 10,000ms, range 1,000-120,000ms). Local LLMs may need 60,000-120,000ms; cloud APIs typically respond in 5,000-15,000ms.
+The timeout is configurable (default 10000ms, range 1000-120000ms). Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.
+
+**Circuit breaker:** AI search trips after 2 consecutive failures and stays open for 30 seconds. A successful half-open probe resets it.
 
 ---
 
-## AI Stats
+## AI stats
 
-The AI Search section of the settings panel displays session statistics:
+The AI Search section of the settings panel shows session statistics:
 
-- **AI Calls:** Number of API calls made this session
-- **Cache Hits:** Number of times cached results were reused
-- **Input Tokens:** Estimated total input tokens sent (proxy mode only; profile mode does not report usage)
-- **Output Tokens:** Estimated total output tokens received (proxy mode only)
+- **AI Calls:** API calls made this session
+- **Cache Hits:** times cached results were reused
+- **Input Tokens:** estimated total input tokens sent
+- **Output Tokens:** estimated total output tokens received
 
-These stats are **session-scoped** — they accumulate across chat switches and reset only on page refresh. This is intentional: they track your total AI search usage for the browser session, not per-chat.
+Both connection modes report token usage (profile mode falls back to `prompt_tokens` / `completion_tokens` if the provider returns those instead of `input_tokens` / `output_tokens`).
 
----
-
-## Hierarchical Manifest Clustering
-
-For large vaults (40+ selectable entries with 4+ distinct categories), AI search automatically uses a two-call approach:
-
-1. **Cluster entries by category** — categories are extracted from tags and type fields
-2. **First AI call: category selection** — a compact category manifest is sent to the AI, which selects relevant categories
-3. **Second AI call: entry selection** — only entries in the selected categories are included in the normal manifest
-
-**Safety valve:** If the category filter removes more than 80% of entries, the pre-filter is skipped and the full manifest is used instead. This prevents overly aggressive AI category selection from hiding relevant entries.
-
-**When it activates:** Automatically when the vault has 40+ selectable (non-constant) entries and 4+ distinct categories. No settings to configure.
+These stats are **session-scoped**. They accumulate across chat switches and reset only on page refresh, by design. They track total AI search usage for the browser session, not per-chat.
 
 ---
 
-## Prompt Cache Optimization
+## Hierarchical manifest clustering
 
-In **Custom Proxy mode**, the manifest is placed first in the message payload with `cache_control` breakpoints. This leverages Anthropic's prompt caching: the manifest (which rarely changes between calls in the same chat) is cached server-side, reducing token costs on subsequent calls.
+For large vaults (40+ selectable entries with 4+ distinct categories), AI search optionally uses a two-call approach:
 
-This only applies to Custom Proxy mode. Connection Profile mode does not support `cache_control` breakpoints.
+1. **Cluster entries by category** (extracted from tags and type fields)
+2. **First AI call: category selection.** A compact category manifest is sent; the AI picks relevant categories.
+3. **Second AI call: entry selection.** Only entries in the selected categories are included in the normal manifest.
 
----
+**Safety valve:** if the category filter would remove more than the configured threshold of entries (default 80%, controlled by **Category Filtering Strength** / `hierarchicalAggressiveness`, range 0.0-0.8), the pre-filter is skipped and the full manifest is used. Prevents overly aggressive AI category selection from hiding relevant entries.
 
-## Scribe-Informed Retrieval
-
-When enabled, the Session Scribe's latest summary is fed into the AI search context as additional story background. This gives the AI search a broader narrative perspective beyond just the most recent chat messages.
-
-**Setup:** Enable "Scribe-Informed Retrieval" in [[Settings Reference|AI Search settings]].
+**When it activates:** automatically when the vault has 40+ selectable (non-constant) entries and 4+ distinct categories, AND `hierarchicalPreFilter` is enabled.
 
 ---
 
-## Confidence-Gated Budget
+## Prompt cache optimization
 
-AI search over-requests entries from the AI (2x the configured max entries), then sorts the results by confidence tier:
+In **Custom Proxy mode**, the manifest is placed first in the message payload with `cache_control` breakpoints. This lets Anthropic's prompt caching reuse the manifest server-side (it rarely changes between calls in the same chat), reducing token costs on subsequent calls.
 
-1. **High confidence** entries are prioritized
+Custom Proxy mode only. Connection Profile mode does not support `cache_control` breakpoints.
+
+---
+
+## Scribe-informed retrieval
+
+When enabled, the [[AI Powered Tools|Session Scribe]]'s latest summary is fed into the AI search context as additional story background. This widens what AI search can reason about beyond the recent chat messages.
+
+**Setup:** enable **Scribe-Informed Retrieval** in [[Settings Reference|AI Search settings]].
+
+---
+
+## Confidence-gated budget
+
+AI search over-requests entries from the AI (2x the configured max entries), then sorts results by confidence tier:
+
+1. **High confidence** entries fill first
 2. **Medium confidence** entries fill remaining budget
 3. **Low confidence** entries only if budget remains
 
-This ensures that when budget is limited, the most relevant entries are always included.
+Ensures that when budget is limited, the most relevant entries are always included.
 
 ---
 
-## Performance Tips
+## Performance tips
 
-- **Write `summary` fields** on your entries. This avoids content truncation in the manifest and gives the AI better information for selection. See [[Writing Vault Entries]].
-- **Use Two-Stage mode** to reduce manifest size. Keywords pre-filter the candidates, so the AI only sees relevant entries instead of the entire vault.
-- **Keep Manifest Summary Length reasonable.** The default of 600 characters is a good balance. Longer summaries use more tokens; shorter ones give the AI less to work with.
-- **Keep AI Scan Depth low.** The default of 4 messages is usually sufficient. Higher values send more chat history to the AI, increasing token cost.
-- **Use a fast, cheap model.** The AI search task is simple classification. Haiku-class models handle it well and respond quickly. You do not need a frontier model for this.
-- **Let caching work for you.** Regenerations and swipes are free (cached). The sliding window cache is even smarter — new messages that don't mention vault entities also reuse cached results.
-- **Enable Scribe-Informed Retrieval** if you use Session Scribe. The narrative context helps the AI make better selections for ongoing story arcs.
+- **Write `summary` fields** on your entries. Avoids content truncation in the manifest and gives the AI better information for selection. See [[Writing Vault Entries]].
+- **Use Two-Stage mode** to reduce manifest size. Keywords pre-filter; the AI only sees relevant entries instead of the entire vault.
+- **Keep Manifest Summary Length reasonable.** The default of 600 characters is a good balance.
+- **Keep AI Scan Depth low.** The default of 4 messages is usually enough. Higher values send more chat history to the AI, increasing token cost.
+- **Use a fast, cheap model.** AI search is simple classification. Haiku-class models handle it well and respond quickly. You do not need a frontier model.
+- **Let the cache work.** Regenerations and swipes are free. The sliding window cache also reuses results when new messages don't mention vault entities.
+- **Enable Scribe-Informed Retrieval** if you use Session Scribe. The narrative context helps for ongoing story arcs.
 
 ---
 
-## Related Pages
+## Related pages
 
-- [[Pipeline]]: Where AI search fits in the full generation flow
-- [[Settings Reference]]: All AI search settings documented
-- [[Writing Vault Entries]]: How to write entries and summaries that work well with AI search
-- [[Features]]: Overview of all DeepLore Enhanced features
-- [[Installation]]: How to set up AI search connections
+- [[Pipeline]]: where AI search fits in the full generation flow
+- [[Settings Reference]]: every AI search setting documented
+- [[Writing Vault Entries]]: how to write entries and summaries that work well with AI search
+- [[AI Powered Tools]]: Session Scribe, Auto Lorebook, the Librarian, and other AI features
+- [[Features]]: overview of all DeepLore features
+- [[Installation]]: how to set up AI search connections

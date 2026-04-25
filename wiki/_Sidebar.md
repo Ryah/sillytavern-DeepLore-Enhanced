@@ -1,13 +1,14 @@
-**DeepLore Enhanced Wiki**
+**DeepLore Wiki**
 
-**Getting Started**
+**Getting started**
 - [[What is DeepLore]]
 - [[Installation]]
 - [[Quick Start]]
 - [[First Steps]]
+- [[Setup Wizard]]
 - [[For World Info Users]]
 
-**Reference**
+**Features**
 - [[Features]]
   - [[Drawer]]
   - [[Inspection and Diagnostics]]
@@ -18,7 +19,8 @@
   - [[AI Notepad]]
   - [[Infrastructure]]
   - [[Setup and Import]]
-  - [[Setup Wizard]]
+
+**Reference**
 - [[Writing Vault Entries]]
 - [[AI Search]]
 - [[Pipeline]]
@@ -28,4 +30,5 @@
 
 **Help**
 - [[Troubleshooting]]
+- [[FAQ]]
 - [[Roadmap]]

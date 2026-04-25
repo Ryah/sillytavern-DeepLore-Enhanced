@@ -1,8 +1,8 @@
 # Writing Vault Entries
 
-This page explains how to create lorebook entries in your Obsidian vault for DeepLore Enhanced. Every template below is a complete, working example you can copy into a new Obsidian note and modify.
+This page explains how to create lorebook entries in your Obsidian vault for DeepLore. Every template below is a complete, working example you can copy into a new Obsidian note and modify.
 
-## How It Works
+## How it works
 
 1. You write notes in Obsidian with YAML frontmatter
 2. Notes tagged with `#lorebook` are indexed as lorebook entries
@@ -11,7 +11,7 @@ This page explains how to create lorebook entries in your Obsidian vault for Dee
 
 That's it. Tag it, give it keywords, write your lore.
 
-## Frontmatter Fields Reference
+## Frontmatter fields reference
 
 Every entry needs YAML frontmatter between `---` fences at the top of the file. Only `tags` (with `lorebook`) is strictly required, but you'll almost always want `keys` too.
 
@@ -24,27 +24,29 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | `requires` | array | `[]` | Entry titles that must ALL be matched for this entry to activate. |
 | `excludes` | array | `[]` | Entry titles that, if ANY are matched, block this entry. |
 | `position` | string | *(global setting)* | Override injection position: `before`, `after`, or `in_chat`. |
-| `depth` | number | *(global setting)* | Override injection depth (for `in_chat` position). |
+| `depth` | number | *(global setting)* | Override injection depth (for `in_chat` position). Clamped to 0-10000. |
 | `role` | string | *(global setting)* | Override injection role: `system`, `user`, or `assistant`. |
 | `scanDepth` | number | *(global setting)* | Override how many recent messages to scan for this entry's keywords. |
 | `excludeRecursion` | boolean | `false` | If `true`, this entry is skipped during recursive link scanning. |
-| `constant` | boolean | `false` | If `true`, this entry is always injected regardless of keywords or AI. Alternative to the `#lorebook-always` tag. |
+| `constant` | boolean | `false` | If `true`, this entry is always injected regardless of keywords or AI. Equivalent to the `#lorebook-always` tag. |
 | `refine_keys` | array | `[]` | Secondary keywords. If set, at least one refine key must **also** match (alongside a primary `keys` match) for the entry to trigger. Acts as an AND filter to reduce false positives. |
 | `cascade_links` | array | `[]` | Entry titles to automatically pull in when this entry matches. Unlike wikilink recursion, cascade links are pulled unconditionally (no keyword check needed). |
 | `cooldown` | number | *(none)* | After triggering, skip this entry for N generations. |
 | `warmup` | number | *(none)* | Require the keyword to appear N or more times in the scan text before triggering. |
 | `probability` | number | *(none)* | Chance of triggering when matched (0.0-1.0). Omit or set to 1.0 for always trigger. |
-| `enabled` | boolean | `true` | Set to `false` to completely skip this entry during indexing. The entry won't appear in the vault index at all. Useful for temporarily disabling an entry without removing the `#lorebook` tag. |
-| `era` | string \| string[] | *(none)* | Contextual gating (default custom field): only inject when the active era matches one of these values. See [[Features#Contextual Gating]]. |
+| `enabled` | boolean | `true` | Set to `false` to skip this entry entirely during indexing. The entry won't appear in the vault index at all. Useful for temporarily disabling an entry without removing the `#lorebook` tag. |
+| `outlet` | string | *(none)* | Macro-based injection: when set, the entry is injected wherever you place the `{{outlet::name}}` macro instead of using positional injection. |
+| `era` | string \| string[] | *(none)* | Contextual gating (default custom field): only inject when the active era matches one of these values. See [[Custom Fields]]. |
 | `location` | string \| string[] | *(none)* | Contextual gating (default custom field): only inject when the active location matches one of these values. |
 | `scene_type` | string \| string[] | *(none)* | Contextual gating (default custom field): only inject when the active scene type matches one of these values. |
 | `character_present` | array | `[]` | Contextual gating (default custom field): only inject when any listed character is among the present characters. |
-| *(custom fields)* | varies | *(none)* | You can define additional custom gating fields beyond the four defaults. Field definitions are stored in `DeepLore/field-definitions.yaml` in your vault and managed via the "Manage Fields" rule builder. See [[Features#Contextual Gating]]. |
+| *(custom fields)* | varies | *(none)* | You can define additional custom gating fields beyond the four defaults. Field definitions are stored in `DeepLore/field-definitions.yaml` in your vault and managed via the "Manage Fields" rule builder. See [[Custom Fields]]. |
 | `graph` | boolean | `true` | Set to `false` to exclude this entry from the relationship graph. The entry still works normally for matching and injection. Useful for test entries, meta entries, or entries that add noise to the graph without meaningful connections. |
 
-> **Note:** Frontmatter uses underscores (`scene_type`, `character_present`), but internally these are stored as camelCase (`sceneType`, `characterPresent`) on VaultEntry objects. Use underscores in your notes.
+> [!NOTE]
+> Frontmatter uses underscores (`scene_type`, `character_present`), but internally these are stored as camelCase (`sceneType`, `characterPresent`) on VaultEntry objects. Use underscores in your notes.
 
-### Priority Guidelines
+### Priority guidelines
 
 | Range | Use For | Examples |
 |-------|---------|---------|
@@ -54,7 +56,7 @@ Every entry needs YAML frontmatter between `---` fences at the top of the file. 
 | 60-70 | Secondary, flavor | Minor characters, background details |
 | 80-100 | Low priority, rare | Obscure trivia, edge cases |
 
-### Special Tags
+### Special tags
 
 Add these alongside `#lorebook` to change how an entry behaves:
 
@@ -64,11 +66,15 @@ Add these alongside `#lorebook` to change how an entry behaves:
 | `#lorebook-always` | **Constant.** Always injected regardless of keywords or AI. |
 | `#lorebook-never` | **Excluded.** Never injected, even if keywords match. |
 | `#lorebook-seed` | **Seed.** Content is sent to the AI search model as story context on new chats. Not injected into the writing AI. |
-| `#lorebook-bootstrap` | **Bootstrap.** Force-injected when the chat is short (below the New Chat Threshold, default 3 messages), then becomes a regular keyword entry. |
+| `#lorebook-bootstrap` | **Bootstrap.** Force-injected when the chat is short (at or below the new chat threshold, default 3 messages), then becomes a regular keyword entry. |
+| `#lorebook-guide` | **Guide.** Librarian-only writing/style reference. Emma fetches via `get_writing_guide`. Never reaches the writing AI through any path. |
 
 Tags are configurable in [[Settings Reference]]. The defaults above assume you haven't changed them.
 
-## Content Structure
+> [!IMPORTANT]
+> If an entry has both `#lorebook-guide` and any of `#lorebook-seed` / `#lorebook-bootstrap` / `#lorebook`, the `guide` flag wins at runtime: the entry stays Librarian-only.
+
+## Content structure
 
 After the frontmatter, write your entry content in regular Markdown. The recommended structure is:
 
@@ -89,7 +95,7 @@ The `<div class="meta-block">` is optional but recommended. It provides a compac
 
 Use `[[wikilinks]]` to reference other entries in your vault. DeepLore uses these links for recursive scanning. If entry A is matched and links to entry B, entry B becomes a candidate too.
 
-## Writing Good Summaries
+## Writing good summaries
 
 The `summary` field is used **only** by [[AI Search]] to decide whether to select an entry. It is never injected into the writing AI's context (the full content handles that).
 
@@ -107,15 +113,15 @@ A good summary answers three questions:
 **Good summary** (lore concept):
 > "The biological dependency created when a vampire feeds from a mortal. Select when feeding, biting, addiction, venom, feeding sites, or chattel dynamics come up. Scales with vampire age."
 
-Keep summaries under 600 characters (recommended, not enforced). Focus on *when to select*, not *what to write*.
+Keep summaries under 600 characters (recommended, not enforced; configurable via `aiSearchManifestSummaryLength`). Focus on *when to select*, not *what to write*.
 
 ---
 
-## What Each AI Sees
+## What each AI sees
 
 Your vault entry is used by two different AIs that see very different things. Understanding the difference helps you write better entries and summaries.
 
-### The Selection AI (AI Search manifest)
+### The selection AI (AI Search manifest)
 
 The selection AI **never sees your full entry**. It sees a compact one-line manifest entry and uses it to decide whether your entry is relevant to the current conversation:
 
@@ -135,7 +141,7 @@ Close ally of Sera and rival of Korrath.
 | `→ Ashwick Estate, ...` | Extracted from `[[wikilinks]]` in content | Shows relationships to other entries |
 | Summary text | `summary` frontmatter field | Tells the AI *when* to select this entry |
 
-If an entry has no `summary` field, the content is truncated to ~600 characters instead. This is why writing good summaries matters — the selection AI's only context for your entry is this compact view.
+If an entry has no `summary` field, the content is truncated to ~600 characters instead. Writing good summaries matters: the selection AI's only context for your entry is this compact view.
 
 An entry without a summary or wikilinks gets an even simpler manifest line:
 
@@ -146,7 +152,7 @@ A crumbling fortress on the northern ridge, now home to bandits and bad memories
 </entry>
 ```
 
-### The Writing AI (injected context)
+### The writing AI (injected context)
 
 When an entry is selected, the writing AI sees your **cleaned content** wrapped in the injection template (default: `<Title>content</Title>`). Several things are automatically stripped before injection:
 
@@ -172,11 +178,11 @@ Valen fights with twin short swords and weaves shadow magic between strikes...
 ```
 
 Notice what changed compared to the raw Obsidian note:
-- The **first H1 heading** (`# Valen Ashwick`) is stripped — it's redundant with the XML wrapper title
-- **Wikilinks** are converted to plain text: `[[Sera Thornwick]]` → `Sera Thornwick`, `[[Link|Display]]` → `Display`
-- **HTML div tags** are stripped (the content inside is kept, so meta-blocks still work)
-- **Image embeds** (`![[image.png]]`, `![alt](url)`) are removed
-- **Obsidian comments** (`%%...%%`) are removed
+- The **first H1 heading** (`# Valen Ashwick`) is stripped. It's redundant with the XML wrapper title.
+- **Wikilinks** are converted to plain text: `[[Sera Thornwick]]` becomes `Sera Thornwick`, `[[Link|Display]]` becomes `Display`.
+- **HTML div tags** are stripped (the content inside is kept, so meta-blocks still work).
+- **Image embeds** (`![[image.png]]`, `![alt](url)`) are removed.
+- **Obsidian comments** (`%%...%%`) are removed.
 
 | What's included | What's NOT included |
 |-----------------|---------------------|
@@ -185,9 +191,9 @@ Notice what changed compared to the raw Obsidian note:
 | Wikilink text (converted to plain text) | Wikilink brackets and image embeds |
 | Content outside exclusion zones | `%%deeplore-exclude%%` regions (see below) |
 
-### Hiding Content from the Writing AI
+### Hiding content from the writing AI
 
-You can put information in your vault entries that **never reaches the writing AI**. This is useful for author notes, organizational metadata, or reference material you want in Obsidian but not in the prompt.
+You can put information in your vault entries that **never reaches the writing AI**. Useful for author notes, organizational metadata, or reference material you want in Obsidian but not in the prompt.
 
 **Obsidian comments (`%%...%%`):** Anything between double-percent markers is stripped. Obsidian also hides these in reading mode, so they work as true hidden comments.
 
@@ -223,7 +229,7 @@ He joined the Ironveil Guild at 19.
 
 Both methods are also invisible to the selection AI's manifest (summaries and content truncation happen after cleaning).
 
-The `summary` is for the selection AI. The content is for the writing AI. They serve different purposes — write them accordingly.
+The `summary` is for the selection AI. The content is for the writing AI. Two purposes, two surfaces. Write each accordingly.
 
 ---
 
@@ -233,9 +239,9 @@ Every template below is a complete Obsidian note. Copy it into a new file, chang
 
 ---
 
-### 1. Minimum Viable Entry
+### 1. Minimum viable entry
 
-The simplest possible entry. Just a tag, a keyword, and some content.
+The simplest possible entry: a tag, a keyword, and some content.
 
 ```markdown
 ---
@@ -344,7 +350,7 @@ Maren keeps the peace with an iron voice and the threat of whatever lives beneat
 
 ---
 
-### 4. Lore / World-Building Concept
+### 4. Lore / world-building concept
 
 For magic systems, political structures, historical events, or any world-building concept.
 
@@ -425,7 +431,7 @@ Deserters are the Guild's greatest liability. [[Korrath]] leads a dedicated team
 
 ---
 
-### 6. Story / Plot Arc
+### 6. Story / plot arc
 
 For plot events, story arcs, or narrative beats. Story entries don't use `fileClass`.
 
@@ -464,7 +470,7 @@ If the Guild completes its army, they could challenge the northern lords directl
 
 ---
 
-### 7. Always-Send (Constant) Entry
+### 7. Always-send (constant) entry
 
 This entry is **always injected**, regardless of keywords or AI search. Use this for core world rules or setting context that should always be present.
 
@@ -489,11 +495,11 @@ This story is set in Greymarch, a low-fantasy setting where magic exists but is 
 - The gods are silent. Whether they exist is debated. No divine intervention occurs.
 ```
 
-Note: constant entries don't need `keys` or `summary` since they're always injected. You can still add them if you want the entry to also appear in AI search manifests.
+Constants don't need `keys` or `summary` since they're always injected. You can still add them if you want the entry to also appear in AI search manifests.
 
 ---
 
-### 8. Seed Entry
+### 8. Seed entry
 
 Seed entries provide story context to the **AI search model** at the start of new chats. They help the AI understand your setting so it can make better selection decisions. Seed content is **not** injected into the writing AI.
 
@@ -521,9 +527,9 @@ Key factions: [[Ironveil Guild]] (antagonist), the Northern Lords (fractured, un
 
 ---
 
-### 9. Bootstrap Entry
+### 9. Bootstrap entry
 
-Bootstrap entries are **force-injected when the chat is short** (below the New Chat Threshold, default 3 messages). After that, they become regular keyword entries. Use this for context that's essential in early messages but not needed once the conversation is established.
+Bootstrap entries are **force-injected when the chat is short** (at or below the new chat threshold, default 3 messages). After that, they become regular keyword entries. Use this for context that's essential in early messages but not needed once the conversation is established.
 
 ```markdown
 ---
@@ -549,7 +555,7 @@ Valen Ashwick is the protagonist. He's a half-elf spellsword, mid-30s, sardonic 
 
 ---
 
-### 10. Conditional Gating (Requires / Excludes)
+### 10. Conditional gating (requires / excludes)
 
 Use `requires` to make an entry activate only when other specific entries are also matched. Use `excludes` to block an entry when certain entries are present.
 
@@ -587,7 +593,7 @@ He keeps it wrapped in leather. When asked, he says it's a burn from a forge acc
 
 ---
 
-### 11. Per-Entry Injection Override
+### 11. Per-entry injection override
 
 Override where and how this specific entry is injected, regardless of global settings. See [[Settings Reference]] for the global defaults.
 
@@ -634,7 +640,7 @@ When writing Valen's internal thoughts, follow these guidelines:
 
 ---
 
-### 12. Cooldown and Warmup
+### 12. Cooldown and warmup
 
 **Cooldown** prevents an entry from triggering again for N generations after it fires. **Warmup** requires a keyword to appear N or more times total in the scan text before the entry triggers.
 
@@ -677,9 +683,9 @@ Locals don't comment on the weather unless it's unusually clear. Sunshine is sus
 
 ---
 
-### 13. Refine Keys (Secondary Keyword Filter)
+### 13. Refine keys (secondary keyword filter)
 
-`refine_keys` adds a secondary AND filter on top of primary keywords. When set, a primary `keys` match alone isn't enough -- at least one refine key must **also** appear in the scan text. This reduces false positives for entries with common keywords.
+`refine_keys` adds a secondary AND filter on top of primary keywords. When set, a primary `keys` match alone isn't enough: at least one refine key must **also** appear in the scan text. This reduces false positives for entries with common keywords.
 
 ```markdown
 ---
@@ -709,13 +715,13 @@ summary: "Ironveil Guild operational details. Select when Guild missions, contra
 Detailed operational procedures for the Guild...
 ```
 
-**How it works:** If "the Guild" appears in chat (primary match), the entry only triggers if at least one of `contract`, `mission`, `recruitment`, etc. also appears. Without refine keys, every mention of "the Guild" would pull this entry in.
+**How it works:** if "the Guild" appears in chat (primary match), the entry only triggers when at least one of `contract`, `mission`, `recruitment`, etc. also appears. Without refine keys, every mention of "the Guild" would pull this entry in.
 
 ---
 
-### 14. Cascade Links (Auto-Pull Related Entries)
+### 14. Cascade links (auto-pull related entries)
 
-`cascade_links` automatically pulls in other entries when the parent entry matches -- no keyword check needed for the linked entries. Unlike wikilink recursion (which scans for keywords), cascade links are unconditional.
+`cascade_links` automatically pulls in other entries when the parent entry matches. No keyword check needed for the linked entries. Unlike wikilink recursion (which scans for keywords), cascade links are unconditional.
 
 ```markdown
 ---
@@ -747,9 +753,9 @@ A ritual binding developed by the [[Ironveil Guild]]...
 
 ---
 
-### 15. Constant via Frontmatter
+### 15. Constant via frontmatter
 
-In addition to the `#lorebook-always` tag, you can make an entry constant by setting `constant: true` in frontmatter. Both methods are equivalent.
+Beyond the `#lorebook-always` tag, you can make an entry constant by setting `constant: true` in frontmatter. Both methods are equivalent.
 
 ```markdown
 ---
@@ -767,16 +773,16 @@ Core rules that should always be present in context...
 ```
 
 **When to use which:**
-- `#lorebook-always` tag: Quick, visible at a glance in Obsidian's tag system
-- `constant: true` field: Useful when you want to keep the tags array clean or when programmatically managing entries
+- `#lorebook-always` tag: quick, visible at a glance in Obsidian's tag system
+- `constant: true` field: useful when you want to keep the tags array clean or when programmatically managing entries
 
 ---
 
-### 16. Contextual Gating
+### 16. Contextual gating
 
 Use `era`, `location`, `scene_type`, and `character_present` fields to control when an entry injects based on the current story context. Set the active context with `/dle-set-era`, `/dle-set-location`, `/dle-set-scene`, `/dle-set-characters`, or use the generic `/dle-set-field <name> [value]` command.
 
-These four fields are the defaults that ship out of the box. You can add, remove, or modify gating fields via the "Manage Fields" rule builder (accessible from the Gating tab toolbar or Settings popup). Custom field definitions are stored in `DeepLore/field-definitions.yaml` in your vault. Each field has a type (`text`, `number`, `boolean`, `list`), a gating operator (`equals`, `contains`, `any_of`, `none_of`), and a tolerance level (`strict`, `moderate`, `lenient`).
+These four fields are the defaults that ship out of the box. You can add, remove, or modify gating fields via the "Manage Fields" rule builder (accessible from the Filters tab toolbar or Settings popup). Custom field definitions are stored in `DeepLore/field-definitions.yaml` in your vault. Each field has a type (`string`, `number`, `boolean`), a gating operator (`match_any`, `match_all`, `not_any`, `exists`, `not_exists`, `eq`, `gt`, `lt`), and a tolerance level (`strict`, `moderate`, `lenient`). See [[Custom Fields]] for the full schema.
 
 ```markdown
 ---
@@ -816,6 +822,33 @@ The Docks district has been the center of Greymarch's smuggling operations for d
 
 ---
 
+### 17. Outlet (macro-based injection)
+
+Use the `outlet` field to inject an entry wherever you place the `{{outlet::name}}` macro instead of using positional injection. Useful for recurring lore that should appear at a specific spot in a system prompt or character card.
+
+```markdown
+---
+tags:
+  - lorebook
+keys:
+  - house rules
+
+priority: 20
+outlet: house_rules
+summary: "Table rules block. Injected wherever {{outlet::house_rules}} appears in the prompt."
+---
+
+# House Rules
+
+- No metagaming.
+- One swipe, then commit.
+- Players narrate their own thoughts; the GM narrates the world.
+```
+
+Place `{{outlet::house_rules}}` in your system prompt, character card, or any prompt-list slot, and DLE substitutes the entry's cleaned content at that point. Outlet entries skip the normal positional injection.
+
+---
+
 ## Tips
 
 - **Start simple.** A tag and some keywords is enough. Add fields as you need them.
@@ -825,3 +858,4 @@ The Docks district has been the center of Greymarch's smuggling operations for d
 - **Summaries are for the search AI, not the writing AI.** Don't put character descriptions in summaries. Put *when to select this entry* in summaries.
 - **Priority matters for constants too.** Even always-send entries use priority to determine injection order.
 - **Don't over-tag.** An entry only needs `#lorebook`. Add special tags (`#lorebook-always`, etc.) only when you specifically need that behavior.
+- **Run `/dle-lint` after authoring.** Catches common frontmatter footguns (case-wrong field names, comma-string `keys`, quoted numerics, missing fences) at once.

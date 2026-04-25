@@ -1,7 +1,4 @@
-/**
- * DeepLore Enhanced — First-Run Setup Wizard
- * Multi-page wizard for new user onboarding.
- */
+/** DeepLore Enhanced — First-Run Setup Wizard */
 import { saveSettingsDebounced } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { renderExtensionTemplateAsync } from '../../../../../extensions.js';
@@ -13,10 +10,6 @@ import { buildIndex } from '../vault/vault.js';
 import { serializeFieldDefinitions, DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { parseWorldInfoJson, importEntries } from '../vault/import.js';
 
-// ════════════════════════════════════════════════════════════════════════════
-// Constants
-// ════════════════════════════════════════════════════════════════════════════
-
 const TOTAL_PAGES = 9;
 
 const PRESETS = {
@@ -25,31 +18,18 @@ const PRESETS = {
     large:  { scanDepth: 8,  maxEntries: 20, budget: 4096 },
 };
 
-// ════════════════════════════════════════════════════════════════════════════
-// State
-// ════════════════════════════════════════════════════════════════════════════
-
 let currentPage = 1;
 let connectionVerified = false;
-let aiConnectionVerified = false;
-let searchMode = 'keywords'; // tracks page 3 radio selection
-let importResult = null; // { imported, failed, renamed } from import page
+let searchMode = 'keywords';
+let importResult = null;
 let $wizard = null;
 
-// ════════════════════════════════════════════════════════════════════════════
-// Entry point
-// ════════════════════════════════════════════════════════════════════════════
-
-/**
- * Show the setup wizard popup.
- * @param {number} [startPage=1] - Page to start on (1-indexed)
- */
+/** @param {number} [startPage=1] 1-indexed page to start on */
 export async function showSetupWizard(startPage = 1) {
     const html = await renderExtensionTemplateAsync('third-party/sillytavern-DeepLore-Enhanced', 'setup-wizard');
 
     currentPage = 1;
     connectionVerified = false;
-    aiConnectionVerified = false;
     searchMode = 'keywords';
     importResult = null;
 
@@ -76,7 +56,6 @@ export async function showSetupWizard(startPage = 1) {
             wireDoneActions();
             wireStepIndicator();
 
-            // Jump to requested start page
             if (startPage > 1 && startPage <= TOTAL_PAGES) {
                 for (let i = 1; i < startPage; i++) markStepComplete(i);
                 goToPage(startPage);
@@ -86,10 +65,6 @@ export async function showSetupWizard(startPage = 1) {
         },
     });
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Prefill from existing settings
-// ════════════════════════════════════════════════════════════════════════════
 
 function prefillFromSettings() {
     const s = getSettings();
@@ -139,16 +114,11 @@ function prefillFromSettings() {
     if (s.librarianFlagEnabled !== undefined) $wizard.find('#dle-wiz-librarian-flag').prop('checked', s.librarianFlagEnabled);
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Navigation
-// ════════════════════════════════════════════════════════════════════════════
-
 function wireNavigation() {
     $wizard.find('#dle-wiz-prev').on('click', () => {
         let target = currentPage - 1;
-        // Skip Librarian page if keywords-only (no tool calling without AI)
+        // Skip AI (5) and Librarian (6) pages when keywords-only — no tool calling without AI.
         if (target === 6 && searchMode === 'keywords') target = 5;
-        // Skip AI page if keywords-only
         if (target === 5 && searchMode === 'keywords') target = 4;
         if (target >= 1) goToPage(target);
     });
@@ -157,9 +127,7 @@ function wireNavigation() {
         if (!validateCurrentPage()) return;
         markStepComplete(currentPage);
         let target = currentPage + 1;
-        // Skip AI page if keywords-only
         if (target === 5 && searchMode === 'keywords') target = 6;
-        // Skip Librarian page if keywords-only (no tool calling without AI)
         if (target === 6 && searchMode === 'keywords') target = 7;
         if (target <= TOTAL_PAGES) goToPage(target);
     });
@@ -171,9 +139,9 @@ function wireNavigation() {
             console.error('[DLE] Wizard finish error:', err);
             toastr.warning('Setup saved but index build failed — it will retry on first generation.', 'DeepLore Enhanced');
         }
-        // Close popup regardless — settings are saved before buildIndex().
-        // The wizard is opened via callGenericPopup with okButton:false/cancelButton:false,
-        // so .popup_ok doesn't exist. Walk up to the popup DOM and ask Popup util to close it.
+        // Close popup regardless — settings are already saved before buildIndex().
+        // Wizard popup has no okButton/cancelButton so .popup_ok doesn't exist;
+        // walk up to the dialog and ask Popup util to close it.
         const $popup = $wizard.closest('dialog.popup, .popup');
         const popupEl = $popup.get(0);
         const popupInstance = popupEl && Popup && typeof Popup.util?.popups !== 'undefined'
@@ -192,17 +160,14 @@ function wireNavigation() {
 function goToPage(page) {
     currentPage = page;
 
-    // Switch visible page
     $wizard.find('.dle-wizard-page').removeClass('active');
     $wizard.find(`[data-wizard-page="${page}"]`).addClass('active');
 
-    // Update step indicator
     $wizard.find('.dle-wizard-step').removeClass('active');
     $wizard.find(`.dle-wizard-step[data-step="${page}"]`).addClass('active');
 
     updateNavButtons();
 
-    // Page-specific actions on entry
     if (page === 5) loadAiProfiles();
     if (page === 6) wireLibrarianToggle();
     if (page === 7) wireVaultStructurePage();
@@ -229,7 +194,6 @@ function updateNavButtons() {
 
 function validateCurrentPage() {
     if (!isPageValid(currentPage)) {
-        // Pulse the blocking element
         if (currentPage === 2 && !connectionVerified) {
             $wizard.find('#dle-wiz-test-conn').addClass('dle-wizard-pulse');
             setTimeout(() => $wizard.find('#dle-wiz-test-conn').removeClass('dle-wizard-pulse'), 600);
@@ -246,14 +210,10 @@ function isPageValid(page) {
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Step Indicator
-// ════════════════════════════════════════════════════════════════════════════
-
 function wireStepIndicator() {
     $wizard.find('.dle-wizard-step').on('click', function () {
         const step = parseInt($(this).data('step'));
-        // Can only click completed steps or current step
+        // Only completed or current steps are navigable.
         if ($(this).hasClass('completed') || step === currentPage) {
             goToPage(step);
         }
@@ -266,9 +226,7 @@ function markStepComplete(step) {
     $step.find('.dle-wizard-step-dot').html('<i class="fa-solid fa-check"></i>');
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Page 2: Connection Test
-// ════════════════════════════════════════════════════════════════════════════
+// ── Page 2: Connection Test ──
 
 function wireConnectionTest() {
     $wizard.find('#dle-wiz-test-conn').on('click', async () => {
@@ -285,7 +243,6 @@ function wireConnectionTest() {
 
         try {
             const result = await testConnection(host, port, apiKey, useHttps);
-            // Show cert trust link if HTTPS cert error detected
             if (result.certError) {
                 const $trustLink = $wizard.find('#dle-wiz-trust-cert');
                 $trustLink.attr('href', result.certUrl).show().off('click').on('click', (e) => {
@@ -304,7 +261,6 @@ function wireConnectionTest() {
                 $btn.html('<i class="fa-solid fa-circle-check"></i> Connected').addClass('dle-wizard-btn-verified');
             } else {
                 connectionVerified = false;
-                // Show diagnosis-specific guidance popup when probe data is available
                 if (result.diagnosis) {
                     const guidanceHtml = `<div class="dle-popup">${buildConnectionGuidanceHtml(result)}</div>`;
                     callGenericPopup(guidanceHtml, POPUP_TYPE.TEXT, 'Connection Help', {
@@ -333,7 +289,7 @@ function wireConnectionTest() {
         updateNavButtons();
     });
 
-    // Auto-switch port when HTTPS is toggled (convenience — user can override)
+    // Auto-switch port on HTTPS toggle — user can override.
     $wizard.find('#dle-wiz-https').on('change', function () {
         const currentPort = parseInt($wizard.find('#dle-wiz-port').val());
         if (this.checked && currentPort === 27123) {
@@ -347,7 +303,6 @@ function wireConnectionTest() {
             .prop('disabled', false);
     });
 
-    // Re-enable test if connection fields change
     $wizard.find('#dle-wiz-host, #dle-wiz-port, #dle-wiz-api-key').on('input', () => {
         connectionVerified = false;
         $wizard.find('#dle-wiz-test-conn')
@@ -358,20 +313,14 @@ function wireConnectionTest() {
     });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Page 2: Demo Vault
-// ════════════════════════════════════════════════════════════════════════════
+// ── Page 2: Demo Vault ──
 
-/** Resolve the filesystem path to the test-vault/ directory bundled with the extension. */
+/** Path is shown relative to ST root since the install dir varies per user. */
 function getDemoVaultPath() {
-    // ST serves extensions from public/scripts/extensions/third-party/
-    // The actual filesystem location depends on where ST is installed.
-    // We show a relative path from the ST root — users know their install dir.
     return 'public/scripts/extensions/third-party/sillytavern-DeepLore-Enhanced/test-vault';
 }
 
 function wireDemoVault() {
-    // Toggle instructions
     $wizard.find('#dle-wiz-demo-toggle').on('click', () => {
         const $instructions = $wizard.find('#dle-wiz-demo-instructions');
         const $btn = $wizard.find('#dle-wiz-demo-toggle');
@@ -380,13 +329,11 @@ function wireDemoVault() {
         $btn.html(isHidden
             ? '<i class="fa-solid fa-chevron-up"></i> Hide instructions'
             : '<i class="fa-solid fa-folder-open"></i> Show me how');
-        // Populate path on first show
         if (isHidden) {
             $wizard.find('#dle-wiz-demo-path').text(getDemoVaultPath());
         }
     });
 
-    // Copy path to clipboard
     $wizard.find('#dle-wiz-demo-copy').on('click', () => {
         const path = $wizard.find('#dle-wiz-demo-path').text();
         navigator.clipboard.writeText(path).then(
@@ -395,38 +342,28 @@ function wireDemoVault() {
         );
     });
 
-    // Auto-fill connection fields for demo vault
     $wizard.find('#dle-wiz-demo-autofill').on('click', () => {
         $wizard.find('#dle-wiz-vault-name').val('Duskfrost Demo');
         $wizard.find('#dle-wiz-host').val('127.0.0.1');
         $wizard.find('#dle-wiz-port').val('27123');
         $wizard.find('#dle-wiz-https').prop('checked', false);
-        // Reset connection state since fields changed
         connectionVerified = false;
         $wizard.find('#dle-wiz-test-conn')
             .html('<i class="fa-solid fa-plug"></i> Test Connection')
             .removeClass('dle-wizard-btn-verified');
         $wizard.find('#dle-wiz-conn-result').hide();
         updateNavButtons();
-        // Focus API key — user still needs to enter this
+        // API key is the only field the user must still enter.
         $wizard.find('#dle-wiz-api-key').val('').focus();
         toastr.info('Connection fields filled — enter your Obsidian API key and click Test', 'DeepLore Enhanced');
     });
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Page 3: Search Mode
-// ════════════════════════════════════════════════════════════════════════════
 
 function wireSearchMode() {
     $wizard.find('input[name="dle-wiz-search-mode"]').on('change', function () {
         searchMode = $(this).val();
     });
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Page 4: Presets
-// ════════════════════════════════════════════════════════════════════════════
 
 function wirePresets() {
     $wizard.find('.dle-wizard-preset').on('click', function () {
@@ -446,13 +383,12 @@ function wirePresets() {
             .html(`<i class="fa-solid fa-check"></i> Configured for ${label} vault`)
             .addClass('dle-wizard-badge-visible');
 
-        // Presets always disable unlimited
+        // Presets always override unlimited toggles.
         $wizard.find('#dle-wiz-unlimited-entries').prop('checked', false);
         $wizard.find('#dle-wiz-unlimited-budget').prop('checked', false);
         $wizard.find('#dle-wiz-max-entries, #dle-wiz-budget').prop('disabled', false);
     });
 
-    // Unlimited toggles
     $wizard.find('#dle-wiz-unlimited-entries').on('change', function () {
         $wizard.find('#dle-wiz-max-entries').prop('disabled', this.checked);
     });
@@ -461,19 +397,13 @@ function wirePresets() {
     });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Page 5: AI Setup
-// ════════════════════════════════════════════════════════════════════════════
-
 function wireAiSetup() {
-    // Toggle profile/proxy fields
     $wizard.find('input[name="dle-wiz-ai-mode"]').on('change', function () {
         const mode = $(this).val();
         $wizard.find('#dle-wiz-ai-profile-fields').toggle(mode === 'profile');
         $wizard.find('#dle-wiz-ai-proxy-fields').toggle(mode === 'proxy');
     });
 
-    // Test AI connection
     $wizard.find('#dle-wiz-test-ai').on('click', async () => {
         const $btn = $wizard.find('#dle-wiz-test-ai');
         const $result = $wizard.find('#dle-wiz-ai-result');
@@ -491,7 +421,6 @@ function wireAiSetup() {
                 const { ConnectionManagerRequestService } = await import('../../../../shared.js')
                     .catch(() => ({ ConnectionManagerRequestService: null }));
                 if (!ConnectionManagerRequestService) throw new Error('Connection Manager not available');
-                // Verify profile exists
                 const profile = ConnectionManagerRequestService.getProfile(profileId);
                 if (!profile) throw new Error('Selected profile not found');
                 ok = true;
@@ -508,7 +437,6 @@ function wireAiSetup() {
             }
 
             if (ok) {
-                aiConnectionVerified = true;
                 $result
                     .html(`<i class="fa-solid fa-circle-check"></i> AI connection working — ${detail}`)
                     .removeClass('dle-wizard-result-error')
@@ -516,7 +444,6 @@ function wireAiSetup() {
                     .show();
                 $btn.html('<i class="fa-solid fa-circle-check"></i> Connected').addClass('dle-wizard-btn-verified');
             } else {
-                aiConnectionVerified = false;
                 $result
                     .html(`<i class="fa-solid fa-circle-xmark"></i> ${detail}`)
                     .removeClass('dle-wizard-result-success')
@@ -560,15 +487,11 @@ async function loadAiProfiles() {
         }
         $select.html(options);
     } catch (err) {
-        // BUG-112: Log so profile load failures are diagnosable
+        // BUG-112: log so dropdown load failures are diagnosable.
         console.debug('[DLE] Wizard profile dropdown load failed:', err?.message);
         $select.html('<option value="">Failed to load profiles</option>');
     }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Page 6: Librarian
-// ════════════════════════════════════════════════════════════════════════════
 
 let librarianToggleWired = false;
 
@@ -583,29 +506,23 @@ function wireLibrarianToggle() {
         $sub.toggle(this.checked);
     });
 
-    // Sync initial state
     $sub.toggle($master.is(':checked'));
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Page 7: Vault Structure
-// ════════════════════════════════════════════════════════════════════════════
 
 function wireVaultStructure() {
     // Handled on page entry via runVaultStructureCreation
 }
 
-// wizardState lives at module scope; track helper outcome for summary page.
-// BUG-340: Reset each time the wizard opens (see resetWizardState() called from onOpen)
-// so prior-session state cannot leak across opens.
+// BUG-340: wizardState reset per open via resetWizardState() — prior-session state
+// must not leak across reopens since we hang it off globalThis for debugging.
 let wizardState = (globalThis.__dleWizardState = {});
 function resetWizardState() {
     wizardState = (globalThis.__dleWizardState = {});
 }
 
 function wireVaultStructurePage() {
-    // BUG-137: Use the actual connectionVerified flag from page 2's test instead of
-    // the heuristic (host && apiKey), which lets users proceed without testing.
+    // BUG-137: gate on actual connectionVerified flag — the (host && apiKey)
+    // heuristic let users proceed without testing.
     const connVerified = connectionVerified;
     if (!connVerified) {
         $wizard.find('#dle-wiz-vault-conn-warning').show();
@@ -618,13 +535,11 @@ function wireVaultStructurePage() {
 
     const s = getSettings();
 
-    // Pre-populate path inputs from settings
     const $fieldsPath = $wizard.find('#dle-wiz-fields-path');
     if (!$fieldsPath.val()) $fieldsPath.val(s.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml');
     const $sessPath = $wizard.find('#dle-wiz-sessions-path');
     if (!$sessPath.val()) $sessPath.val(s.scribeFolder || 'Sessions');
 
-    // Persist on blur
     $fieldsPath.off('blur.dlewiz').on('blur.dlewiz', () => {
         const v = $fieldsPath.val().trim();
         if (v) { getSettings().fieldDefinitionsPath = v; saveSettingsDebounced(); }
@@ -634,13 +549,12 @@ function wireVaultStructurePage() {
         if (v) { getSettings().scribeFolder = v; saveSettingsDebounced(); }
     });
 
-    // YAML preview
     try {
         const yaml = serializeFieldDefinitions(DEFAULT_FIELD_DEFINITIONS);
         $wizard.find('#dle-wiz-fields-yaml').text(yaml);
     } catch { /* non-fatal */ }
 
-    // Collapse Sessions card if Scribe disabled upstream
+    // Collapse Sessions card when Scribe disabled upstream.
     const $optDetails = $wizard.find('#dle-wiz-optional-helpers');
     if (!s.scribeEnabled) {
         $optDetails.prop('open', false);
@@ -650,7 +564,7 @@ function wireVaultStructurePage() {
         $wizard.find('#dle-wiz-create-sessions').prop('checked', true);
     }
 
-    // Wire create button (idempotent)
+    // Wired idempotently — cheap rewires happen each time the page is shown.
     const $btn = $wizard.find('#dle-wiz-create-files');
     if (!$btn.data('wired')) {
         $btn.data('wired', true);
@@ -661,7 +575,6 @@ function wireVaultStructurePage() {
         });
     }
 
-    // Skip button
     const $skip = $wizard.find('#dle-wiz-vault-skip');
     if (!$skip.data('wired')) {
         $skip.data('wired', true);
@@ -680,7 +593,6 @@ async function runVaultStructureCreation() {
 
     const outcome = { fields: 'skipped', sessions: 'skipped' };
 
-    // Field definitions
     const createFields = $wizard.find('#dle-wiz-create-fields').is(':checked');
     if (createFields) {
         try {
@@ -696,7 +608,6 @@ async function runVaultStructureCreation() {
         }
     }
 
-    // Sessions folder
     const createSessions = $wizard.find('#dle-wiz-create-sessions').is(':checked');
     if (createSessions) {
         try {
@@ -711,7 +622,6 @@ async function runVaultStructureCreation() {
         }
     }
 
-    // Render consolidated banner
     const $result = $wizard.find('#dle-wiz-vault-result');
     const lines = [];
     const labels = { created: 'Created', skipped: 'Skipped', failed: 'Failed', exists: 'Already present' };
@@ -726,19 +636,14 @@ async function runVaultStructureCreation() {
         .show();
 
     wizardState.vaultHelpers = anyFailed ? 'partial' : (anyDone ? 'done' : 'skipped');
-    // BUG-139: Track individual outcomes so summary doesn't conflate them
+    // BUG-139: per-feature outcomes so summary doesn't conflate them.
     wizardState.fieldsOutcome = outcome.fields;
     wizardState.sessionsOutcome = outcome.sessions;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Page 8: Import
-// ════════════════════════════════════════════════════════════════════════════
-
-let importJsonData = ''; // captured JSON from any import method
+let importJsonData = '';
 
 function wireImport() {
-    // Toggle visible fields based on import method
     $wizard.find('input[name="dle-wiz-import-method"]').on('change', function () {
         const method = $(this).val();
         $wizard.find('#dle-wiz-import-lb-fields').toggle(method === 'lorebook');
@@ -750,7 +655,6 @@ function wireImport() {
         importJsonData = '';
     });
 
-    // File browse
     $wizard.find('#dle-wiz-import-browse').on('click', () => {
         $wizard.find('#dle-wiz-import-file')[0]?.click();
     });
@@ -764,7 +668,6 @@ function wireImport() {
         reader.readAsText(file);
     });
 
-    // Lorebook dropdown change
     $wizard.find('#dle-wiz-import-lorebook').on('change', async function () {
         const name = $(this).val();
         if (!name) { importJsonData = ''; return; }
@@ -782,13 +685,11 @@ function wireImport() {
         }
     });
 
-    // Import button
     $wizard.find('#dle-wiz-import-btn').on('click', async function () {
         const $btn = $(this);
         const $result = $wizard.find('#dle-wiz-import-result');
         const method = $wizard.find('input[name="dle-wiz-import-method"]:checked').val();
 
-        // Get JSON from the active source
         let jsonText = '';
         if (method === 'paste') {
             jsonText = $wizard.find('#dle-wiz-import-json').val()?.trim() || '';
@@ -801,7 +702,6 @@ function wireImport() {
             return;
         }
 
-        // Parse
         let entries, source;
         try {
             ({ entries, source } = parseWorldInfoJson(jsonText));
@@ -860,15 +760,11 @@ async function loadImportLorebooks() {
         }
         $select.html(options);
     } catch (err) {
-        // BUG-112: Log so lorebook load failures are diagnosable
+        // BUG-112: log so dropdown load failures are diagnosable.
         console.debug('[DLE] Wizard lorebook dropdown load failed:', err?.message);
         $select.html('<option value="">Failed to load lorebooks</option>');
     }
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// Page 9: Summary
-// ════════════════════════════════════════════════════════════════════════════
 
 function buildSummary() {
     const $summary = $wizard.find('#dle-wiz-summary');
@@ -882,7 +778,6 @@ function buildSummary() {
     const maxEntries = $wizard.find('#dle-wiz-max-entries').val();
     const budget = $wizard.find('#dle-wiz-budget').val();
 
-    // Determine which preset matches (if any)
     const scanDepth = parseInt($wizard.find('#dle-wiz-scan-depth').val());
     let presetLabel = 'Custom';
     for (const [name, vals] of Object.entries(PRESETS)) {
@@ -892,7 +787,7 @@ function buildSummary() {
         }
     }
 
-    // BUG-139: Use per-feature outcomes instead of the conflated compound state
+    // BUG-139: per-feature outcomes, not the conflated compound state.
     const fieldsCreated = wizardState.fieldsOutcome === 'created' || wizardState.fieldsOutcome === 'exists';
     const sessionsCreated = wizardState.sessionsOutcome === 'created' || wizardState.sessionsOutcome === 'exists';
 
@@ -908,7 +803,6 @@ function buildSummary() {
         items.push(`<i class="fa-solid fa-circle-check"></i> Imported <strong>${importResult.imported}</strong> entries${importResult.failed > 0 ? ` (${importResult.failed} failed)` : ''}`);
     }
 
-    // Demo vault tips
     const vaultNameLower = vaultName.toLowerCase();
     if (vaultNameLower.includes('duskfrost') || vaultNameLower.includes('demo')) {
         items.push('<i class="fa-solid fa-flask"></i> <strong>Demo vault detected!</strong> Try mentioning "Duskfrost" or "Bellsummit" in chat to see lore injection.');
@@ -922,7 +816,6 @@ function buildSummary() {
 function wireDoneActions() {
     $wizard.on('click', '.dle-wizard-done-btn', function () {
         const action = $(this).data('action');
-        // Close popup first
         const popup = $wizard.closest('.popup');
         if (popup.length) popup.find('.popup_ok, .popup_close').trigger('click');
 
@@ -944,14 +837,9 @@ function wireDoneActions() {
     });
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Apply settings on Finish
-// ════════════════════════════════════════════════════════════════════════════
-
 async function applyWizardSettings() {
     const settings = getSettings();
 
-    // Connection
     const vaultName = $wizard.find('#dle-wiz-vault-name').val().trim() || 'Primary';
     const host = $wizard.find('#dle-wiz-host').val().trim() || '127.0.0.1';
     const port = parseInt($wizard.find('#dle-wiz-port').val()) || 27123;
@@ -959,8 +847,8 @@ async function applyWizardSettings() {
     const useHttps = $wizard.find('#dle-wiz-https').is(':checked');
 
     settings.enabled = true;
-    // BUG-106: Update primary vault (index 0) instead of overwriting the entire array,
-    // which would silently destroy existing multi-vault configurations.
+    // BUG-106: update primary vault in place — overwriting the array would
+    // silently destroy existing multi-vault configurations.
     const newVault = { name: vaultName, host, port, apiKey, https: useHttps, enabled: true };
     if (!settings.vaults || settings.vaults.length === 0) {
         settings.vaults = [newVault];
@@ -968,17 +856,14 @@ async function applyWizardSettings() {
         Object.assign(settings.vaults[0], newVault);
     }
 
-    // Tags
     settings.lorebookTag = $wizard.find('#dle-wiz-lorebook-tag').val().trim() || 'lorebook';
     settings.constantTag = $wizard.find('#dle-wiz-constant-tag').val().trim() || 'lorebook-always';
     settings.seedTag = $wizard.find('#dle-wiz-seed-tag').val().trim() || 'lorebook-seed';
     settings.bootstrapTag = $wizard.find('#dle-wiz-bootstrap-tag').val().trim() || 'lorebook-bootstrap';
 
-    // Search mode
     settings.aiSearchEnabled = searchMode !== 'keywords';
     if (searchMode !== 'keywords') settings.aiSearchMode = searchMode;
 
-    // Matching
     settings.scanDepth = parseInt($wizard.find('#dle-wiz-scan-depth').val()) || 6;
     settings.maxEntries = parseInt($wizard.find('#dle-wiz-max-entries').val()) || 15;
     settings.maxTokensBudget = parseInt($wizard.find('#dle-wiz-budget').val()) || 3072;
@@ -986,7 +871,6 @@ async function applyWizardSettings() {
     settings.unlimitedBudget = $wizard.find('#dle-wiz-unlimited-budget').is(':checked');
     settings.fuzzySearchEnabled = $wizard.find('#dle-wiz-fuzzy').is(':checked');
 
-    // AI Search
     if (searchMode !== 'keywords') {
         const aiMode = $wizard.find('input[name="dle-wiz-ai-mode"]:checked').val();
         settings.aiSearchConnectionMode = aiMode || 'profile';
@@ -998,30 +882,22 @@ async function applyWizardSettings() {
         }
     }
 
-    // Librarian
     settings.librarianEnabled = $wizard.find('#dle-wiz-librarian-enabled').is(':checked');
     settings.librarianSearchEnabled = $wizard.find('#dle-wiz-librarian-search').is(':checked');
     settings.librarianFlagEnabled = $wizard.find('#dle-wiz-librarian-flag').is(':checked');
 
-    // Mark wizard completed
-    // BUG-125: Also persist a localStorage sentinel so the wizard doesn't re-trigger
-    // if saveSettingsDebounced crashes before flushing.
+    // BUG-125: localStorage sentinel guards against saveSettingsDebounced
+    // crashing before flush — without it, wizard re-triggers on next load.
     settings._wizardCompleted = true;
     try { localStorage.setItem('dle-wizard-completed', '1'); } catch { /* noop */ }
 
     invalidateSettingsCache();
     saveSettingsDebounced();
 
-    // Build index
     setIndexTimestamp(0);
     await buildIndex();
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Utility
-// ════════════════════════════════════════════════════════════════════════════
-
-/** Execute a slash command via ST's context API */
 function executeCommand(cmd) {
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
     if (ctx?.executeSlashCommands) {

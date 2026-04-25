@@ -1,7 +1,6 @@
 /**
- * DeepLore Enhanced -- Librarian Session: AI Conversation Engine
- * Manages multi-turn conversations with the librarian AI for entry creation/editing.
- * Includes response validation gate with auto-retry.
+ * DeepLore Enhanced — Emma session: multi-turn conversation engine.
+ * Includes a validation gate with auto-retry and an agentic tool loop.
  */
 import { getContext, saveMetadataDebounced } from '../../../../../extensions.js';
 import { buildAiChatContext } from '../../core/utils.js';
@@ -13,8 +12,10 @@ import { validateSessionResponse, parseSessionResponse } from '../helpers.js';
 import { executeToolCall, buildToolsPromptSection } from './librarian-chat-tools.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
 
-/** Snapshot client/runtime state used to attribute mid-flight aborts to non-DLE actors
- *  (browser tab teardown, OS sleep, network drop). All optional — never throws. */
+/**
+ * Snapshot for attributing mid-flight aborts to non-DLE actors (tab teardown,
+ * OS sleep, network drop). Never throws.
+ */
 function captureBrowserState() {
     try {
         return {
@@ -29,10 +30,6 @@ import {
     EMMA_ADHOC_GREETING,
     EMMA_AUDIT_GREETING,
 } from './librarian-prompts.js';
-
-// ════════════════════════════════════════════════════════════════════════════
-// Constants
-// ════════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════════
 // Emma's flavor intros (random opener for empty 'new' sessions)
@@ -61,24 +58,20 @@ export const EMMA_FLAVOR_INTROS = [
     "If this is a chosen one with a prophecy, I need you to know I've seen forty-seven of those this month. Proceed.",
 ];
 
-/**
- * Pick a random flavor intro for a new empty session.
- * Pure for testability.
- * @returns {string}
- */
+/** Pure, for testability. */
 export function pickFlavorIntro() {
     return EMMA_FLAVOR_INTROS[Math.floor(Math.random() * EMMA_FLAVOR_INTROS.length)];
 }
 
 const MAX_VALIDATION_RETRIES = 3;
 const MAX_TOOL_CALLS_PER_TURN = 10;
-const MAX_HISTORY_MESSAGES = 10; // Keep last N messages to bound prompt growth
-// BUG-232: Hard cap on outer agentic-loop iterations (each iteration = one AI call).
-// Prevents unbounded loop when AI ignores the "tool call budget reached" nudge and
-// keeps returning tool_call actions. Slack covers worst case: MAX_TOOL_CALLS_PER_TURN
-// tool-call iterations + budget nudge iteration + final response + buffer.
+const MAX_HISTORY_MESSAGES = 10;
+// BUG-232: hard cap on outer agentic-loop iterations (one iteration = one AI call).
+// Prevents unbounded looping when the AI ignores the budget-reached nudge and keeps
+// returning tool_call actions. Slack covers MAX_TOOL_CALLS_PER_TURN + budget nudge
+// + final response + buffer.
 const MAX_AGENTIC_ITERATIONS = MAX_TOOL_CALLS_PER_TURN + 5;
-// Caps are now configurable via settings — these are fallback defaults
+// Configurable via settings; these are fallback defaults.
 function getManifestMaxChars() { return getSettings().librarianManifestMaxChars || 8000; }
 function getRelatedMaxChars() { return getSettings().librarianRelatedEntriesMaxChars || 4000; }
 function getDraftMaxChars() { return getSettings().librarianDraftMaxChars || 4000; }
@@ -100,28 +93,23 @@ function getChatContextMaxChars() { return getSettings().librarianChatContextMax
  */
 
 /**
- * Create a new librarian session.
  * @param {'gap'|'new'|'review'|'audit'} entryPoint
  * @param {object} [options]
- * @param {object} [options.gap] - Gap record (for 'gap' entry point)
- * @returns {LibrarianSession}
+ * @param {object} [options.gap] - Gap record for 'gap' entry point
  */
 export function createSession(entryPoint, options = {}) {
     const settings = getSettings();
     const ctx = getContext();
     const chat = ctx?.chat || [];
 
-    // Build chat context from recent messages
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth || 20);
 
-    // Build manifest
     let manifest = '';
     if (vaultIndex.length > 0) {
         const { manifest: m } = buildCandidateManifest(vaultIndex, false);
         manifest = m;
     }
 
-    // For gap entry point, augment manifest with related entries
     let relatedEntries = '';
     if (entryPoint === 'gap' && options.gap && fuzzySearchIndex) {
         const hits = queryBM25(fuzzySearchIndex, options.gap.query, 10, 0.3);
@@ -132,9 +120,9 @@ export function createSession(entryPoint, options = {}) {
         }
     }
 
-    // Guide modes — Emma helps the user write a lorebook-guide entry.
-    // 'guide-firstrun' is the wizard's "Meet Emma" page (full Q&A script + greeting).
-    // 'guide-adhoc' is the Settings → Library Tour entrypoint (no script, ad-hoc greeting).
+    // Guide modes write a lorebook-guide entry.
+    // guide-firstrun: wizard "Meet Emma" page (Q&A script + greeting).
+    // guide-adhoc: Settings → Library Tour (no script, ad-hoc greeting).
     const mode = options.mode || null;
     const isGuideMode = mode === 'guide-firstrun' || mode === 'guide-adhoc';
     let guideBootstrap = '';
@@ -148,11 +136,11 @@ export function createSession(entryPoint, options = {}) {
         seededGreeting = EMMA_AUDIT_GREETING;
     }
 
-    // BUG-332: seed greeting as plain text. The restore path (librarian-review.js
-    // replay loop) passes msg.content straight to appendMessage without JSON-parsing,
-    // so a JSON-wrapped seed would render as raw `{"message":"...","action":null}`
-    // on reopen. Assistant messages pushed by sendMessage are already plain text
-    // (validParsed.message), so this keeps the shape consistent.
+    // BUG-332: seed greeting as plain text. The restore replay (librarian-review.js)
+    // passes msg.content straight to appendMessage without JSON-parsing, so a
+    // JSON-wrapped seed would render as raw `{"message":"...","action":null}` on
+    // reopen. sendMessage already pushes plain validParsed.message — keep the shape
+    // consistent across both code paths.
     const session = {
         messages: seededGreeting
             ? [{ role: 'assistant', content: seededGreeting }]
@@ -197,20 +185,18 @@ function getChatMetadata() {
 }
 
 /**
- * Save session state to chat_metadata so it's scoped to the current chat
- * and survives page refreshes. If no chat is active, silently no-ops.
- * BUG-AUDIT (Fix 7): callers can pass `expectedEpoch` (captured when the
- * popup opened) so a debounced save firing after a chat switch doesn't
- * persist this session into the new chat's metadata. Legacy callers pass
- * undefined and keep the old behavior.
+ * Save to chat_metadata (per-chat, survives refresh). No-ops without active chat.
+ * BUG-AUDIT (Fix 7): expectedEpoch (captured at popup open) prevents a debounced
+ * save firing after chat switch from persisting into the new chat's metadata.
+ * Legacy callers pass undefined.
  * @param {LibrarianSession} session
- * @param {number} [expectedEpoch] chatEpoch captured at popup open
+ * @param {number} [expectedEpoch] chatEpoch at popup open
  */
 export function saveSessionState(session, expectedEpoch) {
     if (expectedEpoch !== undefined && expectedEpoch !== chatEpoch) return;
     try {
         const md = getChatMetadata();
-        if (!md) return; // No active chat — nothing to persist into
+        if (!md) return;
         md[SESSION_METADATA_KEY] = {
             messages: session.messages,
             draftState: session.draftState,
@@ -220,8 +206,7 @@ export function saveSessionState(session, expectedEpoch) {
             chatContext: session.chatContext,
             relatedEntries: session.relatedEntries,
             workQueue: session.workQueue,
-            // BUG-326: persist lastOptions so a reopened session doesn't lose an in-progress
-            // options picker the user hasn't yet applied.
+            // BUG-326: in-progress options picker survives reload.
             lastOptions: session.lastOptions || null,
             mode: session.mode || null,
             guideBootstrap: session.guideBootstrap || '',
@@ -234,9 +219,8 @@ export function saveSessionState(session, expectedEpoch) {
 }
 
 /**
- * Load saved session state from chat_metadata, falling back to (and migrating)
- * a legacy localStorage key one time so existing users don't lose their draft.
- * @returns {object|null} Saved session state, or null if none exists
+ * One-time migrates a legacy localStorage key into chat_metadata so existing
+ * users don't lose their draft.
  */
 export function loadSessionState() {
     try {
@@ -244,7 +228,7 @@ export function loadSessionState() {
         if (md && md[SESSION_METADATA_KEY]) {
             return md[SESSION_METADATA_KEY];
         }
-        // Legacy migration: move browser-global draft into the current chat once
+        // Legacy migration: browser-global draft → current chat, once.
         const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
         if (raw) {
             const parsed = JSON.parse(raw);
@@ -257,19 +241,17 @@ export function loadSessionState() {
         }
         return null;
     } catch (e) {
-        // BUG-AUDIT: bare swallow loses the signal when a corrupted draft or
-        // parse error destroys the user's in-progress Librarian chat silently.
-        // Log + null so the caller can decide whether to warn the user.
+        // BUG-AUDIT: bare swallow lost the signal when a corrupted draft killed
+        // the in-progress chat silently. Log so the caller can decide on warnings.
         console.warn('[DLE] loadSessionState failed (draft discarded):', e?.message);
         return null;
     }
 }
 
 /**
- * Clear saved session state from chat_metadata (and any lingering legacy localStorage key).
  * BUG-AUDIT (Fix 7): same epoch contract as saveSessionState — refuse to clear
  * a different chat's session if the popup outlived the chat switch.
- * @param {number} [expectedEpoch] chatEpoch captured at popup open
+ * @param {number} [expectedEpoch] chatEpoch at popup open
  */
 export function clearSessionState(expectedEpoch) {
     if (expectedEpoch !== undefined && expectedEpoch !== chatEpoch) return;
@@ -284,10 +266,7 @@ export function clearSessionState(expectedEpoch) {
 }
 
 /**
- * Restore a session from saved state.
- * Rebuilds the session object from persisted data.
- * @param {object} saved - Saved session state from loadSessionState()
- * @returns {LibrarianSession}
+ * @param {object} saved - From loadSessionState()
  */
 export function restoreSession(saved) {
     return {
@@ -299,16 +278,12 @@ export function restoreSession(saved) {
         chatContext: saved.chatContext || '',
         relatedEntries: saved.relatedEntries || '',
         workQueue: saved.workQueue || null,
-        // BUG-326: restore lastOptions so a pending options picker survives reload.
+        // BUG-326: pending options picker survives reload.
         lastOptions: saved.lastOptions || null,
         mode: saved.mode || null,
         guideBootstrap: saved.guideBootstrap || '',
     };
 }
-
-// ════════════════════════════════════════════════════════════════════════════
-// System Prompt Builder
-// ════════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════════
 // Entry writing guide (embedded in system prompt)
@@ -480,18 +455,13 @@ The bond forms through repeated exposure to vampiric saliva compounds...
 \`\`\`
 `;
 
-/**
- * Build the system prompt for the librarian AI session.
- * @param {LibrarianSession} session
- * @returns {string}
- */
 function buildSystemPrompt(session) {
     const settings = getSettings();
     const lorebookTag = settings.lorebookTag || 'lorebook';
     const parts = [];
 
-    // Guide-mode bootstrap: DLE primer + vault constants snapshot (+ Q&A script for first-run).
-    // Prepended so Emma reads it before any instructions about output format.
+    // Guide-mode bootstrap (DLE primer + vault constants + optional Q&A script)
+    // prepended so Emma reads it before output-format instructions.
     if (session.guideBootstrap) {
         parts.push(session.guideBootstrap);
     }
@@ -500,16 +470,12 @@ function buildSystemPrompt(session) {
     const customPrompt = settings.librarianCustomSystemPrompt || '';
 
     if (promptMode === 'strict-override' && customPrompt.trim()) {
-        // Strict override — user's prompt IS the entire system prompt.
-        // No bootstrap, manifest, gap context, related entries, chat context,
-        // draft JSON, tools, or response format appended. Pure passthrough.
+        // Pure passthrough: no bootstrap, manifest, gap, chat, draft, tools, or format.
         return customPrompt;
     }
 
     if (promptMode === 'override' && customPrompt.trim()) {
-        // Partial override — customPrompt replaces Emma's role/persona only.
-        // Entry writing guide, manifest, gap context, chat context, draft JSON,
-        // tools, and response format are still appended.
+        // Partial: replaces role/persona only — guide/manifest/gap/chat/draft/tools/format remain.
         parts.push(customPrompt);
     } else {
         parts.push(`You are **Emma**, the Librarian — a lorebook editor for a roleplay setting. You help the user create and improve lore entries for an Obsidian vault used by DeepLore Enhanced. The required lorebook tag is "${lorebookTag}".
@@ -527,14 +493,12 @@ You're Emma. You have a library sciences degree and you ended up cataloguing fic
 - Personality lives ONLY in the conversational \`message\` field. The structured \`draftUpdates\` / draft fields stay clean, professional, and faithful to the user's setting.`);
     }
 
-    // Entry writing guide (always included except in strict-override)
     parts.push(ENTRY_WRITING_GUIDE);
 
     if (promptMode === 'append' && customPrompt.trim()) {
         parts.push('\n## Additional Instructions\n' + customPrompt);
     }
 
-    // Entry point context
     if (session.entryPoint === 'gap' && session.gapRecord) {
         const gap = session.gapRecord;
         const isUpdate = gap.subtype === 'update';
@@ -581,7 +545,6 @@ You are performing a systematic audit of the vault against recent story developm
 `);
     }
 
-    // Manifest
     if (session.manifest) {
         const manifestMax = getManifestMaxChars();
         const truncatedManifest = session.manifest.length > manifestMax
@@ -590,7 +553,6 @@ You are performing a systematic audit of the vault against recent story developm
         parts.push(`\n## Existing vault entries (manifest):\n${truncatedManifest}`);
     }
 
-    // Related entries for gap review (capped to prevent prompt bloat)
     if (session.relatedEntries) {
         const relatedMax = getRelatedMaxChars();
         const truncated = session.relatedEntries.length > relatedMax
@@ -599,7 +561,6 @@ You are performing a systematic audit of the vault against recent story developm
         parts.push(`\n## Related existing entries:\n${truncated}`);
     }
 
-    // Chat context
     if (session.chatContext) {
         const chatMax = getChatContextMaxChars();
         const truncatedChat = session.chatContext.length > chatMax
@@ -608,11 +569,10 @@ You are performing a systematic audit of the vault against recent story developm
         parts.push(`\n## Recent chat context:\n${truncatedChat}`);
     }
 
-    // Current draft (capped to prevent prompt bloat)
     if (session.draftState) {
         let draftJson = JSON.stringify(session.draftState, null, 2);
         if (draftJson.length > getDraftMaxChars()) {
-            // Truncate content field first (largest field)
+            // content field is largest — truncate it first.
             const trimmed = { ...session.draftState };
             if (trimmed.content && trimmed.content.length > 1000) {
                 trimmed.content = trimmed.content.slice(0, 1000) + '\n[...content truncated, see editor]';
@@ -624,10 +584,8 @@ You are performing a systematic audit of the vault against recent story developm
         parts.push(`\n## Current draft:\nNo draft yet. Help the user create one.`);
     }
 
-    // Vault query tools
     parts.push(buildToolsPromptSection());
 
-    // Response format
     parts.push(`
 ## Editor State
 Each user message is prefixed with the current editor state (e.g. \`[Editor currently loaded: "Kael"]\` or \`[Editor is empty — no entry loaded]\`). Always be aware of what's loaded — the user may refer to "this entry" or "this" meaning the loaded entry.
@@ -702,51 +660,42 @@ Each option has a \`label\` (user-facing description) and \`fields\` (draft fiel
     return parts.join('\n');
 }
 
-// parseSessionResponse and validateSessionResponse imported from helpers.js (pure, testable in Node)
+// parseSessionResponse and validateSessionResponse imported from helpers.js (pure, Node-testable).
 
 // ════════════════════════════════════════════════════════════════════════════
 // Send Message (with validation + retry)
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Build the connection config for librarian AI calls.
- * Reuses AI search connection settings.
- * @returns {object} connectionConfig for callAI()
- */
 function getConnectionConfig() {
-    // disableThinkingOnClaude: Anthropic rejects requests when extended thinking is
-    // enabled AND tool_choice forces tool use ("Thinking may not be enabled when
-    // tool_choice forces tool use." — 400 invalid_request_error). Librarian sends
-    // tools every turn, and ST translates `json_schema` to forced tool_choice on
-    // Claude — so any preset with reasoning_effort != 'auto' breaks the loop.
-    // Reddit research: setting reasoning_effort='auto' makes ST's
-    // calculateClaudeBudgetTokens return null, so no `thinking` field is added.
-    // Guard: only applied when callViaProfile detects a Claude model — no-op for
-    // OpenAI/Gemini/etc. Librarian-only flag; doesn't affect aiSearch/scribe/etc.
+    // disableThinkingOnClaude: Anthropic rejects "Thinking may not be enabled
+    // when tool_choice forces tool use" (400). Librarian sends tools every turn
+    // and ST translates `json_schema` to forced tool_choice on Claude, so any
+    // preset with reasoning_effort != 'auto' breaks the loop. Setting it to
+    // 'auto' makes ST's calculateClaudeBudgetTokens return null and skip the
+    // `thinking` field. Applied only when callViaProfile detects Claude;
+    // librarian-only flag, doesn't affect aiSearch/scribe.
     return { ...resolveConnectionConfig('librarian'), skipThrottle: true, disableThinkingOnClaude: true };
 }
 
 /**
- * Send a message in a librarian session.
- * Includes validation gate with auto-retry and agentic tool loop.
- *
- * @param {LibrarianSession} session - The active session
- * @param {string} userMessage - User's message
+ * Validation gate with auto-retry + agentic tool loop.
+ * @param {LibrarianSession} session
+ * @param {string} userMessage
  * @param {object} [options]
- * @param {AbortSignal} [options.signal] - AbortSignal for user cancellation
- * @param {function} [options.onToolCall] - Callback(name, args) when tool call starts
- * @param {function} [options.onToolResult] - Callback(name, result) when tool call completes
+ * @param {AbortSignal} [options.signal]
+ * @param {function} [options.onToolCall] - Callback(name, args) on tool start
+ * @param {function} [options.onToolResult] - Callback(name, result) on tool end
  * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
  */
 export async function sendMessage(session, userMessage, options = {}) {
     const { signal, onToolCall, onToolResult } = options;
 
-    // BUG-273: Capture epoch at entry. Re-checked after every await so a chat switch
-    // mid-flight bails out rather than writing stale results into the new chat's session.
+    // BUG-273: snapshot epoch, re-check after every await — a mid-flight chat
+    // switch must not write stale results into the new chat's session.
     const epoch = chatEpoch;
 
-    // BUG-237/253/303: Snapshot history BEFORE any mutation. On abort, restore so
-    // the session isn't left with a one-sided user turn, orphan tool_results, or a
+    // BUG-237/253/303: snapshot history BEFORE mutation. On abort, restore so the
+    // session isn't left with a one-sided user turn, orphan tool_results, or a
     // truncated history the user never sees reflected in UI state.
     const historySnapshot = session.messages.map(m => ({ ...m }));
     let committed = false;
@@ -755,7 +704,7 @@ export async function sendMessage(session, userMessage, options = {}) {
         pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'aborted', outerIteration: outerIterations, toolCallCount, ...captureBrowserState() });
         return { parsed: null, valid: false, exhausted: false, lastErrors: ['Aborted by user'] };
     };
-    // BUG-273: Reuse the same snapshot-restore path for epoch mismatch — no second snapshot needed.
+    // BUG-273: same restore path for epoch mismatch — no second snapshot needed.
     const epochReturn = () => {
         if (!committed) session.messages = historySnapshot.map(m => ({ ...m }));
         pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'epoch', outerIteration: outerIterations, toolCallCount });
@@ -763,9 +712,9 @@ export async function sendMessage(session, userMessage, options = {}) {
     };
 
     // BUG-AUDIT (Fix 9): store the raw user message. The `[Editor ...]` decoration
-    // is now applied at prompt-build time (buildUserPromptFromHistory) for the
-    // current turn only. Storing the prefix in history caused regenerate to copy
-    // it back, then sendMessage to re-prepend, doubling on every regen.
+    // is applied at prompt-build time (buildUserPromptFromHistory) for the current
+    // turn only. Storing the prefix in history caused regenerate to copy it back,
+    // then sendMessage re-prepended, doubling on every regen.
     session.messages.push({ role: 'user', content: userMessage });
 
     const systemPrompt = buildSystemPrompt(session);
@@ -774,21 +723,20 @@ export async function sendMessage(session, userMessage, options = {}) {
     let toolCallCount = 0;
     let outerIterations = 0;
 
-    // Outer loop: handles tool_call → re-enter AI cycle
-    // Each iteration gets its own validation retry gate
-    // eslint-disable-next-line no-constant-condition
+    // Outer loop: tool_call → re-enter AI cycle. Each iteration gets its own
+    // validation retry gate.
     while (true) {
         if (signal?.aborted) {
             return abortReturn();
         }
-        // BUG-273: Epoch check at top of outer loop catches chat switches that happen
-        // between tool-call iterations (the continuation path after executeToolCall).
+        // BUG-273: outer-loop epoch check catches chat switches that happen
+        // between tool-call iterations (continuation path after executeToolCall).
         if (epoch !== chatEpoch) {
             return epochReturn();
         }
 
-        // BUG-232: Hard iteration cap — prevents unbounded loop when AI ignores
-        // the tool-call budget nudge and keeps returning tool_call responses.
+        // BUG-232: hard cap so the AI can't pin us in an infinite loop by
+        // ignoring the budget-reached nudge.
         outerIterations++;
         pushEvent('librarian', { surface: 'session', action: 'iteration', outerIteration: outerIterations, toolCallCount });
         if (outerIterations > MAX_AGENTIC_ITERATIONS) {
@@ -801,9 +749,8 @@ export async function sendMessage(session, userMessage, options = {}) {
             };
         }
 
-        // BUG-AUDIT (Fix 9): compute the editor note fresh each iteration so the
-        // model always sees the live editor state — get_full_content can mutate
-        // draftState mid-loop, and the prompt should reflect that on the next call.
+        // BUG-AUDIT (Fix 9): recompute editor note each iteration. get_full_content
+        // can mutate draftState mid-loop and the next prompt must reflect that.
         const editorTitle = session.draftState?.title;
         const editorNote = editorTitle
             ? `[Editor currently loaded: "${editorTitle}"]`
@@ -812,13 +759,13 @@ export async function sendMessage(session, userMessage, options = {}) {
         let lastErrors = [];
         let validParsed = null;
 
-        // Inner loop: validation retries for this AI call
+        // Inner loop: validation retries for this AI call.
         for (let attempt = 0; attempt < MAX_VALIDATION_RETRIES; attempt++) {
             if (signal?.aborted) {
                 return abortReturn();
             }
-            // BUG-273: Epoch check at top of inner retry loop — a chat switch between
-            // validation retries should not issue another callAI for the old chat.
+            // BUG-273: a chat switch between validation retries must not trigger
+            // another callAI for the old chat.
             if (epoch !== chatEpoch) {
                 return epochReturn();
             }
@@ -851,34 +798,31 @@ export async function sendMessage(session, userMessage, options = {}) {
                 if (err.name === 'AbortError' || signal?.aborted) {
                     return abortReturn();
                 }
-                // BUG-273: Check epoch after callAI throws — the chat may have changed
-                // while the request was in flight even if the error isn't an AbortError.
+                // BUG-273: chat may have changed during a non-abort throw too.
                 if (epoch !== chatEpoch) {
                     return epochReturn();
                 }
-                // BUG-019: Do NOT retry on AI transport errors — callViaProfile/callViaProxy
-                // already called recordAiFailure(), so looping here amplifies circuit trips
-                // (3 validation retries = 3 circuit failures = breaker opens after 2).
-                // Validation retries are only for parse/validation failures below, where the
-                // AI did respond successfully. Accumulate rather than overwrite so earlier
-                // parse/validation errors from prior attempts aren't lost.
+                // BUG-019: do NOT retry transport errors. callViaProfile/callViaProxy
+                // already called recordAiFailure(), so looping amplifies circuit trips
+                // (3 retries = 3 failures = breaker opens after 2). Validation retries
+                // are only for parse/validation failures below, where the AI did respond.
+                // Accumulate so earlier parse errors from prior attempts aren't lost.
                 lastErrors = [...lastErrors, `AI call failed: ${err.message || err}`];
                 pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'transport_error', outerIteration: outerIterations, toolCallCount });
                 return { parsed: null, valid: false, exhausted: true, lastErrors };
             }
 
-            // BUG-273: Check epoch after successful callAI return — chat may have switched
-            // while the HTTP request was in flight (normal path, no exception thrown).
+            // BUG-273: chat may have switched during the HTTP request even on
+            // the non-error return path.
             if (epoch !== chatEpoch) {
                 return epochReturn();
             }
 
             const parsed = parseSessionResponse(result.text);
 
-            // BUG-320: echo the model's prior bad output back into the correction prompt so
-            // it can see what it wrote. Without this the AI just keeps re-reading the same
-            // history + a corrections header and never learns what tripped the gate.
-            // Cap the quoted output so a runaway response can't blow the retry prompt.
+            // BUG-320: echo the model's prior bad output into the correction prompt
+            // so it can see what tripped the gate. Without this it just keeps reading
+            // the same history + corrections header. Cap to bound the retry prompt.
             const priorQuote = (result.text || '').slice(0, 2000);
             const priorBlock = priorQuote
                 ? `\n[YOUR PRIOR RESPONSE (rejected)]\n${priorQuote}${result.text.length > 2000 ? '\n[...truncated]' : ''}\n\n`
@@ -906,7 +850,6 @@ export async function sendMessage(session, userMessage, options = {}) {
             messageToSend = rejection + buildUserPromptFromHistory(session.messages);
         }
 
-        // Validation retries exhausted without a valid response
         if (!validParsed) {
             pushEvent('librarian', { surface: 'session', action: 'exit', reason: 'validation_exhausted', outerIteration: outerIterations, toolCallCount });
             return { parsed: null, valid: false, exhausted: true, lastErrors };
@@ -914,13 +857,12 @@ export async function sendMessage(session, userMessage, options = {}) {
 
         // ── Handle tool_call action ──
         if (validParsed.action === 'tool_call' && Array.isArray(validParsed.tool_calls) && validParsed.tool_calls.length > 0) {
-            // Add AI's intermediate message to history if present
             if (validParsed.message) {
                 session.messages.push({ role: 'assistant', content: validParsed.message });
             }
 
-            // Execute each tool call (try-catch: some tools may mutate state,
-            // and an uncaught error would leave partial mutations committed)
+            // try-catch each call — some tools mutate state and an uncaught
+            // error would leave partial mutations committed.
             const results = [];
             for (const tc of validParsed.tool_calls) {
                 if (signal?.aborted) {
@@ -939,23 +881,21 @@ export async function sendMessage(session, userMessage, options = {}) {
                 toolCallCount++;
             }
 
-            // BUG-253: Check abort AFTER tool execution but BEFORE appending tool_result.
-            // Without this, a Stop pressed during tool execution still mutates history with
+            // BUG-253: abort check AFTER tool execution, BEFORE appending tool_result.
+            // Without this, Stop pressed during tool execution still mutates history with
             // an orphan tool_result and can re-enter callAI on the next iteration.
             if (signal?.aborted) {
                 return abortReturn();
             }
 
-            // Append tool results to message history
             session.messages.push({ role: 'tool_result', content: results.join('\n\n---\n\n') });
 
-            // Check tool call budget
             if (toolCallCount >= MAX_TOOL_CALLS_PER_TURN) {
                 pushEvent('librarian', { surface: 'session', action: 'forced_finalize', outerIteration: outerIterations, toolCallCount });
-                // BUG-319: Force-finalize nudge. Flagged `synthetic:true` so regenerateResponse
-                // can't mistake it for the user's real prompt when walking the history backwards.
-                // Role kept as 'user' for buildUserPromptFromHistory rendering (ST chat format has
-                // no 'system' role in-turn), but `synthetic` is the source of truth.
+                // BUG-319: synthetic:true so regenerateResponse doesn't mistake the
+                // budget-nudge for the user's real prompt when walking history backwards.
+                // Role stays 'user' for buildUserPromptFromHistory rendering (ST chat
+                // has no in-turn 'system'), but `synthetic` is the source of truth.
                 session.messages.push({
                     role: 'user',
                     content: '[SYSTEM: Tool call limit reached. Provide your final response now — no more tool calls.]',
@@ -963,15 +903,14 @@ export async function sendMessage(session, userMessage, options = {}) {
                 });
             }
 
-            // Re-enter the outer loop for the next AI call
             continue;
         }
 
         // ── Normal response (not tool_call) — apply and return ──
         if (validParsed.draft) {
-            // BUG-321: keep explicit `null` so the AI can clear a field it previously set.
-            // Only filter `undefined` (absent keys), since JSON parse never yields undefined
-            // at the top level — this is a defensive guard for hand-rolled callers.
+            // BUG-321: preserve explicit null so the AI can clear a previously-set field.
+            // Filter undefined only (JSON parse never yields top-level undefined; this
+            // is a defensive guard for hand-rolled callers).
             const filtered = Object.fromEntries(
                 Object.entries(validParsed.draft).filter(([, v]) => v !== undefined),
             );
@@ -990,15 +929,8 @@ export async function sendMessage(session, userMessage, options = {}) {
     }
 }
 
-/**
- * Build the full user prompt from message history.
- * Combines all messages into a single prompt for the AI.
- * @param {Array<{role: string, content: string}>} messages
- * @returns {string}
- */
 function buildUserPromptFromHistory(messages, editorNote) {
-    // Keep last N messages to bound prompt growth.
-    // BUG-317: Slice cannot start on a tool_result — that would orphan it from
+    // BUG-317: slice cannot start on a tool_result — that would orphan it from
     // its triggering assistant tool_call and let the model hallucinate calls it
     // never made. Bump the cut forward past any leading tool_result(s).
     let start = Math.max(0, messages.length - MAX_HISTORY_MESSAGES);
@@ -1009,12 +941,11 @@ function buildUserPromptFromHistory(messages, editorNote) {
     const prefix = start > 0
         ? `[...${start} earlier messages omitted]\n\n`
         : '';
-    // BUG-AUDIT (Fix 9): the editor note used to be persisted into the user
-    // message at send-time, then regenerate copied the stored content (with
-    // the prefix already in it) and re-sent through sendMessage which
-    // prepended ANOTHER prefix — stacking on every regen. Store raw user
-    // turns; decorate only the LAST user turn at prompt-build with the live
-    // editor state. Falsy editorNote means "no decoration" (legacy callers).
+    // BUG-AUDIT (Fix 9): editor note used to be baked into the stored user
+    // message; regenerate copied the stored content (prefix included) back
+    // through sendMessage, which prepended ANOTHER prefix — stacking on every
+    // regen. Now stored raw, decorated only on the LAST user turn at build
+    // time. Falsy editorNote = no decoration (legacy callers).
     let lastUserIdx = -1;
     if (editorNote) {
         for (let i = recent.length - 1; i >= 0; i--) {
@@ -1034,31 +965,26 @@ function buildUserPromptFromHistory(messages, editorNote) {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Edit a user message and re-send from that point.
- * Truncates history to the edited message, then calls sendMessage with the new text.
+ * Truncate history to messageIndex and re-send with newText.
  * @param {LibrarianSession} session
- * @param {number} messageIndex - Index into session.messages of the user message to edit
- * @param {string} newText - Edited message text
- * @param {object} [options] - Options passed through to sendMessage (signal, onToolCall, onToolResult)
- * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
+ * @param {number} messageIndex - User message in session.messages to edit
+ * @param {string} newText
+ * @param {object} [options] - signal, onToolCall, onToolResult passthrough
  */
 export async function editMessage(session, messageIndex, newText, options = {}) {
-    // BUG-237/253: snapshot before truncation so an aborted edit restores the full history
-    // rather than leaving the session permanently truncated.
+    // BUG-237/253: snapshot before truncation so aborted edit restores full history.
     const snapshot = session.messages.map(m => ({ ...m }));
-    // BUG-328: validate messageIndex before slicing. A stale/negative/NaN index
-    // from the UI (e.g. a pending edit after regen truncated history) would
-    // otherwise silently lop off the tail (slice(0,-2)) or the wrong range.
-    // Require a non-negative in-range index pointing at a real user message.
+    // BUG-328: validate messageIndex. A stale/negative/NaN index from the UI
+    // (e.g. pending edit after regen truncated history) would silently lop the
+    // tail (slice(0,-2)) or the wrong range. Require non-negative, in-range,
+    // and pointing at a real user message.
     if (!Number.isInteger(messageIndex)
         || messageIndex < 0
         || messageIndex >= session.messages.length
         || session.messages[messageIndex]?.role !== 'user') {
         return { parsed: null, valid: false, exhausted: true, lastErrors: ['Invalid messageIndex for edit'] };
     }
-    // Truncate history: keep everything before the edited message
     session.messages = session.messages.slice(0, messageIndex);
-    // sendMessage will append the new user message and call AI
     const result = await sendMessage(session, newText, options);
     if (!result.valid && result.lastErrors?.[0] === 'Aborted by user') {
         session.messages = snapshot;
@@ -1067,16 +993,12 @@ export async function editMessage(session, messageIndex, newText, options = {}) 
 }
 
 /**
- * Regenerate the last AI response.
- * Removes the last assistant message and re-sends the last user message.
  * @param {LibrarianSession} session
- * @param {object} [options] - Options passed through to sendMessage (signal, onToolCall, onToolResult)
- * @returns {Promise<{parsed: object|null, valid: boolean, exhausted: boolean, lastErrors: string[]}>}
+ * @param {object} [options] - signal, onToolCall, onToolResult passthrough
  */
 export async function regenerateResponse(session, options = {}) {
-    // BUG-237/253: snapshot before mutation so an aborted regen restores the full history.
+    // BUG-237/253: snapshot before mutation so aborted regen restores history.
     const snapshot = session.messages.map(m => ({ ...m }));
-    // Find and remove the last assistant message
     let lastUserMsg = '';
     for (let i = session.messages.length - 1; i >= 0; i--) {
         if (session.messages[i].role === 'assistant') {
@@ -1084,20 +1006,18 @@ export async function regenerateResponse(session, options = {}) {
             break;
         }
     }
-    // BUG-329: if the removed turn was a tool-call chain (assistant tool_call →
-    // tool_result → final assistant), the previous loop only removed the final
-    // assistant. Strip any trailing tool_result / intermediate assistant(tool_call)
-    // pairs too, otherwise buildUserPromptFromHistory sends orphan tool results on
-    // regen and the model hallucinates tool calls it never made.
+    // BUG-329: a tool-call chain leaves intermediate assistant(tool_call) +
+    // tool_result pairs after removing the final assistant. Strip them too —
+    // otherwise buildUserPromptFromHistory sends orphan tool results on regen
+    // and the model hallucinates tool calls it never made.
     while (session.messages.length
         && (session.messages[session.messages.length - 1].role === 'tool_result'
             || session.messages[session.messages.length - 1].role === 'assistant')) {
         session.messages.pop();
     }
-    // Find the last user message to re-send
-    // BUG-319: skip synthetic budget-nudge messages — those are not real user input and
-    // re-sending them would corrupt regenerate. Also strip any trailing synthetic nudges
-    // left in history so they don't poison the next sendMessage call.
+    // BUG-319: synthetic budget-nudge messages are not real user input —
+    // re-sending corrupts regenerate. Strip trailing nudges too so they don't
+    // poison the next sendMessage call.
     while (session.messages.length && session.messages[session.messages.length - 1].synthetic) {
         session.messages.pop();
     }
@@ -1105,7 +1025,7 @@ export async function regenerateResponse(session, options = {}) {
         const m = session.messages[i];
         if (m.role === 'user' && !m.synthetic) {
             lastUserMsg = m.content;
-            session.messages.splice(i, 1); // remove it, sendMessage will re-add it
+            session.messages.splice(i, 1); // sendMessage will re-add it
             break;
         }
     }
@@ -1124,11 +1044,6 @@ export async function regenerateResponse(session, options = {}) {
 // Gap Status Management
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Update a gap record's status.
- * @param {string} gapId - Gap record ID
- * @param {string} newStatus - New status value
- */
 export function updateGapStatus(gapId, newStatus) {
     const idx = loreGaps.findIndex(g => g.id === gapId);
     if (idx === -1) return;
@@ -1137,7 +1052,7 @@ export function updateGapStatus(gapId, newStatus) {
     updated[idx] = { ...updated[idx], status: newStatus };
     setLoreGaps(updated);
 
-    // Persist to chat_metadata (getContext() uses camelCase chatMetadata)
+    // getContext() exposes camelCase chatMetadata.
     const ctx = getContext();
     const meta = ctx?.chatMetadata;
     if (meta) {

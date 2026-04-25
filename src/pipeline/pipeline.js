@@ -1,27 +1,23 @@
 /**
  * DeepLore Enhanced — Pipeline runner
- * matchEntries, runPipeline, matchTextForExternal
  */
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
-import { buildScanText } from '../../core/utils.js';
-import { testEntryMatch, testPrimaryMatchOnly, countKeywordOccurrences, formatAndGroup, clearScanTextCache } from '../../core/matching.js';
+import { formatAndGroup, clearScanTextCache } from '../../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating, applyFolderFilter } from '../stages.js';
 import {
-    vaultIndex, cooldownTracker, injectionHistory, generationCount,
-    trackerKey, setLastPipelineTrace, fuzzySearchIndex, fieldDefinitions,
+    vaultIndex, generationCount,
+    fieldDefinitions,
     getWriterVisibleEntries,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from '../ai/ai.js';
 import { isForceInjected } from '../helpers.js';
 import { ensureIndexFresh } from '../vault/vault.js';
-import { queryBM25 } from '../vault/bm25.js';
 import { name2 } from '../../../../../../script.js';
 import { dedupWarning } from '../toast-dedup.js';
-// matchEntries core logic extracted to match.js for testability
 import { matchEntries as _matchEntriesPure } from './match.js';
 
-/** Match vault entries — delegates to extracted pure function with settings/name2 injection. */
+/** Inject settings + name2 into the extracted pure matcher. */
 export function matchEntries(chat, snapshot = null, opts = {}) {
     return _matchEntriesPure(chat, snapshot, {
         settings: opts.settings || getSettings(),
@@ -30,24 +26,21 @@ export function matchEntries(chat, snapshot = null, opts = {}) {
 }
 
 /**
- * Run the full entry selection pipeline (3-mode branching: keywords-only, two-stage, ai-only).
+ * Full entry-selection pipeline. 3-mode branching: keywords-only, two-stage, ai-only.
  * Records a trace for the Pipeline Inspector (/dle-inspect).
- * BUG 6 FIX: Reset lastWarningRatio when ratio drops below threshold.
- * @param {object[]} chat - Chat messages array
- * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
 export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null, signal = null, onStatus = null, genId = null } = {}) {
-    // Snapshot settings and vault index so async stages (AI search) see a consistent view
+    // Snapshot settings and vault so async stages (AI search) see a consistent view.
     const rawSettings = getSettings();
     const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
-    // Filter out lorebook-guide entries — they are Librarian-only and must never reach the writing AI.
-    // External snapshots are assumed already-filtered if the caller used getWriterVisibleEntries().
+    // External snapshots are assumed already-filtered (caller used getWriterVisibleEntries()).
+    // Otherwise filter out lorebook-guide here — Librarian-only, must never reach the writing AI.
     const vaultSnapshot = externalSnapshot || getWriterVisibleEntries();
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
     const trace = {
-        genId, // Correlation ID — set by caller via options
+        genId,
         mode: settings.aiSearchEnabled
             ? settings.aiSearchMode
             : 'keywords-only',
@@ -67,10 +60,10 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         vaultSnapshotSize: vaultSnapshot.length,
         generationNumber: generationCount,
         aiFallback: false,
-        aiError: '', // BUG-004: Capture AI error message for toast enrichment
+        aiError: '', // BUG-004: surface to toast.
         fuzzyStats: null,
         refineKeyBlocked: [],
-        // Per-stage timing (ms) — populated by onGenerate after each stage
+        // Per-stage timings populated by onGenerate.
         ensureIndexFreshMs: null,
         pinBlockMs: null,
         contextualGatingMs: null,
@@ -102,11 +95,10 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
     let matchedKeys = new Map();
 
     if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
-        // Hierarchical pre-filter: for large vaults, narrow candidates by category first
         let aiOnlyCandidates = vaultSnapshot;
         const preFiltered = await hierarchicalPreFilter(vaultSnapshot, chat, signal);
         if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
-        // BUG-FIX: Was `if (preFiltered)` which treats [] as falsy, discarding valid empty results
+        // `if (preFiltered)` would discard valid empty-array results — null is the skip sentinel.
         if (preFiltered != null) {
             aiOnlyCandidates = preFiltered;
             if (settings.debugMode) {
@@ -114,7 +106,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             }
         }
 
-        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
+        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries.
         if (contextualGatingContext) {
             const beforeGating = aiOnlyCandidates.length;
             const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
@@ -123,7 +115,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             trace.aiPreFilter = { before: beforeGating, after: aiOnlyCandidates.length, removed: beforeGating - aiOnlyCandidates.length };
         }
 
-        // Pre-filter by folder so AI doesn't see entries from excluded folders
+        // Pre-filter by folder so AI doesn't see entries from excluded folders.
         if (folderFilter && folderFilter.length > 0) {
             const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
             aiOnlyCandidates = applyFolderFilter(aiOnlyCandidates, folderFilter, prePolicy, settings.debugMode);
@@ -137,7 +129,6 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 if (e.bootstrap && !e.constant) matchedKeys.set(e.title, '(bootstrap)');
             }
         }
-        // Always label constants in matchedKeys
         for (const e of alwaysInject) {
             if (e.constant && !matchedKeys.has(e.title)) matchedKeys.set(e.title, '(constant)');
         }
@@ -147,11 +138,11 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             const _aiStart = performance.now();
             const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates, signal);
             trace.aiSearchMs = Math.round(performance.now() - _aiStart);
-            trace.aiCached = aiResult.cached ?? false; // BUG-396c: thread cache-hit flag for injection log staleness detection
+            trace.aiCached = aiResult.cached ?? false; // BUG-396c: feeds injection-log staleness detection.
             if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
-                trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details
+                trace.aiError = aiResult.errorMessage || ''; // BUG-004
                 const fallback = settings.aiErrorFallback || 'keyword';
                 if (fallback === 'keyword') {
                     const kwResult = matchEntries(chat, vaultSnapshot);
@@ -162,7 +153,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     trace.warmupFailed = kwResult.warmupFailed;
                     trace.fuzzyStats = kwResult.fuzzyStats;
                     trace.refineKeyBlocked = kwResult.refineKeyBlocked;
-                    // Warn if ai-only fallback collapsed to constants-only
+                    // Warn when ai-only fallback collapsed to constants-only.
                     const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                     if (nonConstant.length === 0 && finalEntries.length > 0) {
                         console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
@@ -172,7 +163,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (fallback === 'bootstrap_only') {
                     finalEntries = vaultSnapshot.filter(e => bootstrapActive && e.bootstrap);
-                } else { // 'none'
+                } else {
                     finalEntries = [];
                 }
             } else if (aiResult.results.length === 0) {
@@ -184,7 +175,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     finalEntries = alwaysInject;
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = matchEntries(chat, vaultSnapshot).matched;
-                } else { // 'none'
+                } else {
                     finalEntries = [];
                 }
             } else {
@@ -209,7 +200,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.fuzzyStats = keywordResult.fuzzyStats;
         trace.refineKeyBlocked = keywordResult.refineKeyBlocked;
 
-        // Wiki-link candidate expansion: add entries referenced by matched entries as AI candidates
+        // Wiki-link expansion: add entries referenced by matched entries as AI candidates.
         const matchedTitles = new Set(keywordResult.matched.map(e => e.title));
         const titleLookup = new Map(vaultSnapshot.map(e => [e.title, e]));
         const linkedCandidates = [];
@@ -233,9 +224,8 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             }
         }
 
-        // Hierarchical pre-filter for large keyword match sets
-        // BUG-022: Use expandedMatched (includes wiki-linked candidates), not keywordResult.matched
-        // null means "skip, use all"; empty array means "AI selected zero categories" — treat as valid filter
+        // BUG-022: pass expandedMatched (includes wiki-linked), not keywordResult.matched.
+        // null = skip, use all; [] = AI picked zero categories (valid filter result).
         let twoStageCandidates = expandedMatched;
         const preFiltered = await hierarchicalPreFilter(expandedMatched, chat, signal);
         if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
@@ -246,7 +236,6 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             }
         }
 
-        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
             const beforeGating = twoStageCandidates.length;
             const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
@@ -255,7 +244,6 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             trace.aiPreFilter = { before: beforeGating, after: twoStageCandidates.length, removed: beforeGating - twoStageCandidates.length };
         }
 
-        // Pre-filter by folder so AI doesn't see entries from excluded folders
         if (folderFilter && folderFilter.length > 0) {
             const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
             twoStageCandidates = applyFolderFilter(twoStageCandidates, folderFilter, prePolicy, settings.debugMode);
@@ -274,7 +262,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
-                trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details
+                trace.aiError = aiResult.errorMessage || ''; // BUG-004
                 const fallback = settings.aiErrorFallback || 'keyword';
                 if (fallback === 'keyword') {
                     finalEntries = keywordResult.matched;
@@ -282,7 +270,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (fallback === 'bootstrap_only') {
                     finalEntries = vaultSnapshot.filter(e => bootstrapActive && e.bootstrap);
-                } else { // 'none'
+                } else {
                     finalEntries = [];
                 }
             } else if (aiResult.results.length === 0) {
@@ -294,7 +282,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     finalEntries = vaultSnapshot.filter(e => e.constant || (bootstrapActive && e.bootstrap));
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = keywordResult.matched;
-                } else { // 'none'
+                } else {
                     finalEntries = [];
                 }
             } else {
@@ -323,7 +311,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.fuzzyStats = keywordResult.fuzzyStats;
         trace.refineKeyBlocked = keywordResult.refineKeyBlocked;
 
-        // BUG-F1: Apply contextual gating in keywords-only mode (was previously skipped)
+        // BUG-F1: contextual gating must run in keywords-only mode (previously skipped).
         if (contextualGatingContext) {
             const prePolicy = buildExemptionPolicy(finalEntries, pins, blocks);
             const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
@@ -331,7 +319,6 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
     }
 
-    // Folder-based filtering: restrict to entries from selected folders
     if (folderFilter && folderFilter.length > 0) {
         const beforeFolder = finalEntries.length;
         const folderPolicy = buildExemptionPolicy(finalEntries, pins, blocks);
@@ -339,22 +326,20 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.folderFilter = { folders: folderFilter, before: beforeFolder, after: finalEntries.length, removed: beforeFolder - finalEntries.length };
     }
 
-    // Re-sort by user priority (with tiebreaker) after all modes.
-    // In AI modes, confidence sorting may have overridden user priority — this restores it
-    // so budget trimming respects the user's explicit priority field.
+    // Restore user priority after AI modes — confidence sort may have overridden it,
+    // and budget trimming must respect the explicit priority field.
     finalEntries.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
-    // Release cached scan text strings now that matching is complete
     clearScanTextCache();
 
-    // Note: trace is set by onGenerate after enrichment — don't set here to avoid double-write
+    // trace is finalized by onGenerate after enrichment — don't set here to avoid double-write.
     return { finalEntries, matchedKeys, trace };
 }
 
 /**
  * External API: match vault entries against arbitrary text.
  * Used by other extensions (e.g. BurnerPhone) to get lore without going through the interceptor.
- * @param {string|object[]} scanInput - Text string or array of {name, mes, is_user} chat objects
+ * @param {string|object[]} scanInput - Text string or array of {name, mes, is_user} chat objects.
  * @returns {Promise<{text: string, count: number, tokens: number}>}
  */
 export async function matchTextForExternal(scanInput) {
@@ -370,8 +355,8 @@ export async function matchTextForExternal(scanInput) {
 
     // BUG-AUDIT (Fix 6): pass the writer-visible snapshot. Without this, matchEntries
     // falls back to raw vaultIndex and leaks lorebook-guide entries to external
-    // consumers (e.g. globalThis.deepLoreEnhanced_matchText callers), violating the
-    // CLAUDE.md "guides never reach the writing AI" contract.
+    // consumers (e.g. globalThis.deepLoreEnhanced_matchText), violating the
+    // "guides never reach the writing AI" contract in CLAUDE.md.
     const { matched } = matchEntries(fakeChat, getWriterVisibleEntries());
     clearScanTextCache();
     const policy = buildExemptionPolicy(matched, [], []);

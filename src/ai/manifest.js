@@ -8,25 +8,19 @@ import { fieldDefinitions, decayTracker, consecutiveInjections, trackerKey } fro
 import { isForceInjected } from '../helpers.js';
 
 /**
- * Build an XML manifest of candidate entries for the AI search prompt.
- * Filters out force-injected entries (constants/bootstraps), formats each entry
- * with metadata (token count, links, decay hints, custom fields), and produces
- * a header summarizing the candidate pool.
- *
- * @param {Array} candidates - All candidate VaultEntry objects
- * @param {boolean} [excludeBootstrap=false] - Whether to also exclude bootstrap entries
- * @param {object} [settings] - Settings object (defaults to getSettings() in production)
+ * XML manifest of candidate entries for the AI search prompt. Filters out
+ * force-injected entries (constants/bootstraps), annotates each with token
+ * count, links, decay hints, custom fields, and emits a pool-summary header.
  * @returns {{ manifest: string, header: string }}
  */
 export function buildCandidateManifest(candidates, excludeBootstrap = false, settings = null) {
-    // In production, settings is passed by the caller (ai.js injects getSettings())
     const s = settings || {};
     const summaryLen = s.aiSearchManifestSummaryLength || 600;
 
     const summaryMode = s.manifestSummaryMode || 'prefer_summary';
     let selectable = candidates.filter(e => !isForceInjected(e, { bootstrapActive: excludeBootstrap }));
 
-    // E8: In summary_only mode, exclude entries that have no summary field
+    // E8: summary_only excludes entries without a summary field.
     if (summaryMode === 'summary_only') {
         selectable = selectable.filter(e => e.summary && e.summary.trim());
     }
@@ -36,7 +30,6 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false, set
     const fieldLabelMap = new Map(fieldDefinitions.map(f => [f.name, f.label]));
     const manifest = selectable
         .map(entry => {
-            // E8: Select summary text based on manifestSummaryMode
             const summaryText = summaryMode === 'content_only'
                 ? truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen)
                 : (entry.summary || truncateToSentence(entry.content.substring(0, summaryLen * 3).replace(/\n+/g, ' ').trim(), summaryLen));
@@ -44,14 +37,12 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false, set
             const links = entry.resolvedLinks && entry.resolvedLinks.length > 0
                 ? ` → ${entry.resolvedLinks.join(', ')}`
                 : '';
-            // Decay/freshness annotation: hint to AI about stale or frequently-injected entries
             let decayHint = '';
             if (s.decayEnabled && decayTracker.size > 0) {
                 const staleness = decayTracker.get(trackerKey(entry));
                 if (staleness !== undefined && staleness >= s.decayBoostThreshold) {
                     decayHint = ' [STALE — consider refreshing]';
                 }
-                // Penalty: entries injected many consecutive times get a nudge.
                 if (!decayHint && s.decayPenaltyThreshold > 0) {
                     const streak = consecutiveInjections.get(trackerKey(entry));
                     if (streak !== undefined && streak >= s.decayPenaltyThreshold) {
@@ -59,7 +50,6 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false, set
                     }
                 }
             }
-            // Custom field annotations (e.g. [Era: medieval | Location: tavern])
             let fieldsHint = '';
             if (entry.customFields) {
                 const pairs = Object.entries(entry.customFields)
@@ -70,16 +60,15 @@ export function buildCandidateManifest(candidates, excludeBootstrap = false, set
             const attrSafeTitle = escapeXml(entry.title);
             const header = `${entry.title} (${entry.tokenEstimate}tok)${links}${decayHint}${fieldsHint}`;
 
-            // Wrap each entry in structural delimiters to prevent summary content
-            // from being interpreted as manifest-level instructions
+            // Structural delimiters so summary content can't be read as manifest-level instructions.
             return `<entry name="${attrSafeTitle}">\n${header}\n${safeSummary}\n</entry>`;
         })
         .join('\n');
 
-    // BUG-047: Use candidates.length (includes force-injected) not selectable.length (tautological)
+    // BUG-047: use candidates.length, not selectable.length (would be tautological).
     const forcedCount = candidates.length - selectable.length;
     let forcedTokens = 0;
-    // BUG-395: pass bootstrapActive so bootstrap entries are counted in the header tally
+    // BUG-395: pass bootstrapActive so bootstraps are counted in the tally.
     for (const e of candidates) { if (isForceInjected(e, { bootstrapActive: excludeBootstrap })) forcedTokens += e.tokenEstimate; }
     const budgetInfo = s.unlimitedBudget
         ? ''

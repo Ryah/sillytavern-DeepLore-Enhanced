@@ -8,26 +8,25 @@ import { getSettings } from '../../settings.js';
 import { dedupWarning } from '../toast-dedup.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
 import { simpleHash } from '../../core/utils.js';
-// Re-export from extracted pure module for backward compatibility
 import { validateCachedEntry } from './cache-validate.js';
 export { validateCachedEntry };
 
 const DB_NAME = 'DeepLoreEnhanced';
 const DB_VERSION = 1;
 const STORE_NAME = 'vaultCache';
-const CACHE_SCHEMA_VERSION = 4; // Bumped: H-06 cache key includes lorebookTag + conflictResolution
+const CACHE_SCHEMA_VERSION = 4; // H-06: key includes lorebookTag + conflictResolution
 
 /**
- * BUG-371: Tracks whether the most recent saveIndexToCache call actually persisted.
- * pruneOrphanedCacheKeys reads this to avoid wiping every cache key when the new
- * index failed to land (quota/blocked). null = no save attempted yet this session
- * (prune is safe — it can only remove keys for vaults the user no longer has).
+ * BUG-371: tracks whether the most recent saveIndexToCache call persisted.
+ * pruneOrphanedCacheKeys reads this so a quota/blocked failure doesn't wipe
+ * every key and leave the user with no valid cache. null = no save attempted
+ * (prune safe — it can only remove keys for vaults the user no longer has).
  */
 let _lastSaveSucceeded = null;
 
 /**
- * Build a cache key incorporating enabled vault configuration.
- * Prevents multi-vault setups from serving vault A's cache as vault B's data.
+ * Build a cache key incorporating enabled vault configuration so multi-vault
+ * setups can't serve vault A's cache as vault B's data.
  */
 function getCacheKey() {
     try {
@@ -37,8 +36,8 @@ function getCacheKey() {
             .map(v => `${v.name}:${v.host || '127.0.0.1'}:${v.port}:${v.https ? 'https' : 'http'}:${simpleHash(v.apiKey || '')}`)
             .sort()
             .join('|');
-        // H-06: Include lorebook tag and conflict resolution in fingerprint so
-        // changing either invalidates the cache instead of serving stale data
+        // H-06: tag and conflict mode are part of the fingerprint so changing either
+        // invalidates the cache instead of serving stale data.
         const tag = settings.lorebookTag || 'lorebook';
         const conflict = settings.multiVaultConflictResolution || 'first';
         return fp ? `index_${tag}_${conflict}_${fp}` : 'primaryIndex';
@@ -48,10 +47,7 @@ function getCacheKey() {
     }
 }
 
-/**
- * Open (or create) the IndexedDB database.
- * @returns {Promise<IDBDatabase>}
- */
+/** @returns {Promise<IDBDatabase>} */
 function openDBOnce() {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -70,10 +66,7 @@ function openDBOnce() {
     });
 }
 
-/**
- * Open IndexedDB with one-shot backoff retry on blocked. BUG-379.
- * @returns {Promise<IDBDatabase>}
- */
+/** BUG-379: one-shot backoff retry on blocked. @returns {Promise<IDBDatabase>} */
 function openDB() {
     return openDBOnce().catch(async (err) => {
         if (err && err.code === 'BLOCKED') {
@@ -142,8 +135,6 @@ export async function saveIndexToCache(entries) {
     }
 }
 
-// validateCachedEntry — extracted to cache-validate.js, re-exported above
-
 /**
  * Load the vault index from IndexedDB cache.
  * @returns {Promise<{ entries: import('../core/pipeline.js').VaultEntry[], timestamp: number } | null>}
@@ -165,14 +156,13 @@ export async function loadIndexFromCache() {
             return null;
         }
 
-        // Schema version mismatch — cache is stale, force full rebuild
         if (result.schemaVersion !== CACHE_SCHEMA_VERSION) {
             if (getSettings().debugMode) console.log(`[DLE] Cache schema version mismatch (have ${result.schemaVersion}, want ${CACHE_SCHEMA_VERSION}) — rebuilding`);
             try { dedupWarning('Refreshing your lore cache after an update — back in a moment.', 'cache_schema'); } catch { /* toastr may not be ready */ }
             return null;
         }
 
-        // Validate structural invariants — discard corrupt entries from browser crashes/quota pressure
+        // Discard corrupt entries from browser crashes / quota pressure.
         const validEntries = result.entries.filter(e => {
             const ok = validateCachedEntry(e);
             if (!ok) console.warn(`[DLE] Discarding corrupt cached entry: ${e?.title || '(no title)'}`);
@@ -196,14 +186,11 @@ export async function loadIndexFromCache() {
 }
 
 /**
- * H20: Remove orphaned IndexedDB cache keys that don't match the current vault configuration.
- * Called after successful index builds to prevent stale cache entries from accumulating.
+ * H20: Remove orphaned cache keys that don't match the current vault config.
  *
- * BUG-371: Must be guarded against the case where the new index failed to persist
- * (quota, blocked, etc.). Defaults to reading the module-level `_lastSaveSucceeded`
- * flag set by saveIndexToCache. If that flag is explicitly false, pruning is a no-op —
- * otherwise we'd wipe every cache key and leave the user with no valid cache at all.
- * Callers may pass an explicit boolean to override (tests, manual invocation).
+ * BUG-371: must guard against the case where the new index failed to persist
+ * (quota, blocked) — otherwise we wipe every key and leave the user with nothing.
+ * Reads the module-level `_lastSaveSucceeded` flag by default; tests may override.
  *
  * @param {boolean} [saveSucceeded] - Override the module-level save-success flag.
  * @returns {Promise<number>} Number of orphaned keys removed
@@ -235,9 +222,8 @@ export async function pruneOrphanedCacheKeys(saveSucceeded) {
             }
         }
 
-        // BUG-380: always await the transaction before db.close(), regardless of whether
-        // any deletes were actually issued — closing a db with an in-flight transaction
-        // can cause the transaction to abort.
+        // BUG-380: always await the transaction before db.close(), even if no deletes
+        // were issued — closing during an in-flight transaction can abort it.
         await new Promise((resolve, reject) => {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);
@@ -258,9 +244,8 @@ export async function pruneOrphanedCacheKeys(saveSucceeded) {
  * @returns {Promise<void>}
  */
 export async function clearIndexCache() {
-    // BUG-123: Clear ALL cache keys, not just the current fingerprint.
-    // Old fingerprints from previous vault configs would otherwise linger
-    // until pruning runs after a successful build.
+    // BUG-123: clear ALL keys, not just the current fingerprint — old fingerprints
+    // from previous vault configs would otherwise linger until next prune.
     let db;
     try {
         db = await openDB();

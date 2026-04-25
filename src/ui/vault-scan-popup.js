@@ -1,16 +1,12 @@
-/**
- * DeepLore Enhanced — Vault Scan Popup.
- * Modal that runs the vault scanner and lets the user pick a discovered vault.
- */
+/** DeepLore Enhanced — Vault Scan Popup. Runs scanner, user picks discovered vault. */
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { scanVaults } from '../vault/scanner.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /**
- * Open the vault scan popup, run the scan, and resolve with the user-selected vault (or null).
  * @param {{host?: string, apiKey?: string, portCenter?: number, radius?: number}} opts
- * @returns {Promise<object|null>}
+ * @returns {Promise<object|null>} selected vault, or null if cancelled
  */
 export async function openVaultScanPopup(opts = {}) {
     const html = `
@@ -35,8 +31,7 @@ export async function openVaultScanPopup(opts = {}) {
             </details>
         </div>`;
 
-    // BUG-103: Use onOpen callback to get scoped DOM references instead of
-    // setTimeout + global getElementById. onOpen fires once the popup is in the DOM.
+    // BUG-103: scoped DOM refs via onOpen — fires once popup is in the DOM.
     let fill, text, results;
     let onOpenResolve;
     const onOpenReady = new Promise(r => { onOpenResolve = r; });
@@ -79,7 +74,7 @@ export async function openVaultScanPopup(opts = {}) {
                 </div>`);
         }
         for (const c of certUntrusted) {
-            if (c.httpFallbackOk) continue; // already represented in vaults list
+            if (c.httpFallbackOk) continue; // already in vaults list
             rows.push(`
                 <div class="dle-vault-scan-row dle-cert-warn">
                     <div class="dle-vault-scan-row-main">
@@ -91,25 +86,22 @@ export async function openVaultScanPopup(opts = {}) {
         }
         results.innerHTML = rows.join('');
 
-        // Wire pick buttons
         results.querySelectorAll('.dle-vault-scan-pick').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 const row = e.currentTarget.closest('.dle-vault-scan-row');
                 const port = parseInt(row?.dataset.port || '0', 10);
                 const scheme = row?.dataset.scheme;
                 selected = vaults.find(v => v.port === port && v.scheme === scheme) || null;
-                // Programmatically dismiss the popup
                 const okBtn = document.querySelector('.popup_ok');
                 if (okBtn) okBtn.click();
             }, { once: true });
         });
     }
 
-    // BUG-235: real cancel support — popup dismissal aborts in-flight probes so the
-    // follow-up `await scanPromise` no longer blocks for the full scan duration.
+    // BUG-235: cancel aborts in-flight probes so `await scanPromise` below doesn't
+    // block for the full scan duration on stragglers.
     const scanAbort = new AbortController();
 
-    // Run scan in parallel with the popup awaiting cancel
     const scanPromise = scanVaults({
         host: opts.host || '127.0.0.1',
         apiKey: opts.apiKey,
@@ -128,9 +120,7 @@ export async function openVaultScanPopup(opts = {}) {
     });
 
     await popupPromise;
-    // BUG-235: popup dismissed (Cancel or row pick) — abort any in-flight probes
-    // so the await below returns immediately instead of blocking on stragglers.
     try { scanAbort.abort(); } catch { /* noop */ }
-    await scanPromise; // make sure scan task finishes/cleans up
+    await scanPromise;
     return selected;
 }

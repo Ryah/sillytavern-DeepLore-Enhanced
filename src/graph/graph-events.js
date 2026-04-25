@@ -1,29 +1,19 @@
-/**
- * DeepLore Enhanced — Graph event handling module.
- * Mouse, keyboard, toolbar, legend, context menu, export.
- */
-import { getSettings, getVaultByName } from '../../settings.js';
+import { getVaultByName } from '../../settings.js';
 import { buildObsidianURI } from '../helpers.js';
 import { computeGapAnalysis } from './graph-analysis.js';
 
 const escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-// ============================================================================
-// Public API — call initEvents(gs) after graph state is ready
-// ============================================================================
-
 /**
- * @param {object} gs  Shared graph state
- * @param {Function} dbg  Debug logger
+ * @param {object} gs
+ * @param {Function} dbg
  * @returns {{ exportPNG, exportJSON }}
  */
 export function initEvents(gs, dbg) {
     const { canvas, nodes, edges, edgeVisibility, edgeCountByNode, injectionCounts, settings } = gs;
     const lOpt = { signal: gs.listenerAC.signal };
 
-    // ========================================================================
-    // Context menu
-    // ========================================================================
+    // ─── Context menu ───
     const contextMenuEl = document.getElementById('dle-graph-context-menu');
 
     function showContextMenu(node, screenX, screenY) {
@@ -36,7 +26,7 @@ export function initEvents(gs, dbg) {
 
         const vault = getVaultByName(settings, entry.vaultSource || '');
         const obsidianUri = vault ? buildObsidianURI(vault.name, entry.filename) : null;
-        // BUG-190: role + tabindex so items are keyboard-navigable
+        // BUG-190: role + tabindex make menu items keyboard-navigable.
         const obsidianItem = obsidianUri
             ? `<div class="dle-graph-ctx-item" role="menuitem" tabindex="-1" data-action="obsidian">Open in Obsidian</div>`
             : '';
@@ -73,7 +63,7 @@ export function initEvents(gs, dbg) {
                 handleContextAction(action, gs.contextMenuNode);
                 hideContextMenu();
             }, { once: true });
-            // BUG-190: arrow-key nav + Enter/Space activation
+            // BUG-190: arrow-key nav + Enter/Space activation per ARIA menu pattern.
             el.addEventListener('keydown', (ev) => {
                 if (ev.key === 'ArrowDown') {
                     ev.preventDefault();
@@ -132,7 +122,7 @@ export function initEvents(gs, dbg) {
                 const uri = vault ? buildObsidianURI(vault.name, entry.filename) : null;
                 dbg(`Open in Obsidian: vault=${vault?.name || 'NONE'}, uri=${uri || 'NULL'}`);
                 if (uri) {
-                    // Use temporary anchor click — window.open() with custom protocols is blocked by some browsers
+                    // Anchor.click() works for custom protocols; some browsers block window.open() with non-http schemes.
                     const a = document.createElement('a');
                     a.href = uri;
                     a.click();
@@ -174,7 +164,7 @@ export function initEvents(gs, dbg) {
                 }
                 if (entry.summary) details.push(`<em>${escapeHtml(entry.summary.substring(0, 120))}${entry.summary.length > 120 ? '...' : ''}</em>`);
                 const panel = canvas.parentNode?.querySelector('.dle-graph-detail-panel');
-                // BUG-AUDIT-H25: Add ARIA attributes and focus management to detail panel.
+                // BUG-AUDIT-H25: ARIA + focus management on the detail panel (role="dialog").
                 if (panel) {
                     panel.setAttribute('role', 'dialog');
                     panel.setAttribute('aria-label', `Entry details: ${entry.title}`);
@@ -192,9 +182,7 @@ export function initEvents(gs, dbg) {
         }
     }
 
-    // ========================================================================
-    // Export functions
-    // ========================================================================
+    // ─── Export ───
     function exportPNG() {
         dbg('Exporting PNG...');
         try {
@@ -249,14 +237,13 @@ export function initEvents(gs, dbg) {
         }
     }
 
-    // ========================================================================
-    // Canvas mouse events
-    // ========================================================================
+    // ─── Canvas mouse ───
     function freshRect() { gs.cachedRect = canvas.getBoundingClientRect(); return gs.cachedRect; }
 
     canvas.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
-        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return; // G8: ignore during initial layout
+        // G8: settlingUntil window blocks all canvas interaction during initial physics settle.
+        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return;
         hideContextMenu();
         const rect = freshRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
@@ -271,7 +258,7 @@ export function initEvents(gs, dbg) {
             gs.panStartX = mx; gs.panStartY = my;
             gs.panOriginX = gs.panX; gs.panOriginY = gs.panY;
             canvas.style.cursor = 'grabbing';
-            // BUG-358: Mark that user has panned so pending _fitTimers don't snap back.
+            // BUG-358: mark _userPanned so pending startup _fitTimers don't snap the view back.
             gs._userPanned = true;
         }
     }, lOpt);
@@ -282,7 +269,7 @@ export function initEvents(gs, dbg) {
         const rect = freshRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
         gs.debugMouseX = mx; gs.debugMouseY = my; if (gs.focusTreeRoot) gs.needsDraw = true;
-        // G8: During initial settling, only track debug coords — skip all interaction
+        // G8: during initial settling, only debug coords are tracked — interaction is suppressed.
         if (gs.settlingUntil && Date.now() < gs.settlingUntil) return;
         if (gs.dragNode) {
             const w = gs.toWorld(mx, my);
@@ -297,7 +284,7 @@ export function initEvents(gs, dbg) {
             const closest = gs.findNearest(w.x, w.y, gs.hitRadius(), undefined);
             if (closest !== gs.hoverNode) {
                 gs.hoverNode = closest;
-                // Orphan nodes have no connections — skip BFS dim to avoid raising all edge alpha
+                // Orphans have no connections — skip BFS so the entire graph doesn't get pulled into the hover set.
                 gs.hoverDistances = (closest && !closest.orphan) ? gs.computeHoverDistances(closest.id) : null;
                 gs.needsDraw = true;
                 gs.updateTooltip();
@@ -309,10 +296,10 @@ export function initEvents(gs, dbg) {
     canvas.addEventListener('mouseup', (e) => {
         if (e.button !== 0) return;
         if (gs.dragNode) {
-            // G6: Zero velocity on release and briefly boost damping to prevent snap-back
+            // G6: zero velocity + 15-frame extra-damping window prevents the released node from snapping back.
             gs.dragNode.vx = 0;
             gs.dragNode.vy = 0;
-            gs.releaseStabilizeFrames = 15; // physics loop checks this for extra damping
+            gs.releaseStabilizeFrames = 15;
             dbg(`mouseup: released "${gs.dragNode.title}"`);
             gs.dragNode = null;
         }
@@ -320,7 +307,6 @@ export function initEvents(gs, dbg) {
         canvas.style.cursor = 'grab';
     }, lOpt);
 
-    // Double-click: Focus Tree
     canvas.addEventListener('dblclick', (e) => {
         if (gs.settlingUntil && Date.now() < gs.settlingUntil) return;
         const rect = freshRect();
@@ -354,10 +340,9 @@ export function initEvents(gs, dbg) {
         }
     }, lOpt);
 
-    // Right-click context menu
     canvas.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return; // G8: ignore during initial layout
+        if (gs.settlingUntil && Date.now() < gs.settlingUntil) return;
         if (gs.dragNode) {
             const pinTarget = gs.dragNode;
             pinTarget.vx = 0; pinTarget.vy = 0;
@@ -383,7 +368,6 @@ export function initEvents(gs, dbg) {
         }
     }, lOpt);
 
-    // Close context menu on click outside
     document.addEventListener('click', (e) => {
         if (contextMenuEl && !contextMenuEl.contains(e.target)) {
             dbg(`Document click outside context menu, hiding. target=${e.target.tagName}.${e.target.className}, tempPinned="${gs.tempPinnedNode?.title || 'none'}"`);
@@ -391,27 +375,26 @@ export function initEvents(gs, dbg) {
         }
     }, lOpt);
 
-    // Zoom
     canvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         hideContextMenu();
         const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
         const rect = freshRect();
         const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        // Pan correction keeps the mouse-pointed world position fixed during zoom (zoom-to-cursor).
         gs.panX = mx - (mx - gs.panX) * zoomFactor;
         gs.panY = my - (my - gs.panY) * zoomFactor;
         gs.zoom *= zoomFactor;
         gs.zoom = Math.max(0.2, Math.min(5, gs.zoom));
-        // BUG-358: Mark user-initiated zoom so pending _fitTimers don't snap back.
-        gs._userPanned = true;
+        gs._userPanned = true; // BUG-358
+
         gs.needsDraw = true;
     }, { passive: false, signal: gs.listenerAC.signal });
 
-    // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (!document.getElementById('dle-graph-canvas')) return;
-        // BUG-353: Also block when focus is in a contenteditable element (e.g. ST chat
-        // input, custom prose editors) to prevent e/0 firing while graph is behind them.
+        // BUG-353: also block when focus is in a contenteditable surface (ST chat input,
+        // custom prose editors) so e/0 don't fire while the graph is behind them.
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT' || e.target.isContentEditable) return;
 
         switch (e.key) {
@@ -421,8 +404,8 @@ export function initEvents(gs, dbg) {
                 break;
             case 'e':
             case 'E':
-                // Exit focus tree OR reset isolation. ESC is left alone so ST's popup
-                // close behavior works naturally.
+                // ST quirk: focus-tree exit is `e`, NOT Escape — Escape bubbles to ST's popup
+                // close (BUG-357). `e` either exits focus mode or resets isolation if not in focus.
                 if (gs.focusTreeRoot) {
                     dbg('Keyboard: e — exiting focus tree');
                     gs.exitFocusTree();
@@ -444,8 +427,7 @@ export function initEvents(gs, dbg) {
         }
     }, lOpt);
 
-    // Resize handler — update canvas buffer size to match new CSS layout.
-    // Use ResizeObserver on the canvas itself so it tracks popup resize, not just window resize.
+    // ResizeObserver on the canvas itself (not window resize) so popup resizes are tracked too.
     function handleResize() {
         gs.cachedRect = canvas.getBoundingClientRect();
         if (gs.cachedRect.width < 1 || gs.cachedRect.height < 1) return;
@@ -459,12 +441,9 @@ export function initEvents(gs, dbg) {
     }
     const resizeObserver = new ResizeObserver(() => handleResize());
     resizeObserver.observe(canvas);
-    // Clean up observer when popup closes
     gs.listenerAC.signal.addEventListener('abort', () => resizeObserver.disconnect());
 
-    // ========================================================================
-    // Toolbar event wiring
-    // ========================================================================
+    // ─── Toolbar wiring ───
     const searchEl = document.getElementById('dle-graph-search');
     const typeFilterEl = document.getElementById('dle-graph-type-filter');
     const tagFilterEl = document.getElementById('dle-graph-tag-filter');
@@ -515,7 +494,6 @@ export function initEvents(gs, dbg) {
     if (backBtn) {
         backBtn.addEventListener('click', () => gs.exitFocusTree(), lOpt);
     }
-    // Hop depth +/- buttons for focus tree mode
     const hopMinusBtn = document.getElementById('dle-graph-hop-minus');
     const hopPlusBtn = document.getElementById('dle-graph-hop-plus');
     const depthDisplayEl = document.getElementById('dle-graph-depth-display');
@@ -530,7 +508,6 @@ export function initEvents(gs, dbg) {
         gs.settings.graphFocusTreeDepth = newDepth;
         updateDepthDisplay();
         const root = gs.focusTreeRoot;
-        // Clean up current focus tree state
         for (const n of nodes) {
             if (n._treePinned) { n.pinned = false; n._treePinned = false; }
             delete n._targetX;
@@ -543,7 +520,6 @@ export function initEvents(gs, dbg) {
         gs.focusTreeRoot = null;
         gs.focusTreePhysics = false;
         gs._egoLerpActive = false;
-        // Re-enter with new depth
         gs.enterFocusTree(root);
         dbg(`Hop depth adjusted to ${newDepth}`);
     }
@@ -570,7 +546,7 @@ export function initEvents(gs, dbg) {
                 n.vx = 0; n.vy = 0;
             }
 
-            // Try to restore saved positions first
+            // Reset prefers saved layout (gentle settle); falls back to fresh BFS layout if too few positions match.
             const saved = settings.graphSavedLayout;
             let restored = false;
             if (saved?.positions) {
@@ -581,13 +557,12 @@ export function initEvents(gs, dbg) {
                 }
                 if (matched >= nodes.length * 0.8) {
                     restored = true;
-                    gs.alpha = 0.3; // Gentle settle, not full reheat
+                    gs.alpha = 0.3;
                     dbg(`Reset: restored saved layout (${matched}/${nodes.length} matched)`);
                 }
             }
 
             if (!restored) {
-                // Fallback: re-run BFS layout from hub
                 let hubId = 0, hubEdges = 0;
                 for (const [id, count] of edgeCountByNode) {
                     if (count > hubEdges) { hubId = id; hubEdges = count; }
@@ -626,7 +601,7 @@ export function initEvents(gs, dbg) {
                         }
                     }
                 }
-                // Orphans
+                // Orphans land randomly along one of the 4 viewport edges to keep them out of the main mass.
                 const disconnected = nodes.filter(n => !rdepth.has(n.id));
                 for (const n of disconnected) {
                     const side = Math.floor(Math.random() * 4);
@@ -642,7 +617,6 @@ export function initEvents(gs, dbg) {
 
             gs.simFrame = 0;
             gs.needsDraw = true;
-            // Animated fit instead of viewport reset
             if (gs.fitToView) gs.fitToView(true);
         }, lOpt);
     }
@@ -656,7 +630,6 @@ export function initEvents(gs, dbg) {
         exportJsonBtn.addEventListener('click', () => exportJSON(), lOpt);
     }
 
-    // Analyze toggle
     const analyzeBtn = document.getElementById('dle-graph-analyze');
     if (analyzeBtn) {
         analyzeBtn.addEventListener('click', () => {
@@ -666,7 +639,6 @@ export function initEvents(gs, dbg) {
                 gs.gapAnalysis = computeGapAnalysis(gs);
                 const ga = gs.gapAnalysis;
                 dbg(`Gap Analysis: ${ga.orphans.length} orphans, ${ga.bridges.length} bridges, ${ga.missingConnections.length} missing connections`);
-                // Show summary toast
                 const parts = [];
                 if (ga.orphans.length > 0) parts.push(`${ga.orphans.length} orphan${ga.orphans.length > 1 ? 's' : ''}`);
                 if (ga.bridges.length > 0) parts.push(`${ga.bridges.length} weak bridge${ga.bridges.length > 1 ? 's' : ''}`);
@@ -683,9 +655,7 @@ export function initEvents(gs, dbg) {
         }, lOpt);
     }
 
-    // ========================================================================
-    // Interactive legend
-    // ========================================================================
+    // ─── Interactive legend (edge-type visibility toggles) ───
     const legendEl = document.getElementById('dle-graph-legend');
     if (legendEl) {
         legendEl.querySelectorAll('.dle-graph-legend-item').forEach(item => {
@@ -699,14 +669,14 @@ export function initEvents(gs, dbg) {
                 gs.needsDraw = true;
             };
             item.addEventListener('click', toggleEdge, lOpt);
-            // BUG-AUDIT-H24: Keyboard activation for legend items (Enter/Space).
+            // BUG-AUDIT-H24: Enter/Space keyboard activation.
             item.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEdge(); }
             }, lOpt);
         });
     }
 
-    // Sync toolbar color mode → settings panel color mode
+    // Mirror toolbar color-mode select → settings-panel color-mode select.
     if (colorModeEl) {
         colorModeEl.addEventListener('change', () => {
             const gsColorMode = document.getElementById('dle-gs-color-mode');

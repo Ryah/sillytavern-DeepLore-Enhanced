@@ -2,20 +2,17 @@
  * DeepLore Enhanced — Shared mutable state
  * All globals live here; modules import and read/write directly.
  */
-// Late-bound reference to pushEvent — avoids circular import at module eval time.
-// Populated lazily on first use; interceptors.js has no deps on state.js at eval time.
+// Late-bound pushEvent — avoids circular import at module eval. Lazy on first use.
 let _pushEventRef = null;
 function pushEventSafe(kind, data) {
     try {
         if (!_pushEventRef) {
-            // Dynamic import returns a promise — fire-and-forget on first call, sync on subsequent.
-            // BUG-AUDIT: unhandled-rejection on this lazy import would surface as an
-            // "uncaught (in promise)" console error if interceptors.js ever failed to
-            // evaluate (e.g. syntax error in a future refactor). Attach .catch so the
-            // diagnostic path fails silently instead of poisoning the console.
+            // Dynamic import: fire-and-forget on first call, sync after.
+            // .catch is required — without it, a future syntax error in interceptors.js
+            // would surface as an unhandled-rejection on every state mutation.
             import('./diagnostics/interceptors.js')
                 .then(m => { _pushEventRef = m.pushEvent; })
-                .catch(() => { /* diagnostics are best-effort; never break state mutations */ });
+                .catch(() => { /* diagnostics are best-effort */ });
             return;
         }
         _pushEventRef(kind, data);
@@ -25,8 +22,7 @@ function pushEventSafe(kind, data) {
 /** @type {import('../core/pipeline.js').VaultEntry[]} */
 export let vaultIndex = [];
 
-// Index build report — populated by vault.js on each buildIndex/buildIndexWithReuse pass.
-// Consumed by /dle-lint and the post-index summary toast.
+// Per-build parser ledger. Consumed by /dle-lint and the post-index summary toast.
 export let indexBuildReport = {
     okCount: 0,
     warnCount: 0,
@@ -115,16 +111,12 @@ export let vaultAvgTokens = 0;
 /** Chat epoch counter — increments on every CHAT_CHANGED to detect stale onGenerate writes */
 export let chatEpoch = 0;
 
-// ── Utility: consistent tracker key for Maps (cooldown, injection, decay, analytics) ──
-// Uses vaultSource:title to avoid collisions when the same title exists in multiple vaults.
+// `vaultSource:title` — avoids collisions when the same title exists in multiple vaults.
 export function trackerKey(entry) {
     return `${entry.vaultSource || ''}:${entry.title}`;
 }
 
-// ── Setter functions ──
-// ES modules export live bindings but `let` exports can only be reassigned
-// from within the module that declared them. These setters allow other
-// modules to update the state.
+// `let` exports are read-only bindings outside this module — setters bridge that.
 
 export function setVaultIndex(v) { vaultIndex = v; }
 
@@ -180,9 +172,7 @@ export function setClaudeAutoEffortState(bad, detail) {
 }
 export function onClaudeAutoEffortChanged(cb) { claudeAutoEffortObservers.add(cb); return () => claudeAutoEffortObservers.delete(cb); }
 
-// Debug-mode observer. Subscribers (notably the __DLE_DEBUG namespace installer)
-// fire when settings.debugMode flips. Settings write paths must call
-// notifyDebugModeChanged() after mutating debugMode.
+// Settings write paths must call notifyDebugModeChanged() after mutating debugMode.
 const debugModeObservers = new Set();
 export function onDebugModeChanged(cb) { debugModeObservers.add(cb); return () => debugModeObservers.delete(cb); }
 export function notifyDebugModeChanged() {
@@ -436,28 +426,22 @@ export function tryAcquireHalfOpenProbe() {
 }
 
 // ── Observer callbacks ──
-// DLE uses a simple observer pattern to break circular dependencies between data
-// and UI layers. Producers (vault.js, ai.js, pipeline.js) call notify*() functions;
-// consumers (drawer, settings-ui) register via on*() during init.
+// Producers (vault.js, ai.js, pipeline.js) call notify*(); consumers (drawer,
+// settings-ui) register via on*() during init. Observer pattern breaks the
+// data → UI layer circular dependency.
 //
-// The clear*Callbacks() functions exist for completeness but are intentionally never
-// called — the extension initializes once when SillyTavern loads and never tears down.
-// There is no unmount/destroy lifecycle for ST extensions, so callbacks accumulate
-// exactly once and persist for the page lifetime. This is by design, not a leak.
+// clear*Callbacks() exist for completeness but are intentionally never called —
+// ST extensions initialize once and never tear down, so callbacks accumulate
+// exactly once and persist for page lifetime. This is by design, not a leak.
 
-// ── Index lifecycle callbacks ──
-// Registered by the UI layer so the data layer (vault.js) can notify without importing UI modules.
-// This breaks the vault.js → settings-ui.js inverted dependency.
-
-// BUG-026: All observer registries use Set + return-unsubscribe. This mirrors
-// the canonical claudeAutoEffortObservers pattern (line 134 above) and makes
-// callers responsible for releasing their subscriptions on teardown. Existing
-// clear*Callbacks exports are retained for CHAT_CHANGED flushes and test setup.
+// BUG-026: all observer registries use Set + return-unsubscribe. Mirrors the
+// claudeAutoEffortObservers pattern; makes callers responsible for releasing
+// subscriptions on teardown. clear*Callbacks remain for CHAT_CHANGED flushes
+// and test setup.
 
 /** @type {Set<() => void>} */
 const indexUpdatedCallbacks = new Set();
 
-/** Register a callback; returns an unsubscribe function. */
 export function onIndexUpdated(callback) {
     indexUpdatedCallbacks.add(callback);
     return () => indexUpdatedCallbacks.delete(callback);
@@ -468,8 +452,6 @@ export function notifyIndexUpdated() {
         try { cb(); } catch (err) { console.warn('[DLE] Index update callback error:', err.message); }
     }
 }
-
-// ── AI stats lifecycle callbacks ──
 
 /** @type {Set<() => void>} */
 const aiStatsCallbacks = new Set();
@@ -485,8 +467,6 @@ export function notifyAiStatsUpdated() {
     }
 }
 
-// ── AI circuit breaker state callbacks ──
-
 /** @type {Set<() => void>} */
 const circuitStateCallbacks = new Set();
 
@@ -500,8 +480,6 @@ export function notifyCircuitStateChanged() {
         try { cb(); } catch (err) { console.warn('[DLE] Circuit state callback error:', err.message); }
     }
 }
-
-// ── Pipeline complete callbacks ──
 
 /** @type {Set<() => void>} */
 const pipelineCompleteCallbacks = new Set();
@@ -519,10 +497,8 @@ export function notifyPipelineComplete() {
     }
 }
 
-// ── Injection sources ready callbacks ──
-// Fires when lastInjectionSources is set, BEFORE notifyPipelineComplete.
-// Used by the drawer to populate the Why? tab early (before agentic loop / ST generation).
-
+// Fires BEFORE notifyPipelineComplete so the drawer Why? tab populates before
+// the agentic loop / ST generation runs.
 /** @type {Set<() => void>} */
 const injectionSourcesReadyCallbacks = new Set();
 
@@ -536,8 +512,6 @@ export function notifyInjectionSourcesReady() {
         try { cb(); } catch (err) { console.warn('[DLE] Injection sources ready callback error:', err.message); }
     }
 }
-
-// ── Gating changed callbacks ──
 
 /** @type {Set<() => void>} */
 const gatingChangedCallbacks = new Set();
@@ -556,8 +530,6 @@ export function notifyGatingChanged() {
     }
 }
 
-// ── Pin/block changed callbacks ──
-
 /** @type {Set<() => void>} */
 const pinBlockChangedCallbacks = new Set();
 
@@ -575,8 +547,6 @@ export function notifyPinBlockChanged() {
     }
 }
 
-// ── Generation lock changed callbacks ──
-
 /** @type {Set<() => void>} */
 const generationLockCallbacks = new Set();
 
@@ -593,8 +563,6 @@ function notifyGenerationLockChanged() {
     }
 }
 
-// ── Field definitions changed callbacks ──
-
 /** @type {Set<() => void>} */
 const fieldDefinitionsCallbacks = new Set();
 
@@ -610,8 +578,6 @@ function notifyFieldDefinitionsUpdated() {
     }
 }
 
-// ── Indexing state changed callbacks ──
-
 /** @type {Set<() => void>} */
 const indexingChangedCallbacks = new Set();
 
@@ -625,8 +591,6 @@ function notifyIndexingChanged() {
         try { cb(); } catch (err) { console.warn('[DLE] Indexing changed callback error:', err.message); }
     }
 }
-
-// ── Lore gaps changed callbacks ──
 
 /** @type {Set<() => void>} */
 const loreGapsChangedCallbacks = new Set();
@@ -644,8 +608,6 @@ export function notifyLoreGapsChanged() {
     }
 }
 
-// ── Chat injection counts changed callbacks ──
-
 /** @type {Set<() => void>} */
 const chatInjectionCountsCallbacks = new Set();
 
@@ -662,10 +624,8 @@ export function notifyChatInjectionCountsUpdated() {
     }
 }
 
-// ── Pipeline trace updated callbacks ──
-// Distinct from notifyPipelineComplete to avoid firing SR "Pipeline complete: N entries injected"
-// for every trace write. Use this when lastPipelineTrace changes without pipeline finalization.
-
+// Distinct from notifyPipelineComplete — avoids firing the SR "Pipeline complete:
+// N entries injected" announcement for every trace write.
 /** @type {Set<() => void>} */
 const pipelineTraceCallbacks = new Set();
 
@@ -682,12 +642,10 @@ export function notifyPipelineTraceUpdated() {
     }
 }
 
-// ── Overall status computation ──
-
 /**
- * Compute the overall system status for the header badge.
- * Pure function that reads current state values.
- * @param {{ state: string, failures: number }} [obsidianCircuitState] - Aggregate Obsidian circuit breaker state (from getCircuitState())
+ * Compute overall system status for the header badge. Pure (reads state).
+ * @param {{ state: string, failures: number }} [obsidianCircuitState] - Aggregate
+ *        Obsidian circuit-breaker state (from getCircuitState())
  * @returns {'ok'|'degraded'|'limited'|'offline'}
  */
 export function computeOverallStatus(obsidianCircuitState) {
@@ -698,28 +656,26 @@ export function computeOverallStatus(obsidianCircuitState) {
     const usingStaleCache = hasEntries && !indexEverLoaded;
     const obsidianDown = obsidianCircuitState?.state === 'open';
 
-    // Red: no vaults reachable AND no cached data
+    // Red: no vaults reachable AND no cached data.
     if (!hasEntries && (allVaultsFailed || obsidianDown || lastVaultAttemptCount === 0)) {
         return 'offline';
     }
 
-    // Orange: AI circuit breaker tripped, Obsidian circuit open, or running from stale cache only
+    // Orange: AI circuit tripped, Obsidian circuit open, or running from stale cache.
     if (circuitTripped || obsidianDown || usingStaleCache) {
         return 'limited';
     }
 
-    // Yellow: some vaults unreachable, or health grade is B/C/D
+    // Yellow: some vaults unreachable, or health grade B/C/D.
     if (someVaultsFailed) {
         return 'degraded';
     }
     if (lastHealthResult) {
         const { errors, warnings } = lastHealthResult;
-        // Grade B or worse: errors > 0, or warnings > 3
         if (errors > 0 || warnings > 3) {
             return 'degraded';
         }
     }
 
-    // Green: all good
     return 'ok';
 }

@@ -11,23 +11,19 @@ import { getSettings, resolveConnectionConfig } from '../../settings.js';
 import { runHealthCheck } from '../ui/diagnostics.js';
 import { getAllCircuitStates } from '../vault/obsidian-api.js';
 
-// DLE version — fetched once from our own manifest.json and cached.
+// DLE version — fetched once from manifest.json and cached.
 let _cachedDleVersion = null;
 try {
-    // Relative to the extension root: we're in src/diagnostics/, manifest is at ../../manifest.json
     fetch(new URL('../../manifest.json', import.meta.url))
         .then(r => r.ok ? r.json() : null)
         .then(m => { if (m?.version) _cachedDleVersion = m.version; })
         .catch(() => {});
-} catch { /* noop — import.meta.url may not be available */ }
+} catch { /* import.meta.url may not be available */ }
 
 /**
- * Partial-mask a string: show first `keep` chars, replace rest with `*` per char.
- * Preserves length information while hiding the full value.
- * E.g., maskString("John's Claude Key", 4) → "John**************"
- *
- * Collision handling: if two different strings produce the same masked output,
- * a random word is appended to disambiguate (e.g., "John***-oak", "John***-elm").
+ * Partial-mask: show first `keep` chars, replace the rest with `*`. Preserves
+ * length so a reader can spot "this is short" vs "this is a 40-char key" without
+ * seeing the value. Collisions get a random-word suffix (e.g. "John***-oak").
  */
 const _maskCache = new Map(); // masked → original
 const _maskResult = new Map(); // original → result
@@ -38,15 +34,12 @@ const DECOLIDE_WORDS = [
 let _decolideIdx = 0;
 function maskString(s, keep = 4) {
     if (!s || typeof s !== 'string') return s;
-    // Return cached result for same original
     if (_maskResult.has(s)) return _maskResult.get(s);
     const masked = s.length <= keep
         ? '*'.repeat(s.length)
         : s.slice(0, keep) + '*'.repeat(s.length - keep);
-    // Check for collision with a different original
     const existing = _maskCache.get(masked);
     if (existing !== undefined && existing !== s) {
-        // Collision — add a random word
         const word = DECOLIDE_WORDS[_decolideIdx++ % DECOLIDE_WORDS.length];
         const result = `${masked}-${word}`;
         _maskResult.set(s, result);
@@ -56,15 +49,15 @@ function maskString(s, keep = 4) {
     _maskResult.set(s, masked);
     return masked;
 }
-/** Reset mask caches per snapshot (fresh aliases each export). */
+/** Reset per snapshot — fresh aliases each export, no cross-export correlation. */
 function resetMaskCaches() {
     _maskCache.clear();
     _maskResult.clear();
     _decolideIdx = 0;
 }
 
-// Per-snapshot title pseudonymizer. Fresh per captureStateSnapshot() call.
-// Preserves cardinality so "entry X was selected → entry X hit cooldown" is traceable.
+// Title pseudonymizer — fresh per snapshot, cardinality preserved so "entry X
+// was selected → entry X hit cooldown" is still traceable.
 let _titleMap, _titleCounter;
 function pseudonymizeTitle(title) {
     if (!title) return null;
@@ -76,10 +69,8 @@ function pseudonymizeTitle(title) {
     return p;
 }
 
-// Per-snapshot vaultSource pseudonymizer. The vaultSource is the user's vault
-// name (story/project name) and leaks PII just like titles. Same cardinality
-// preservation pattern as titles. Empty vaultSource (single-vault setups)
-// passes through unchanged.
+// vaultSource is the user's project/story name — leaks PII like titles do.
+// Same cardinality-preserving pattern. Empty (single-vault) passes through.
 let _vaultSourceMap, _vaultSourceCounter;
 function pseudonymizeVaultSource(vs) {
     if (!vs) return vs;
@@ -92,9 +83,8 @@ function pseudonymizeVaultSource(vs) {
 }
 
 /**
- * Summarize a single VaultEntry into metadata only.
- * NEVER include `content` or `summary` body text.
- * Titles and filenames are pseudonymized to prevent PII leakage.
+ * Summarize a VaultEntry to metadata only — NEVER `content` or `summary` body.
+ * Titles and filenames are pseudonymized.
  */
 function summarizeEntry(e) {
     if (!e || typeof e !== 'object') return null;
@@ -123,9 +113,8 @@ function summarizeEntry(e) {
     };
 }
 
-/** Convert a Map to a plain object with at most `maxEntries` keys.
- *  Tracker keys (vaultSource:title) have BOTH portions pseudonymized — vault
- *  name leaks story/project identity just like titles do. */
+/** Map → plain object capped at `maxEntries`. Tracker keys (vaultSource:title)
+ *  pseudonymize BOTH halves — vault name leaks identity just like titles. */
 function mapToObj(m, maxEntries = 200) {
     if (!m || typeof m.entries !== 'function') return null;
     const out = {};
@@ -156,9 +145,9 @@ function pseudonymizeTrace(trace) {
         copy[key] = copy[key].map(e => {
             if (!e || typeof e !== 'object') return e;
             const out = { ...e, title: pseudonymizeTitle(e.title), filename: pseudonymizeTitle(e.filename) };
-            // Pseudonymize keyword triggers — these are often character/location names
+            // Keyword triggers are often character/location names.
             if (out.matchedBy) out.matchedBy = pseudonymizeTitle(out.matchedBy);
-            // AI selection reasons may contain character names — scrub against known title map
+            // AI reasons may embed character names — replace any known title.
             if (typeof out.reason === 'string') {
                 for (const [real, pseudo] of _titleMap.entries()) {
                     if (out.reason.includes(real)) {
@@ -184,7 +173,7 @@ function extensionInventory() {
     } catch { return null; }
 }
 
-/** chat_metadata snapshot — only DLE keys + lightweight ST metadata. */
+/** chat_metadata snapshot — only DLE keys, only shape (no values). */
 function chatMetadataSnapshot() {
     try {
         const cm = globalThis.chat_metadata || {};
@@ -192,8 +181,7 @@ function chatMetadataSnapshot() {
         const out = {};
         for (const k of dleKeys) {
             const v = cm[k];
-            // Don't include chat-content-ish things — even DLE keys could have user text.
-            // Just record shape: type, length, key count.
+            // Even DLE keys can hold user text — record shape only (type/length/key count).
             if (v == null) { out[k] = null; continue; }
             if (Array.isArray(v)) { out[k] = { __type: 'array', length: v.length }; continue; }
             if (typeof v === 'object') { out[k] = { __type: 'object', keys: Object.keys(v) }; continue; }
@@ -206,7 +194,7 @@ function chatMetadataSnapshot() {
 
 function systemInfo() {
     try {
-        // ST version from the #version_display element (set by ST at runtime)
+        // ST version comes from the #version_display element (set by ST at runtime).
         let stVersion = null;
         try {
             const el = document.querySelector('#version_display');
@@ -223,7 +211,7 @@ function systemInfo() {
     } catch { return null; }
 }
 
-/** Safely look up a connection profile by ID from ST's Connection Manager. */
+/** Look up a connection profile by ID from ST's Connection Manager. */
 function lookupProfile(profileId) {
     try {
         const ctx = (typeof globalThis.SillyTavern?.getContext === 'function')
@@ -244,17 +232,16 @@ function summarizeProfile(profile) {
         api: profile.api,
         model: profile.model,
         preset: profile.preset,
-        proxy: profile.proxy, // proxy preset name, not the URL
+        proxy: profile.proxy, // preset name, not URL
         instruct: profile.instruct,
         context: profile.context,
         tokenizer: profile.tokenizer,
-        'api-url': profile['api-url'],  // scrubber will pseudonymize the hostname
+        'api-url': profile['api-url'],  // scrubber pseudonymizes the hostname
         'instruct-state': profile['instruct-state'],
         'reasoning-template': profile['reasoning-template'],
     };
 }
 
-/** Resolve CONNECT_API_MAP for a profile's api type, if available. */
 function resolveApiMap(apiType) {
     try {
         const ctx = (typeof globalThis.SillyTavern?.getContext === 'function')
@@ -268,9 +255,8 @@ function resolveApiMap(apiType) {
 }
 
 /**
- * Capture DLE + ST connection state for diagnostics.
- * Shows the resolved config for every DLE tool, the underlying ST profile objects,
- * ST's active main API state, and flags missing/stale profiles.
+ * Resolved per-tool config + underlying ST profile objects + ST's active main API
+ * state. Flags missing/stale profiles.
  */
 function connectionSnapshot() {
     try {
@@ -291,7 +277,6 @@ function connectionSnapshot() {
                     timeout: resolved.timeout,
                 };
 
-                // If profile mode, check if the profile actually exists
                 if (resolved.mode === 'profile' && resolved.profileId) {
                     const profile = lookupProfile(resolved.profileId);
                     if (!profile) {
@@ -312,14 +297,12 @@ function connectionSnapshot() {
             }
         }
 
-        // Full profile objects for referenced profiles (deduplicated)
         const profiles = {};
         for (const id of seenProfileIds) {
             const p = lookupProfile(id);
             if (p) profiles[id] = summarizeProfile(p);
         }
 
-        // Resolve CONNECT_API_MAP for each referenced profile
         const apiMapResolutions = {};
         for (const [id, prof] of Object.entries(profiles)) {
             if (prof?.api) {
@@ -327,7 +310,7 @@ function connectionSnapshot() {
             }
         }
 
-        // ST's active main API state — what 'inherit'/'st' mode actually hits
+        // What 'inherit'/'st' mode actually hits.
         let stActiveConnection = null;
         try {
             const ctx = (typeof globalThis.SillyTavern?.getContext === 'function')
@@ -341,7 +324,6 @@ function connectionSnapshot() {
                 selectedModel: oai?.openai_model || null,
                 claudeModel: oai?.claude_model || null,
             };
-            // Also check ST's own selected connection profile
             const ext = ctx?.extensionSettings || globalThis.extension_settings;
             stActiveConnection.selectedProfileId = ext?.connectionManager?.selectedProfile || null;
             stActiveConnection.totalProfiles = Array.isArray(ext?.connectionManager?.profiles)
@@ -359,11 +341,11 @@ function connectionSnapshot() {
 }
 
 /**
- * Build the full state snapshot. Returned object is NOT yet scrubbed —
- * the export pipeline runs scrubDeep() on the whole thing before serializing.
+ * Build the full state snapshot. Returned NOT-yet-scrubbed — export pipeline
+ * runs scrubDeep() on the whole thing before serializing.
  */
 export function captureStateSnapshot() {
-    // Fresh pseudonym/mask tables per snapshot — aliases are NOT correlated across exports
+    // Fresh pseudonym/mask tables per snapshot — no cross-export correlation.
     _titleMap = new Map();
     _titleCounter = 0;
     _vaultSourceMap = new Map();
@@ -377,11 +359,10 @@ export function captureStateSnapshot() {
         extensionInventory: extensionInventory(),
     };
 
-    // Settings (full — scrubber redacts API keys by name)
-    // Captured early so setupState and uiCascadeState can reference it (avoids double getSettings() TOCTOU)
+    // Captured early so setupState/uiCascadeState reference the same object
+    // (avoids double getSettings() TOCTOU). Scrubber redacts API keys by name.
     try { snap.settings = getSettings(); } catch (e) { snap.settings = { __error: String(e) }; }
 
-    // Setup wizard + migration state
     try {
         const s = snap.settings && !snap.settings.__error ? snap.settings : getSettings();
         snap.setupState = {
@@ -399,15 +380,14 @@ export function captureStateSnapshot() {
                 name: maskString(v.name) || null,
             })) : [],
             indexEverLoaded: state.indexEverLoaded,
-            // Mismatch: wizard says done but no vaults enabled = likely skipped or partial
+            // Wizard done + no vaults enabled = likely skipped/partial setup.
             possiblyIncomplete: !!s._wizardCompleted && !(Array.isArray(s.vaults) && s.vaults.some(v => v.enabled)),
         };
     } catch (e) { snap.setupState = { __error: String(e) }; }
 
-    // Connection profiles — resolved per-tool config + ST profile objects + active main API
     try { snap.connections = connectionSnapshot(); } catch (e) { snap.connections = { __error: String(e) }; }
 
-    // Derived UI cascade state — explains why specific controls are disabled/hidden
+    // Derived UI cascade state — explains why specific controls are disabled/hidden.
     try {
         const s = snap.settings || {};
         snap.uiCascadeState = {
@@ -422,12 +402,10 @@ export function captureStateSnapshot() {
         };
     } catch (e) { snap.uiCascadeState = { __error: String(e) }; }
 
-    // Manifest version — read from our own manifest.json (cached after first load)
     try {
         snap.dleVersion = _cachedDleVersion || 'unknown';
     } catch { snap.dleVersion = 'unknown'; }
 
-    // Vault index summary
     try {
         const idx = state.vaultIndex || [];
         snap.vault = {
@@ -446,7 +424,7 @@ export function captureStateSnapshot() {
             withRequires: idx.filter(e => Array.isArray(e.requires) && e.requires.length).length,
             withExcludes: idx.filter(e => Array.isArray(e.excludes) && e.excludes.length).length,
             withoutKeys: idx.filter(e => !Array.isArray(e.keys) || e.keys.length === 0).length,
-            // Per-entry metadata for the first ~200 entries (oldest-first arbitrary order — fine for diag)
+            // First ~200 entries of metadata (oldest-first arbitrary order — fine for diag).
             entries: idx.slice(0, 200).map(summarizeEntry),
             entriesTruncated: idx.length > 200,
             folderDistribution: (state.folderList || []).map(f => ({
@@ -477,14 +455,13 @@ export function captureStateSnapshot() {
             hasLastScribeSummary: !!state.lastScribeSummary,
             perSwipeInjectedKeysCount: state.perSwipeInjectedKeys?.size ?? 0,
             lastPipelineTrace: pseudonymizeTrace(state.lastPipelineTrace),
-            // Injection sources — count and epoch for verifying pipeline output vs actual injection
+            // Count + epoch — verifies pipeline output vs actual injection.
             lastInjectionSourceCount: Array.isArray(state.lastInjectionSources) ? state.lastInjectionSources.length : 0,
             lastInjectionEpoch: state.lastInjectionEpoch ?? null,
             injectionEpochMatchesChatEpoch: state.lastInjectionEpoch === state.chatEpoch,
         };
     } catch (e) { snap.pipeline = { __error: String(e) }; }
 
-    // AI subsystem
     try {
         snap.ai = {
             cache: state.aiSearchCache ? {
@@ -506,7 +483,6 @@ export function captureStateSnapshot() {
         }
     } catch (e) { snap.ai = { __error: String(e) }; }
 
-    // Librarian subsystem
     try {
         snap.librarian = {
             sessionStats: state.librarianSessionStats,
@@ -516,7 +492,6 @@ export function captureStateSnapshot() {
         };
     } catch (e) { snap.librarian = { __error: String(e) }; }
 
-    // Entity matching state
     try {
         snap.matching = {
             entityNameSetSize: state.entityNameSet?.size ?? 0,
@@ -529,7 +504,6 @@ export function captureStateSnapshot() {
         };
     } catch (e) { snap.matching = { __error: String(e) }; }
 
-    // Auto-suggest subsystem
     try {
         const s = snap.settings && !snap.settings.__error ? snap.settings : {};
         snap.autoSuggest = {
@@ -544,7 +518,7 @@ export function captureStateSnapshot() {
         };
     } catch (e) { snap.autoSuggest = { __error: String(e) }; }
 
-    // Staleness indicator — was snapshot captured during active generation?
+    // Was the snapshot captured mid-generation?
     try {
         snap.staleness = {
             capturedDuringGeneration: !!state.generationLock,
@@ -554,7 +528,6 @@ export function captureStateSnapshot() {
         };
     } catch {}
 
-    // Vault fetch failures + per-vault Obsidian circuit breaker state
     try {
         snap.vaultFetch = {
             lastVaultFailureCount: state.lastVaultFailureCount,
@@ -564,11 +537,10 @@ export function captureStateSnapshot() {
     try {
         const perVault = getAllCircuitStates();
         if (Object.keys(perVault).length > 0) {
-            // Pseudonymize host:port keys to prevent IP/hostname leakage
-            // Use <vault-N> aliases keyed by original host:port
+            // Pseudonymize host:port keys to prevent IP/hostname leakage.
             const masked = {};
             let vaultIdx = 0;
-            for (const [key, val] of Object.entries(perVault)) {
+            for (const [, val] of Object.entries(perVault)) {
                 masked[`<vault-${++vaultIdx}>`] = val;
             }
             snap.obsidianCircuitBreakers = masked;
@@ -577,7 +549,6 @@ export function captureStateSnapshot() {
         }
     } catch (e) { snap.obsidianCircuitBreakers = { __error: String(e) }; }
 
-    // Chat context at generation time — character, group, chat length, last message role
     try {
         const ctx = (typeof globalThis.SillyTavern?.getContext === 'function')
             ? globalThis.SillyTavern.getContext() : null;
@@ -596,9 +567,6 @@ export function captureStateSnapshot() {
         }
     } catch (e) { snap.chatContext = { __error: String(e) }; }
 
-    // Note: Agentic loop manages its own API calls — no ToolManager registration needed.
-
-    // AI cache version mismatch detection
     try {
         if (snap.ai && typeof snap.ai === 'object' && !snap.ai.__error
             && state.aiSearchCache && state.entityRegexVersion !== undefined) {
@@ -609,7 +577,6 @@ export function captureStateSnapshot() {
         }
     } catch {}
 
-    // Lore gap hidden/dismissed counts from chat_metadata
     try {
         if (snap.librarian && typeof snap.librarian === 'object' && !snap.librarian.__error) {
             const cm = globalThis.chat_metadata || {};
@@ -620,7 +587,7 @@ export function captureStateSnapshot() {
         }
     } catch {}
 
-    // Actually-registered DLE extension prompts — verifies pipeline output vs prompt injection
+    // Verifies pipeline output vs the prompts ST actually has registered.
     try {
         const ep = globalThis.extension_prompts || {};
         const dlePrompts = Object.entries(ep)
@@ -632,14 +599,13 @@ export function captureStateSnapshot() {
         };
     } catch (e) { snap.registeredPrompts = { __error: String(e) }; }
 
-    // Contextual gating state — era, location, sceneType, characterPresent, custom fields
-    // These are user-set metadata (not PII) and are critical for diagnosing "why didn't entry X fire?"
+    // User-set gating metadata (not PII) — critical for "why didn't entry X fire?"
     try {
         const cm = globalThis.chat_metadata || {};
         const gatingCtx = cm.deeplore_context;
         if (gatingCtx && typeof gatingCtx === 'object') {
             snap.gatingContext = { ...gatingCtx };
-            // Pseudonymize characterPresent values (could be character names)
+            // characterPresent may contain character names.
             if (Array.isArray(snap.gatingContext.characterPresent)) {
                 snap.gatingContext.characterPresent = snap.gatingContext.characterPresent.map(c => pseudonymizeTitle(c));
             }
@@ -648,10 +614,8 @@ export function captureStateSnapshot() {
         }
     } catch (e) { snap.gatingContext = { __error: String(e) }; }
 
-    // Health check
     try { snap.health = runHealthCheck(); } catch (e) { snap.health = { __error: String(e) }; }
 
-    // chat_metadata
     try { snap.chatMetadata = chatMetadataSnapshot(); } catch (e) { snap.chatMetadata = { __error: String(e) }; }
 
     return snap;

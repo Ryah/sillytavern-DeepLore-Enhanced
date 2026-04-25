@@ -1,18 +1,17 @@
 /**
  * DeepLore Enhanced — Agentic Loop
- * Core state machine: SEARCH → FLAG → DONE.
- * Replaces ST's ToolManager-based tool calling with a DLE-owned generation loop.
+ * State machine: SEARCH → FLAG → DONE. DLE-owned generation loop, replaces
+ * ST ToolManager-based tool calling for Librarian.
  */
 import {
     callWithTools, parseToolCalls, getTextContent, getUsage,
-    buildAssistantMessage, buildToolResults, getProviderFormat,
+    buildAssistantMessage, buildToolResults,
 } from './agentic-api.js';
 import { searchLoreAction, flagLoreAction } from './librarian-tools.js';
-import { getSettings } from '../../settings.js';
 import {
     chatEpoch, generationLockEpoch,
     setGenerationLockTimestamp,
-    pipelinePhase, setPipelinePhase,
+    setPipelinePhase,
 } from '../state.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
 
@@ -90,27 +89,26 @@ const PHASE_FLAG = 'FLAG';
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Run the agentic generation loop.
  * @param {object} options
- * @param {Array} options.messages - Initial messages array from buildChatMessages()
- * @param {number} options.maxSearches - Max search calls (from settings.librarianMaxSearches)
- * @param {boolean} options.searchEnabled - Whether search tool is available
- * @param {boolean} options.flagEnabled - Whether flag tool is available
- * @param {number} options.maxTokens - Max response tokens
- * @param {AbortSignal} options.signal - Abort signal for stop/chat-switch
+ * @param {Array} options.messages - From buildChatMessages()
+ * @param {number} options.maxSearches
+ * @param {boolean} options.searchEnabled
+ * @param {boolean} options.flagEnabled
+ * @param {number} options.maxTokens
+ * @param {AbortSignal} options.signal
  * @param {number} options.epoch - chatEpoch snapshot
  * @param {number} options.lockEpoch - generationLockEpoch snapshot
- * @param {function} options.onStatus - Status callback for UI
- * @param {function} options.onProse - Called with prose text when write() fires (for immediate display)
- * @param {Set<string>} options.injectedTitles - Titles already in context (lowercased)
- * @param {object} options.settings - DLE settings snapshot
- * @returns {Promise<{prose: string, toolActivity: Array, usage: {totalInput: number, totalOutput: number}, error?: string}>}
+ * @param {function} options.onStatus
+ * @param {function} options.onProse - Called when write() fires; awaited so saveReply
+ *   completes before FLAG phase.
+ * @param {Set<string>} options.injectedTitles - lowercased
+ * @param {object} options.settings
  */
 export async function runAgenticLoop(options) {
     const {
         messages, maxSearches, searchEnabled, flagEnabled,
         maxTokens, signal, epoch, lockEpoch,
-        onStatus, onProse, injectedTitles, settings,
+        onStatus, onProse, settings,
     } = options;
 
     pushEvent('librarian', { action: 'start', maxSearches: maxSearches });
@@ -128,7 +126,7 @@ export async function runAgenticLoop(options) {
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
         iterations = iteration + 1;
-        // Epoch guards — bail if chat changed or lock was force-released
+        // Bail on chat switch or force-released lock.
         if (epoch !== chatEpoch || lockEpoch !== generationLockEpoch) {
             if (debug) console.debug('[DLE] Agentic loop: epoch mismatch, aborting');
             exitReason = 'epoch_mismatch';
@@ -152,11 +150,9 @@ export async function runAgenticLoop(options) {
             throw err;
         }
 
-        // Build available tools for this phase
         const tools = [];
         if (phase === PHASE_SEARCH) {
-            // Write is always available in SEARCH phase
-            tools.push(TOOL_WRITE);
+            tools.push(TOOL_WRITE); // always available in SEARCH
             if (searchEnabled && searchCount < maxSearches) {
                 tools.push(TOOL_SEARCH);
             }
@@ -166,15 +162,14 @@ export async function runAgenticLoop(options) {
             }
         }
 
-        // No tools available = done
         if (tools.length === 0) { exitReason = 'no_tools'; break; }
 
-        // H1: Always use 'auto' — 'required'/'any' conflicts with thinking/extended thinking
-        // on Claude and potentially Gemini. The system prompt already instructs the AI to
-        // call write when it's the only available tool, so forcing is unnecessary.
+        // H1: 'auto' only. 'required'/'any' conflicts with extended thinking on
+        // Claude (and possibly Gemini); the system prompt already instructs the
+        // model to call write when it's the only tool, so forcing is unnecessary.
         const toolChoice = 'auto';
 
-        // C9: Keep generation lock alive before API call
+        // C9: keepalive before API call.
         setGenerationLockTimestamp(Date.now());
 
         try {
@@ -187,11 +182,10 @@ export async function runAgenticLoop(options) {
 
         if (debug) console.debug(`[DLE] Agentic loop: iteration ${iteration}, phase=${phase}, tools=[${tools.map(t => t.function.name)}]`);
 
-        // H8: FLAG phase is best-effort — prose is already delivered, so errors here
-        // should not crash the generation. Wrap the entire FLAG iteration in try/catch.
-        // Phase label: emit 'flagging' so the drawer status reflects the silent wrap-up stage.
-        // PHASE_LABELS at drawer-render-status.js includes 'Flagging…'. AbortError still throws;
-        // finally always sets 'idle' since FLAG is the terminal step of the agentic loop.
+        // H8: FLAG is best-effort — prose already delivered, so errors here must
+        // not crash generation. AbortError still throws. Phase label 'flagging'
+        // surfaces the silent wrap-up stage in drawer-render-status.js.
+        // FLAG is terminal, so finally always restores 'idle'.
         if (phase === PHASE_FLAG) {
             setPipelinePhase('flagging');
             try {
@@ -202,25 +196,22 @@ export async function runAgenticLoop(options) {
             } finally {
                 setPipelinePhase('idle');
             }
-            // FLAG phase always runs at most one iteration — break after
+            // FLAG runs at most one iteration.
             exitReason = 'completed';
             break;
         }
 
-        // SEARCH phase — errors here ARE fatal (no prose yet)
+        // SEARCH phase — errors fatal here (no prose yet).
         const response = await callWithTools(messages, tools, toolChoice, maxTokens, signal);
 
-        // Accumulate usage
         const responseUsage = getUsage(response);
         usage.totalInput += responseUsage.input_tokens;
         usage.totalOutput += responseUsage.output_tokens;
 
-        // Parse tool calls from response
         const toolCalls = parseToolCalls(response);
 
-        // No tool calls = AI ended its turn
         if (toolCalls.length === 0) {
-            // Capture any text as fallback prose
+            // AI ended its turn — capture text as fallback prose.
             if (!prose) {
                 const text = getTextContent(response);
                 if (text?.trim()) prose = text;
@@ -229,14 +220,13 @@ export async function runAgenticLoop(options) {
             break;
         }
 
-        // Append assistant message to conversation (preserves provider-native format)
+        // Provider-native format preserved.
         const assistantMsg = buildAssistantMessage(response);
         messages.push(assistantMsg);
 
-        // C9: Keep lock alive before processing tools
+        // C9: keepalive before tool processing.
         setGenerationLockTimestamp(Date.now());
 
-        // Process all tool calls, collect results
         const results = [];
         for (const tc of toolCalls) {
             switch (tc.name) {
@@ -252,12 +242,12 @@ export async function runAgenticLoop(options) {
                     searchCount++;
                     onStatus?.(`Searching\u2026 (${searchCount}/${maxSearches})`);
 
-                    // Call the existing searchLoreAction — it handles BM25, gap tracking, analytics
+                    // Reuses BM25, gap tracking, analytics from the legacy action.
                     const searchResult = await searchLoreAction({ queries: tc.input.queries || [] });
                     results.push({ id: tc.id, name: tc.name, result: searchResult });
 
-                    // Record activity for dropdown — resultTitles required by librarian-ui.js
-                    // Best hit uses `### title` format; linked entries use `<entry name="title">`
+                    // librarian-ui.js dropdown needs resultTitles. Best hit format:
+                    // `### title`; linked entries: `<entry name="title">`.
                     const headingTitles = [...(searchResult.matchAll(/^### (.+)$/gm) || [])]
                         .map(m => m[1]).filter(t => t !== 'Related entries:');
                     const entryTitles = [...(searchResult.matchAll(/name="([^"]+)"/g) || [])].map(m => m[1]);
@@ -273,15 +263,14 @@ export async function runAgenticLoop(options) {
                 }
 
                 case 'write': {
-                    // H4: Double-write guard
+                    // H4: double-write guard.
                     if (writeDone) {
                         results.push({ id: tc.id, name: tc.name, result: 'Error: Response already submitted. Use flag to record any issues, then end your turn.' });
                         break;
                     }
-                    // H10: Empty-content guard. AI sometimes emits write() with `content: ""`
-                    // or a missing content field (token-budget truncation, refusal, confusion).
-                    // Returning an error instead of silently committing an empty bubble gives
-                    // the AI a chance to retry in the next iteration within the same phase.
+                    // H10: empty-content guard. AI sometimes emits write() with empty
+                    // or missing content (truncation, refusal, confusion). Returning
+                    // an error gives it a retry slot rather than committing an empty bubble.
                     const writeContent = typeof tc.input?.content === 'string' ? tc.input.content : '';
                     if (!writeContent.trim()) {
                         results.push({
@@ -293,22 +282,21 @@ export async function runAgenticLoop(options) {
                     }
                     prose = writeContent;
                     writeDone = true;
-                    phase = PHASE_FLAG; // Phase transition
+                    phase = PHASE_FLAG;
 
-                    // H7: Show prose to user immediately — flagging is a silent wrap-up.
-                    // Status is cleared by the onProse callback (which calls _removePipelineStatus).
-                    // Awaited so saveReply + saveChatConditional complete before FLAG phase.
+                    // H7: prose shown immediately — flagging is a silent wrap-up.
+                    // onProse clears status (calls _removePipelineStatus) and is awaited
+                    // so saveReply + saveChatConditional finish before FLAG phase.
                     await onProse?.(prose);
 
-                    // Return flagging instructions as the tool result
                     const flagInstructions = buildFlaggingInstructions(settings);
                     results.push({ id: tc.id, name: tc.name, result: flagInstructions });
                     break;
                 }
 
                 case 'flag': {
-                    // Edge case: AI called write + flag in the same response.
-                    // Phase is now FLAG (set by write above), handle inline.
+                    // AI may emit write+flag in one response — phase is already FLAG
+                    // (set by the write case above), so handle inline.
                     if (phase !== PHASE_FLAG || !flagEnabled) {
                         results.push({ id: tc.id, name: tc.name, result: 'Flag is not available yet. Call write first.' });
                         break;
@@ -331,7 +319,7 @@ export async function runAgenticLoop(options) {
             }
         }
 
-        // C4: Batch ALL tool results into one message (or array for OpenAI)
+        // C4: batch all tool results into one message (or array for OpenAI).
         const toolResultMsg = buildToolResults(results);
         if (Array.isArray(toolResultMsg)) {
             messages.push(...toolResultMsg);
@@ -340,9 +328,8 @@ export async function runAgenticLoop(options) {
         }
     }
 
-    // Fallback: if write was never called with usable content, log the terminal state.
-    // (prose='' is a legitimate outcome when every write attempt was empty and got
-    // rejected by the H10 guard — not the same as "write was never called".)
+    // prose='' is legitimate (every write rejected by H10 empty-content guard).
+    // Distinct from "write was never called" — both fall through here, log the state.
     if (!prose) {
         if (debug) console.debug('[DLE] Agentic loop: exited without prose (writeDone=%s, iterations=%d, exit=%s)', writeDone, iterations, exitReason);
     }
@@ -360,21 +347,14 @@ export async function runAgenticLoop(options) {
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Run a single FLAG phase iteration. Best-effort — errors are caught by the caller.
- * Loops internally to handle multiple flag calls from one response.
- * @param {Array} messages - Conversation messages (mutated)
- * @param {Array} tools - Available tools (just TOOL_FLAG)
- * @param {string} toolChoice - Tool choice string
- * @param {number} maxTokens - Max tokens
- * @param {AbortSignal} signal - Abort signal
- * @param {Array} toolActivity - Activity log (mutated)
- * @param {object} settings - DLE settings
- * @param {boolean} debug - Debug mode
+ * Single FLAG-phase iteration. Best-effort — caller catches errors.
+ * Handles multiple flag calls from one response, but does not loop.
+ * Mutates `messages` and `toolActivity`.
  */
 async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal, toolActivity, settings, debug) {
     const response = await callWithTools(messages, tools, toolChoice, maxTokens, signal);
     const toolCalls = parseToolCalls(response);
-    if (toolCalls.length === 0) return 0; // AI chose not to flag — done
+    if (toolCalls.length === 0) return 0;
 
     const assistantMsg = buildAssistantMessage(response);
     messages.push(assistantMsg);
@@ -397,7 +377,6 @@ async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal,
             timestamp: Date.now(),
         });
     }
-    // Send results back (not continuing the loop — one flag iteration only)
     const toolResultMsg = buildToolResults(results);
     if (Array.isArray(toolResultMsg)) {
         messages.push(...toolResultMsg);
@@ -408,12 +387,6 @@ async function _runFlagIteration(messages, tools, toolChoice, maxTokens, signal,
     return flagCount;
 }
 
-/**
- * Build flagging instructions returned as the write() tool result.
- * Tells the AI what flag types are available and how to use them.
- * @param {object} settings - DLE settings
- * @returns {string}
- */
 function buildFlaggingInstructions(settings) {
     const flagEnabled = settings.librarianFlagEnabled !== false;
 

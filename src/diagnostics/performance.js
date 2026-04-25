@@ -1,12 +1,7 @@
 /**
  * performance.js — Lightweight perf observation for diagnostic exports.
- *
- * Optional layer on top of interceptors. Captures:
- *   - long tasks (>50ms blocking the main thread)
- *   - memory snapshot (Chrome only — performance.memory)
- *   - basic navigation timing
- *
- * Always-on. Bounded ring buffer. Never throws.
+ * Captures long tasks (>50ms main-thread blocks), memory snapshot (Chrome only),
+ * and navigation timing. Always-on, bounded, never throws.
  */
 
 import { RingBuffer } from './ring-buffer.js';
@@ -36,7 +31,7 @@ export function startPerformanceObservers() {
     } catch { /* noop */ }
 }
 
-/** One-shot snapshot of memory + navigation timing for inclusion in the export. */
+/** One-shot memory + navigation timing snapshot for inclusion in the export. */
 export function captureMemorySnapshot() {
     const out = {};
     try {

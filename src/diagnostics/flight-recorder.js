@@ -1,13 +1,9 @@
 /**
  * flight-recorder.js — Always-on per-generation summary capture.
  *
- * Subscribes to onPipelineComplete from src/state.js and snapshots a
- * lightweight per-generation summary into a ring buffer. This is the
- * primary data source for diagnostic exports of pipeline behavior.
- *
- * Captures a SUMMARY of lastPipelineTrace, not the full trace, to keep
- * size bounded across many generations. The most recent N generations
- * always survive in memory regardless of debugMode.
+ * Subscribes to onPipelineComplete and snapshots a SUMMARY of lastPipelineTrace
+ * (not the full trace — keeps size bounded across many gens). Always-on
+ * regardless of debugMode; primary data source for pipeline diagnostics.
  */
 
 import { RingBuffer } from './ring-buffer.js';
@@ -16,8 +12,7 @@ export const generationBuffer = new RingBuffer(50);
 
 let started = false;
 
-// Session-scoped title pseudonymizer for flight recorder entries.
-// Consistent within a session: "entry X" in gen 5 is the same "entry X" in gen 12.
+// Session-scoped: "entry X" in gen 5 is the same "entry X" in gen 12.
 const _frTitleMap = new Map();
 let _frTitleN = 0;
 function pseudoTitle(title) {
@@ -27,7 +22,6 @@ function pseudoTitle(title) {
     return p;
 }
 
-/** Convert lastPipelineTrace into a compact summary. */
 function summarizeTrace(trace) {
     if (!trace || typeof trace !== 'object') return null;
     const arr = (k) => Array.isArray(trace[k]) ? trace[k].length : 0;
@@ -57,7 +51,6 @@ function summarizeTrace(trace) {
             inputCount:  trace.aiPreFilter.inputCount  ?? null,
             outputCount: trace.aiPreFilter.outputCount ?? null,
         } : null,
-        // Pipeline timing (if available in trace)
         genId:                trace.genId                ?? null,
         totalMs:              trace.totalMs              ?? null,
         keywordMatchMs:       trace.keywordMatchMs       ?? null,
@@ -76,8 +69,8 @@ function summarizeTrace(trace) {
 }
 
 /**
- * Record a pipeline abort into the flight recorder.
- * Called from index.js catch block when user stops generation or pipeline times out.
+ * Record a pipeline abort. Called from index.js catch when the user stops
+ * generation or the pipeline times out.
  */
 export function recordAbort(reason) {
     try {
@@ -89,10 +82,7 @@ export function recordAbort(reason) {
     } catch { /* never throw from diagnostic code */ }
 }
 
-/**
- * Start the flight recorder. Safe to call multiple times.
- * Subscribes via onPipelineComplete.
- */
+/** Start the flight recorder. Safe to call multiple times. */
 export async function startFlightRecorder() {
     if (started) return;
     started = true;
@@ -124,6 +114,6 @@ export async function startFlightRecorder() {
         });
     } catch (err) {
         console.warn('[DLE] Flight recorder start failed, will retry:', err?.message);
-        started = false; // allow retry on next call (import may succeed later)
+        started = false; // allow retry — import may succeed later
     }
 }

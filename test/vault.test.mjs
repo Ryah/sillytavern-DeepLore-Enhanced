@@ -14,7 +14,7 @@ import {
 } from './helpers.mjs';
 
 import {
-    detectCrossVaultDuplicates, deduplicateMultiVault,
+    detectCrossVaultDuplicates, deduplicateMultiVault, computeEntityDerivedState,
 } from '../src/vault/vault-pure.js';
 
 import { buildBM25Index, queryBM25 } from '../src/vault/bm25.js';
@@ -31,9 +31,6 @@ import {
 import { buildObsidianURI, clusterEntries } from '../src/helpers.js';
 
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
-
-// computeEntityDerivedState rebuilds entity name set + regexes from entries
-import { computeEntityDerivedState } from '../src/vault/vault-pure.js';
 
 console.log('DeepLore Enhanced — Vault & Multi-Vault Tests');
 console.log('='.repeat(60));

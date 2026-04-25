@@ -1,9 +1,4 @@
-/**
- * DeepLore Enhanced — Popup modules
- * showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup,
- * optimizeEntryKeys, showOptimizePopup, buildCopyButton
- * (showGraphPopup moved to src/graph.js)
- */
+/** DeepLore Enhanced — Popup modules. showGraphPopup moved to src/graph.js. */
 import {
     chat_metadata,
     chat,
@@ -27,15 +22,14 @@ import { diagnoseEntry } from './diagnostics.js';
 import { computeEntryTemperatures } from '../drawer/drawer-state.js';
 
 /**
- * Serialize a value for YAML frontmatter output.
- * Numbers and booleans are unquoted; strings are quoted only when they
- * contain YAML special characters that would cause parse ambiguity.
+ * Serialize a value for YAML frontmatter.
+ * Strings are quoted only when they contain YAML special chars or look
+ * like other YAML scalar types (would otherwise parse-ambiguously).
  */
 function yamlSerializeValue(val) {
     if (val === null || val === undefined) return '';
     if (typeof val === 'number' || typeof val === 'boolean') return String(val);
     const str = String(val);
-    // Quote strings containing YAML special chars or that look like other types
     if (/^[{[\]|>*&!%#@`'",?:~-]/.test(str) || /[:#{}[\],]/.test(str) || str === '' ||
         /^(true|false|yes|no|on|off|null|~)$/i.test(str) || !isNaN(Number(str))) {
         return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -44,24 +38,16 @@ function yamlSerializeValue(val) {
 }
 
 /**
- * Build HTML for a "Copy to Clipboard" button used in diagnostic popups.
- * Uses event delegation — attach a single click listener on the popup container
- * that catches clicks on `.dle-copy-btn`.
- * @param {string} plainText - The text to copy (pre-computed, stored in data attribute)
- * @returns {string} HTML string for the button
+ * Pair with attachCopyHandler() — the latter delegates clicks on `.dle-copy-btn`.
+ * Text is base64-encoded into the data attribute to dodge HTML-escaping issues
+ * with quotes and newlines.
  */
 export function buildCopyButton(plainText) {
-    // Encode the text as a data attribute (base64 avoids HTML-escaping issues with quotes/newlines)
     const encoded = btoa(unescape(encodeURIComponent(plainText)));
     return `<button class="menu_button dle-copy-btn dle-text-sm" data-copy="${encoded}">Copy to Clipboard</button>`;
 }
 
-/**
- * Attach a delegated click handler for `.dle-copy-btn` on a container element.
- * Reads the base64-encoded data-copy attribute, copies to clipboard, and shows feedback.
- * Safe to call multiple times — uses a class guard to avoid duplicate listeners.
- * @param {HTMLElement|Document} container - The container to listen on
- */
+/** Idempotent — class-guarded to avoid duplicate listeners. */
 export function attachCopyHandler(container) {
     if (!container || container._dleCopyHandlerAttached) return;
     container._dleCopyHandlerAttached = true;
@@ -75,10 +61,8 @@ export function attachCopyHandler(container) {
             const original = btn.textContent;
             btn.textContent = 'Copied!';
             btn.disabled = true;
-            // BUG-AUDIT: if the popup closes before the timer fires, the callback
-            // executes against a detached button. Track the timer on the element
-            // and clear any prior one so rapid clicks don't leak timers and so
-            // the element isn't mutated after removal.
+            // Track timer on element + isConnected check: if popup closes before
+            // the timer fires, callback runs against a detached button (silent leak).
             if (btn._dleCopyResetTimer) clearTimeout(btn._dleCopyResetTimer);
             btn._dleCopyResetTimer = setTimeout(() => {
                 btn._dleCopyResetTimer = null;
@@ -99,11 +83,8 @@ export function attachCopyHandler(container) {
     });
 }
 
-/**
- * Show the Notebook editor popup for the current chat.
- */
 export async function showNotebookPopup() {
-    // BUG-AUDIT-DP04: Snapshot epoch at open — discard edits if chat changed while popup was open.
+    // BUG-AUDIT-DP04: snapshot epoch at open — discard edits if chat changed during edit.
     const epochAtOpen = chatEpoch;
     const currentContent = chat_metadata?.deeplore_notebook || '';
 
@@ -116,7 +97,7 @@ export async function showNotebookPopup() {
         <span id="dle-notebook-token-count" class="dle-text-xs dle-faint"></span>
     `;
 
-    // Capture textarea value in closure so it's available after popup DOM is destroyed
+    // Capture in closure — popup DOM is destroyed before callGenericPopup resolves.
     let capturedValue = currentContent;
     const result = await callGenericPopup(container, POPUP_TYPE.CONFIRM, '', {
         wide: true,
@@ -151,12 +132,8 @@ export async function showNotebookPopup() {
     }
 }
 
-/**
- * Show the AI Notepad viewer popup for the current chat.
- * Read-only display of accumulated AI-written notes with clear option.
- */
 export async function showAiNotepadPopup() {
-    // BUG-AUDIT-DP04: Snapshot epoch at open — discard edits if chat changed while popup was open.
+    // BUG-AUDIT-DP04: snapshot epoch at open — discard edits if chat changed during edit.
     const epochAtOpen = chatEpoch;
     const currentNotes = chat_metadata?.deeplore_ai_notepad || '';
 
@@ -203,9 +180,6 @@ export async function showAiNotepadPopup() {
     }
 }
 
-/**
- * Show a searchable, filterable popup of all indexed vault entries.
- */
 export async function showBrowsePopup() {
     if (vaultIndex.length === 0) {
         toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
@@ -215,11 +189,9 @@ export async function showBrowsePopup() {
     const settings = getSettings();
     const analytics = settings.analyticsData || {};
     const allTags = [...new Set(vaultIndex.flatMap(e => e.tags))].sort();
-    // BUG-136: Re-read pins/blocks from chat_metadata on each access so changes
-    // made while the popup is open (e.g. via drawer) are reflected immediately.
+    // BUG-136: re-read pins/blocks per access so drawer changes reflect immediately.
     const getPins = () => new Set((chat_metadata.deeplore_pins || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
     const getBlocks = () => new Set((chat_metadata.deeplore_blocks || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
-    // Alias for backward compat in the render closures below
     let pins = getPins();
     let blocks = getBlocks();
 
@@ -258,14 +230,13 @@ export async function showBrowsePopup() {
         <span id="dle-browse-count" class="dle-text-xs dle-faint"></span>
     `;
 
-    // H8: Pre-compute search haystacks for browse popup filtering
+    // H8: pre-computed haystacks reused across re-renders.
     const haystacks = new Map();
     for (const e of vaultIndex) {
         haystacks.set(e, `${e.title} ${e.keys.join(' ')} ${e.content}`.toLowerCase());
     }
 
     function renderList() {
-        // BUG-136: Refresh pin/block sets from live chat_metadata
         pins = getPins();
         blocks = getBlocks();
 
@@ -299,7 +270,6 @@ export async function showBrowsePopup() {
             return true;
         });
 
-        // Sort by selected method
         const getInjected = (e) => (analytics[trackerKey(e)]?.injected || 0);
         switch (sort) {
             case 'priority_asc': filtered.sort((a, b) => a.priority - b.priority); break;
@@ -375,7 +345,7 @@ export async function showBrowsePopup() {
         listEl.innerHTML = html || '<p class="dle-dimmed">No entries match filters.</p>';
     }
 
-    // Event delegation for entry detail expansion — registered once on container, not per render
+    // Delegation registered once on container — not per render.
     container.addEventListener('click', (e) => {
         const toggle = e.target.closest('.dle-entry-toggle');
         if (!toggle) return;
@@ -387,7 +357,6 @@ export async function showBrowsePopup() {
         }
     });
 
-    // Event delegation for "Why not?" buttons — registered once on container, not per render
     container.addEventListener('click', (e) => {
         const btn = e.target.closest('.dle-whynot-btn');
         if (!btn) return;
@@ -409,7 +378,7 @@ export async function showBrowsePopup() {
         allowVerticalScrolling: true,
         onOpen: async () => {
             renderList();
-            // H8: Debounce search input to avoid re-rendering on every keystroke
+            // H8: debounce search input to avoid re-rendering on every keystroke.
             let searchTimer = null;
             container.querySelector('#dle-browse-search')?.addEventListener('input', () => {
                 clearTimeout(searchTimer);
@@ -422,11 +391,7 @@ export async function showBrowsePopup() {
     });
 }
 
-/**
- * Replay chat history step-by-step, running keyword matching at each message.
- * @param {object[]} chatMsgs
- * @returns {Array<{messageIndex: number, speaker: string, active: string[], newlyActivated: string[], deactivated: string[]}>}
- */
+/** Step-by-step replay; skips probability/warmup/cooldown for clean visualisation. */
 export function runSimulation(chatMsgs) {
     const settings = getSettings();
     const timeline = [];
@@ -437,19 +402,16 @@ export function runSimulation(chatMsgs) {
         const scanText = buildScanText(slicedChat, settings.scanDepth);
         const currentActive = new Set();
 
-        // Always include constants
         for (const entry of vaultIndex) {
             if (entry.constant) currentActive.add(entry.title);
         }
 
-        // Bootstrap
         if (i <= settings.newChatThreshold) {
             for (const entry of vaultIndex) {
                 if (entry.bootstrap) currentActive.add(entry.title);
             }
         }
 
-        // Keyword matching (skip probability/warmup/cooldown for clean simulation)
         if (settings.scanDepth > 0) {
             for (const entry of vaultIndex) {
                 if (entry.constant) continue;
@@ -479,11 +441,7 @@ export function runSimulation(chatMsgs) {
     return timeline;
 }
 
-/**
- * Show simulation results in a scrollable timeline popup.
- */
 export function showSimulationPopup(timeline) {
-    // Build plain-text version for clipboard
     const plainLines = [`Activation Simulation (${timeline.length} messages)`, ''];
     for (const step of timeline) {
         let line = `#${step.messageIndex + 1} ${step.speaker} (${step.active.length} active)`;
@@ -522,11 +480,7 @@ export function showSimulationPopup(timeline) {
     });
 }
 
-// showGraphPopup() moved to src/graph.js
-
-// ============================================================================
-// Optimize Keys
-// ============================================================================
+// ── Optimize Keys ──
 
 export const DEFAULT_OPTIMIZE_KEYS_PROMPT = `You are a keyword optimization assistant for a lorebook system. Given an entry's title, content, and current keywords, suggest improved keywords that will trigger this entry when relevant topics come up in conversation.
 
@@ -539,9 +493,6 @@ Guidelines:
 
 Respond with a JSON object: {"suggested": ["keyword1", "keyword2", ...], "reasoning": "Brief explanation of changes"}`;
 
-/**
- * Send an entry to AI for keyword suggestions.
- */
 export async function optimizeEntryKeys(entry) {
     const settings = getSettings();
     const mode = settings.optimizeKeysMode;
@@ -564,9 +515,6 @@ export async function optimizeEntryKeys(entry) {
     return null;
 }
 
-/**
- * Show optimize popup comparing current vs suggested keywords.
- */
 export async function showOptimizePopup(entry, result) {
     if (!result) {
         toastr.warning('Could not get keyword suggestions.', 'DeepLore Enhanced');
@@ -600,7 +548,7 @@ export async function showOptimizePopup(entry, result) {
     if (accept) {
         try {
             const optVault = getVaultByName(settings, entry.vaultSource);
-            // Fetch current file content from Obsidian (no longer cached in _rawContent to save memory)
+            // Re-fetch from Obsidian — _rawContent caching was removed to save memory.
             let rawContent = entry.content;
             try {
                 const fetchResult = await obsidianFetch({ host: optVault.host, port: optVault.port, apiKey: optVault.apiKey, path: `/vault/${encodeVaultPath(entry.filename)}`, accept: 'text/markdown' });

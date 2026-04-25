@@ -45,13 +45,12 @@ export async function scanVaults(opts = {}) {
     let scanned = 0;
     const vaults = [];
     const certUntrusted = [];
-    // Track which ports had HTTPS cert failure so we can mark http successes as "fallback"
+    // Ports where HTTPS failed cert validation — used to mark HTTP successes "fallback".
     const httpsCertFailed = new Set();
-    // Avoid duplicate "found" entries when both HTTPS and HTTP succeed on same port
-    const sawAuthByPort = new Map(); // port -> {scheme, info}
+    // Dedup "found" entries when both HTTPS and HTTP succeed on same port.
+    const sawAuthByPort = new Map();
 
-    // BUG-235: external abort wiring. Caller can pass opts.signal to bail probes early
-    // when the scan popup is dismissed.
+    // BUG-235: caller can pass opts.signal to bail probes when scan popup is dismissed.
     const externalSignal = o.signal;
 
     async function probe(task) {
@@ -83,7 +82,7 @@ export async function scanVaults(opts = {}) {
                 status: res.status,
             };
         } catch (err) {
-            // TypeError on HTTPS with self-signed cert is the signature we want to catch
+            // TypeError on HTTPS = self-signed-cert signature.
             if (scheme === 'https' && err && err.name === 'TypeError') {
                 httpsCertFailed.add(port);
             }
@@ -98,11 +97,9 @@ export async function scanVaults(opts = {}) {
         }
     }
 
-    // Concurrency-limited execution
     let idx = 0;
     async function worker() {
         while (idx < tasks.length) {
-            // BUG-235: short-circuit if caller aborted the scan
             if (externalSignal?.aborted) return;
             const i = idx++;
             const result = await probe(tasks[i]);
@@ -112,7 +109,7 @@ export async function scanVaults(opts = {}) {
                     sawAuthByPort.set(result.port, result);
                     vaults.push(result);
                 } else if (result.authenticated && !prior.authenticated) {
-                    // Upgrade record if this scheme authenticated
+                    // Replace prior unauthenticated record with the authenticated one.
                     const replaceIdx = vaults.indexOf(prior);
                     if (replaceIdx >= 0) vaults[replaceIdx] = result;
                     sawAuthByPort.set(result.port, result);
@@ -125,7 +122,7 @@ export async function scanVaults(opts = {}) {
     for (let w = 0; w < N; w++) workers.push(worker());
     await Promise.all(workers);
 
-    // Build certUntrusted dual entries (HTTPS cert failed but HTTP responded on same port)
+    // Dual entries: HTTPS cert failed but HTTP responded on same port.
     for (const port of httpsCertFailed) {
         const httpHit = vaults.find(v => v.port === port && v.scheme === 'http');
         certUntrusted.push({

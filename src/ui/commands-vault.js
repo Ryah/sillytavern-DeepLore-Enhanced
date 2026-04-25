@@ -1,17 +1,14 @@
-/**
- * DeepLore Enhanced — Slash Commands: Vault Management
- * /dle-graph, /dle-browse, /dle-refresh, /dle-import
- */
+/** DeepLore Enhanced — Slash Commands: Vault Management */
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
-import { classifyError, NO_ENTRIES_MSG } from '../../core/utils.js';
-import { getSettings, getPrimaryVault } from '../../settings.js';
+import { classifyError } from '../../core/utils.js';
+import { getSettings } from '../../settings.js';
 import { vaultIndex, setIndexTimestamp } from '../state.js';
-import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
-// R5: Lazy-loaded — graph.js (~3140 LOC) only imported when /dle-graph runs
+import { buildIndex } from '../vault/vault.js';
+// graph.js (~3140 LOC) is lazy-loaded inline below — only paid for when /dle-graph runs.
 import { showBrowsePopup } from './popups.js';
 import { parseWorldInfoJson, importEntries } from '../vault/import.js';
 import { world_names, loadWorldInfo } from '../../../../../world-info.js';
@@ -45,8 +42,8 @@ export function registerVaultCommands() {
         name: 'dle-refresh',
         aliases: ['dle-r'],
         callback: async () => {
-            // Don't pre-clear vaultIndex — buildIndex replaces it atomically.
-            // Pre-clearing would give zero entries to any generation during rebuild.
+            // Don't pre-clear vaultIndex — buildIndex replaces it atomically. Pre-clearing
+            // would give any concurrent generation zero entries during rebuild.
             try {
                 setIndexTimestamp(0);
                 await buildIndex();
@@ -63,23 +60,19 @@ export function registerVaultCommands() {
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // ── Lorebook Import ──
-
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-import',
         callback: async (_args, folderArg) => {
             const folder = (folderArg || '').trim();
 
-            // Build lorebook dropdown options
             const hasLorebooks = Array.isArray(world_names) && world_names.length > 0;
             const lbOptions = hasLorebooks
                 ? world_names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')
                 : '';
 
-            // Capture JSON in closure — popup DOM is removed before callGenericPopup resolves
+            // Capture in closure — popup DOM is removed before callGenericPopup resolves.
             let capturedJson = '';
 
-            // Show popup with three input methods
             const jsonInput = await callGenericPopup(
                 `<div class="dle-popup">
                     <h3>Import SillyTavern World Info</h3>
@@ -112,12 +105,10 @@ export function registerVaultCommands() {
                     const lbSelect = document.getElementById('dle-import-lorebook');
                     const textarea = document.getElementById('dle-import-json');
 
-                    // Capture manual paste/typing
                     if (textarea) {
                         textarea.addEventListener('input', () => { capturedJson = textarea.value; });
                     }
 
-                    // Wire lorebook dropdown → load and fill textarea
                     if (lbSelect) {
                         lbSelect.addEventListener('change', async () => {
                             const name = lbSelect.value;
@@ -138,7 +129,6 @@ export function registerVaultCommands() {
                         });
                     }
 
-                    // Wire browse button → hidden file input
                     const browseBtn = document.getElementById('dle-import-browse');
                     const fileInput = document.getElementById('dle-import-file');
                     if (browseBtn && fileInput) {
@@ -163,14 +153,12 @@ export function registerVaultCommands() {
 
             if (!jsonInput) return '';
 
-            // ── Validation ──
             const jsonText = capturedJson.trim();
             if (!jsonText) {
                 toastr.warning('No JSON provided.', 'DeepLore Enhanced');
                 return '';
             }
 
-            // File size check (> 10 MB)
             if (jsonText.length > 10 * 1024 * 1024) {
                 const proceed = await callGenericPopup(
                     '<p>The input is larger than 10 MB. This may take a while to process. Continue?</p>',
@@ -179,7 +167,6 @@ export function registerVaultCommands() {
                 if (!proceed) return '';
             }
 
-            // JSON parse validation
             try {
                 JSON.parse(jsonText);
             } catch (parseErr) {
@@ -195,7 +182,6 @@ export function registerVaultCommands() {
                     return '';
                 }
 
-                // Warn about empty entries (no content AND no keys)
                 const emptyCount = entries.filter(e =>
                     (!e.content || !e.content.trim()) && (!e.key || !e.key.length || e.key.every(k => !k.trim())),
                 ).length;
@@ -203,7 +189,6 @@ export function registerVaultCommands() {
                     toastr.warning(`${emptyCount} entries have no content and no keys — they will be imported but may be empty.`, 'DeepLore Enhanced');
                 }
 
-                // Confirm
                 const confirmed = await callGenericPopup(
                     `<p>Found <b>${entries.length}</b> entries from "${escapeHtml(source)}".</p>
                     <p>Import to ${folder ? `folder <b>${escapeHtml(folder)}/</b>` : 'vault root'}?</p>`,
@@ -225,9 +210,9 @@ export function registerVaultCommands() {
                     toastr.success(`Imported ${result.imported} entries${renamedNote}.`, 'DeepLore Enhanced');
                 }
 
-                // C.2: Warn about the WI 'Order' → DLE 'priority' semantic flip. Priorities
-                // round-tripped as raw numbers, but WI sorts high-first while DLE sorts
-                // low-first — user-visible behavior differs. One-shot toast per import.
+                // C.2: WI 'Order' → DLE 'priority' inverts semantically — WI sorts
+                // high-first, DLE sorts low-first. Priorities round-trip as raw numbers
+                // but user-visible behaviour differs. One-shot warning per import.
                 if (result.imported > 0) {
                     dedupWarning(
                         "WI 'Order' is inverted in DLE Priority (lower = higher priority). Verify your entries sort as expected.",
@@ -236,15 +221,14 @@ export function registerVaultCommands() {
                     );
                 }
 
-                // BUG-108: Single buildIndex at the end to avoid two sequential rebuilds
-                // with a window where generation sees partially-summarized index.
+                // BUG-108: single buildIndex at the end avoids a window where generation
+                // sees a partially-summarized index between two sequential rebuilds.
                 let needsRebuild = true;
 
-                // Offer to generate AI summaries for imported entries
                 if (result.imported > 0) {
                     const settings = getSettings();
                     if (settings.aiSearchEnabled) {
-                        // Rebuild index first so we can filter for unsummarized entries
+                        // Rebuild first so we can filter for unsummarized entries.
                         setIndexTimestamp(0);
                         await buildIndex();
                         needsRebuild = false;
@@ -266,7 +250,6 @@ export function registerVaultCommands() {
                     }
                 }
 
-                // Final rebuild — either the only one, or picks up summaries
                 if (needsRebuild) {
                     setIndexTimestamp(0);
                     await buildIndex();

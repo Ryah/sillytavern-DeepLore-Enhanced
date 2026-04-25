@@ -1,11 +1,7 @@
 /**
- * DeepLore Enhanced — Librarian Chat Tools
- * Tools the Librarian AI can call during conversation to query (and in limited
- * cases mutate) vault state. These are NOT registered with SillyTavern's
- * ToolManager — they execute locally within the Librarian's conversation loop only.
- *
- * Most tools are read-only. `flag_entry_update` is the exception — it writes a
- * gap record to loreGaps/chat_metadata. See mutation safety notes in the plan.
+ * DeepLore Enhanced — Librarian Chat Tools.
+ * Local-execution only — NOT registered with ST's ToolManager. Read-only except
+ * `flag_entry_update`, which writes a gap record to loreGaps/chat_metadata.
  */
 import { vaultIndex, fuzzySearchIndex, loreGaps, chatEpoch, notifyLoreGapsChanged } from '../state.js';
 import { queryBM25 } from '../vault/bm25.js';
@@ -120,11 +116,10 @@ const LIBRARIAN_TOOLS = [
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * Find an entry by title (case-insensitive). Optionally narrow by vault source
- * when multiple vaults contain entries with the same title (BUG-AUDIT Fix 8 / BUG-400).
+ * Find an entry by title (case-insensitive). vaultSource disambiguates duplicate
+ * titles across multiple vaults (BUG-400).
  * @param {string} title
  * @param {string|null} [vaultSource]
- * @returns {object|null}
  */
 export function findEntry(title, vaultSource = null) {
     if (!title) return null;
@@ -135,24 +130,12 @@ export function findEntry(title, vaultSource = null) {
     return matches[0];
 }
 
-/**
- * Truncate text to a maximum length, preserving word boundaries.
- * @param {string} text
- * @param {number} max
- * @returns {string}
- */
 function truncate(text, max = TOOL_RESULT_MAX_CHARS) {
     if (!text || text.length <= max) return text || '';
     const cut = text.lastIndexOf(' ', max);
     return text.slice(0, cut > 0 ? cut : max) + '...';
 }
 
-/**
- * Execute a tool call and return the result string.
- * @param {string} name - Tool name
- * @param {object} args - Tool arguments
- * @returns {string} Result text
- */
 export function executeToolCall(name, args = {}, session = null) {
     const t0 = performance.now();
     let result;
@@ -170,8 +153,8 @@ export function executeToolCall(name, args = {}, session = null) {
             case 'flag_entry_update': result = toolFlagEntryUpdate(args); break;
             case 'compare_entry_to_chat': result = toolCompareEntryToChat(args); break;
             case 'get_writing_guide': result = toolGetWritingGuide(args); break;
-            // BUG-325: default error message must include get_writing_guide — it is handled above but
-            // not in LIBRARIAN_TOOLS (it is dynamic/conditional and built separately in buildToolsPromptSection).
+            // BUG-325: get_writing_guide is dynamic (built in buildToolsPromptSection),
+            // so the unknown-tool error must list it conditionally too.
             default: {
                 const staticTools = LIBRARIAN_TOOLS.map(t => t.name);
                 const dynamicTools = getGuideEntries().length > 0 ? ['get_writing_guide'] : [];
@@ -202,8 +185,8 @@ function toolSearchVault(args) {
     const lines = hits.map((h, i) => {
         const e = h.entry;
         const snippet = truncate(e.summary || e.content || '', 200);
-        // BUG-400: emit vaultSource on hit rows so the model can disambiguate
-        // duplicate-title entries across vaults via vault_source on later tool calls.
+        // BUG-400: surface vaultSource so the model can pass vault_source on
+        // later tool calls to disambiguate duplicate titles across vaults.
         const vaultLine = e.vaultSource ? `\n   vaultSource: ${e.vaultSource}` : '';
         return `${i + 1}. **${e.title}** (${e.type || '?'}, p${e.priority || 50}, score ${h.score.toFixed(2)})${vaultLine}\n   Keys: ${(e.keys || []).join(', ')}\n   ${snippet}`;
     });
@@ -216,7 +199,6 @@ function toolGetEntry(args) {
 
     const entry = findEntry(title, args.vault_source?.trim() || null);
     if (!entry) {
-        // Suggest close matches
         if (fuzzySearchIndex) {
             const hits = queryBM25(fuzzySearchIndex, title, 5, 0.3);
             if (hits.length > 0) {
@@ -244,8 +226,7 @@ function toolGetEntry(args) {
     return `${meta}\n\n---\n${content}${footer}`;
 }
 
-// Hard cap for full-content fetches: still keep a ceiling so a 50KB entry
-// doesn't blow the prompt budget, but much higher than the standard 2000.
+// Higher than standard 2000 but capped so a 50KB entry can't blow the budget.
 const FULL_CONTENT_MAX_CHARS = 16000;
 
 function toolGetFullContent(args, session = null) {
@@ -254,7 +235,7 @@ function toolGetFullContent(args, session = null) {
     const entry = findEntry(title, args.vault_source?.trim() || null);
     if (!entry) return `Entry "${title}" not found.`;
 
-    // Populate the editor draft directly — no AI round-trip needed
+    // Populate editor draft directly — saves an AI round-trip.
     if (session) {
         session.draftState = {
             ...session.draftState,
@@ -272,7 +253,6 @@ function toolGetFullContent(args, session = null) {
     if (content.length <= FULL_CONTENT_MAX_CHARS) {
         return `**${entry.title}** (full content, ${content.length} chars):\n\n${content}`;
     }
-    // Even "full" has a ceiling — but document it honestly
     return `**${entry.title}** (full content, ${content.length} chars — capped at ${FULL_CONTENT_MAX_CHARS}):\n\n`
         + content.slice(0, FULL_CONTENT_MAX_CHARS)
         + `\n\n[...${content.length - FULL_CONTENT_MAX_CHARS} more chars not shown — entry is unusually large]`;
@@ -290,7 +270,7 @@ function toolFindSimilar(args) {
         return `No similar entries found for "${query}" (threshold ${threshold.toFixed(2)}). This topic looks safe to create as a new entry.`;
     }
 
-    // Flag likely duplicates: title substring match OR very high score
+    // Duplicate flag: title substring match or score > 2.0.
     const lowerQuery = query.toLowerCase();
     const lines = hits.map((h, i) => {
         const e = h.entry;
@@ -410,29 +390,27 @@ function toolFlagEntryUpdate(args) {
     if (!title) return 'Error: title is required.';
     if (!reason) return 'Error: reason is required.';
 
-    // Verify entry exists
     const entry = findEntry(title, args.vault_source?.trim() || null);
     if (!entry) return `Error: Entry "${title}" not found in vault.`;
 
     const fields = args.fields?.trim() || null;
     const fullReason = fields ? `${reason} (fields: ${fields})` : reason;
 
-    // Snapshot epoch for stale-guard
     const epoch = chatEpoch;
 
-    // Create update flag record — late-read loreGaps to minimize race window.
-    // BUG-400: include vaultSource so multi-vault same-title entries are disambiguated;
-    // legacy gaps without vaultSource still render (drawer tolerates undefined).
+    // Late-read loreGaps to minimize race window.
+    // BUG-400: vaultSource disambiguates multi-vault same-title entries;
+    // legacy gaps without it still render (drawer tolerates undefined).
     const newGap = {
         id: gapId(),
         type: 'flag',
         subtype: 'update',
-        entryTitle: entry.title, // Use canonical title from vault
+        entryTitle: entry.title, // canonical from vault
         vaultSource: entry.vaultSource || undefined,
         query: entry.title,
         reason: fullReason,
         timestamp: Date.now(),
-        generation: 0, // Not from generation — from Emma session
+        generation: 0, // Emma session, not pipeline generation
         status: 'pending',
         frequency: 1,
         urgency: 'medium',
@@ -441,7 +419,6 @@ function toolFlagEntryUpdate(args) {
         source: 'emma-session',
     };
 
-    // Guard: don't persist if chat changed during tool execution
     if (epoch !== chatEpoch) {
         return `Error: chat changed during tool execution — flag not persisted.`;
     }
@@ -478,10 +455,7 @@ function toolCompareEntryToChat(args) {
 
 // ── Writing-guide tool (dynamic, runtime-built) ──────────────────────────
 
-/**
- * Convert a title to kebab-case for stable enum identifiers.
- * @param {string} s
- */
+/** Stable enum id for the guide name parameter. */
 function kebabCase(s) {
     return String(s || '')
         .toLowerCase()
@@ -489,17 +463,10 @@ function kebabCase(s) {
         .replace(/^-+|-+$/g, '');
 }
 
-/**
- * Get all guide entries currently in the vault.
- */
 function getGuideEntries() {
     return vaultIndex.filter(e => e.guide);
 }
 
-/**
- * Resolve a kebab-cased guide name back to a vault entry.
- * @param {string} kebabName
- */
 function findGuideByName(kebabName) {
     if (!kebabName) return null;
     const target = String(kebabName).toLowerCase();
@@ -527,10 +494,6 @@ function toolGetWritingGuide(args) {
 // System Prompt Section
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Build the tools documentation for the system prompt.
- * @returns {string}
- */
 export function buildToolsPromptSection() {
     const toolDocs = LIBRARIAN_TOOLS.map(t => {
         const params = Object.entries(t.parameters)
@@ -539,8 +502,7 @@ export function buildToolsPromptSection() {
         return `- **${t.name}**(${params}): ${t.description}`;
     }).join('\n');
 
-    // Dynamic writing-guide tool — only advertised when guide entries exist.
-    // Rebuilt every turn so the enum reflects the current vault.
+    // Rebuilt every turn so the enum reflects current vault contents.
     const guides = getGuideEntries();
     let guideToolDoc = '';
     if (guides.length > 0) {

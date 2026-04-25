@@ -1,7 +1,4 @@
-/**
- * DeepLore Enhanced — Slash Commands: AI Features
- * /dle-optimize-keys, /dle-newlore, /dle-suggest, /dle-scribe, /dle-review, /dle-summarize
- */
+/** DeepLore Enhanced — Slash Commands: AI Features */
 import {
     sendMessageAsUser,
     Generate,
@@ -82,7 +79,7 @@ export function registerAiCommands() {
         helpString: 'Analyze the chat for characters, locations, and concepts not in your lorebook, and suggest new entries to create.',
         returns: ARGUMENT_TYPE.STRING,
     }));
-    // Backwards-compatible alias
+    // Backwards-compatible alias.
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-suggest',
         callback: newloreCallback,
@@ -97,7 +94,7 @@ export function registerAiCommands() {
                 toastr.warning('A session summary is already being written. Wait for it to finish.', 'DeepLore Enhanced');
                 return '';
             }
-            // BUG-AUDIT-H23: Guard against missing scribeFolder — writes to "undefined/" otherwise.
+            // BUG-AUDIT-H23: missing scribeFolder would write to "undefined/".
             const settings = getSettings();
             if (!settings.scribeFolder) {
                 toastr.warning('Session Scribe folder is not set. Configure it in Settings → Features → Session Scribe.', 'DeepLore Enhanced');
@@ -117,11 +114,10 @@ export function registerAiCommands() {
             try {
             await ensureIndexFresh();
 
-            // BUG-AUDIT (Fix 21): filter lorebook-guide entries — they are Librarian-only
-            // and must never reach the writing AI through any surface. /dle-review previously
-            // dumped raw vaultIndex, leaking guide content as a visible user message that
-            // would also persist in chat history. Same writer-visible contract as
-            // getWriterVisibleEntries() / matchTextForExternal.
+            // BUG-AUDIT Fix 21: lorebook-guide entries are Librarian-only and must
+            // never reach the writing AI. /dle-review previously dumped raw vaultIndex,
+            // leaking guide content as a persistent user message. Mirrors writer-visible
+            // contract from getWriterVisibleEntries() / matchTextForExternal.
             const reviewEntries = vaultIndex.filter(e => !e.guide);
 
             if (reviewEntries.length === 0) {
@@ -158,7 +154,8 @@ export function registerAiCommands() {
 
             toastr.info(`Sending ${reviewEntries.length} entries (~${totalTokens} tokens)...`, 'DeepLore Enhanced', { timeOut: 5000 });
 
-            setSkipNextPipeline(true); // Bypass DLE pipeline for this generation
+            // Bypass DLE pipeline for this generation — review prompt is the entire vault.
+            setSkipNextPipeline(true);
             try {
                 await sendMessageAsUser(message, '');
                 await Generate('normal');
@@ -176,8 +173,6 @@ export function registerAiCommands() {
         helpString: 'Send the entire vault to the AI for review and feedback. Usage: /dle-review <question>. Example: /dle-review What inconsistencies do you see?',
         returns: ARGUMENT_TYPE.STRING,
     }));
-
-    // ── Auto-Summary Generation ──
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-summarize',
@@ -222,12 +217,9 @@ export function registerAiCommands() {
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // ── Librarian Session ──
-
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-librarian',
         callback: async (_args, subcommand) => {
-            // Hard gate: do not run if Librarian is disabled.
             if (!getSettings().librarianEnabled) {
                 toastr.warning('Librarian is disabled. Enable it in DeepLore Enhanced settings.', 'DeepLore Enhanced');
                 return '';
@@ -259,10 +251,7 @@ export function registerAiCommands() {
 }
 
 /**
- * Generate AI summaries for a list of vault entries.
- * Each summary is presented for review before writing to Obsidian.
- * Supports abort via a button in the review popup.
- * @param {Array} entries - VaultEntry objects to summarize
+ * Each summary is presented for review before writing. Aborted via button in review popup.
  * @returns {{ generated: number, skipped: number, failed: number, aborted: number }}
  */
 export async function summarizeEntries(entries) {
@@ -301,7 +290,6 @@ export async function summarizeEntries(entries) {
                 continue;
             }
 
-            // Present for review with progress and abort
             const remaining = entries.length - i - 1;
             const reviewHtml = `
                 <div class="dle-popup">
@@ -343,7 +331,6 @@ export async function summarizeEntries(entries) {
 
             const finalSummary = capturedTextarea?.value?.trim() || summary;
 
-            // Read current file, inject summary into frontmatter, write back
             const fileResult = await obsidianFetch({
                 host: vault.host,
                 port: vault.port,
@@ -359,14 +346,12 @@ export async function summarizeEntries(entries) {
                 continue;
             }
 
-            // Insert summary into frontmatter
             let fileContent = fileResult.data;
             if (fileContent.startsWith('---')) {
                 const endIdx = fileContent.indexOf('---', 3);
                 if (endIdx > 0) {
                     const fmSection = fileContent.substring(0, endIdx);
                     const rest = fileContent.substring(endIdx);
-                    // Remove existing summary line if present
                     const cleaned = fmSection.replace(/^summary:.*$/m, '').replace(/\n{3,}/g, '\n\n');
                     fileContent = cleaned + `summary: ${yamlEscape(finalSummary)}\n` + rest;
                 }

@@ -6,11 +6,9 @@ import { simpleHash } from './utils.js';
 
 /**
  * Compose the canonical sync-snapshot key for an entry.
- * BUG-AUDIT: keyed by `vaultSource:filename` to avoid multi-vault collisions
- * when two vaults contain the same relative path. Filename-only keys would
- * misclassify edits/removals across vaults. Pure helper — exported so
- * callers (e.g. vault.js's BUG-368 carry-forward loop) can reproduce the
- * exact format.
+ * Keyed by `vaultSource:filename` — multi-vault setups can have the same relative
+ * path in two vaults, and a filename-only key would misclassify edits/removals.
+ * Exported so callers (e.g. vault.js BUG-368 carry-forward) can reproduce the format.
  * @param {{ vaultSource?: string, filename: string }} entry
  * @returns {string}
  */
@@ -56,27 +54,25 @@ export function detectChanges(oldSnapshot, newSnapshot) {
     const oldFiles = new Set(oldSnapshot.contentHashes.keys());
     const newFiles = new Set(newSnapshot.contentHashes.keys());
 
-    // New entries
     for (const file of newFiles) {
         if (!oldFiles.has(file)) {
             changes.added.push(newSnapshot.titleMap.get(file) || file);
         }
     }
 
-    // Removed entries
     for (const file of oldFiles) {
         if (!newFiles.has(file)) {
             changes.removed.push(oldSnapshot.titleMap.get(file) || file);
         }
     }
 
-    // Modified entries (exist in both, content hash differs)
+    // Modified: exists in both, content hash differs.
     for (const file of newFiles) {
         if (oldFiles.has(file)) {
             if (oldSnapshot.contentHashes.get(file) !== newSnapshot.contentHashes.get(file)) {
                 changes.modified.push(newSnapshot.titleMap.get(file) || file);
             }
-            // Keyword changes (separate from content)
+            // Keyword changes tracked separately from content.
             if (oldSnapshot.keyMap.get(file) !== newSnapshot.keyMap.get(file)) {
                 const title = newSnapshot.titleMap.get(file) || file;
                 if (!changes.modified.includes(title)) {

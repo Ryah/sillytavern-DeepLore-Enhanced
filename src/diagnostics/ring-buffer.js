@@ -1,19 +1,9 @@
 /**
- * RingBuffer — bounded FIFO buffer for diagnostic data.
- *
- * Used as the in-memory backing store for console logs, network logs,
- * pipeline traces, performance entries, and errors. Always-on; never throws.
- *
- * Behavior:
- *   - push(item) appends; if length > capacity, oldest item is dropped.
- *   - capacity is item-count based (not byte-based) for predictable cost.
- *   - drain() returns a snapshot copy and leaves the buffer untouched.
- *   - clear() resets to empty.
+ * RingBuffer — bounded FIFO. Item-count capped (not byte-capped) for predictable
+ * cost. Always-on, never throws. push(): appends, evicts oldest when over capacity.
+ * drain(): non-destructive snapshot. flush(): destructive snapshot. clear(): reset.
  */
 export class RingBuffer {
-    /**
-     * @param {number} capacity Maximum item count before oldest is evicted.
-     */
     constructor(capacity = 500) {
         this.capacity = Math.max(1, capacity | 0);
         this.items = [];
@@ -23,22 +13,17 @@ export class RingBuffer {
         try {
             this.items.push(item);
             if (this.items.length > this.capacity) {
-                // Drop oldest. Splice from front; cheap enough at our scales.
                 this.items.splice(0, this.items.length - this.capacity);
             }
         } catch { /* never throw from a diagnostic interceptor */ }
     }
 
-    /** Return a shallow copy of the current contents (oldest → newest). Non-destructive. */
+    /** Non-destructive shallow copy (oldest → newest). */
     drain() {
         return this.items.slice();
     }
 
-    /**
-     * Snapshot-and-clear. Returns the current contents and resets the buffer.
-     * Use for export paths where the caller intends destructive read; use
-     * drain() for inspectors and developer tooling that should not mutate.
-     */
+    /** Destructive snapshot — for export paths; use drain() for inspectors. */
     flush() {
         const snapshot = this.items.slice();
         this.items = [];
@@ -50,7 +35,7 @@ export class RingBuffer {
     clear() { this.items = []; }
 }
 
-/** Convenience: safely stringify console arguments without ever throwing. */
+/** Stringify console args without ever throwing. */
 export function safeStringify(args, maxLen = 2000) {
     try {
         const parts = [];
@@ -65,7 +50,7 @@ export function safeStringify(args, maxLen = 2000) {
                 continue;
             }
             try {
-                // BUG-035: fresh per-call WeakSet so cycle detection doesn't leak
+                // BUG-035: fresh per-call WeakSet — cycle detection must not leak
                 // references between unrelated serialize calls.
                 parts.push(JSON.stringify(a, makeJsonReplacer()));
             } catch {
@@ -80,8 +65,8 @@ export function safeStringify(args, maxLen = 2000) {
     }
 }
 
-// BUG-035: factory returns a fresh replacer + private WeakSet per call so the
-// cycle-detection set never outlives a single JSON.stringify invocation.
+// BUG-035: factory returns a fresh replacer + private WeakSet per call so
+// cycle detection never outlives a single JSON.stringify invocation.
 function makeJsonReplacer() {
     const seen = new WeakSet();
     return function jsonReplacer(key, value) {

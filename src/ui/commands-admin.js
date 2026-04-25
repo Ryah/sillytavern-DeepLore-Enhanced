@@ -1,8 +1,6 @@
-/**
- * DeepLore Enhanced — Slash Commands: Admin & Status
- * /dle-notebook, /dle-ai-notepad, /dle-status, /dle-scribe-history, /dle-analytics, /dle-health, /dle-setup
- */
+/** DeepLore Enhanced — Slash Commands: Admin & Status */
 import { saveSettingsDebounced, chat_metadata } from '../../../../../../script.js';
+import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
@@ -15,16 +13,13 @@ import {
     vaultIndex, aiSearchStats, indexTimestamp, trackerKey,
     fieldDefinitions, notifyDebugModeChanged,
 } from '../state.js';
-import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
+import { ensureIndexFresh } from '../vault/vault.js';
 import { loadIndexFromCache, clearIndexCache } from '../vault/cache.js';
 import { runHealthCheck } from './diagnostics.js';
 import { showNotebookPopup, showAiNotepadPopup, buildCopyButton, attachCopyHandler } from './popups.js';
 import { consoleBuffer } from '../diagnostics/interceptors.js';
 
-/**
- * Shared command list used by the /dle command palette.
- * Each entry: { cmd, desc } for commands, { sep, label } for section headers.
- */
+/** Entry shapes: { cmd, desc } for commands, { sep, label } for section headers. */
 export const DLE_COMMANDS = [
     { cmd: '/dle-browse', desc: 'Search and preview vault entries (alias: /dle-b)' },
     { cmd: '/dle-why', desc: 'Show why entries would/wouldn\'t inject (alias: /dle-context)' },
@@ -86,8 +81,6 @@ export function registerAdminCommands() {
         callback: async (_args, value) => {
             const subcommand = (value || '').trim().toLowerCase();
             if (subcommand === 'clear') {
-                // BUG-151: Use static imports instead of dynamic await import
-                const { saveMetadataDebounced } = await import('../../../../../extensions.js');
                 chat_metadata.deeplore_ai_notepad = '';
                 saveMetadataDebounced();
                 toastr.success('AI Notepad cleared for this chat.', 'DeepLore Enhanced');
@@ -231,7 +224,6 @@ export function registerAdminCommands() {
             const analytics = settings.analyticsData || {};
             const titles = Object.keys(analytics).sort((a, b) => (analytics[b].injected || 0) - (analytics[a].injected || 0));
 
-            // Build plain-text version for clipboard
             const plainLines = ['Entry Analytics', '', 'Entry\tMatched\tInjected\tLast Used'];
             for (const title of titles) {
                 const d = analytics[title];
@@ -271,7 +263,6 @@ export function registerAdminCommands() {
                 html = '<p>No analytics data yet. Generate some messages first.</p>';
             }
 
-            // Librarian section
             const libStats = analytics._librarian;
             if (libStats) {
                 html += '<hr><h4>Librarian</h4>';
@@ -329,7 +320,6 @@ export function registerAdminCommands() {
             const { issues, errors, warnings } = health;
             const infos = issues.filter(i => i.severity === 'info').length;
 
-            // Build plain-text version for clipboard
             const plainLines = [];
             if (issues.length === 0) {
                 plainLines.push('Health Check: No issues found.');
@@ -390,8 +380,6 @@ export function registerAdminCommands() {
         helpString: 'Run 30+ health checks on vault entries and settings: circular requires, duplicates, orphaned references, conflicting overrides, budget warnings, and more.',
         returns: ARGUMENT_TYPE.STRING,
     }));
-
-    // ── Setup Wizard ──
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-cache-info',
@@ -454,8 +442,6 @@ export function registerAdminCommands() {
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // ── Debug & Logs ──
-
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-debug',
         callback: async (_args, value) => {
@@ -503,9 +489,8 @@ export function registerAdminCommands() {
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // /dle-help removed — ST's /help auto-discovers commands via their helpString fields.
-
     // ── Command Palette (/dle) ──
+    // /dle-help removed — ST's /help auto-discovers via helpString fields.
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle',
@@ -515,18 +500,15 @@ export function registerAdminCommands() {
             const container = document.createElement('div');
             container.classList.add('dle-popup', 'dle-command-palette');
 
-            // Search input
             const searchWrap = document.createElement('div');
             searchWrap.classList.add('dle-palette-search-wrap');
             searchWrap.innerHTML = `<input type="text" class="dle-palette-search text_pole" placeholder="Search commands..." autofocus />`;
             container.appendChild(searchWrap);
 
-            // Command list container
             const listEl = document.createElement('div');
             listEl.classList.add('dle-palette-list');
             container.appendChild(listEl);
 
-            /** Render the filtered command list */
             function renderList(filter) {
                 const lowerFilter = (filter || '').toLowerCase();
                 let html = '';
@@ -543,19 +525,15 @@ export function registerAdminCommands() {
 
             renderList('');
 
-            // Search filtering
             const searchInput = container.querySelector('.dle-palette-search');
             searchInput.addEventListener('input', () => renderList(searchInput.value));
 
-            // Track whether a command was clicked (to close popup)
             let clickedCmd = null;
 
-            // Click handler for command items
             container.addEventListener('click', (e) => {
                 const item = e.target.closest('.dle-palette-item');
                 if (!item) return;
                 clickedCmd = item.dataset.cmd;
-                // Close the popup by clicking OK
                 document.querySelector('.popup .popup-button-ok')?.click();
             });
 
@@ -563,12 +541,10 @@ export function registerAdminCommands() {
                 wide: true,
                 allowVerticalScrolling: true,
                 onOpen: () => {
-                    // Focus search input after popup opens
                     requestAnimationFrame(() => container.querySelector('.dle-palette-search')?.focus());
                 },
             });
 
-            // Execute the clicked command after popup closes
             if (clickedCmd) {
                 const ctx = SillyTavern?.getContext?.();
                 if (ctx?.executeSlashCommands) {

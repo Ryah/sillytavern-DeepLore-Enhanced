@@ -1,25 +1,21 @@
 /**
- * DeepLore Enhanced — Graph physics simulation module.
- * Force-directed layout: repulsion, link attraction, tag clustering,
- * shared-neighbor attraction, community clustering, gravity, collision, progressive reveal.
+ * Force-directed layout: repulsion + LinLog link attraction + tag clustering + shared-neighbor
+ * springs + community clustering + gravity + collision + progressive reveal. Two-phase decay
+ * (G7) keeps clusters hot before cooling to a stable layout.
  */
 import { updateCommunityCentroids } from './graph-analysis.js';
 import { invalidateSettingsCache } from '../../settings.js';
 import { saveSettingsDebounced } from '../../../../../../script.js';
 
-// ============================================================================
-// Public API — call initPhysics(gs) after graph state is ready
-// ============================================================================
-
 /**
- * @param {object} gs  Shared graph state created by graph.js orchestrator
+ * @param {object} gs
  * @returns {{ simulate: Function }}
  */
 export function initPhysics(gs) {
 
-    const MAX_SIMULATION_MS = 90_000; // Hard clamp: force-settle after 90 seconds
+    const MAX_SIMULATION_MS = 90_000; // hard clamp: force-settle after 90s no matter what.
 
-    // Spatial grid for O(~n) repulsion and collision instead of O(n²)
+    // Spatial grid → O(n) repulsion + collision instead of O(n²).
     let _gridCells = null;
     let _gridCellSize = 0;
     let _gridMinX = 0;
@@ -37,8 +33,8 @@ export function initPhysics(gs) {
             if (n.x > maxX) maxX = n.x;
             if (n.y > maxY) maxY = n.y;
         }
-        if (minX > maxX) return; // no visible nodes
-        // Add padding so edge nodes are inside the grid
+        if (minX > maxX) return;
+        // Pad bbox by one cell so boundary nodes still fall inside the grid.
         minX -= cellSize; minY -= cellSize;
         maxX += cellSize; maxY += cellSize;
         _gridCellSize = cellSize;
@@ -64,19 +60,19 @@ export function initPhysics(gs) {
     function simulate() {
         if (gs.focusTreePhysics) return;
 
-        // Hard clamp: if simulation has run longer than 90s, force-settle immediately
         if (gs.simulationStartTime && Date.now() - gs.simulationStartTime > MAX_SIMULATION_MS) {
             forceSettle();
             return;
         }
 
+        // Drag/hover node is frozen — physics integrates around it but doesn't move it.
         const frozenNode = gs.dragNode || gs.hoverNode;
         if (frozenNode) { gs.hasSpringEnergy = true; }
 
-        // === PROGRESSIVE REVEAL: cascade nodes in by weighted BFS order ===
+        // === Progressive reveal — cascade nodes in by BFS order, batched ===
         if (gs.revealedBatch < gs.revealBatches.length) {
             if (gs.reducedMotion) {
-                // Accessibility: skip progressive reveal — show all nodes immediately
+                // a11y: snap all batches in immediately.
                 while (gs.revealedBatch < gs.revealBatches.length) {
                     const batch = gs.revealBatches[gs.revealedBatch];
                     for (const id of batch) {
@@ -102,39 +98,40 @@ export function initPhysics(gs) {
                         gs.nodes[id].vy = 0;
                     }
                     gs.revealedBatch++;
-                    gs.alpha = Math.max(gs.alpha, 0.5); // reheat so new nodes integrate
+                    gs.alpha = Math.max(gs.alpha, 0.5); // reheat so newly revealed nodes integrate.
                     gs.hasSpringEnergy = true;
                     gs.needsDraw = true;
                 }
-                gs.hasSpringEnergy = true; // keep ticking during reveal
+                gs.hasSpringEnergy = true;
             }
         }
 
         if (gs.alpha < 0.001 && !frozenNode && !gs.hasSpringEnergy && gs.maxDelta < 0.01) return;
         gs.simFrame++;
-        // G7: Two-phase decay — plateau while hot (~20s above 0.3), then fast cooldown (~6s)
+        // G7: two-phase decay — plateau while hot (~20s above α=0.3), then fast cooldown (~6s).
         if (!frozenNode) gs.alpha *= (gs.alpha > 0.3) ? 0.999 : 0.985;
 
-        // -- Force parameters (read from settings each frame so sliders are live) --
+        // Force parameters read from settings each frame so live sliders take effect immediately.
         const repulsion = gs.settings.graphRepulsion ?? 0.5;
         const gravity   = gs.settings.graphGravity ?? 5.0;
-        // G6: Temporarily boost damping after drag release to prevent snap-back
+        // G6: extra damping for releaseStabilizeFrames frames post-drag prevents snap-back.
         let damping     = gs.settings.graphDamping ?? 0.50;
         if (gs.releaseStabilizeFrames > 0) {
             damping = Math.min(damping + 0.2, 0.95);
             gs.releaseStabilizeFrames--;
         }
 
-        const CHARGE          = repulsion * 120;             // base for degree-proportional repulsion (sqrt scaling)
+        const CHARGE          = repulsion * 120;             // base for degree-proportional repulsion (sqrt-scaled below).
         const CHARGE_MAX_DIST = 1500 + repulsion * 200;
         const COLLIDE_PAD     = 8;
-        const VELOCITY_DECAY  = 1 - damping;                // default 0.50 → 0.50
-        const MAX_DISP        = 40 + repulsion * 80;        // default 0.5 → 80
-        const GLOBAL_GRAVITY  = gravity * 0.003;             // default 5.0 → 0.015 (stronger pull inward)
+        const VELOCITY_DECAY  = 1 - damping;
+        const MAX_DISP        = 40 + repulsion * 80;
+        const GLOBAL_GRAVITY  = gravity * 0.003;
 
         const { nodes, edges, nodeDegree, linkStrengths, tagPairs, sharedNeighborPairs } = gs;
 
-        // -- Adaptive hub detection --
+        // Adaptive hub detection: hub-heavy graphs (max/avg deg > 5) get +50% repulsion and
+        // -50% community-cluster pull so hubs don't collapse onto their cluster centroids.
         let maxDeg = 0, avgDeg = 0, countDeg = 0;
         for (let i = 0; i < nodes.length; i++) {
             if (nodes[i].hidden || nodes[i].orphan) continue;
@@ -144,14 +141,13 @@ export function initPhysics(gs) {
         }
         avgDeg = countDeg > 0 ? avgDeg / countDeg : 1;
         const hubRatio = avgDeg > 0 ? maxDeg / avgDeg : 1;
-        // Hub-heavy graphs: boost repulsion, reduce cluster force
         const hubRepulsionMul = hubRatio > 5 ? 1.5 : 1.0;
         const hubClusterMul = hubRatio > 5 ? 0.5 : 1.0;
 
-        // -- Build spatial grid for repulsion + collision (cell size = CHARGE_MAX_DIST) --
         buildSpatialGrid(nodes, CHARGE_MAX_DIST);
 
-        // -- Repulsion: degree-proportional (FA2 Dissuade Hubs) via spatial grid --
+        // Repulsion: ForceAtlas2 "Dissuade Hubs" — force ∝ √(d_i × d_j). Each cell pair is
+        // visited once via 4 neighbor offsets ([0,1],[1,-1],[1,0],[1,1]) to avoid double-counting.
         const chargeDist2 = CHARGE_MAX_DIST * CHARGE_MAX_DIST;
         if (_gridCells) {
             for (let row = 0; row < _gridRows; row++) {
@@ -159,8 +155,6 @@ export function initPhysics(gs) {
                     const cellIdx = row * _gridCols + col;
                     const cellA = _gridCells[cellIdx];
                     if (!cellA) continue;
-                    // Check this cell and neighboring cells (right, below, below-left, below-right)
-                    // Within-cell pairs
                     for (let ai = 0; ai < cellA.length; ai++) {
                         const i = cellA[ai];
                         const di = (nodeDegree[i] || 0) + 1;
@@ -172,6 +166,7 @@ export function initPhysics(gs) {
                             if (dist2 > chargeDist2) continue;
                             let dist;
                             if (dist2 < 0.01) {
+                                // Coincident nodes: pick a random direction so they separate.
                                 const angle = Math.random() * Math.PI * 2;
                                 ddx = Math.cos(angle);
                                 ddy = Math.sin(angle);
@@ -187,7 +182,6 @@ export function initPhysics(gs) {
                             nodes[j].vx += ux * force;
                             nodes[j].vy += uy * force;
                         }
-                        // Cross-cell pairs: 4 neighbors to avoid double-counting
                         const neighborOffsets = [
                             [0, 1], [1, -1], [1, 0], [1, 1],
                         ];
@@ -225,16 +219,17 @@ export function initPhysics(gs) {
             }
         }
 
-        // -- Link attraction: LinLog with Dissuade Hubs --
+        // Link attraction: LinLog (logarithmic) attraction with hub penalty.
+        // - LinLog (log(1+dist)) spreads clusters apart vs. linear which collapses them.
+        // - hubPenalty: high-degree pairs attract less, so hubs don't pull all neighbors onto themselves.
+        // - weightFactor: log(1+w) amplifies stronger relationships without exploding force scale.
         for (let e = 0; e < edges.length; e++) {
             const a = edges[e].from, b = edges[e].to;
             if (nodes[a].hidden || nodes[b].hidden || nodes[a].orphan || nodes[b].orphan) continue;
             const ddx = nodes[b].x - nodes[a].x;
             const ddy = nodes[b].y - nodes[a].y;
             const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
-            // LinLog: logarithmic attraction — spreads clusters apart
             const logDist = Math.log(1 + dist);
-            // Hub penalty: softer reduction for high-degree node pairs
             const degProduct = (nodeDegree[a] || 1) * (nodeDegree[b] || 1);
             const hubPenalty = 1 / (1 + Math.log(1 + degProduct));
             const weight = edges[e].weight || 1;
@@ -246,38 +241,35 @@ export function initPhysics(gs) {
             if (nodes[b] !== frozenNode) { nodes[b].vx -= ux * force; nodes[b].vy -= uy * force; }
         }
 
-        // -- Same-tag clustering (strongest clustering force) --
+        // Same-tag clustering — the strongest clustering force; linear scale by shared tag count.
         for (const pair of tagPairs) {
             const a = nodes[pair.a], b = nodes[pair.b];
             if (a.hidden || b.hidden) continue;
             const ddx = b.x - a.x;
             const ddy = b.y - a.y;
             const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
-            if (dist < 30) continue; // already close
-            // Strong pull — scales with shared tag count
+            if (dist < 30) continue;
             const force = 1.5 * pair.shared * gs.alpha;
             const ux = ddx / dist, uy = ddy / dist;
             if (a !== frozenNode) { a.vx += ux * force; a.vy += uy * force; }
             if (b !== frozenNode) { b.vx -= ux * force; b.vy -= uy * force; }
         }
 
-        // -- Shared-neighbor attraction (n+2 "friends of friends") --
-        // Nodes that share common neighbors pull toward each other weakly
+        // n+2 "friends of friends" springs — log-scaled so dense overlap doesn't explode.
         for (const pair of sharedNeighborPairs) {
             const a = nodes[pair.a], b = nodes[pair.b];
             if (a.hidden || b.hidden) continue;
             const ddx = b.x - a.x;
             const ddy = b.y - a.y;
             const dist = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
-            if (dist < 50) continue; // already close enough
-            // Strength scales with number of shared neighbors (log scale)
+            if (dist < 50) continue;
             const force = 0.3 * Math.log(1 + pair.shared) * gs.alpha;
             const ux = ddx / dist, uy = ddy / dist;
             if (a !== frozenNode) { a.vx += ux * force; a.vy += uy * force; }
             if (b !== frozenNode) { b.vx -= ux * force; b.vy -= uy * force; }
         }
 
-        // -- Community cluster force: pull nodes toward their community centroid --
+        // Pull each node toward its Louvain-community centroid.
         if (gs.communities && gs.communities.size > 1) {
             updateCommunityCentroids(gs);
             const clusterStrength = 0.02 * hubClusterMul * gs.alpha;
@@ -294,14 +286,14 @@ export function initPhysics(gs) {
             }
         }
 
-        // -- Center gravity: gentle pull toward origin --
+        // Center gravity (toward origin) keeps disconnected components from drifting off-canvas.
         for (let i = 0; i < nodes.length; i++) {
             if (nodes[i] === frozenNode || nodes[i].pinned || nodes[i].hidden || nodes[i].orphan) continue;
             nodes[i].vx -= nodes[i].x * GLOBAL_GRAVITY * gs.alpha;
             nodes[i].vy -= nodes[i].y * GLOBAL_GRAVITY * gs.alpha;
         }
 
-        // -- Apply velocity + friction + clamp --
+        // Integrate velocity → position with friction (VELOCITY_DECAY) and per-step displacement clamp.
         let totalSpeed = 0;
         gs.maxDelta = 0;
         const bound = Math.max(gs.W, gs.H) * 3;
@@ -319,7 +311,8 @@ export function initPhysics(gs) {
             gs.maxDelta = Math.max(gs.maxDelta, Math.abs(n.vx), Math.abs(n.vy));
         }
 
-        // -- Collision via spatial grid (max collision radius as cell size) --
+        // Collision pass: cellSize = max collision radius × 2 so any pair that overlaps
+        // is in the same or adjacent cells.
         {
             let maxR = 0;
             for (let i = 0; i < nodes.length; i++) {
@@ -335,7 +328,6 @@ export function initPhysics(gs) {
                         const cellIdx = row * _gridCols + col;
                         const cellA = _gridCells[cellIdx];
                         if (!cellA) continue;
-                        // Within-cell
                         for (let ai = 0; ai < cellA.length; ai++) {
                             const i = cellA[ai];
                             if (nodes[i].pinned || nodes[i] === frozenNode) continue;
@@ -357,7 +349,6 @@ export function initPhysics(gs) {
                                     gs.hasSpringEnergy = true;
                                 }
                             }
-                            // Cross-cell neighbors
                             const neighborOffsets = [
                                 [0, 1], [1, -1], [1, 0], [1, 1],
                             ];
@@ -391,7 +382,7 @@ export function initPhysics(gs) {
         }
         gs.hasSpringEnergy = totalSpeed > Math.max(0.1, nodes.length * 0.005);
 
-        // --- Auto-save layout once settled ---
+        // Auto-save layout when fully revealed AND cool AND quiet (avoids saving mid-jiggle).
         if (!gs.layoutSaved
             && gs.revealedBatch >= gs.revealBatches.length
             && gs.alpha < 0.05
@@ -410,12 +401,11 @@ export function initPhysics(gs) {
         }
     }
 
-    /** Force physics to settle immediately — saves layout, clears overlay, fires callback. */
+    /** Hard-clamp settle: alpha=0, reveal everything, save layout, fire onSettleComplete. */
     function forceSettle() {
         gs.alpha = 0;
         gs.hasSpringEnergy = false;
         gs.maxDelta = 0;
-        // Reveal any remaining hidden batches so the graph is complete
         while (gs.revealedBatch < gs.revealBatches.length) {
             const batch = gs.revealBatches[gs.revealedBatch];
             for (const id of batch) {

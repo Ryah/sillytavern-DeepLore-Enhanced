@@ -1,7 +1,4 @@
-/**
- * DeepLore Enhanced — Slash Commands: Pipeline Inspection
- * /dle-simulate, /dle-why, /dle-inspect
- */
+/** DeepLore Enhanced — Slash Commands: Pipeline Inspection */
 import { chat, chat_metadata } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
@@ -60,7 +57,7 @@ export function registerPipelineCommands() {
                 toastr.warning('A generation is in progress — wait for it to finish.', 'DeepLore Enhanced');
                 return '';
             }
-            // Await any in-progress index build to prevent concurrent pipeline execution
+            // Wait for any in-progress index build to prevent concurrent pipeline execution.
             if (buildPromise) await buildPromise;
             try { await ensureIndexFresh(); } catch (err) {
                 toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
@@ -73,12 +70,12 @@ export function registerPipelineCommands() {
             }
 
             const settings = getSettings();
-            // Confirm if AI search is enabled — this command makes real API calls
+            // Confirm before making a real API call.
             if (settings.aiSearchEnabled) {
                 const proceed = await callGenericPopup('This will make a live AI search call and use API tokens. Continue?', POPUP_TYPE.CONFIRM);
                 if (!proceed) return '';
             }
-            // BUG-F2: Pass context/pins/blocks to runPipeline so AI pre-filter respects gating
+            // BUG-F2: pass context/pins/blocks so AI pre-filter respects gating.
             const gatingContext = chat_metadata?.deeplore_context || {};
             const cmdPins = chat_metadata.deeplore_pins || [];
             const cmdBlocks = chat_metadata.deeplore_blocks || [];
@@ -92,7 +89,7 @@ export function registerPipelineCommands() {
                 return '';
             }
 
-            // Apply re-injection cooldown (matches onGenerate order)
+            // Mirror onGenerate order: cooldown → contextual gating → requires/excludes → format.
             let filtered = finalEntries;
             if (settings.reinjectionCooldown > 0) {
                 filtered = finalEntries.filter(e => {
@@ -102,7 +99,6 @@ export function registerPipelineCommands() {
                 });
             }
 
-            // Post-filter contextual gating (matches onGenerate's post-pipeline gating)
             if (gatingContext && Object.keys(gatingContext).length > 0) {
                 const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
                 const cmdPolicy = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
@@ -111,7 +107,7 @@ export function registerPipelineCommands() {
 
             const cmdPolicy2 = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
             const { result: gated } = applyRequiresExcludesGating(filtered, cmdPolicy2, settings.debugMode);
-            const { count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
+            const { count: injectedCount, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
             const injected = acceptedEntries || gated.slice(0, injectedCount);
 
             if (injected.length === 0) {
@@ -145,10 +141,8 @@ export function registerPipelineCommands() {
             const settings = getSettings();
             const statusIcon = (ok) => ok ? '✓' : '✗';
 
-            // Helper: build a set of keyword-matched titles for cross-referencing gated entries
             const keywordMatchedTitles = new Set(t.keywordMatched.map(m => m.title.toLowerCase()));
 
-            // Timing breakdown from per-stage instrumentation
             const timingFields = [
                 ['Index Refresh', t.ensureIndexFreshMs],
                 ['Pin/Block', t.pinBlockMs],
@@ -163,7 +157,6 @@ export function registerPipelineCommands() {
             ];
             const hasTimingData = timingFields.some(([, v]) => v != null);
 
-            // Build plain-text version for clipboard
             const plainLines = [
                 'Entry Inspector',
                 `Mode: ${t.mode} | Indexed: ${t.indexed} | Bootstrap active: ${t.bootstrapActive ? 'yes' : 'no'} | AI fallback: ${t.aiFallback ? 'yes' : 'no'}`,
@@ -290,7 +283,6 @@ export function registerPipelineCommands() {
                 html += `<p class="dle-text-xs dle-dimmed">AI pre-filter: ${t.aiPreFilter.removed} entries hidden from AI by contextual gating (${t.aiPreFilter.before} → ${t.aiPreFilter.after})</p>`;
             }
 
-            // Check for completely empty pipeline
             const nothingMatched = t.keywordMatched.length === 0 && t.aiSelected.length === 0
                 && (!t.injected || t.injected.length === 0);
 
@@ -319,14 +311,12 @@ export function registerPipelineCommands() {
                 html += `<p class="dle-text-warning">⚠ AI search failed — keyword results used as fallback</p>`;
             }
 
-            // Fuzzy search stats
             if (t.fuzzyStats?.active) {
                 const fIcon = t.fuzzyStats.matched > 0 ? statusIcon(true) : 'ℹ';
                 html += `<h4>${fIcon} Fuzzy Search (BM25)</h4>`;
                 html += `<p>${t.fuzzyStats.matched} entries matched from ${t.fuzzyStats.candidates} candidates (min score threshold: ${t.fuzzyStats.threshold})</p>`;
             }
 
-            // Injected entries (post-budget)
             if (t.injected && t.injected.length > 0) {
                 const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
                 html += `<h4>${statusIcon(true)} Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel})</h4><ul>`;
@@ -337,7 +327,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Contextual gating removals (with per-field mismatch details)
             if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
                 const gatingCtx = chat_metadata?.deeplore_context || {};
@@ -363,7 +352,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Re-injection cooldown removals
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
                 for (const item of t.cooldownRemoved) {
@@ -372,7 +360,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Gated out entries (requires/excludes) with cross-referencing
             if (t.gatedOut && t.gatedOut.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
                 for (const e of t.gatedOut) {
@@ -398,7 +385,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Strip dedup removals
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Already Injected (${t.stripDedupRemoved.length})</h4><ul>`;
                 for (const item of t.stripDedupRemoved) {
@@ -407,7 +393,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Probability skips
             if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
                 for (const e of t.probabilitySkipped) {
@@ -417,7 +402,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Warmup failures
             if (t.warmupFailed && t.warmupFailed.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
                 for (const e of t.warmupFailed) {
@@ -426,7 +410,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Budget/max cut entries
             if (t.budgetCut && t.budgetCut.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
                 for (const e of t.budgetCut) {
@@ -435,7 +418,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Refine key blocked entries
             if (t.refineKeyBlocked && t.refineKeyBlocked.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Refine Key Blocked (${t.refineKeyBlocked.length})</h4><ul>`;
                 for (const e of t.refineKeyBlocked) {

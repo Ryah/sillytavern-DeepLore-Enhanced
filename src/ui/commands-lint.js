@@ -1,8 +1,7 @@
 /**
- * DeepLore Enhanced — Slash Command: /dle-lint
- * Reads the parser warning ledger (indexBuildReport + per-entry _parserWarnings)
- * populated by buildIndex / buildIndexWithReuse and prints a grouped human-readable
- * summary. Manual invoke only — auto-run after index build is OFF per user directive.
+ * DeepLore Enhanced — /dle-lint slash command.
+ * Reads the parser warning ledger populated by buildIndex / buildIndexWithReuse.
+ * Manual invoke only — auto-run after index build is OFF per user directive.
  */
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
@@ -12,9 +11,9 @@ import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgumen
 import { getIndexBuildReport } from '../state.js';
 import { buildCopyButton, attachCopyHandler } from './popups.js';
 
-// Human-readable labels + suggested fixes for each code. Order matters for display.
+// Order matters — drives display order.
 const CODE_LABELS = {
-    // Warnings (auto-fixed under lenientAuthoring)
+    // ── Warnings (auto-fixed under lenientAuthoring) ──
     W_ALIAS_USED: {
         title: 'Non-canonical field name',
         hint: 'Frontmatter fields are case-sensitive. Rename to the lowercase canonical form (e.g. `Keys:` → `keys:`).',
@@ -31,7 +30,7 @@ const CODE_LABELS = {
         title: 'Imported field preserved but not enforced',
         hint: 'Field round-trips through customFields but DLE does not act on it yet.',
     },
-    // Skip reasons
+    // ── Skip reasons ──
     SKIP_NO_FRONTMATTER: {
         title: 'Skipped — no frontmatter',
         hint: 'Entries need a YAML frontmatter block wrapped in `---` fences. See AUTHORING.md.',
@@ -54,9 +53,7 @@ function labelFor(code) {
     return CODE_LABELS[code] || { title: code, hint: '' };
 }
 
-/**
- * Aggregate per-entry warnings into { code → [{filename, title, field?, message?}] }
- */
+/** @returns { [code]: Array<{filename, title, field?, message?}> } */
 function groupWarnings(entriesWithWarnings) {
     const groups = {};
     for (const rec of entriesWithWarnings) {
@@ -73,9 +70,7 @@ function groupWarnings(entriesWithWarnings) {
     return groups;
 }
 
-/**
- * Aggregate skips into { reasonCode → [filename] }
- */
+/** @returns { [reasonCode]: string[] } */
 function groupSkips(skipped) {
     const groups = {};
     for (const s of skipped) {

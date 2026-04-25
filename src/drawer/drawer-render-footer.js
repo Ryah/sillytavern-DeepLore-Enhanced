@@ -1,7 +1,3 @@
-/**
- * DeepLore Enhanced — Drawer Render: Footer Zone
- * Context bar, health icons, and AI stats.
- */
 import { amount_gen } from '../../../../../../script.js';
 import { getSettings } from '../../settings.js';
 import {
@@ -15,9 +11,6 @@ import { ds, formatTokensCompact, activityLog, announceToScreenReader } from './
 // Footer Zone — Health Icons + AI Stats + Context Bar
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the footer zone: context bar, health icons, AI stats.
- */
 export function renderFooter() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -27,7 +20,7 @@ export function renderFooter() {
     // ── Context window bar ──
     const $barContainer = $footer.find('.dle-context-bar-container');
 
-    // Hide context bar entirely on non-OAI backends where prompt token tracking is unavailable
+    // Non-OAI backends don't expose prompt token tracking — hide the bar entirely.
     if (!ds.contextBarAvailable) {
         $barContainer.hide();
     } else {
@@ -35,7 +28,7 @@ export function renderFooter() {
     }
 
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
-    // Prefer chatCompletionSettings (respects unlocked context) over maxContext (base slider)
+    // chatCompletionSettings respects "unlocked context"; ctx.maxContext is the base slider only.
     const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
     const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
     const contextUsed = ds.contextTokens || 0;
@@ -95,7 +88,6 @@ export function renderFooter() {
     // ── Health icons ──
     const settings = getSettings();
 
-    // Vault health
     const $vault = $footer.find('[data-health="vault"]');
     if (lastHealthResult) {
         const { errors, warnings } = lastHealthResult;
@@ -114,7 +106,7 @@ export function renderFooter() {
         $vault.attr('aria-label', 'Vault health: not checked yet — click to run health check').attr('title', 'Vault health: not checked yet — click to run health check');
     }
 
-    // Connection (Obsidian circuit breaker — aggregate)
+    // Connection icon = aggregate Obsidian circuit-breaker state across vaults.
     const $conn = $footer.find('[data-health="connection"]');
     const circuit = getCircuitState();
     if (circuit.state === 'closed') {
@@ -128,7 +120,6 @@ export function renderFooter() {
         $conn.attr('aria-label', `Obsidian: unreachable (${circuit.failures} failures) — click to view connection status`).attr('title', `Obsidian: unreachable (${circuit.failures} failures) — click to view connection status`);
     }
 
-    // Pipeline
     const $pipe = $footer.find('[data-health="pipeline"]');
     if (lastPipelineTrace) {
         const entryCount = lastPipelineTrace.injected?.length || 0;
@@ -145,7 +136,6 @@ export function renderFooter() {
         $pipe.attr('aria-label', 'Lore selection: no runs yet').attr('title', 'Lore selection: no runs yet — send a message to trigger');
     }
 
-    // Cache
     const $cache = $footer.find('[data-health="cache"]');
     if (indexEverLoaded && indexTimestamp) {
         const ageMs = Date.now() - indexTimestamp;
@@ -169,7 +159,6 @@ export function renderFooter() {
         $cache.attr('aria-label', 'Cache: empty — no index loaded').attr('title', 'Cache: empty — no index loaded');
     }
 
-    // AI service
     const $ai = $footer.find('[data-health="ai"]');
     if (isAiCircuitOpen()) {
         $ai.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
@@ -191,7 +180,7 @@ export function renderFooter() {
     const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
     $footer.find('[data-ai-stat="tokens"]').text(`${formatTokensCompact(totalTok)} tokens`);
 
-    // Input/output split tooltip + clickable breakdown (items 5 & 6)
+    // Click/keyboard surface — announces input/output token split for screen readers.
     const $aiStats = $footer.find('.dle-ai-stats');
     if ($aiStats.length && (aiSearchStats.totalInputTokens > 0 || aiSearchStats.totalOutputTokens > 0)) {
         const splitTitle = `${formatTokensCompact(aiSearchStats.totalInputTokens)} input tokens · ${formatTokensCompact(aiSearchStats.totalOutputTokens)} output tokens`;

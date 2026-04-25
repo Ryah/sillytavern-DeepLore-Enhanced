@@ -76,11 +76,8 @@ export function validateObsidianHost(host) {
     throw new Error(`Obsidian host "${host}" is not a recognized local address (use 127.0.0.1, localhost, or a LAN IP).`);
 }
 
-// ── Circuit Breaker (per-vault) ──
-// Prevents hammering Obsidian when it's down. Short backoffs (it's local and free).
-// Each vault gets its own circuit breaker keyed by "host:port" string for multi-vault
-// and remote Obsidian isolation (e.g., "127.0.0.1:27123", "192.168.1.5:27124").
-
+// Per-vault circuit breaker keyed by "host:port" so multi-vault setups isolate
+// failures. Backoffs short — Obsidian is local and free.
 /** @type {Map<string, {failures: number, maxFailures: number, state: string, openedAt: number, baseBackoff: number, maxBackoff: number}>} */
 const circuitBreakers = new Map();
 
@@ -93,7 +90,7 @@ function getCircuitBreaker(key) {
             openedAt: 0,
             baseBackoff: 2000,
             maxBackoff: 15000,
-            halfOpenProbe: false, // Only one request allowed through in half-open state
+            halfOpenProbe: false, // exactly one request passes in half-open
         });
     }
     return circuitBreakers.get(key);
@@ -171,8 +168,8 @@ function recordFailure(port) {
     cb.failures++;
     cb.halfOpenProbe = false;
     if (cb.failures >= cb.maxFailures) {
-        // Reset openedAt on every transition to open (including half-open → open)
-        // so exponential backoff recalculates from this failure, not the original one
+        // Reset openedAt on every transition to open so exponential backoff
+        // recalculates from this failure, not the original one.
         cb.openedAt = Date.now();
         cb.state = 'open';
         if (wasClosed) pushEvent('obsidian_circuit', { port, from: 'closed', to: 'open', failures: cb.failures });
@@ -182,8 +179,6 @@ function recordFailure(port) {
 function circuitAllows(port) {
     const cb = getCircuitBreaker(port);
     if (cb.state === 'closed') return true;
-    // BUG-038: Removed dead code — half-open with !halfOpenProbe is unreachable
-    // (recordFailure always transitions half-open → open, recordSuccess → closed)
     if (cb.state === 'half-open') {
         return !cb.halfOpenProbe ? (cb.halfOpenProbe = true, true) : false;
     }
@@ -194,7 +189,7 @@ function circuitAllows(port) {
     );
     if (elapsed >= backoff) {
         cb.state = 'half-open';
-        cb.halfOpenProbe = true; // First request is the probe
+        cb.halfOpenProbe = true;
         return true;
     }
     return false;
@@ -241,13 +236,10 @@ export function validateVaultPath(filename) {
  * @returns {Promise<{status: number, data: string}>}
  */
 export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, https: useHttps = false, method = 'GET', accept = 'application/json', body = null, contentType = null, timeout = DEFAULT_TIMEOUT, signal = null }) {
-    // BUG-AUDIT: host validation BEFORE any headers are built, to ensure the
-    // `Bearer ${apiKey}` header is only ever attached to loopback/LAN targets.
-    // Throws synchronously if host is public/shorthand/metadata.
+    // Validate host BEFORE building headers — ensures `Bearer ${apiKey}` only ever
+    // goes to loopback/LAN. Throws synchronously on public/shorthand/metadata.
     validateObsidianHost(host || '127.0.0.1');
-    // Circuit breaker key: host:port for multi-vault isolation
     const circuitKey = `${host}:${port}`;
-    // Circuit breaker: reject immediately if circuit is open
     if (!circuitAllows(circuitKey)) {
         const cs = getCircuitState(circuitKey);
         throw new Error(`Obsidian connection paused after ${cs.failures} failures — retrying in ${Math.ceil(cs.backoffRemaining / 1000)}s. Check that Obsidian is running.`);
@@ -263,8 +255,7 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
 
     const controller = new AbortController();
     const timer = setTimeout(() => abortWith(controller, 'obsidian:timeout'), timeout);
-    // BUG-256: wire external signal (caller-supplied user-cancel) to this controller
-    // so vault sync/scan/import are actually cancellable. Bail early if already aborted.
+    // BUG-256: wire caller-supplied signal so sync/scan/import are cancellable.
     let onExternalAbort = null;
     if (signal) {
         if (signal.aborted) {
@@ -289,9 +280,8 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
         });
         const data = await response.text();
         const _durMs = Date.now() - _startMs;
-        // Track server errors (5xx) and rate limits (429) as circuit breaker failures.
-        // BUG-H5: 429 (rate limit) must trip breaker to prevent thundering herd.
-        // Don't count auth errors (401/403) or client errors (404) — they are persistent config issues, not transient server failures.
+        // BUG-H5: 5xx and 429 trip the breaker (transient). 401/403/404 don't —
+        // those are persistent config issues that retries can't fix.
         if (response.status >= 500 || response.status === 429) {
             recordFailure(circuitKey);
             const cs = getCircuitState(circuitKey);
@@ -304,8 +294,8 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
     } catch (err) {
         const _durMs = Date.now() - _startMs;
         if (err.name === 'AbortError') {
-            // Don't count aborts (timeout / page teardown / cancelled scans) as circuit failures.
-            // BUG-256: if the external signal fired, tag as user-abort; otherwise it's our timeout.
+            // Aborts (timeout / teardown / user cancel) are not circuit failures.
+            // BUG-256: external signal fired → user abort; otherwise it's our timeout.
             if (signal?.aborted) {
                 pushEvent('obsidian_fetch', { result: 'user_abort', durationMs: _durMs, vault: circuitKey });
                 const abortErr = new Error('Request aborted by user');
@@ -327,7 +317,7 @@ export async function obsidianFetch({ host = '127.0.0.1', port, apiKey, path, ht
         throw err;
     } finally {
         clearTimeout(timer);
-        // BUG-256/248: detach external signal listener to prevent leaks on long-lived signals.
+        // BUG-256/248: detach to prevent leaks on long-lived signals.
         if (signal && onExternalAbort) signal.removeEventListener('abort', onExternalAbort);
     }
 }
@@ -362,7 +352,6 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
     const allFiles = [];
     const prefix = directory ? directory + '/' : '';
 
-    // Separate directories and files
     const dirs = [];
     for (const file of files) {
         if (file.endsWith('/')) {
@@ -372,8 +361,7 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
         }
     }
 
-    // Fetch directories in batches to avoid overwhelming the Obsidian REST API
-    // BUG-366: Track partial failures so callers can avoid committing a truncated
+    // BUG-366: track partial failures so callers can avoid committing a truncated
     // index over the top of a previously-good one.
     let partial = false;
     if (dirs.length > 0) {
@@ -406,7 +394,7 @@ export async function listAllFiles(host, port, apiKey, directory = '', depth = 0
  */
 export async function testConnection(host, port, apiKey, useHttps = false) {
     try {
-        // Force-reset circuit breaker for explicit user-initiated test.
+        // Force-reset breaker for explicit user-initiated test.
         const circuitKey = `${host || '127.0.0.1'}:${port}`;
         const cb = getCircuitBreaker(circuitKey);
         cb.state = 'closed';
@@ -421,9 +409,8 @@ export async function testConnection(host, port, apiKey, useHttps = false) {
         }
         return { ok: false, error: `HTTP ${result.status}` };
     } catch (err) {
-        // Detect self-signed certificate errors (browser blocks HTTPS to untrusted certs)
+        // Self-signed cert errors surface as TypeError / "Failed to fetch".
         if (useHttps && (err instanceof TypeError || err.message?.includes('Failed to fetch'))) {
-            // Run diagnostic probe to distinguish cert vs unreachable vs auth
             const probe = await diagnoseFetchFailure(host, port, apiKey);
             const certUrl = `https://${host || '127.0.0.1'}:${port}`;
             return {
@@ -454,8 +441,8 @@ export async function testConnection(host, port, apiKey, useHttps = false) {
  */
 export async function diagnoseFetchFailure(host, port, apiKey) {
     const httpPort = port === 27124 ? 27123 : port;
-    // BUG-AUDIT: mirror validator from obsidianFetch so the diagnostic probe can't
-    // leak Bearer to a public host when upstream config is bad.
+    // Mirror obsidianFetch's validator — the probe must not leak Bearer to a
+    // public host when upstream config is bad.
     try { validateObsidianHost(host || '127.0.0.1'); }
     catch { return { diagnosis: 'unreachable', httpWorked: false, httpPort }; }
     try {
@@ -466,7 +453,7 @@ export async function diagnoseFetchFailure(host, port, apiKey) {
         if (res.status === 401 || res.status === 403) {
             return { diagnosis: 'auth', httpWorked: true, httpPort };
         }
-        // Any HTTP response means the server is reachable — HTTPS is the problem
+        // Any HTTP response → server reachable, HTTPS is the problem.
         return { diagnosis: 'cert', httpWorked: true, httpPort };
     } catch {
         return { diagnosis: 'unreachable', httpWorked: false, httpPort };
@@ -537,8 +524,8 @@ export function buildConnectionGuidanceHtml(result) {
  * @returns {Promise<{files: Array<{filename: string, content: string}>, total: number, failed: number}>}
  */
 export async function fetchAllMdFiles(host, port, apiKey, useHttps = false) {
-    // BUG-366: listAllFiles now returns {files, partial}. If partial, signal caller
-    // so it can preserve the previous index instead of committing a truncated one.
+    // BUG-366: pass `partial` flag through so caller preserves the previous index
+    // instead of committing a truncated one.
     const listing = await listAllFiles(host, port, apiKey, '', 0, useHttps);
     const allFiles = listing.files;
     const listingPartial = !!listing.partial;
@@ -686,7 +673,7 @@ export async function writeFieldDefinitions(host, port, apiKey, filePath, conten
  * @returns {Promise<{ok: boolean, notes?: Array<{filename: string, content: string}>, error?: string}>}
  */
 export async function fetchScribeNotes(host, port, apiKey, folder, useHttps = false) {
-    // BUG-040: Validate folder path to prevent directory traversal
+    // BUG-040: prevent directory traversal.
     validateVaultPath(folder);
     try {
         const listing = await listAllFiles(host, port, apiKey, folder, 0, useHttps);

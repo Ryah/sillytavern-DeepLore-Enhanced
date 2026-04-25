@@ -20,9 +20,8 @@ export function computeEntityDerivedState(entries) {
     }
     setEntityNameSet(names);
 
-    // Pre-compile word-boundary regexes for ALL entity names
-    // Short names (≤3 chars): always use regex to avoid false positives ("an" in "want")
-    // Longer names: regex prevents substring false positives ("Arch" in "monarch")
+    // Word-boundary regexes for ALL entity names — prevents substring false
+    // positives like "an" in "want" or "Arch" in "monarch".
     const nameRegexes = new Map();
     for (const name of names) {
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -33,8 +32,7 @@ export function computeEntityDerivedState(entries) {
 
 /**
  * Detect entry titles that appear in more than one vault.
- * Returns an array of { title, vaults[] } for each conflicting title.
- * Called before deduplicateMultiVault to warn the user.
+ * Returns { title, vaults[] } per conflict — used pre-dedup to warn the user.
  * @param {Array} entries - VaultEntry array
  * @returns {Array<{title: string, vaults: string[]}>}
  */
@@ -74,10 +72,9 @@ export function detectCrossVaultDuplicates(entries) {
  * @param {string} mode - Conflict resolution mode ('all'|'first'|'last'|'merge')
  * @returns {Array} Deduplicated entries
  */
-// BUG-AUDIT (Fix 12): defensive guard. Settings whitelist enforces the enum on save,
-// but settings imports / hand-edited config can land an invalid value here — without
-// this guard the invalid mode falls through every branch and silently behaves like
-// 'first' (drops duplicates after the first). Treat unknown as 'all' (safest: preserve).
+// Settings whitelist enforces the enum on save, but imports / hand-edited config
+// can land an invalid value. Without this guard the invalid mode falls through
+// every branch and silently behaves like 'first'. Unknown → 'all' (preserve).
 const VALID_DEDUPE_MODES = new Set(['all', 'first', 'last', 'merge']);
 export function deduplicateMultiVault(entries, mode) {
     if (!mode || !VALID_DEDUPE_MODES.has(mode) || mode === 'all') return entries;
@@ -89,42 +86,32 @@ export function deduplicateMultiVault(entries, mode) {
             if (mode === 'last') {
                 titleMap.set(key, entry);
             } else if (mode === 'merge') {
-                // BUG-378: Previously mutated the first entry in place and clobbered
-                // `_contentHash` with a hash of the merged content. Because reuse-sync
-                // compares `entry._contentHash` to the on-disk file hash to detect "modified"
-                // entries, the clobbered hash never matched any real file → every poll
-                // reported the entry as modified and triggered a redundant re-parse/re-tokenize.
-                // Fix: clone the first entry before merging and PRESERVE its original
-                // `_contentHash` so reuse-sync sees a stable, on-disk-matching hash.
+                // BUG-378: clone first entry and PRESERVE its `_contentHash`. The previous
+                // in-place mutation clobbered the hash with one of the merged content,
+                // which never matched any real on-disk file — so reuse-sync flagged the
+                // entry as modified every poll, triggering infinite re-parse/re-tokenize.
                 const firstEntry = titleMap.get(key);
                 const existing = { ...firstEntry };
-                // Deep-copy customFields so we don't mutate the source entry's fields
                 if (firstEntry.customFields) existing.customFields = { ...firstEntry.customFields };
                 titleMap.set(key, existing);
-                // H18: Merge all relevant fields, not just keys
-                // Arrays: union (deduplicate) — construct new arrays rather than mutating
+                // H18: union all relevant array fields, not just keys.
                 for (const field of ['keys', 'tags', 'links', 'resolvedLinks', 'requires', 'excludes']) {
                     if (Array.isArray(entry[field]) && entry[field].length > 0) {
                         existing[field] = [...new Set([...(existing[field] || []), ...entry[field]])];
                     }
                 }
-                // content: concatenate with separator
                 if (entry.content && entry.content.trim()) {
                     existing.content = (existing.content || '') + '\n\n---\n\n' + entry.content;
-                    // Recalculate token estimate from merged content for budgeting.
-                    existing.tokenEstimate = Math.ceil(existing.content.length / 4.0); // BUG-H9: standardize on 4.0 chars/token
-                    // BUG-378: Do NOT recompute `_contentHash` — it must remain equal to the
-                    // hash of the ORIGINAL (unmerged) first entry's file content so reuse-sync
-                    // can match it against the on-disk file and avoid infinite "modified" loops.
-                    // (existing._contentHash was already copied from firstEntry above.)
+                    existing.tokenEstimate = Math.ceil(existing.content.length / 4.0); // BUG-H9: 4.0 chars/token
+                    // BUG-378: do NOT recompute `_contentHash` — must equal the hash of the
+                    // ORIGINAL first entry's file content for reuse-sync to skip re-parse.
                 }
-                // H-05: OR-merge boolean flags — if ANY copy is true, merged entry keeps it
+                // H-05: OR-merge boolean flags — true if ANY copy is true.
                 for (const flag of ['constant', 'seed', 'bootstrap', 'guide']) {
                     if (entry[flag]) existing[flag] = true;
                 }
-                // summary: prefer first non-empty
                 if (!existing.summary && entry.summary) existing.summary = entry.summary;
-                // customFields: merge — union arrays, prefer first non-empty for scalars
+                // customFields: union arrays, first-non-empty for scalars.
                 if (entry.customFields) {
                     if (!existing.customFields) existing.customFields = {};
                     for (const [k, val] of Object.entries(entry.customFields)) {

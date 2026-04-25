@@ -1,8 +1,6 @@
 /**
- * DeepLore Enhanced — Graph visualization orchestrator.
- * Builds node/edge data, creates popup DOM, initializes sub-modules,
- * runs the animation loop. Sub-modules handle physics, rendering,
- * events, settings, and focus tree.
+ * Graph orchestrator: builds node/edge data, creates popup DOM, initializes sub-modules,
+ * runs the animation loop. Sub-modules: physics, render, events, settings, focus tree.
  */
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { NO_ENTRIES_MSG } from '../../core/utils.js';
@@ -17,26 +15,17 @@ import { initRender } from './graph-render.js';
 import { initFocus } from './graph-focus.js';
 import { initEvents } from './graph-events.js';
 import { initGraphSettings } from './graph-settings.js';
-import { computeDisparityFilter, computeLouvainCommunities, updateCommunityCentroids, convexHull, COMMUNITY_PALETTE, computeGapAnalysis } from './graph-analysis.js';
+import { computeDisparityFilter, computeLouvainCommunities } from './graph-analysis.js';
 
 const escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-// ============================================================================
-// Debug logging
-// ============================================================================
 const TAG = '[DLE Graph]';
 function dbg(...args) {
     const s = getSettings();
     if (s?.debugMode) console.debug(TAG, ...args);
 }
 
-// ============================================================================
-// Main entry point
-// ============================================================================
-
-/**
- * Show an interactive force-directed graph of entry relationships.
- */
+/** Show an interactive force-directed graph of entry relationships. */
 export async function showGraphPopup() {
     await ensureIndexFresh();
     if (vaultIndex.length === 0) {
@@ -48,7 +37,7 @@ export async function showGraphPopup() {
     const multiVault = (settings.vaults || []).length > 1;
 
     // ========================================================================
-    // Build node and edge data — filter out entries with graph: false
+    // Build node and edge data — `graph: false` opts an entry out of visualization.
     // ========================================================================
     const graphEntries = vaultIndex.filter(e => e.graph !== false);
     dbg(`showGraphPopup: ${vaultIndex.length} vault entries, ${graphEntries.length} graphable, multiVault=${multiVault}`);
@@ -75,7 +64,7 @@ export async function showGraphPopup() {
         _revealScale: 0,
     }));
 
-    // Detect title collisions (case-insensitive)
+    // Case-insensitive title collision detection — links resolve via lowercased lookup.
     const titleToIdx = new Map();
     const titleCollisions = [];
     for (let i = 0; i < graphEntries.length; i++) {
@@ -95,7 +84,8 @@ export async function showGraphPopup() {
         );
     }
 
-    // Deduplicate edges
+    // Edge dedup keyed by (min,max,type) — undirected; type still matters since
+    // requires/excludes/cascade are semantically distinct from a plain link.
     const edgeSet = new Set();
     const edges = [];
     function addEdge(from, to, type) {
@@ -130,7 +120,6 @@ export async function showGraphPopup() {
         }
     }
 
-    // Detect circular requires
     const circularPairs = [];
     const requiresSet = new Set();
     for (const edge of edges) {
@@ -144,7 +133,7 @@ export async function showGraphPopup() {
         }
     }
 
-    // Count edges per node pair (ignoring type)
+    // Count edges per undirected node pair (across types) — diagnostic only.
     const pairEdgeCount = new Map();
     for (const e of edges) {
         const key = `${Math.min(e.from, e.to)},${Math.max(e.from, e.to)}`;
@@ -167,16 +156,13 @@ export async function showGraphPopup() {
     for (const e of edges) edgeTypeCounts[e.type] = (edgeTypeCounts[e.type] || 0) + 1;
     dbg(`Edge breakdown: link=${edgeTypeCounts.link}, requires=${edgeTypeCounts.requires}, excludes=${edgeTypeCounts.excludes}, cascade=${edgeTypeCounts.cascade}`);
 
-    // Edge visibility state
     const edgeVisibility = { link: true, requires: true, excludes: true, cascade: true };
 
-    // Build adjacency for hover-dim BFS
-    let adjacency = new Map();
-    // edgeCountByNode is rebuilt alongside adjacency so both share the same
-    // edgeVisibility filter — previously it was computed once at init over
-    // ALL edges and never rebuilt when the user toggled edge types, leaving
-    // hub damping / centrality coloring / top-connected list / disconnected
+    // adjacency drives hover-dim BFS. edgeCountByNode is rebuilt alongside it under the same
+    // edgeVisibility filter — previously computed once at init over ALL edges and never
+    // rebuilt on toggle, leaving hub damping / centrality / top-connected / disconnected
     // detection out of sync with what's actually drawn on screen.
+    let adjacency = new Map();
     const edgeCountByNode = new Map();
     let maxEdgeCount = 1;
     function buildAdjacency() {
@@ -201,7 +187,6 @@ export async function showGraphPopup() {
     }
     dbg(`ForceAtlas2 model: ${nodes.length} nodes, ${edges.length} edges`);
 
-    // Injection frequency
     let maxInjectionCount = 0;
     const injectionCounts = new Map();
     for (const n of nodes) {
@@ -211,16 +196,13 @@ export async function showGraphPopup() {
         if (count > maxInjectionCount) maxInjectionCount = count;
     }
 
-    // Collect unique tags for filter dropdown
     const allTags = new Set();
     for (const n of nodes) {
         for (const t of n.tags) allTags.add(t);
     }
     const tagList = [...allTags].sort();
 
-    // ========================================================================
-    // Build text summary for screen readers
-    // ========================================================================
+    // Screen-reader summary — surfaced inside <details> at footer.
     const typeCounts = { regular: 0, constant: 0, seed: 0, bootstrap: 0 };
     for (const n of nodes) typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
 
@@ -245,9 +227,7 @@ export async function showGraphPopup() {
         summaryHtml += `<p>No circular requires detected.</p>`;
     }
 
-    // ========================================================================
-    // Build popup DOM
-    // ========================================================================
+    // ─── Popup DOM ───
     const container = document.createElement('div');
     container.classList.add('dle-popup', 'dle-graph-popup');
     const circularWarning = circularPairs.length > 0
@@ -422,7 +402,7 @@ export async function showGraphPopup() {
 
     callGenericPopup(container, POPUP_TYPE.DISPLAY, '', { wide: true, large: true, allowVerticalScrolling: false });
 
-    // Poll for canvas with layout wait
+    // Poll for canvas with non-zero layout — popup body may be present but unmeasured for a frame or two.
     let canvas = null;
     for (let attempt = 0; attempt < 20; attempt++) {
         canvas = document.getElementById('dle-graph-canvas');
@@ -436,7 +416,6 @@ export async function showGraphPopup() {
     }
     const ctx = canvas.getContext('2d');
 
-    // Cache rect, initialize canvas
     let cachedRect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = cachedRect.width * dpr;
@@ -447,7 +426,7 @@ export async function showGraphPopup() {
     dbg(`Canvas initialized: ${W}x${H} CSS px, DPR=${dpr}, buffer=${canvas.width}x${canvas.height}`);
 
     // ========================================================================
-    // Initial node positions (Weighted BFS + progressive reveal)
+    // Initial node positions: weighted BFS from hub + progressive reveal animation.
     // ========================================================================
     const springLen = 200;
 
@@ -465,7 +444,7 @@ export async function showGraphPopup() {
         n.hidden = true;
     }
 
-    // Weighted adjacency for BFS placement
+    // Weighted adjacency for placement BFS — mention weight (sym sum) is the edge weight here.
     const weightedAdj = new Map();
     for (const n of nodes) weightedAdj.set(n.id, []);
     for (const edge of edges) {
@@ -477,26 +456,25 @@ export async function showGraphPopup() {
         neighbors.sort((a, b) => b.weight - a.weight);
     }
 
-    // Find hub
+    // Hub = node with the most visible-edge degree; root of the BFS placement.
     let hubId = 0, hubEdges = 0;
     for (const [id, count] of edgeCountByNode) {
         if (count > hubEdges) { hubId = id; hubEdges = count; }
     }
 
-    // Weighted BFS from hub
     const placed = new Set();
     const revealOrder = [];
     const placeDist = springLen * 1.2;
 
-    // BUG-AUDIT-H11: Pre-compute neighbor sets ONCE — reused for both placement and physics.
-    // Was duplicated O(N²) as neighborSetsForPlace + neighborSets.
+    // BUG-AUDIT-H11: shared neighbor sets — reused for placement AND physics.
+    // Previously duplicated as neighborSetsForPlace + neighborSets, costing 2× the O(N²) build.
     const neighborSets = new Map();
     for (const n of nodes) {
         if (n.orphan) continue;
         neighborSets.set(n.id, new Set((adjacency.get(n.id) || [])));
     }
 
-    // Pre-compute shared neighbors for placement
+    // Shared-neighbor pairs for placement (n+2 hops) — pulls "friends of friends" together.
     const sharedWith = new Map();
     for (const n of nodes) sharedWith.set(n.id, []);
     for (let i = 0; i < nodes.length; i++) {
@@ -517,14 +495,12 @@ export async function showGraphPopup() {
         }
     }
 
-    // Place hub at center
     nodes[hubId].x = 0; nodes[hubId].y = 0;
     nodes[hubId].vx = 0; nodes[hubId].vy = 0;
     nodes[hubId].hidden = true;
     placed.add(hubId);
     revealOrder.push(hubId);
 
-    // BFS queue
     const bfsQueue = [hubId];
     let bfsHead = 0;
     let angleCounter = 0;
@@ -536,9 +512,10 @@ export async function showGraphPopup() {
         for (const nb of neighbors) {
             if (placed.has(nb.id) || nodes[nb.id].orphan) continue;
 
+            // Center-of-mass placement: blend direct placed neighbors (full weight) with
+            // placed shared-neighbor nodes (half weight) to bias clusters near their kin.
             let cx = 0, cy = 0, totalW = 0;
 
-            // Direct placed neighbors
             for (const adj of (weightedAdj.get(nb.id) || [])) {
                 if (!placed.has(adj.id)) continue;
                 const w = adj.weight || 1;
@@ -547,7 +524,6 @@ export async function showGraphPopup() {
                 totalW += w;
             }
 
-            // Shared-neighbor placed nodes
             for (const sn of (sharedWith.get(nb.id) || [])) {
                 if (!placed.has(sn.id)) continue;
                 const w = sn.shared * 0.5;
@@ -564,6 +540,7 @@ export async function showGraphPopup() {
                 cy = nodes[cur].y;
             }
 
+            // 2.399 ≈ golden angle (137.5°) → low-discrepancy angular spacing across the parent ring.
             const angle = angleCounter * 2.399;
             const jitter = placeDist * 0.5 + (Math.random() - 0.5) * placeDist * 0.3;
             nodes[nb.id].x = cx + Math.cos(angle) * jitter;
@@ -578,7 +555,7 @@ export async function showGraphPopup() {
         }
     }
 
-    // Any connected nodes not reached by BFS
+    // Connected components disconnected from the hub component land on a wide outer ring.
     for (const n of nodes) {
         if (!placed.has(n.id) && !n.orphan) {
             const angle = angleCounter * 2.399;
@@ -591,7 +568,7 @@ export async function showGraphPopup() {
         }
     }
 
-    // Build reveal batches
+    // Reveal batches: cascade nodes in by BFS depth in groups of MAX_BATCH_SIZE every REVEAL_INTERVAL frames.
     const REVEAL_INTERVAL = 4;
     const MAX_BATCH_SIZE = 3;
     const revealBatches = [];
@@ -614,7 +591,7 @@ export async function showGraphPopup() {
     // Restore saved layout (skip progressive reveal if positions match)
     // ========================================================================
     let restoredLayout = false;
-    const originalRevealBatches = revealBatches.map(b => [...b]); // Keep a copy for replay
+    const originalRevealBatches = revealBatches.map(b => [...b]); // kept for Redraw replay
     const saved = settings.graphSavedLayout;
     if (saved?.positions) {
         const pos = saved.positions;
@@ -623,17 +600,16 @@ export async function showGraphPopup() {
             const p = pos[n.title];
             if (p) { n.x = p.x; n.y = p.y; matched++; }
         }
-        // Restore if ≥80% of nodes match saved positions
         if (matched >= nodes.length * 0.8) {
             restoredLayout = true;
             for (const n of nodes) {
                 n.hidden = false;
                 n._revealScale = 1;
                 n.vx = 0; n.vy = 0;
-                n.revealBatchIdx = null; // Mark as fully revealed so exitFocusTree doesn't re-hide
+                // null so exitFocusTree's "still in unreveal batch" check won't re-hide a fully-revealed node.
+                n.revealBatchIdx = null;
             }
             for (const e of edges) e._revealAlpha = 1;
-            // Skip progressive reveal entirely
             revealBatches.length = 0;
             dbg(`Restored saved layout (${matched}/${nodes.length} nodes matched)`);
         } else {
@@ -641,7 +617,7 @@ export async function showGraphPopup() {
         }
     }
 
-    // Pre-compute link strength
+    // Edge attraction strength inversely proportional to min endpoint degree — prevents hubs from collapsing.
     const linkStrengths = new Float64Array(edges.length);
     for (let e = 0; e < edges.length; e++) {
         const srcDeg = nodeDegree[edges[e].from] || 1;
@@ -649,8 +625,7 @@ export async function showGraphPopup() {
         linkStrengths[e] = 1 / Math.min(srcDeg, tgtDeg);
     }
 
-    // Pre-compute shared neighbors (virtual springs)
-    // BUG-AUDIT-H11: neighborSets already computed above for placement — reuse here.
+    // Shared-neighbor "virtual springs" — n+2 attraction. Cap at MAX_SHARED_PAIRS so dense vaults don't tank perf.
     const MAX_SHARED_PAIRS = 2000;
     const sharedNeighborPairs = [];
     outerLoop:
@@ -673,7 +648,8 @@ export async function showGraphPopup() {
     }
     dbg(`Shared-neighbor pairs: ${sharedNeighborPairs.length} (n+2 virtual springs)`);
 
-    // BUG-AUDIT-H16: Pre-compute same-tag pairs with cap (same as sharedNeighborPairs)
+    // BUG-AUDIT-H16: same-tag pairs (capped). Lorebook tag is excluded — every entry has it,
+    // so it's noise. Cap matches sharedNeighborPairs to bound force-loop work per frame.
     const tagPairs = [];
     const MAX_TAG_PAIRS = 2000;
     const lorebookTag = (settings.lorebookTag || 'lorebook').toLowerCase();
@@ -697,9 +673,7 @@ export async function showGraphPopup() {
     dbg(`Tag pairs: ${tagPairs.length} (same-tag clustering springs)`);
     dbg(`Weighted BFS from "${nodes[hubId].title}" (${hubEdges} edges), ${revealBatches.length} batches, ${disconnected.length} orphans`);
 
-    // ========================================================================
-    // CSS-var-aware colors
-    // ========================================================================
+    // ─── Theme-aware colors ───
     const computedStyle = getComputedStyle(document.documentElement);
     const nodeColors = {
         constant: '#ff9800',
@@ -707,8 +681,8 @@ export async function showGraphPopup() {
         bootstrap: '#9c27b0',
         regular: '#4caf50',
     };
-    // BUG-361: edgeColors is rebuilt each frame inside readEdgeColors() so theme
-    // swaps propagate to canvas-drawn edges without any theme-change event wiring.
+    // BUG-361: edgeColors is re-read every frame so theme swaps propagate to canvas-drawn edges
+    // without subscribing to a theme-change event we don't own.
     function readEdgeColors() {
         const cs = getComputedStyle(document.documentElement);
         return {
@@ -720,18 +694,13 @@ export async function showGraphPopup() {
     }
     const edgeColors = readEdgeColors();
 
-    // ========================================================================
-    // Cleanup on popup close
-    // ========================================================================
+    // ─── Popup-close cleanup ───
     const listenerAC = new AbortController();
-    // BUG-351: Resolve the observe target unconditionally — fall back to document.body
-    // so the MutationObserver (and its cleanup) always fires even when the .popup
-    // ancestor lookup races/fails.
-    // BUG-364: Prefer the closest .popup child-list observer over subtree on body.
+    // BUG-351: always resolve an observeTarget (fall back to body) so the cleanup MutationObserver
+    // fires even when the .popup ancestor lookup races/fails.
+    // BUG-364: prefer the closest .popup with childList-only; only use subtree when fallback to body.
     const popupContainer = canvas.closest('.popup') || container.parentElement;
     const observeTarget = popupContainer || document.body;
-    // BUG-364: Only use subtree when we had to fall back to body; the .popup container
-    // only needs childList (its direct children are tab panels / the canvas wrapper).
     const observeOptions = popupContainer
         ? { childList: true }
         : { childList: true, subtree: true };
@@ -740,7 +709,6 @@ export async function showGraphPopup() {
             dbg('Canvas removed from DOM — cleaning up graph');
             gs.isRunning = false;
             if (gs.animationFrameId) { cancelAnimationFrame(gs.animationFrameId); gs.animationFrameId = null; }
-            // Cancel pending fit timers to prevent stale callbacks
             for (const id of gs._fitTimers || []) clearTimeout(id);
             gs._fitTimers = [];
             if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
@@ -750,12 +718,9 @@ export async function showGraphPopup() {
     });
     observer.observe(observeTarget, observeOptions);
 
-    // Focus tree exit: press 'e' (handled in graph-events.js). ESC closes the popup
-    // (ST default) and is no longer captured here.
+    // ST quirk: Focus-tree exit is `e`, not Escape — ESC bubbles to ST popup close (handled in graph-events.js).
 
-    // ========================================================================
-    // Shared graph state — passed to all sub-modules
-    // ========================================================================
+    // ─── Shared graph state passed to all sub-modules ───
     const gs = {
         // Data
         nodes, edges, adjacency, edgeVisibility,
@@ -774,21 +739,19 @@ export async function showGraphPopup() {
         // Interaction
         dragNode: null, hoverNode: null,
         isPanning: false, panStartX: 0, panStartY: 0, panOriginX: 0, panOriginY: 0,
-        // BUG-358: Set to true when user manually pans/zooms; suppresses replayReveal _fitTimers.
+        // BUG-358: set when user pans/zooms; suppresses queued _fitTimers from snapping the view back.
         _userPanned: false,
         hoverDistances: null,
         contextMenuNode: null, tempPinnedNode: null,
-        settlingUntil: 0, // Set dynamically when layout overlay is shown
-        releaseStabilizeFrames: 0, // G6: extra damping frames after drag release
-        layoutSaved: restoredLayout, // Whether positions have been saved this session
-        restoredLayout, // Whether we skipped reveal due to saved positions
+        settlingUntil: 0,
+        releaseStabilizeFrames: 0, // G6: extra damping frames post drag-release
+        layoutSaved: restoredLayout,
+        restoredLayout,
         layoutNotice: restoredLayout ? '' : 'Laying out entries\u2026',
-        simulationStartTime: restoredLayout ? 0 : Date.now(), // For 90s hard clamp
-        onSettleComplete: null, // Set below after overlay is created
-        // Simulation
-        // BUG-352: Restored layouts get alpha=0 / hasSpringEnergy=false so physics
-        // doesn't jiggle a perfectly-restored set of node positions. Fresh layouts
-        // keep alpha=1.0 / hasSpringEnergy=true for normal force-directed settling.
+        simulationStartTime: restoredLayout ? 0 : Date.now(), // for 90s hard clamp
+        onSettleComplete: null,
+        // BUG-352: restored layouts start at alpha=0 / hasSpringEnergy=false so physics doesn't
+        // jiggle a perfectly-restored set of positions. Fresh layouts get full reheat.
         isRunning: true, alpha: restoredLayout ? 0 : 1.0,
         hasSpringEnergy: !restoredLayout, maxDelta: 0, simFrame: 0,
         // Graph state
@@ -808,7 +771,7 @@ export async function showGraphPopup() {
         settings, springLen,
         tooltipEl: document.getElementById('dle-graph-tooltip'),
         listenerAC,
-        // Cross-module functions (set by init calls below)
+        // Cross-module hooks \u2014 populated by initRender/initFocus/initEvents/etc. below.
         buildAdjacency: null, applyFilters: null, fitToView: null,
         getNodeColor: null, getNodeRadius: null,
         toScreen: null, toWorld: null,
@@ -816,15 +779,13 @@ export async function showGraphPopup() {
         computeHoverDistances: null,
         enterFocusTree: null, exitFocusTree: null,
         updateTooltip: null,
-        // Accessibility
         reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        // Gap analysis
         _vaultIndex: graphEntries,
         gapAnalysis: null,
         gapAnalysisActive: false,
     };
 
-    // Wire buildAdjacency as a gs method (updates gs.adjacency + degree-derived state)
+    // gs.buildAdjacency wraps the closure so degree-derived state stays consistent on every rebuild.
     gs.buildAdjacency = () => {
         buildAdjacency();
         gs.adjacency = adjacency;
@@ -834,9 +795,7 @@ export async function showGraphPopup() {
         }
     };
 
-    // ========================================================================
-    // Disparity filter — compute initial backbone
-    // ========================================================================
+    // Disparity-filter backbone (Serrano et al.) — initial computation, recomputed on slider change.
     computeDisparityFilter(gs, settings.graphEdgeFilterAlpha ?? 0.05);
     gs.recomputeBackbone = (alpha) => {
         computeDisparityFilter(gs, alpha);
@@ -844,28 +803,22 @@ export async function showGraphPopup() {
     };
     dbg(`Disparity filter: ${gs._backboneCount}/${edges.length} backbone edges at alpha=${gs._disparityAlpha}`);
 
-    // Louvain community detection
     computeLouvainCommunities(gs);
     const communityCount = gs.communities ? gs.communities.size : 0;
     dbg(`Louvain: ${communityCount} communities detected`);
 
-    // ========================================================================
-    // Initialize sub-modules
-    // ========================================================================
     const render = initRender(gs);
     const focus = initFocus(gs, dbg);
     const physics = initPhysics(gs);
-    const events = initEvents(gs, dbg);
-    const graphSettings = initGraphSettings(gs, dbg);
+    initEvents(gs, dbg);
+    initGraphSettings(gs, dbg);
 
-    // Wire replayReveal — clears saved layout and replays the BFS rollout animation
+    /** Clear saved layout and replay the BFS rollout animation. */
     gs.replayReveal = () => {
-        // Clear saved layout
         settings.graphSavedLayout = null;
         gs.layoutSaved = false;
         invalidateSettingsCache();
         saveSettingsDebounced();
-        // Reset all nodes
         if (gs.focusTreeRoot) gs.exitFocusTree();
         for (const n of nodes) {
             n.pinned = false;
@@ -875,7 +828,6 @@ export async function showGraphPopup() {
             n.vx = 0; n.vy = 0;
         }
         for (const e of edges) e._revealAlpha = 0;
-        // Restore reveal batches from original
         revealBatches.length = 0;
         for (const batch of originalRevealBatches) revealBatches.push([...batch]);
         gs.revealedBatch = 0;
@@ -887,10 +839,8 @@ export async function showGraphPopup() {
         gs.layoutSaved = false;
         gs.panX = gs.W / 2; gs.panY = gs.H / 2; gs.zoom = 1;
         gs.needsDraw = true;
-        // Show calculating overlay
         gs.layoutNotice = 'Laying out entries\u2026';
         if (gs.updateTooltip) gs.updateTooltip();
-        // Re-add overlay if not present
         if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
         if (!layoutOverlay && canvas.parentNode) {
             layoutOverlay = document.createElement('div');
@@ -909,9 +859,9 @@ export async function showGraphPopup() {
                 msgEl.textContent = `Laying out entries\u2026 ${elapsed}s`;
             }
         }, 1000);
-        // Auto-fit 1s + 2s + 6s after redraw starts (don't wait for settle)
-        // Store timer IDs so they can be cancelled on popup close.
-        // BUG-358: Skip fit if user panned manually since the timer was scheduled.
+        // Auto-fit at 1s/2s/6s after replay starts so the user doesn't wait through full settle.
+        // Timer IDs are tracked in _fitTimers so popup-close can cancel them.
+        // BUG-358: each fit checks _userPanned to avoid yanking a manually-positioned view.
         for (const id of gs._fitTimers || []) clearTimeout(id);
         gs._fitTimers = [
             setTimeout(() => { if (gs.isRunning && gs.fitToView && !gs._userPanned) gs.fitToView(true); }, 1000),
@@ -921,44 +871,38 @@ export async function showGraphPopup() {
         dbg('Redraw: replaying BFS reveal animation');
     };
 
-    // ========================================================================
-    // Animation loop
-    // ========================================================================
+    // ─── Animation loop ───
     function tick() {
         if (!gs.isRunning) return;
-        // BUG-122: Belt-and-braces teardown. The MutationObserver is the primary
-        // popup-close detector, but if the popup framework moves the canvas in a way
-        // the observer misses (or the .popup ancestor lookup raced and we observed
-        // the wrong target), the animation loop is the only thing still ticking. When
-        // the canvas is gone, abort listenerAC so document-level keydown/click handlers
-        // can never outlive the popup, cancel pending fit timers, and stop layout interval.
+        // BUG-122: belt-and-braces teardown. MutationObserver is the primary detector,
+        // but if the popup framework moves the canvas in a way the observer misses (or
+        // the .popup ancestor lookup raced), the animation loop is the only thing still
+        // ticking. Abort listenerAC so document-level keydown/click can't outlive the popup.
         if (!canvas.isConnected || !document.getElementById('dle-graph-canvas')) {
             gs.isRunning = false;
             if (gs.animationFrameId) { cancelAnimationFrame(gs.animationFrameId); gs.animationFrameId = null; }
             for (const id of gs._fitTimers || []) clearTimeout(id);
             gs._fitTimers = [];
             if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
-            try { listenerAC.abort(); } catch (e) { /* already aborted */ }
-            try { observer.disconnect(); } catch (e) { /* already disconnected */ }
+            try { listenerAC.abort(); } catch { /* already aborted */ }
+            try { observer.disconnect(); } catch { /* already disconnected */ }
             return;
         }
         physics.simulate();
 
-        // --- Animated fit: smooth pan/zoom lerp ---
         if (gs._fitAnim && focus.stepFitAnimation()) {
             gs.needsDraw = true;
         }
 
-        // --- Ego-centric focus: smooth position lerp ---
         if (gs._egoLerpActive && focus.lerpEgoPositions()) {
             gs.needsDraw = true;
             gs.hasSpringEnergy = true;
         }
 
-        // --- Entrance animation: lerp reveal scales each frame ---
+        // Entrance animation: lerp _revealScale toward 1 each frame.
         let anyRevealing = false;
         if (gs.reducedMotion) {
-            // Accessibility: snap reveal scales to 1 immediately
+            // a11y: snap reveal scales to 1 immediately.
             for (const n of gs.nodes) {
                 if (n.hidden || n._revealScale >= 1) continue;
                 n._revealScale = 1;
@@ -988,8 +932,8 @@ export async function showGraphPopup() {
         const hoverChanged = gs.hoverNode !== gs.prevHoverNode;
         gs.prevHoverNode = gs.hoverNode;
         if (gs.hasSpringEnergy || gs.maxDelta > 0.01 || gs.dragNode || hoverChanged || gs.needsDraw) {
-            // BUG-361: Refresh edge colors each frame so theme swaps propagate to
-            // canvas-drawn edges. getComputedStyle is cheap relative to a full draw.
+            // BUG-361: re-read edge colors each frame so theme swaps propagate to canvas.
+            // getComputedStyle is cheap relative to a full draw.
             gs.edgeColors = readEdgeColors();
             render.draw();
             if (hoverChanged) render.updateTooltip();
@@ -999,9 +943,7 @@ export async function showGraphPopup() {
         gs.animationFrameId = requestAnimationFrame(tick);
     }
 
-    // ========================================================================
-    // Layout overlay — blocks input and shows progress during settling
-    // ========================================================================
+    // ─── Layout overlay (blocks input + shows progress during settling) ───
     let layoutOverlay = null;
     let layoutTimerInterval = null;
     if (!restoredLayout) {
@@ -1011,9 +953,9 @@ export async function showGraphPopup() {
             <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
             <span class="dle-graph-layout-overlay-msg">Laying out entries\u2026 0s</span>
         </div>`;
-        canvas.parentNode.style.position = 'relative'; // ensure overlay positioning works
+        canvas.parentNode.style.position = 'relative'; // anchor for absolutely-positioned overlay.
         canvas.parentNode.appendChild(layoutOverlay);
-        gs.settlingUntil = Date.now() + 91_000; // slightly beyond the 90s hard clamp
+        gs.settlingUntil = Date.now() + 91_000; // 1s past the 90s hard clamp in physics.simulate()
         const layoutStart = Date.now();
         layoutTimerInterval = setInterval(() => {
             const msgEl = layoutOverlay?.querySelector('.dle-graph-layout-overlay-msg');
@@ -1025,7 +967,7 @@ export async function showGraphPopup() {
     }
 
     gs.onSettleComplete = () => {
-        // Remove overlay, clear notice, show "Layout saved" briefly, auto-fit
+        // Remove overlay, flash "Layout saved" notice for 4s, auto-fit.
         if (layoutTimerInterval) { clearInterval(layoutTimerInterval); layoutTimerInterval = null; }
         if (layoutOverlay) {
             layoutOverlay.remove();
@@ -1038,8 +980,8 @@ export async function showGraphPopup() {
             const el = gs.tooltipEl?.querySelector('.dle-graph-layout-notice');
             if (el) el.classList.add('dle-fade-out');
         });
-        // BUG-133: Track the 4s notice-clear timer in _fitTimers so MutationObserver
-        // teardown cancels it. Otherwise a stale callback can fire on a destroyed gs.
+        // BUG-133: track the 4s notice-clear timer in _fitTimers so MutationObserver teardown cancels it.
+        // Otherwise a stale callback fires on a destroyed gs.
         if (!gs._fitTimers) gs._fitTimers = [];
         gs._fitTimers.push(setTimeout(() => {
             if (!gs.isRunning) return;
@@ -1051,17 +993,14 @@ export async function showGraphPopup() {
         if (gs.fitToView && !gs._userPanned) gs.fitToView(true);
     };
 
-    // ========================================================================
-    // Start
-    // ========================================================================
-    render.updateTooltip(); // Show color legend on load (includes layoutNotice)
+    // ─── Start ───
+    render.updateTooltip(); // initial render shows color legend + layoutNotice
     tick();
 
-    // Auto-fit: restored = quick, fresh reveal = 1s + 2s + 6s so nodes have spread out
-    // Store timer IDs in _fitTimers so MutationObserver cleanup can cancel them
+    // Auto-fit cadence: restored layouts get one quick fit; fresh layouts get 1s/2s/6s
+    // so nodes have time to spread out. BUG-358: each timer checks _userPanned to avoid
+    // yanking a manually-positioned view.
     if (!gs._fitTimers) gs._fitTimers = [];
-    // BUG-358: Guard all startup fit timers with !gs._userPanned so a manual pan
-    // before the timer fires doesn't snap the view back.
     if (restoredLayout) {
         gs._fitTimers.push(setTimeout(() => { if (gs.isRunning && !gs._userPanned) gs.fitToView(true); }, 150));
     } else {

@@ -1,7 +1,5 @@
 /**
- * DeepLore Enhanced — Librarian Bootstrap Prompts
- * Hidden system-prompt scaffolding + pre-seeded greetings for Emma's
- * "Meet Emma" first-run flow and the ad-hoc Library Tour entrypoint.
+ * DeepLore Enhanced — Emma bootstrap prompts + seeded greetings.
  */
 import { vaultIndex } from '../state.js';
 import { getSettings } from '../../settings.js';
@@ -61,15 +59,14 @@ Keep the conversation grounded — quote real entry names you found via your too
 `.trim();
 
 /**
- * Build the hidden bootstrap system prompt fragment for Emma's guide-mode sessions.
+ * Hidden system-prompt fragment for guide-mode sessions.
  * @param {{ includeFirstRunScript?: boolean }} opts
- * @returns {string}
  */
 export function buildLibrarianBootstrapSystemPrompt({ includeFirstRunScript = false } = {}) {
     const settings = getSettings();
     const cap = Math.max(1000, Number(settings.librarianManifestMaxChars) || 8000);
 
-    // Vault snapshot: constants only (the always-injected backbone of the world).
+    // Constants only — the always-injected world backbone.
     const constants = vaultIndex.filter(e => e.constant && !e.guide);
     let snapshot;
     if (constants.length === 0) {

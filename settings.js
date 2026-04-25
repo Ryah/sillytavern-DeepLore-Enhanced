@@ -1,7 +1,3 @@
-/**
- * DeepLore Enhanced — Settings module
- * Default settings, constraints, getSettings(), getPrimaryVault(), getVaultByName()
- */
 import {
     extension_settings,
 } from '../../../extensions.js';
@@ -55,7 +51,6 @@ Respond with a JSON array of objects. Each object has:
 Example: [{"title": "Eris", "confidence": "high", "reason": "directly mentioned by name"}, {"title": "The Dark Council", "confidence": "medium", "reason": "linked from Eris, thematically relevant"}]
 If no entries are relevant, respond with: []`;
 
-/** Default instruction prompt for the AI Notepad feature. */
 export const DEFAULT_AI_NOTEPAD_PROMPT = `[AI Notepad Instructions]
 You have a private notebook. After your roleplay response, you may append a <dle-notes> block. This block is AUTOMATICALLY HIDDEN from the reader — they will never see it. Your notes are saved and returned to you in future messages as "[Your previous session notes]" above.
 
@@ -87,7 +82,7 @@ export const defaultSettings = {
     unlimitedEntries: false,
     maxTokensBudget: 3072,
     unlimitedBudget: false,
-    injectionMode: 'extension', // 'extension' (current) or 'prompt_list' (PM integration)
+    injectionMode: 'extension', // 'extension' or 'prompt_list' (PM integration)
     injectionPosition: 1,   // extension_prompt_types.IN_CHAT
     injectionDepth: 4,
     injectionRole: 0,        // extension_prompt_roles.SYSTEM
@@ -100,26 +95,26 @@ export const defaultSettings = {
     cacheTTL: 300,
     reviewResponseTokens: 0,
     debugMode: false,
-    // AI Notebook settings (user-written)
+    // Author's Notebook (user-written)
     notebookEnabled: false,
-    notebookPosition: 1,   // in_chat
+    notebookPosition: 1,
     notebookDepth: 4,
-    notebookRole: 0,        // system
-    // AI Notebook settings (AI-written session notes)
+    notebookRole: 0,
+    // AI Notepad (AI-written session notes)
     aiNotepadEnabled: false,
-    aiNotepadMode: 'tag',    // 'tag' = AI uses <dle-notes> tags; 'extract' = post-gen API call extracts notes
-    aiNotepadPosition: 1,    // in_chat
+    aiNotepadMode: 'tag',    // 'tag' = AI emits <dle-notes>; 'extract' = post-gen API call extracts notes
+    aiNotepadPosition: 1,
     aiNotepadDepth: 4,
-    aiNotepadRole: 0,         // system
-    aiNotepadPrompt: '',      // custom instruction prompt for tag mode (empty = default)
-    aiNotepadExtractPrompt: '', // custom extraction prompt for extract mode (empty = default)
-    aiNotepadConnectionMode: 'inherit', // extract mode connection: 'inherit' | 'profile' | 'proxy'
+    aiNotepadRole: 0,
+    aiNotepadPrompt: '',      // tag-mode instruction (empty = default)
+    aiNotepadExtractPrompt: '', // extract-mode prompt (empty = default)
+    aiNotepadConnectionMode: 'inherit', // 'inherit' | 'profile' | 'proxy'
     aiNotepadProfileId: '',
     aiNotepadProxyUrl: 'http://127.0.0.1:42069',
     aiNotepadModel: '',
     aiNotepadMaxTokens: 1024,
     aiNotepadTimeout: 30000,
-    // AI Search settings
+    // AI Search
     aiSearchEnabled: false,
     aiSearchConnectionMode: 'profile',
     aiSearchProfileId: '',
@@ -132,11 +127,11 @@ export const defaultSettings = {
     aiSearchSystemPrompt: '',
     aiSearchManifestSummaryLength: 600,
     aiSearchClaudeCodePrefix: false,
-    aiForceUserRole: false, // Merge system prompt into user message for incompatible providers
-    scribeInformedRetrieval: false, // Feed Scribe session summary into AI search context
-    // Context Cartographer settings
+    aiForceUserRole: false, // merge system prompt into user message for providers that lack a system role
+    scribeInformedRetrieval: false, // feed Scribe session summary into AI search context
+    // Context Cartographer
     showLoreSources: true,
-    // Session Scribe settings
+    // Session Scribe
     scribeEnabled: false,
     scribeInterval: 5,
     scribeFolder: 'Sessions',
@@ -148,10 +143,9 @@ export const defaultSettings = {
     scribeMaxTokens: 1024,
     scribeTimeout: 60000,
     scribeScanDepth: 20,
-    // Vault Sync settings
+    // Vault Sync
     syncPollingInterval: 0,
     showSyncToasts: true,
-    // Chat History Tracking
     reinjectionCooldown: 0,
     // Auto Lorebook Creation
     autoSuggestEnabled: false,
@@ -164,11 +158,9 @@ export const defaultSettings = {
     autoSuggestTimeout: 30000,
     autoSuggestFolder: '',
     autoSuggestPrompt: '',
-    // Injection Deduplication
     stripDuplicateInjections: true,
     stripLookbackDepth: 2,
-    // Optimize Keys
-    // BUG-AUDIT-H20: Must match HTML <option value="keyword">, not "keyword-only"
+    // BUG-AUDIT-H20: must match HTML <option value="keyword">, NOT "keyword-only".
     optimizeKeysMode: 'keyword',
     optimizeKeysPrompt: '',
     optimizeKeysConnectionMode: 'inherit',
@@ -177,100 +169,81 @@ export const defaultSettings = {
     optimizeKeysModel: '',
     optimizeKeysMaxTokens: 1024,
     optimizeKeysTimeout: 30000,
-    // Matching extras
     characterContextScan: false,
-    // Fuzzy (BM25) search — supplements keyword matching with TF-IDF scoring
+    // Fuzzy BM25 — TF-IDF supplement to keyword matching.
     fuzzySearchEnabled: false,
     fuzzySearchMinScore: 0.5,
-    // Multi-Vault
     vaults: [],
-    // UI State
     drawerPinned: false,
-    drawerCompactTabs: false,              // Drawer tabs: false = icon + text (default), true = icon-only
-    // Authoring leniency — when true, parser auto-fixes common frontmatter mistakes (case-mismatched
-    // field names, quoted numbers, comma-string keys) and records a warning instead of silently skipping.
-    // When false, parser behavior matches pre-v2 exactly (strict type checks, silent drops).
+    drawerCompactTabs: false,              // false = icon + text (default), true = icon-only
+    // Authoring leniency: parser auto-fixes case-mismatched field names, quoted numbers, and
+    // comma-string keys, recording a warning. False = pre-v2 strict mode (silent drops).
     lenientAuthoring: true,
     advancedVisible: {},
-    // AI Search advanced
     aiConfidenceThreshold: 'low',          // E1: low (all), medium (medium+high), high (high only)
-    hierarchicalPreFilter: false,             // E2a: enable hierarchical category pre-filter for large candidate sets
+    hierarchicalPreFilter: false,          // E2a: enable hierarchical category pre-filter for large candidate sets
     hierarchicalAggressiveness: 0.8,       // E2: 0.0 (keep all) to 0.8 (aggressive); min retention = 1 - this
     manifestSummaryMode: 'prefer_summary', // E8: prefer_summary, summary_only, content_only
-    // AI Fallback Strategy
     aiErrorFallback: 'keyword',            // E4: keyword, constants_only, bootstrap_only, none
     aiEmptyFallback: 'constants',          // E4: constants, constants_bootstrap, keyword, none
-    // Contextual Gating
     contextualGatingTolerance: 'strict',   // E5: strict, moderate, lenient
-    // Multi-Vault
     multiVaultConflictResolution: 'all',   // E6: all, first, last, merge
-    // Keyword Occurrence Weighting
-    keywordOccurrenceWeighting: false,     // E7: toggle
-    // Index Rebuild
+    keywordOccurrenceWeighting: false,     // E7
     indexRebuildTrigger: 'ttl',            // E9: ttl, generation, manual
-    indexRebuildGenerationInterval: 10,    // E9: rebuild every N generations
-    // Auto-Suggest
-    autoSuggestSkipReview: false,          // E11: skip review popup checkbox
-    // Prompt Presets
+    indexRebuildGenerationInterval: 10,
+    autoSuggestSkipReview: false,          // E11
     promptPresets: {},                     // { [toolKey]: { [presetName]: promptText } }
     // Graph
-    graphRepulsion: 0.3,               // ForceAtlas2 repulsion coefficient (0.1-5.0)
-    graphGravity: 11.0,                // ForceAtlas2 strong gravity (0.1-20)
-    graphDamping: 0.50,                // Velocity damping (0.3-0.98)
-    graphHoverDimDistance: 3,           // BFS hops kept visible on hover (0-8)
-    graphHoverFalloff: 0.55,           // Transmission per hop (0.3-0.85, higher = light reaches further)
-    graphHoverAmbient: 0.06,           // Ambient floor for off-set elements (0.0-0.2)
+    graphRepulsion: 0.3,               // FA2 repulsion coefficient (0.1-5.0)
+    graphGravity: 11.0,                // FA2 strong gravity (0.1-20)
+    graphDamping: 0.50,                // velocity damping (0.3-0.98)
+    graphHoverDimDistance: 3,          // BFS hops kept visible on hover (0-8)
+    graphHoverFalloff: 0.55,           // mirrors-and-lasers transmission per hop: E[d] = t^d (0.3-0.85). NOT a linear factor.
+    graphHoverAmbient: 0.06,           // ambient floor for off-set elements (0.0-0.2)
     graphNodeSizeMode: 'centrality',   // centrality / priority / uniform
-    graphFocusTreeDepth: 2,            // N-hop depth for focus tree mode (1-15)
+    graphFocusTreeDepth: 2,            // focus-tree N-hop depth (1-15)
     graphDefaultColorMode: 'type',     // type, priority, centrality, frequency
-    graphShowLabels: true,             // Show node labels
-    graphEdgeFilterAlpha: 0.05,        // Disparity filter alpha (0.01-0.5, lower = sparser backbone)
-    graphSavedLayout: null,            // Saved node positions { positions: {title: {x,y}}, timestamp }
-    // Custom Field Definitions
+    graphShowLabels: true,
+    graphEdgeFilterAlpha: 0.05,        // disparity-filter alpha (0.01-0.5, lower = sparser backbone)
+    graphSavedLayout: null,            // { positions: {title: {x,y}}, timestamp }
     fieldDefinitionsPath: 'DeepLore/field-definitions.yaml',
-    // Entry Decay & Freshness
     decayEnabled: false,
-    decayBoostThreshold: 5,    // Generations without injection before freshness boost
-    decayPenaltyThreshold: 2,  // Consecutive injections before frequency penalty
-    // Librarian (tool-assisted lore retrieval + gap detection)
-    // NOTE: librarianEnabled defaults to OFF. The tools still get registered at boot
-    // (registration happens before extension settings finish loading, so we can't gate
-    // registration itself), but shouldRegister() reads this flag and skips them when
-    // building each generation request. Users opt in via the Librarian settings tab.
+    decayBoostThreshold: 5,    // generations without injection before freshness boost
+    decayPenaltyThreshold: 2,  // consecutive injections before frequency penalty
+    // Librarian — defaults to OFF. Tools register at boot (registration happens before
+    // extension_settings finishes loading), but shouldRegister() gates each generation
+    // request on this flag. Users opt in via Settings → Features → Librarian.
     librarianEnabled: false,
-    librarianSearchEnabled: true,       // search_lore tool during generation (gated by librarianEnabled)
-    librarianFlagEnabled: true,         // flag_lore tool during generation (gated by librarianEnabled)
-    librarianMaxSearches: 2,            // max search_lore calls per generation
-    librarianMaxResults: 5,             // max entries returned per search call
-    librarianResultTokenBudget: 1500,   // token budget for search results
-    librarianAutoSendOnGap: true,       // auto-send draft prompt when opening a gap
-    librarianWriteFolder: '',           // destination folder for written entries
-    librarianConnectionMode: 'inherit',  // 'inherit' | 'profile' | 'proxy' (inherits from AI Search by default)
+    librarianSearchEnabled: true,       // search_lore tool (gated by librarianEnabled)
+    librarianFlagEnabled: true,         // flag_lore tool (gated by librarianEnabled)
+    librarianMaxSearches: 2,
+    librarianMaxResults: 5,
+    librarianResultTokenBudget: 1500,
+    librarianAutoSendOnGap: true,
+    librarianWriteFolder: '',
+    librarianConnectionMode: 'inherit', // intentionally separate from aiSearchConnectionMode — see CLAUDE.md
     librarianProfileId: '',
     librarianProxyUrl: 'http://127.0.0.1:42069',
-    librarianModel: '',                  // override model (blank = inherit from AI Search)
-    librarianSessionMaxTokens: 4096,    // max tokens for session responses
-    librarianSessionTimeout: 120000,    // session AI call timeout (ms) — 120s headroom for opus-4-6 forced-final-response (large context + thinking models can exceed 60s)
-    librarianManifestMaxChars: 8000,    // max chars for vault manifest in session prompt
-    librarianRelatedEntriesMaxChars: 4000, // max chars for related entries context
-    librarianDraftMaxChars: 4000,       // max chars for draft JSON in session prompt
-    librarianChatContextMaxChars: 4000, // max chars for chat context in session prompt
+    librarianModel: '',                  // blank = inherit from AI Search.
+    librarianSessionMaxTokens: 4096,
+    librarianSessionTimeout: 120000,    // 120s headroom — opus-4-6 forced-final-response with thinking can exceed 60s.
+    librarianManifestMaxChars: 8000,
+    librarianRelatedEntriesMaxChars: 4000,
+    librarianDraftMaxChars: 4000,
+    librarianChatContextMaxChars: 4000,
     librarianSystemPromptMode: 'default', // 'default' | 'append' | 'override' | 'strict-override'
-    librarianCustomSystemPrompt: '',    // custom system prompt text (used in append/override modes)
-    librarianShowToolCalls: true,      // show "Consulted lore vault" dropdown on assistant messages
-    librarianPerMessageActivity: false, // tie gap/flag records to messages — clear on new generation, keep on swipe, delete on message delete
-    // Analytics
+    librarianCustomSystemPrompt: '',
+    librarianShowToolCalls: true,
+    // librarianPerMessageActivity: ON ties gap/flag records to messages (clear on new gen, keep on swipe, delete with msg).
+    // OFF = legacy behavior (gaps accumulate, dropdowns ephemeral). See CLAUDE.md "non-obvious settings semantics".
+    librarianPerMessageActivity: false,
     analyticsData: {},
-    // First-run setup wizard completed flag
     _wizardCompleted: false,
-    // Settings version — increment to trigger migrations
+    // Increment to trigger migrations in runMigrations().
     settingsVersion: 3,
 };
 
-/**
- * Prefix-to-settings-key mapping for resolveConnectionConfig().
- * Each tool maps to its settings key prefixes for connection fields.
- */
+/** Per-tool settings-key map for resolveConnectionConfig(). */
 const TOOL_SETTINGS_KEYS = {
     aiSearch:    { mode: 'aiSearchConnectionMode', profileId: 'aiSearchProfileId', proxyUrl: 'aiSearchProxyUrl', model: 'aiSearchModel', maxTokens: 'aiSearchMaxTokens', timeout: 'aiSearchTimeout' },
     scribe:     { mode: 'scribeConnectionMode', profileId: 'scribeProfileId', proxyUrl: 'scribeProxyUrl', model: 'scribeModel', maxTokens: 'scribeMaxTokens', timeout: 'scribeTimeout' },
@@ -281,12 +254,11 @@ const TOOL_SETTINGS_KEYS = {
 };
 
 /**
- * Resolve the effective connection config for a tool.
- * If the tool's mode is 'inherit', resolves mode/profileId from AI Search,
- * and cascades model/proxyUrl (tool's value if set, else AI Search's).
- * Always keeps the tool's own maxTokens and timeout.
+ * Resolve effective connection config. `inherit` mode pulls mode+profileId from aiSearch and
+ * cascades model/proxyUrl (tool's own value wins if set, else aiSearch's). maxTokens/timeout
+ * are always the tool's own — those tune the per-feature behavior, not the shared connection.
  *
- * @param {string} toolKey - One of: 'aiSearch', 'scribe', 'autoSuggest', 'aiNotepad', 'librarian'
+ * @param {string} toolKey  'aiSearch' | 'scribe' | 'autoSuggest' | 'aiNotepad' | 'librarian' | 'optimizeKeys'
  * @returns {{ mode: string, profileId: string, proxyUrl: string, model: string, maxTokens: number, timeout: number }}
  */
 export function resolveConnectionConfig(toolKey) {
@@ -322,37 +294,31 @@ export function resolveConnectionConfig(toolKey) {
     };
 }
 
-/**
- * Run settings migrations between versions.
- * Each migration handles the transition from one version to the next.
- */
-function runMigrations(settings, fromVersion, toVersion) {
-    // Migration 0 → 1: initial versioned settings (no-op, just sets version)
+function runMigrations(settings, fromVersion, _toVersion) {
     if (fromVersion < 1) {
+        // 0 → 1: initial versioned settings (no-op).
         if (settings.debugMode) console.log('[DLE] Migrating settings to version 1');
     }
-    // Migration 1 → 2: Librarian connection consolidation
     if (fromVersion < 2) {
+        // 1 → 2: AI Connections consolidation. Rename librarianSessionModel → librarianModel.
+        // Other tools' connectionMode is intentionally NOT touched — existing users keep their explicit settings.
         if (settings.debugMode) console.log('[DLE] Migrating settings to version 2 (AI Connections consolidation)');
-        // Copy librarianSessionModel → librarianModel if it was set
         if (settings.librarianSessionModel) {
             settings.librarianModel = settings.librarianSessionModel;
         }
         delete settings.librarianSessionModel;
-        // Do NOT auto-migrate other tools' connectionMode to 'inherit' — existing users keep explicit settings
     }
-    // Migration 2 → 3: Librarian default from 'profile' to 'inherit'
     if (fromVersion < 3) {
+        // 2 → 3: only unconfigured Librarian (profile mode, no profileId) flips to 'inherit'.
+        // Users who explicitly chose a profile keep that selection.
         if (settings.debugMode) console.log('[DLE] Migrating settings to version 3 (Librarian inherit default)');
-        // Only migrate unconfigured Librarian connections (profile mode with no profile selected)
-        // Users who explicitly chose a profile and set a profileId are left alone
         if (settings.librarianConnectionMode === 'profile' && !settings.librarianProfileId) {
             settings.librarianConnectionMode = 'inherit';
         }
     }
 }
 
-/** Validation constraints for numeric settings */
+/** Numeric range constraints + enum whitelists for validateSettings(). */
 export const settingsConstraints = {
     obsidianPort: { min: 1, max: 65535 },
     scanDepth: { min: 0, max: 100 },
@@ -398,7 +364,7 @@ export const settingsConstraints = {
     librarianResultTokenBudget: { min: 500, max: 5000 },
     librarianSessionMaxTokens: { min: 1024, max: 16384 },
     librarianSessionTimeout: { min: 10000, max: 120000 },
-    // BUG-335: librarian *MaxChars had no constraints — strings like "4000" became NaN.
+    // BUG-335: librarian *MaxChars previously had no constraints; "4000" string coerced to NaN.
     librarianManifestMaxChars: { min: 0, max: 200000 },
     librarianRelatedEntriesMaxChars: { min: 0, max: 200000 },
     librarianDraftMaxChars: { min: 0, max: 200000 },
@@ -410,26 +376,22 @@ export const settingsConstraints = {
     injectionMode: { enum: ['extension', 'prompt_list'] },
     librarianConnectionMode: { enum: ['inherit', 'profile', 'proxy'] },
     librarianSystemPromptMode: { enum: ['default', 'append', 'override', 'strict-override'] },
-    // BUG-AUDIT (Fix 12): missing from whitelist let invalid imports/migrations land an
-    // unrecognized value, which deduplicateMultiVault would silently treat like 'first'
-    // (drop duplicates instead of preserving). Keep the safe default = 'all'.
+    // BUG-AUDIT (Fix 12): missing whitelist would let invalid imports/migrations land an
+    // unrecognized value, which deduplicateMultiVault then silently treated like 'first'
+    // (drop duplicates instead of preserving). Safe default 'all' restored on mismatch.
     multiVaultConflictResolution: { enum: ['all', 'first', 'last', 'merge'] },
 };
 
-// BUG-088: No settings cache. ST's native pattern is to read `extension_settings[MODULE_NAME]`
-// directly; layering a cache flag on top required brittle invalidation discipline (every
-// mutator had to remember to call invalidateSettingsCache()). All passes below are
-// idempotent — numeric coercion, default-fill (checks === undefined), validateSettings
-// (clamps in place), migrations (self-gate via settingsVersion), vaults SSOT (idempotent
-// mirror), and the vaults[] migration (guarded by _vaultsMigrated) — so running them on
-// every getSettings() call is safe and cheap (~60 key scan). invalidateSettingsCache is
-// retained as a no-op for call-site compatibility.
+// BUG-088: settings cache REMOVED. ST's native pattern is direct read of
+// `extension_settings[MODULE_NAME]`; a cache flag required every mutator to remember
+// invalidateSettingsCache(), which drifted. All getSettings() passes are now idempotent
+// — numeric coercion, default-fill (=== undefined gate), validateSettings (clamps in
+// place), migrations (self-gated by settingsVersion), vaults SSOT mirror, and the
+// vaults[] migration (guarded by _vaultsMigrated) — so running them on every call is
+// safe and cheap (~60-key scan). invalidateSettingsCache is kept as a no-op for
+// call-site compatibility; removing it would touch every feature.
 
-/**
- * No-op retained for call-site compatibility. The settings cache was removed (BUG-088)
- * because its invalidation discipline was brittle. All getSettings() passes are now
- * idempotent and run on every call.
- */
+/** No-op (BUG-088). Retained for call-site compatibility. */
 export function invalidateSettingsCache() {
     /* no-op — see BUG-088 comment above */
 }
@@ -441,9 +403,9 @@ export function getSettings() {
     }
     const s = extension_settings[MODULE_NAME];
 
-    // Numeric coercion (BUG-071) — strings masquerading as numbers get coerced or reset.
+    // BUG-071: coerce string-typed numbers (e.g. JSON imports) or reset to default if non-numeric.
     for (const key of Object.keys(settingsConstraints)) {
-        // Skip enum constraints — those are validated by validateSettings().
+        // Enum keys are validated by validateSettings() below.
         if (Array.isArray(settingsConstraints[key].enum)) continue;
         if (s[key] !== undefined && typeof s[key] !== 'number') {
             const num = Number(s[key]);
@@ -455,7 +417,7 @@ export function getSettings() {
         }
     }
 
-    // Fill in any missing defaults (idempotent — only touches undefined keys)
+    // Fill missing defaults — idempotent, only touches undefined keys.
     for (const [key, value] of Object.entries(defaultSettings)) {
         if (s[key] === undefined) {
             s[key] = (typeof value === 'object' && value !== null)
@@ -465,25 +427,21 @@ export function getSettings() {
     }
     validateSettings(s, settingsConstraints, defaultSettings);
 
-    // Run migrations if settings version is behind (self-gating via stored version)
     const currentVersion = defaultSettings.settingsVersion;
     const storedVersion = s.settingsVersion || 0;
     if (storedVersion < currentVersion) {
         runMigrations(s, storedVersion, currentVersion);
         s.settingsVersion = currentVersion;
-        // Re-validate after migration so any mutated values are clamped/reset by the
-        // current constraint whitelist before first use.
+        // Re-validate post-migration — mutated values must be clamped against the current whitelist before first use.
         validateSettings(s, settingsConstraints, defaultSettings);
-        // Persist migration result so it doesn't re-run on next load
         try { saveSettingsDebounced(); } catch { /* may not be available pre-init */ }
     }
 
-    // Multi-vault migration: if vaults[] was never migrated and legacy obsidianPort+apiKey exist, migrate once.
-    // Require apiKey to avoid creating phantom vaults for brand-new users (default port is always set).
+    // Multi-vault migration: legacy obsidianPort+apiKey → vaults[0]. Requires apiKey to avoid
+    // phantom vaults for brand-new users (default port is always set, apiKey signals real config).
     let _migrationDirty = false;
     if (!s._vaultsMigrated && (!Array.isArray(s.vaults) || s.vaults.length === 0) && s.obsidianPort && s.obsidianApiKey) {
-        // BUG-339: port 27124 is Obsidian Local REST API HTTPS default — use https:true to match getPrimaryVault() fallback.
-        // Other ports default to HTTP.
+        // BUG-339: 27124 is Obsidian Local REST API's HTTPS default; other ports default to HTTP.
         s.vaults = [{
             name: 'Primary',
             host: '127.0.0.1',
@@ -496,7 +454,7 @@ export function getSettings() {
         _migrationDirty = true;
     }
 
-    // Migrate existing vaults missing the host field (added for remote Obsidian support)
+    // Backfill `host` on legacy vault entries (added when remote Obsidian became supported).
     if (Array.isArray(s.vaults)) {
         for (const v of s.vaults) {
             if (!v.host) { v.host = '127.0.0.1'; _migrationDirty = true; }
@@ -506,10 +464,9 @@ export function getSettings() {
         try { saveSettingsDebounced(); } catch { /* may not be available pre-init */ }
     }
 
-    // BUG-075: Establish vaults[primary] as the single source of truth for obsidianPort
-    // and obsidianApiKey. Run on every getSettings() call so any code path that mutates
-    // vaults[0] without touching the legacy fields (or vice versa) can't cause drift.
-    // vaults[] wins over the legacy scalars.
+    // BUG-075: vaults[primary] is the SSOT for obsidianPort and obsidianApiKey. Mirror runs every
+    // getSettings() call so any code path mutating vaults[0] (or vice versa) can't cause drift.
+    // vaults[] wins on conflict.
     if (Array.isArray(s.vaults) && s.vaults.length > 0) {
         const primary = s.vaults.find(v => v.enabled) || s.vaults[0];
         if (primary) {
@@ -526,8 +483,8 @@ export function getSettings() {
 }
 
 /**
- * Get the first enabled vault connection, or a safe default.
- * @param {typeof defaultSettings} [settings] - Settings object (defaults to getSettings())
+ * First enabled vault, or a disabled-default placeholder.
+ * @param {typeof defaultSettings} [settings]
  * @returns {{ name: string, port: number, apiKey: string, enabled: boolean }}
  */
 export function getPrimaryVault(settings) {
@@ -536,7 +493,7 @@ export function getPrimaryVault(settings) {
 }
 
 /**
- * Find the vault connection for a given entry (by vaultSource name), falling back to primary.
+ * Resolve vault by name (entry's vaultSource), falling back to primary if unknown/disabled.
  * @param {typeof defaultSettings} settings
  * @param {string} vaultName
  * @returns {{ name: string, port: number, apiKey: string, enabled: boolean }}

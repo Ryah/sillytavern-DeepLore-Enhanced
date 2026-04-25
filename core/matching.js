@@ -33,10 +33,10 @@ function clampDepth(depth, label) {
     return n;
 }
 
-// ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
+// C4: regex cache keyed by entry object, invalidated when settings change.
 const _regexCache = new WeakMap();
 
-// ── H9: Cache lowercased scanText to avoid 25MB transient allocations per-entry ──
+// H9: cache lowercased scanText to avoid ~25MB transient allocations per-entry.
 let _lastScanText = '';
 let _lastScanTextLower = '';
 
@@ -62,19 +62,17 @@ function getCachedRegexes(entry, settings) {
     cache = { _key: cacheKey, primary: [], refine: [] };
     for (const rawKey of entry.keys) {
         if (!rawKey || !rawKey.trim()) continue;
-        // BUG-148: Warn (once per cache build) when keys overflow the limit so silent
-        // truncation no longer eats the tail of long phrasal triggers without notice.
+        // BUG-148: warn (once per build) on overflow so silent truncation doesn't eat
+        // the tail of long phrasal triggers.
         if (rawKey.length > MAX_KEYWORD_LENGTH) {
             console.warn(`[DLE] keyword "${rawKey.slice(0, 40)}..." exceeds MAX_KEYWORD_LENGTH (${MAX_KEYWORD_LENGTH}) on entry "${entry.title}" — truncated`);
         }
         const truncatedKey = rawKey.length > MAX_KEYWORD_LENGTH ? rawKey.substring(0, MAX_KEYWORD_LENGTH) : rawKey;
         const key = settings.caseSensitive ? truncatedKey : truncatedKey.normalize('NFC').toLowerCase();
         if (settings.matchWholeWords) {
-            // BUG-044: Align multi-word behavior with SillyTavern World Info.
-            // ST's world-info.js matchKeys() falls back to substring match when a
-            // key contains whitespace (see SillyTavern/public/scripts/world-info.js
-            // single-word vs multi-word branch). DLE previously wrapped multi-word
-            // keys in `\b...\b`, which silently diverged from imported WI books.
+            // BUG-044: ST's world-info.js matchKeys() falls back to substring match when
+            // a key contains whitespace. We previously wrapped multi-word keys in `\b…\b`,
+            // which silently diverged from imported WI books.
             if (/\s/.test(key)) {
                 cache.primary.push({ rawKey, key, regex: null, regexG: null, isMultiWord: true });
             } else {
@@ -96,11 +94,11 @@ function getCachedRegexes(entry, settings) {
         for (const rk of entry.refineKeys) {
             const rKey = settings.caseSensitive ? rk : rk.normalize('NFC').toLowerCase();
             if (settings.matchWholeWords) {
-                // BUG-044: Same multi-word substring fallback as primary keys.
+                // BUG-044: same multi-word substring fallback as primary keys.
                 if (/\s/.test(rKey)) {
                     cache.refine.push({ rKey, regex: null, isMultiWord: true });
                 } else {
-                    // M13: Smart word boundary for refine keys (same logic as primary keys)
+                    // M13: same smart word-boundary logic as primary keys.
                     const escaped = escapeRegex(rKey);
                     const prefix = /^\w/.test(rKey) ? '\\b' : '(?<!\\w)';
                     const suffix = /\w$/.test(rKey) ? '\\b' : '(?!\\w)';
@@ -148,7 +146,7 @@ export function testEntryMatch(entry, scanText, settings, trace = null) {
     let primaryMatch = null;
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            // BUG-044: multi-word keys fall through regex === null and match by substring (ST parity).
+            // BUG-044: multi-word keys fall through with regex===null and substring-match (ST parity).
             if (item.isMultiWord) {
                 if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
             } else if (item.regex.test(haystack)) { primaryMatch = item.rawKey; break; }
@@ -165,7 +163,6 @@ export function testEntryMatch(entry, scanText, settings, trace = null) {
     if (cached.refine.length > 0) {
         const hasRefine = cached.refine.some(item => {
             if (settings.matchWholeWords) {
-                // BUG-044: multi-word refine keys fall through regex === null and match by substring.
                 if (item.isMultiWord) return haystack.includes(item.rKey);
                 return item.regex.test(haystack);
             }
@@ -205,7 +202,6 @@ export function testPrimaryMatchOnly(entry, scanText, settings) {
 
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            // BUG-044: multi-word keys use substring fallback (ST parity).
             if (item.isMultiWord) {
                 if (haystack.includes(item.key)) return item.rawKey;
             } else if (item.regex.test(haystack)) return item.rawKey;
@@ -240,7 +236,7 @@ export function countKeywordOccurrences(entry, scanText, settings) {
     }
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            // BUG-044: multi-word keys have regexG === null; count substring occurrences (ST parity).
+            // BUG-044: multi-word has regexG===null; substring-count occurrences.
             if (item.isMultiWord) {
                 let idx = 0;
                 while ((idx = text.indexOf(item.key, idx)) !== -1) {
@@ -248,7 +244,7 @@ export function countKeywordOccurrences(entry, scanText, settings) {
                     idx += item.key.length;
                 }
             } else {
-                const matches = text.match(item.regexG); // use normalized text (consistent with testEntryMatch)
+                const matches = text.match(item.regexG);
                 if (matches) count += matches.length;
             }
         } else {
@@ -269,8 +265,8 @@ export function countKeywordOccurrences(entry, scanText, settings) {
  * @returns {import('./pipeline.js').VaultEntry[]}
  */
 export function applyGating(entries) {
-    // BUG-029: Sort descending by priority number for deterministic mutual-excludes resolution.
-    // Note: This is legacy code — the live pipeline uses applyRequiresExcludesGating in stages.js.
+    // BUG-029: descending by priority for deterministic mutual-excludes resolution.
+    // Legacy — live pipeline uses applyRequiresExcludesGating in stages.js.
     let result = [...entries].sort((a, b) => ((b.priority || 50) - (a.priority || 50)) || a.title.localeCompare(b.title));
     let changed = true;
     let iterations = 0;
@@ -305,7 +301,7 @@ export function applyGating(entries) {
         result = nextResult;
     }
 
-    // Detect contradictory gating (A requires B, B excludes A) — warn for debugging
+    // Detect contradictory gating (A requires B, B excludes A) for debugging.
     const removedEntries = entries.filter(e => !result.includes(e));
     if (removedEntries.length > 0) {
         for (const removed of removedEntries) {
@@ -357,14 +353,14 @@ export function resolveLinks(vaultIndex) {
  * @returns {{ groups: Array<{ tag: string, text: string, position: number, depth: number, role: number }>, count: number, totalTokens: number, acceptedEntries: import('./pipeline.js').VaultEntry[] }}
  */
 export function formatAndGroup(entries, settings, promptTagPrefix) {
-    // BUG-158 REVERTED: the `</{{title}}>` close tag is load-bearing — without it,
-    // multi-line entries concatenated with `\n` have no delimiter and bleed into each
-    // other, so the model can't tell where one entry ends and the next begins.
+    // BUG-158: the `</{{title}}>` close tag is load-bearing — without it, multi-line
+    // entries concatenated with `\n` bleed into each other and the model can't tell
+    // where one ends and the next begins.
     const template = settings.injectionTemplate || '<{{title}}>\n{{content}}\n</{{title}}>';
     let totalTokens = 0;
     let count = 0;
 
-    // Separate outlet entries — they bypass normal positional injection
+    // Outlet entries bypass positional injection.
     const outletEntries = entries.filter(e => e.outlet);
     const positionalEntries = entries.filter(e => !e.outlet);
 
@@ -379,16 +375,12 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
             const remainingTokens = settings.maxTokensBudget - totalTokens;
 
             if (remainingTokens >= MIN_TRUNCATION_TOKENS) {
-                // MIN_TRUNCATION_TOKENS (50) prevents uselessly small fragments.
-                // At ~4 chars/token, 50 tokens ≈ 200 chars — enough for a meaningful
-                // paragraph. Below this threshold, the truncated entry would be too
-                // short to provide useful context, so it's better to skip it entirely.
-                // Truncate entry to fit remaining budget (shallow copy — never mutate original)
-                // BUG-053: Derive per-entry chars/token ratio from the real index-time
-                // tokenEstimate (computed by getTokenCountAsync in vault.js). Falls back
-                // to 4.0 only if the entry lacks valid content/tokenEstimate. This keeps
-                // core/matching.js pure (no async, no ST imports) while using the real
-                // tokenizer's measurement of this specific entry.
+                // 50 tokens ≈ 200 chars at 4 chars/token — below this, the fragment is
+                // too short to be useful context, so skip rather than truncate.
+                // Shallow copy (never mutate original).
+                // BUG-053: per-entry chars/token derived from the real index-time
+                // tokenEstimate (getTokenCountAsync in vault.js). Falls back to 4.0
+                // only when content/tokenEstimate are missing — keeps core/ pure.
                 const charsPerToken = (entry.tokenEstimate > 0 && entry.content && entry.content.length > 0)
                     ? (entry.content.length / entry.tokenEstimate)
                     : 4.0;
@@ -400,7 +392,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                     tokenEstimate: Math.ceil(truncatedContent.length / charsPerToken),
                     _truncated: true,
                     _originalTokens: entry.tokenEstimate,
-                    // Recompute content hash so strip-dedup doesn't use the pre-truncation hash
+                    // Distinct hash so strip-dedup doesn't match the pre-truncation entry.
                     _contentHash: typeof entry._contentHash === 'string' ? entry._contentHash + '_trunc' : '',
                 };
                 accepted.push({
@@ -412,11 +404,11 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                 totalTokens += truncatedEntry.tokenEstimate;
                 count++;
                 truncatedCount++;
-                break; // Budget is now fully consumed
+                break; // budget fully consumed
             }
 
             if (count > 0) break;
-            // First entry exceeds budget and remaining is too small to truncate — skip
+            // First entry exceeds entire budget and remaining is too small to truncate.
             console.warn(`[DLE] Entry "${entry.title}" (${entry.tokenEstimate} tokens) exceeds entire budget (${settings.maxTokensBudget}) — skipping`);
             continue;
         }
@@ -431,23 +423,19 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         count++;
     }
 
-    // BUG-090: Use the canonical escapeXml helper instead of a local stub that only
-    // handled < and >. Literal `&` and `"` are now also escaped, matching ST utils.escapeHtml
-    // behavior so downstream parsers (and any wrapping XML tooling) stay well-formed.
+    // BUG-090: use canonical escapeXml — local stub only handled `<` and `>`, leaving
+    // `&` and `"` to break downstream XML tooling.
     const formatEntry = (entry) => {
         let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
         text = text.replace(/\{\{content\}\}/g, escapeXml(entry.content));
         return text;
     };
 
-    // ── Outlet entries: group by outlet name, inject via {{outlet::name}} macro ──
-    // Outlet entries bypass positional injection entirely (extension_prompt_types.NONE).
-    // They're written to extension_prompts under 'customWIOutlet_<name>' keys and read by
-    // ST's {{outlet::name}} macro. Budget/maxEntries limits don't apply to outlet entries
-    // since they're user-placed via macros, not auto-positioned.
-    // BUG-146: Carry per-entry role through the outlet group so frontmatter `role:` no
-    // longer silently coerces to SYSTEM. We pick the first non-null role in each group;
-    // mixed-role outlets are an authoring error, not something we can split (one tag = one role).
+    // Outlet entries: group by outlet name, written to extension_prompts under
+    // `customWIOutlet_<name>` and read by ST's `{{outlet::name}}` macro. Position is
+    // NONE — they're user-placed via macros, so budget/maxEntries don't apply.
+    // BUG-146: carry per-entry role through the group; first non-null wins. Mixed-role
+    // outlets are an authoring error (one tag = one role), not something we can split.
     const outletGroupMap = new Map();
     let outletTokens = 0;
     for (const entry of outletEntries) {
@@ -474,10 +462,10 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
     const mode = settings.injectionMode || 'extension';
 
     if (mode === 'prompt_list') {
-        // ── Prompt List mode: group by type (constants vs lore) with stable keys ──
-        // Entries with per-entry overrides get their own IN_CHAT group (bypasses PM).
+        // Group by type (constants vs lore) with stable keys. Per-entry overrides
+        // get their own IN_CHAT group (bypassing the Prompt Manager).
         const groupMap = new Map();
-        // BUG-093: Use the imported enum instead of a magic number that drifts on ST refactor.
+        // BUG-093: use imported enum, not a magic number that drifts on ST refactor.
         const IN_PROMPT = _PT.IN_PROMPT;
         const SYSTEM_ROLE = _PR.SYSTEM;
 
@@ -486,7 +474,6 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
 
             let key, position, depth, role;
             if (hasOverride) {
-                // Per-entry override → own group with IN_CHAT, bypasses PM
                 key = `${promptTagPrefix}override_p${item.position}_d${item.depth}_r${item.role}`;
                 position = item.position;
                 depth = item.depth;
@@ -524,7 +511,7 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         return { groups, count: count + outletEntries.length, totalTokens: totalTokens + outletTokens, acceptedEntries: [...accepted.map(a => a.entry), ...outletEntries] };
     }
 
-    // ── Extension mode (default): group by (position, depth, role) ──
+    // Extension mode (default): group by (position, depth, role).
     const groupMap = new Map();
     for (const item of accepted) {
         const key = `${promptTagPrefix}p${item.position}_d${item.depth}_r${item.role}`;

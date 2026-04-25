@@ -20,11 +20,10 @@ import { longTaskBuffer, captureMemorySnapshot } from './performance.js';
 const ISSUE_URL = 'https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/new';
 
 /**
- * Compress a string with gzip and return base64. Browser-native, no deps.
- * Falls back to uncompressed base64 if CompressionStream is unavailable.
+ * gzip + base64 via CompressionStream. Falls back to uncompressed base64 on
+ * Safari <16.4 / Firefox <113 / compression failure.
  */
 async function gzipBase64(str) {
-    // Fallback for browsers without CompressionStream (Safari <16.4, Firefox <113)
     if (typeof CompressionStream === 'undefined') {
         return { b64: btoa(unescape(encodeURIComponent(str))), compressed: false };
     }
@@ -33,13 +32,12 @@ async function gzipBase64(str) {
         const buf = await new Response(stream).arrayBuffer();
         const bytes = new Uint8Array(buf);
         let bin = '';
-        const CHUNK = 0x8000; // avoid stack overflow on large inputs
+        const CHUNK = 0x8000; // chunked to avoid stack overflow on large inputs
         for (let i = 0; i < bytes.length; i += CHUNK) {
             bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
         }
         return { b64: btoa(bin), compressed: true };
     } catch {
-        // Compression failed — fall back to uncompressed base64
         return { b64: btoa(unescape(encodeURIComponent(str))), compressed: false };
     }
 }
@@ -49,7 +47,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
     const lines = [];
     const push = (s) => lines.push(s);
 
-    // Collect issues for traffic-light verdict
     const issues = { critical: [], warning: [] };
 
     push('## Summary Data (human-readable)');
@@ -69,7 +66,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
     }
     push('');
 
-    // Setup wizard / migration state
     if (snapshot.setupState) {
         push('### Setup');
         const ss = snapshot.setupState;
@@ -87,7 +83,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
                 push(`  - Vault ${i}: ${status} ${v.name || '(unnamed)'}${issues.length ? ` — **${issues.join(', ')}**` : ''}`);
             }
         }
-        // Only show migrations if something is notable
         if (ss.vaultsMigrated || !ss.indexEverLoaded) {
             if (ss.vaultsMigrated) push('- Migrated from legacy vault format');
             if (!ss.indexEverLoaded) push('- **Index never loaded** — vault may not be reachable');
@@ -99,7 +94,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
         push('### Connections');
         const conn = snapshot.connections;
 
-        // ST's active connection state
         if (conn.stActiveConnection) {
             const st = conn.stActiveConnection;
             push(`- **ST active:** ${st.mainApi || '?'} → ${st.chatCompletionSource || '?'} (${st.totalProfiles} profiles configured)`);
@@ -110,12 +104,10 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
         }
         push('');
 
-        // Per-tool resolved connections
         if (conn.tools) {
             push('| Tool | Mode | Target | Model | Timeout | Status |');
             push('|------|------|--------|-------|---------|--------|');
 
-            // Detect which tools inherited from aiSearch
             const aiMode = conn.tools.aiSearch?.effectiveMode;
             const aiProfileId = conn.tools.aiSearch?.profileId;
 
@@ -129,9 +121,9 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
                 let status = '✓';
                 let inherited = '';
 
-                // Detect inheritance: non-aiSearch tool with same resolved mode+profileId as aiSearch
+                // Same resolved mode+profileId as aiSearch → inherited.
                 if (key !== 'aiSearch' && mode === aiMode && t.profileId === aiProfileId) {
-                    inherited = ' ↑';  // arrow indicates inherited from aiSearch
+                    inherited = ' ↑';
                 }
 
                 if (mode === 'profile') {
@@ -147,12 +139,10 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
                 const timeout = t.timeout ? `${Math.round(t.timeout / 1000)}s` : '—';
                 push(`| ${key} | ${mode}${inherited} | ${target} | ${model} | ${timeout} | ${status} |`);
             }
-            // Legend for inherited marker
             const inheritCount = Object.entries(conn.tools).filter(([k, t]) => k !== 'aiSearch' && t.effectiveMode === aiMode && t.profileId === aiProfileId).length;
             if (inheritCount > 0) push(`\n_↑ = inherited from aiSearch_`);
         }
 
-        // Stale/missing profile warnings
         if (conn.issues && conn.issues.length > 0) {
             push('');
             push('**⚠ Connection Issues:**');
@@ -161,7 +151,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
         push('');
     }
 
-    // Chat context
     if (snapshot.chatContext) {
         push('### Chat Context');
         const cc = snapshot.chatContext;
@@ -181,7 +170,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
             ? `${Math.round((Date.now() - snapshot.vault.indexTimestamp) / 1000)}s ago`
             : 'never';
         push(`- Last index: ${indexAge}`);
-        // Per-vault Obsidian circuit breakers
         if (snapshot.obsidianCircuitBreakers && typeof snapshot.obsidianCircuitBreakers === 'object' && !snapshot.obsidianCircuitBreakers.__error) {
             const breakers = Object.entries(snapshot.obsidianCircuitBreakers);
             if (breakers.length > 0) {
@@ -212,7 +200,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
 
     if (snapshot.pipeline) {
         push('### Pipeline');
-        // Pipeline mode from settings
         const pipeMode = snapshot.settings?.aiSearchEnabled === false ? 'keywords-only'
             : snapshot.settings?.aiSearchMode || 'two-stage';
         push(`- Mode: **${pipeMode}**`);
@@ -252,7 +239,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
     if (snapshot.health) {
         push('### Health Check');
         push(`- ${snapshot.health.errors} error(s), ${snapshot.health.warnings} warning(s)`);
-        // Sort by severity: error > warning > info
         const sevOrder = { error: 0, warning: 1, info: 2 };
         const sorted = (snapshot.health.issues || []).slice().sort((a, b) =>
             (sevOrder[a.severity] ?? 3) - (sevOrder[b.severity] ?? 3));
@@ -262,7 +248,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
         push('');
     }
 
-    // Auto-suggest
     if (snapshot.autoSuggest) {
         push('### Auto-Suggest');
         const as = snapshot.autoSuggest;
@@ -276,7 +261,7 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
         push('');
     }
 
-    // Key settings summary (human-readable, avoids need to decode blob)
+    // Key-settings summary so reviewer doesn't have to decode the blob.
     if (snapshot.settings && !snapshot.settings.__error) {
         push('### Key Settings');
         const s = snapshot.settings;
@@ -296,27 +281,23 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
         push('');
     }
 
-    // Diagnostic hotspots from recent generations
     push('### Recent Generations (flight recorder)');
     const gens = scrubbedGenerations || [];
     if (gens.length === 0) {
         push('_No generations captured yet._');
     } else {
-        // Trend line: injection counts for last N generations
         const injectionCounts = gens.filter(g => !g.aborted).map(g => g.summary?.injected ?? 0);
         if (injectionCounts.length > 0) {
             const avg = (injectionCounts.reduce((a, b) => a + b, 0) / injectionCounts.length).toFixed(1);
             push(`- Injection trend (last ${injectionCounts.length}): [${injectionCounts.join(', ')}] avg=${avg}`);
         }
 
-        // Budget ratio from most recent non-aborted generation
         const lastGen = [...gens].reverse().find(g => !g.aborted && g.summary?.budget);
         if (lastGen?.summary?.budget) {
             const b = lastGen.summary.budget;
             push(`- Last budget: ${b.used ?? '?'}/${b.limit ?? '?'} tokens (${b.ratio != null ? Math.round(b.ratio * 100) + '%' : '?'})`);
         }
 
-        // Abort count
         const abortCount = gens.filter(g => g.aborted).length;
         if (abortCount > 0) push(`- **Aborted generations: ${abortCount}**`);
 
@@ -332,7 +313,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
             if (s.injectedTitles && s.injectedTitles.length) {
                 push(`    injected: ${s.injectedTitles.join(', ')}`);
             }
-            // Stage timing sub-line (only when any per-stage timing exists)
             const hasStageTimings = s.ensureIndexFreshMs != null || s.keywordMatchMs != null || s.aiSearchMs != null ||
                 s.pinBlockMs != null || s.contextualGatingMs != null || s.reinjectionCooldownMs != null ||
                 s.requiresExcludesMs != null || s.stripDedupMs != null || s.formatGroupMs != null ||
@@ -345,7 +325,7 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
     }
     push('');
 
-    // Insert traffic-light verdict at the top (after the "## Summary Data" header)
+    // Splice the verdict in after "## Summary Data" so issues collected later appear at top.
     const totalCritical = issues.critical.length;
     const totalWarning = issues.warning.length;
     let verdict;
@@ -356,7 +336,6 @@ function buildSummarySection(snapshot, scrubbedGenerations) {
     } else {
         verdict = '> **🟢 No critical issues detected**';
     }
-    // Insert after line 0 ("## Summary Data (human-readable)") and line 1 ("")
     lines.splice(2, 0, verdict, '');
 
     return lines.join('\n');
@@ -394,7 +373,6 @@ If you find something the scrubber missed, **that's a bug** — please open an i
 ---
 `;
 
-// AI-facing content: instructions, schema, form, patterns.
 // Base64-encoded in the report so it doesn't clutter GitHub issues.
 const AI_INSTRUCTIONS = `## How to Read This File (for AI assistants)
 
@@ -514,7 +492,6 @@ REPORT THIS BUG?
 \`\`\`
 `;
 
-/** Build a scrubber stats section showing what was redacted. */
 function buildScrubberReport(ctx) {
     const s = ctx.stats;
     const parts = [];
@@ -537,7 +514,7 @@ function buildScrubberReport(ctx) {
 const MAX_VERBOSE_SIZE = 5 * 1024 * 1024; // 5 MB pre-compression safety limit
 
 /**
- * Build unanonymized connections reference (user's eyes only, never shared).
+ * Unanonymized connections reference — user's eyes only, never shared.
  * @param {object} rawSnapshot — raw snapshot before scrubbing
  * @returns {string} plain-text markdown
  */
@@ -558,7 +535,6 @@ function buildConnectionsReference(rawSnapshot) {
         return lines.join('\n');
     }
 
-    // ST active connection
     if (conn.stActiveConnection) {
         const st = conn.stActiveConnection;
         lines.push('## SillyTavern Active Connection');
@@ -572,7 +548,6 @@ function buildConnectionsReference(rawSnapshot) {
         lines.push('');
     }
 
-    // Per-tool table
     if (conn.tools) {
         lines.push('## DLE Tool Connections');
         lines.push('');
@@ -599,7 +574,6 @@ function buildConnectionsReference(rawSnapshot) {
         lines.push('');
     }
 
-    // Full profile objects
     if (conn.profiles && Object.keys(conn.profiles).length > 0) {
         lines.push('## Full Profile Details');
         lines.push('');
@@ -618,7 +592,6 @@ function buildConnectionsReference(rawSnapshot) {
         }
     }
 
-    // Issues
     if (conn.issues?.length > 0) {
         lines.push('## ⚠ Connection Issues');
         for (const issue of conn.issues) lines.push(`- ${issue}`);
@@ -634,14 +607,11 @@ function buildConnectionsReference(rawSnapshot) {
  * and show scrub stats in the confirmation popup.
  */
 export async function buildDiagnosticReport() {
-    // 1. Atomic snapshot — one moment, one truth.
-    //    All buffers are read BEFORE captureStateSnapshot() because
-    //    snapshot -> runHealthCheck() can trigger console.log, which would
-    //    push new items between reads if we interleaved them.
-    //    aiPromptBuffer is FLUSHED (destructive) — it holds PII-sensitive
-    //    prompts when debugMode=true and must not survive an export. Other
-    //    buffers use drain() (non-destructive snapshot) so the in-page
-    //    inspector (__DLE_DEBUG.buffers) keeps history.
+    // Atomic snapshot — read all buffers BEFORE captureStateSnapshot() because
+    // snapshot → runHealthCheck() can console.log, which would push new items
+    // between interleaved reads. aiPromptBuffer is FLUSHED (destructive): it holds
+    // PII-sensitive prompts when debugMode=true and must not survive an export.
+    // Others use drain() so the in-page inspector keeps history.
     const rawGens    = generationBuffer.drain();
     const rawConsole = consoleBuffer.drain();
     const rawNetwork = networkBuffer.drain();
@@ -653,22 +623,19 @@ export async function buildDiagnosticReport() {
     const rawMemory  = captureMemorySnapshot();
     const rawSnapshot = captureStateSnapshot();
 
-    // 2. Shared scrub context — one set of pseudonym tables for the entire report.
-    //    Both the summary section and the verbose blob use the same ctx, so
-    //    <ip-1> in the summary always means the same real IP as <ip-1> in the blob.
-    //    IMPORTANT: Do NOT share the _seen WeakMap across scrubDeep calls — each
-    //    call creates its own. Sharing would cause false [circular] detections.
+    // Shared scrub ctx — one pseudonym table for the whole report so <ip-1> means
+    // the same real IP in summary and blob. Each scrubDeep call creates its own
+    // _seen WeakMap; sharing would cause false [circular] detections.
     const ctx = makeCtx();
     const snapshot = scrubDeep(rawSnapshot, ctx);
 
-    // 3. Summary uses scrubbed generations (fixes PII leak in aiError strings)
+    // Scrubbed gens — prevents PII leaks via aiError strings.
     const scrubbedGens = scrubDeep(rawGens, ctx);
     const summarySection = buildSummarySection(snapshot, scrubbedGens);
 
-    // 4. Verbose payload — raw data, same ctx for consistent pseudonyms
-    // Split console log: DLE-only entries (privacy-safe) + global entries (may contain third-party content)
+    // DLE-tagged console (privacy-safe) vs global (may have third-party content).
     const dleConsoleLog = rawConsole.filter(e => e.dle);
-    const globalConsoleLog = rawConsole.filter(e => !e.dle).slice(-100); // keep last 100 non-DLE for cross-extension debugging
+    const globalConsoleLog = rawConsole.filter(e => !e.dle).slice(-100); // last 100 non-DLE for cross-extension debugging
     let verboseInput = {
         version: 2,
         format: 'dle-diagnostic-v2',
@@ -680,7 +647,7 @@ export async function buildDiagnosticReport() {
         errorLog: rawErrors,
         eventLog: rawEvents,
         aiCallLog: rawAiCalls,
-        // PII-scrubbed below via scrubDeep; only present when debugMode was on during calls.
+        // Scrubbed below; only populated when debugMode was on during the calls.
         aiPromptLog: rawAiPrompts.length > 0 ? rawAiPrompts : undefined,
         longTasks: rawLong,
         memory: rawMemory,
@@ -690,7 +657,7 @@ export async function buildDiagnosticReport() {
     const verbose = scrubDeep(verboseInput, ctx);
     let json = JSON.stringify(verbose);
 
-    // 5. Size cap — truncate oldest entries if payload is too large
+    // Size cap — truncate oldest entries if payload is too large.
     if (json.length > MAX_VERBOSE_SIZE) {
         verbose.consoleLog = verbose.consoleLog?.slice(-200) ?? [];
         verbose.globalConsoleLog = verbose.globalConsoleLog?.slice(-50) ?? [];
@@ -703,19 +670,11 @@ export async function buildDiagnosticReport() {
         json = JSON.stringify(verbose);
     }
 
-    // 6. Compress verbose payload (with fallback)
     const { b64, compressed } = await gzipBase64(json);
-
-    // 7. Base64-encode AI instructions
     const aiInstructionsB64 = btoa(unescape(encodeURIComponent(AI_INSTRUCTIONS)));
-
-    // 8. Build scrubber report
     const scrubberReport = buildScrubberReport(ctx);
-
-    // 9. Build unanonymized connections reference from raw snapshot
     const referenceFile = buildConnectionsReference(rawSnapshot);
 
-    // 10. Assemble final markdown
     const sizeKb = (json.length / 1024).toFixed(1);
     const compressedKb = (b64.length * 0.75 / 1024).toFixed(1);
     const encoding = compressed ? 'base64(gzip(JSON))' : 'base64(JSON) — gzip unavailable';

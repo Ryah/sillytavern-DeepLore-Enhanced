@@ -1,6 +1,4 @@
-/**
- * DeepLore Enhanced — Settings UI: load, bind, stats
- */
+/** DeepLore Enhanced — Settings UI: load, bind, stats */
 import {
     saveSettingsDebounced,
     chat,
@@ -24,26 +22,23 @@ import {
     claudeAutoEffortBad, claudeAutoEffortDetail, onClaudeAutoEffortChanged,
     notifyDebugModeChanged,
 } from '../state.js';
-import { ensureIndexFresh } from '../vault/vault.js';
+import { ensureIndexFresh, buildIndex, buildIndexWithReuse } from '../vault/vault.js';
 import {
     callViaProfile, getProfileModelHint,
     buildCandidateManifest,
 } from '../ai/ai.js';
 import { matchEntries } from '../pipeline/pipeline.js';
 import { setupSyncPolling } from '../vault/sync.js';
-import { buildIndex, buildIndexWithReuse } from '../vault/vault.js';
 import { showNotebookPopup, showBrowsePopup, showAiNotepadPopup } from './popups.js';
 import { runHealthCheck } from './diagnostics.js';
 
-// BUG-120: Module-scoped rebuild timer so closing and re-opening the settings
-// popup cancels any stale debounced rebuild from the prior popup instance.
+// BUG-120: module-scoped so re-opening the settings popup cancels any
+// stale debounced rebuild from the prior instance.
 let _rebuildTimer = null;
 
-// ============================================================================
-// BUG-341: Drain pending prompt_list PM cleanup when PromptManager becomes
-// available. Called on any settings popup open (a reliable PM-available path
-// since the popup itself interacts with PM prompts).
-// ============================================================================
+// BUG-341: drain pending prompt_list PM cleanup when PromptManager becomes
+// available. Settings popup open is a reliable PM-available path since
+// the popup itself interacts with PM prompts.
 function drainPendingPromptListCleanup() {
     if (!promptManager) return;
     const settings = getSettings();
@@ -58,14 +53,8 @@ function drainPendingPromptListCleanup() {
     saveSettingsDebounced();
 }
 
-// ============================================================================
-// Vault List UI
-// ============================================================================
+// ── Vault List UI ──
 
-/**
- * Render the dynamic vault list in the settings panel.
- * @param {object} settings
- */
 function renderVaultList(settings, container = null) {
     container = container || document.getElementById('dle-vault-list');
     if (!container) return;
@@ -107,10 +96,6 @@ function renderVaultList(settings, container = null) {
     container.innerHTML = html;
 }
 
-/**
- * Bind event handlers for the vault list UI (delegated events).
- * @param {object} settings
- */
 function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     const container = $scope || $('#dle-vault-list');
 
@@ -118,7 +103,6 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     container.off('.dleVault');
     if ($addBtn) $addBtn.off('.dleVault');
 
-    // Input changes on vault fields
     container.on('input.dleVault', '.dle-vault-name, .dle-vault-host, .dle-vault-port, .dle-vault-key', function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
@@ -126,12 +110,10 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
 
         if ($(this).hasClass('dle-vault-name')) {
             let newName = String($(this).val()).trim() || 'Vault';
-            // Validate unique vault names — prevent duplicates
             const otherNames = settings.vaults
                 .filter((_, vi) => vi !== idx)
                 .map(v => v.name.toLowerCase());
             if (otherNames.includes(newName.toLowerCase())) {
-                // Append incrementing number to make it unique
                 let counter = 2;
                 while (otherNames.includes(`${newName} ${counter}`.toLowerCase())) {
                     counter++;
@@ -143,22 +125,22 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
             settings.vaults[idx].name = newName;
         } else if ($(this).hasClass('dle-vault-host')) {
             let hostVal = String($(this).val()).trim();
-            hostVal = hostVal.replace(/^https?:\/\//, ''); // Strip protocol prefix
-            hostVal = hostVal.replace(/:\d+$/, ''); // Strip port suffix if user pasted host:port
+            // Strip protocol prefix and port suffix in case user pasted "https://host:port".
+            hostVal = hostVal.replace(/^https?:\/\//, '');
+            hostVal = hostVal.replace(/:\d+$/, '');
             settings.vaults[idx].host = hostVal || '127.0.0.1';
         } else if ($(this).hasClass('dle-vault-port')) {
             settings.vaults[idx].port = Math.max(1, Math.min(65535, numVal($(this).val(), 27123)));
         } else if ($(this).hasClass('dle-vault-key')) {
             settings.vaults[idx].apiKey = String($(this).val());
         }
-        // Keep legacy fields in sync with primary vault
+        // Keep legacy obsidianPort/obsidianApiKey in sync with primary vault.
         const primary = getPrimaryVault(settings);
         settings.obsidianPort = primary.port;
         settings.obsidianApiKey = primary.apiKey;
         saveSettingsDebounced();
     });
 
-    // Enable/disable toggle
     container.on('change.dleVault', '.dle-vault-enabled', function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
@@ -170,14 +152,13 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         saveSettingsDebounced();
     });
 
-    // HTTPS toggle — auto-switch port between 27124 (HTTPS) and 27123 (HTTP)
+    // Auto-switch port between 27124 (HTTPS) and 27123 (HTTP) on toggle.
     container.on('change.dleVault', '.dle-vault-https', function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
         if (isNaN(idx) || !settings.vaults[idx]) return;
         const useHttps = $(this).prop('checked');
         settings.vaults[idx].https = useHttps;
-        // Auto-switch port if it's on the default for the other protocol
         const portInput = row.find('.dle-vault-port');
         const currentPort = parseInt(portInput.val(), 10);
         if (useHttps && currentPort === 27123) {
@@ -187,7 +168,6 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
             portInput.val(27123);
             settings.vaults[idx].port = 27123;
         }
-        // Show/hide trust cert link, HTTPS note, and update URL
         const trustLink = row.find('.dle-vault-trust-cert');
         const httpsNote = row.find('.dle-vault-https-note');
         if (useHttps) {
@@ -202,7 +182,6 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         saveSettingsDebounced();
     });
 
-    // Test individual vault
     container.on('click.dleVault', '.dle-vault-test', async function () {
         const $btn = $(this);
         if ($btn.hasClass('disabled')) return;
@@ -219,7 +198,6 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
                 statusEl.text(`Connected${data.authenticated ? '' : ' (no auth)'}`).addClass('success').removeClass('failure');
                 announceToSR(`Vault ${vault.name} connected successfully.`);
             } else if (data.diagnosis) {
-                // Show inline summary + clickable link to full guidance popup
                 const shortMsg = data.diagnosis === 'cert' ? 'Certificate not trusted'
                     : data.diagnosis === 'auth' ? 'Authentication failed'
                     : 'Cannot reach Obsidian';
@@ -242,7 +220,6 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         } finally { $btn.removeClass('disabled'); }
     });
 
-    // Remove vault (with confirmation)
     container.on('click.dleVault', '.dle-vault-remove', async function () {
         const row = $(this).closest('.dle-vault-row');
         const idx = parseInt(row.data('index'), 10);
@@ -265,7 +242,6 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
         renderVaultList(settings, container[0]);
     });
 
-    // Add vault button (required — all callers pass $addBtn explicitly)
     if ($addBtn && $addBtn.length) {
         $addBtn.on('click.dleVault', function () {
             settings.vaults.push({ name: `Vault ${settings.vaults.length + 1}`, host: '127.0.0.1', port: 27123, apiKey: '', enabled: true, https: false });
@@ -275,20 +251,14 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
     }
 }
 
-// ============================================================================
-// Stats Display
-// ============================================================================
+// ── Stats Display ──
 
-/**
- * Announce a status message to screen readers via ARIA live region.
- * @param {string} message
- */
+/** Announce to screen readers via ARIA live region. */
 function announceToSR(message) {
     const el = document.getElementById('dle-drawer-live');
     if (el) el.textContent = message;
 }
 
-/** Status dot characters and labels for each overall status level. */
 const STATUS_DISPLAY = {
     ok:       { dot: '\u{1F7E2}', label: 'OK',       title: 'All systems operational' },
     degraded: { dot: '\u{1F7E1}', label: 'Degraded',  title: 'Some vaults unreachable or health issues detected' },
@@ -296,7 +266,6 @@ const STATUS_DISPLAY = {
     offline:  { dot: '\u{1F534}', label: 'Offline',    title: 'No vaults reachable and no cached data' },
 };
 
-/** Update the header badge with entry count and overall status indicator. */
 function updateHeaderBadge() {
     const headerBadge = document.getElementById('dle-header-badge');
     if (!headerBadge) return;
@@ -319,13 +288,9 @@ function updateHeaderBadge() {
     }
 }
 
-// ============================================================================
-// Settings Popup
-// ============================================================================
+// ── Settings Popup ──
 
-/**
- * Populate a profile dropdown within a specific container (works on detached DOM).
- */
+/** Works on detached DOM (used during popup construction before insertion). */
 function populateProfileDropdownIn($container, selectId, settingsKey) {
     const select = $container.find('#' + selectId)[0];
     if (!select) return;
@@ -342,7 +307,7 @@ function populateProfileDropdownIn($container, selectId, settingsKey) {
             select.appendChild(opt);
         }
     } catch (err) {
-        // BUG-112: Log so API load failures are diagnosable
+        // BUG-112: log so dropdown load failures are diagnosable.
         console.debug('[DLE] Profile dropdown load failed:', err?.message);
         const opt = document.createElement('option');
         opt.value = '';
@@ -352,72 +317,33 @@ function populateProfileDropdownIn($container, selectId, settingsKey) {
     }
 }
 
-/**
- * Update visibility of connection fields within a container (works on detached DOM).
- */
-function updateConnectionVisibilityIn($container, config) {
-    const settings = getSettings();
-    const mode = settings[config.modeSettingsKey] || (config.hasStMode ? 'st' : 'profile');
-    const isProfile = mode === 'profile';
-    const isProxy = mode === 'proxy';
-    $container.find(config.profileRowSelector).toggle(isProfile);
-    $container.find(config.proxyRowSelector).toggle(isProxy);
-    if (config.externalOnlySelectors) {
-        const isExternal = isProfile || isProxy;
-        for (const sel of config.externalOnlySelectors) $container.find(sel).toggle(isExternal);
-    }
-    if (config.modelInputSelector) {
-        const modelInput = $container.find(config.modelInputSelector);
-        if (isProfile) {
-            let hint = '';
-            if (config.profileIdSettingsKey) {
-                try {
-                    const profileId = settings[config.profileIdSettingsKey];
-                    if (profileId) hint = ConnectionManagerRequestService.getProfile(profileId).model || '';
-                } catch { /* noop */ }
-            }
-            modelInput.attr('placeholder', hint ? `Profile: ${hint}` : 'Leave empty to use profile model');
-        } else if (isProxy) {
-            modelInput.attr('placeholder', 'claude-haiku-4-5-20251001');
-        }
-    }
-}
-
 function updatePopupModeVisibility($container, settings) {
     const aiEnabled = settings.aiSearchEnabled;
     const isProxy = settings.aiSearchConnectionMode === 'proxy';
     const isAiOnly = aiEnabled && settings.aiSearchMode === 'ai-only';
     $container.find('#dle-sp-scan-depth').closest('.flex-container').toggle(!isAiOnly);
     $container.find('#dle-sp-optimize-keys-mode').closest('.flex-container').toggleClass('dle-disabled', isAiOnly);
-    // Grey out keyword-only matching settings when AI-only mode is active
     $container.find('#dle-sp-case-sensitive, #dle-sp-match-whole-words, #dle-sp-recursive-scan').prop('disabled', isAiOnly);
     $container.find('#dle-sp-ai-claude-prefix').closest('.checkbox_label').toggle(aiEnabled && isProxy);
-    // Blur/overlay AI tab content when AI search is off
     const $aiPanel = $container.find('#dle-sp-ai');
     $container.find('#dle-sp-ai-disabled-notice').toggle(!aiEnabled);
     $aiPanel.find('.dle-ai-content-wrap')
         .toggleClass('dle-blurred', !aiEnabled)
-        // BUG-198: `inert` removes the blurred region from tab order and accessibility tree.
-        // `aria-hidden` is redundant but helps older AT. Disabled inputs already block typing.
+        // BUG-198: `inert` removes blurred region from tab order + a11y tree;
+        // `aria-hidden` is redundant but helps older AT. Disabled inputs block typing.
         .attr('inert', !aiEnabled ? '' : null)
         .attr('aria-hidden', !aiEnabled ? 'true' : null);
     $aiPanel.find('.dle-ai-content-wrap input, .dle-ai-content-wrap select, .dle-ai-content-wrap textarea, .dle-ai-content-wrap .menu_button').prop('disabled', !aiEnabled);
-    // Keep the mirror dropdown always functional (it's above the blurred wrap, but re-enable just in case)
+    // Mirror dropdown sits above the blurred wrap — keep it functional.
     $container.find('#dle-sp-ai-search-mode-mirror').prop('disabled', false);
-    // Sync mirror dropdown value
     const modeVal = !aiEnabled ? 'keywords-only' : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
     $container.find('#dle-sp-ai-search-mode-mirror').val(modeVal);
     $container.find('#dle-sp-search-mode').val(modeVal);
 }
 
-// ============================================================================
-// Prompt Preset System
-// ============================================================================
+// ── Prompt Preset System ──
 
-/**
- * Map tool keys to their settings key and textarea ID.
- * Each tool with a configurable prompt gets an entry here.
- */
+/** Each tool with a configurable prompt gets an entry. */
 const PROMPT_PRESET_TOOLS = {
     aiSearch:     { settingsKey: 'aiSearchSystemPrompt', textareaId: 'dle-sp-ai-system-prompt' },
     scribe:       { settingsKey: 'scribePrompt', textareaId: 'dle-sp-scribe-prompt' },
@@ -425,15 +351,10 @@ const PROMPT_PRESET_TOOLS = {
     optimizeKeys: { settingsKey: 'optimizeKeysPrompt', textareaId: 'dle-sp-optimize-keys-prompt' },
     librarian:    { settingsKey: 'librarianCustomSystemPrompt', textareaId: 'dle-sp-librarian-custom-prompt' },
     aiNotepad:    { settingsKey: 'aiNotepadPrompt', textareaId: 'dle-sp-ai-notepad-prompt' },
-    // BUG-128: Extract mode users can now save/reuse named presets
+    // BUG-128: Extract mode supports save/reuse of named presets.
     aiNotepadExtract: { settingsKey: 'aiNotepadExtractPrompt', textareaId: 'dle-sp-ai-notepad-extract-prompt' },
 };
 
-/**
- * Populate all prompt preset dropdowns from settings.
- * @param {jQuery} $container - Settings popup container
- * @param {object} settings - Current settings
- */
 function initPromptPresets($container, settings) {
     if (!settings.promptPresets) settings.promptPresets = {};
 
@@ -441,7 +362,6 @@ function initPromptPresets($container, settings) {
         refreshPresetDropdown($(this), settings);
     });
 
-    // Load preset
     $container.on('change', '.dle-prompt-preset-select', function () {
         const $select = $(this);
         const toolKey = $select.data('tool');
@@ -450,7 +370,6 @@ function initPromptPresets($container, settings) {
         if (!tool) return;
 
         if (value === '__save__') {
-            // Save current textarea content as a new preset
             saveCurrentAsPreset($container, $select, toolKey, settings);
             return;
         }
@@ -458,9 +377,8 @@ function initPromptPresets($container, settings) {
             deletePreset($container, $select, toolKey, settings);
             return;
         }
-        if (value === '' || value === '__default__') return; // no-op
+        if (value === '' || value === '__default__') return;
 
-        // Load preset into textarea
         const presets = settings.promptPresets[toolKey] || {};
         const text = presets[value];
         if (text !== undefined) {
@@ -497,8 +415,8 @@ async function saveCurrentAsPreset($container, $select, toolKey, settings) {
         return;
     }
 
-    // BUG-107: Capture input reference via onOpen so we can read it reliably
-    // before the popup DOM is torn down. The popup result is a boolean, not the input value.
+    // BUG-107: capture input reference via onOpen and snapshot before DOM teardown.
+    // callGenericPopup returns a boolean, not the input value.
     let nameInputRef = null;
     const name = await callGenericPopup(
         '<p>Enter a name for this preset:</p><input id="dle-preset-name-input" class="text_pole" type="text" placeholder="My preset" autofocus />',
@@ -509,7 +427,6 @@ async function saveCurrentAsPreset($container, $select, toolKey, settings) {
                 nameInputRef = root.querySelector('#dle-preset-name-input');
             },
             onClose: () => {
-                // Snapshot the value before DOM teardown
                 if (nameInputRef) nameInputRef._snapshotValue = nameInputRef.value;
             },
         },
@@ -535,9 +452,9 @@ async function deletePreset($container, $select, toolKey, settings) {
     const options = names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
     const html = `<p>Select a preset to delete:</p><select id="dle-preset-delete-select" class="text_pole">${options}</select>`;
 
-    // BUG-AUDIT-C06: Capture selected value BEFORE the popup closes and removes
-    // the DOM element. The old code queried `getElementById` after `callGenericPopup`
-    // resolved, which reads from a detached/removed DOM — silent failure.
+    // BUG-AUDIT-C06: capture selected value via onOpen listener before popup
+    // closes — querying getElementById after callGenericPopup resolves reads
+    // from detached DOM (silent failure).
     let selectedToDelete = '';
     const confirmed = await callGenericPopup(html, POPUP_TYPE.CONFIRM, '', {
         okButton: 'Delete', cancelButton: 'Cancel',
@@ -559,9 +476,7 @@ async function deletePreset($container, $select, toolKey, settings) {
     $select.val('');
 }
 
-// ============================================================================
-// AI Connections Accordion
-// ============================================================================
+// ── AI Connections Accordion ──
 
 const TOOL_CONNECTION_CONFIGS = {
     aiSearch: {
@@ -615,10 +530,7 @@ const MODE_LABELS = {
     proxy: 'Custom Proxy',
 };
 
-/**
- * Show / hide / update the Claude adaptive-thinking misconfiguration banner
- * inside the AI Connections sub-tab. Driven by claudeAutoEffortBad state.
- */
+/** Driven by claudeAutoEffortBad state — see notifications in state.js. */
 export function refreshClaudeEffortBanner($container) {
     const $root = $container || $('#dle-settings-popup');
     const $banner = $root.find('#dle-claude-effort-banner');
@@ -634,9 +546,6 @@ export function refreshClaudeEffortBanner($container) {
     }
 }
 
-/**
- * Build the accordion HTML for all 5 tools and inject into the placeholder.
- */
 function buildAccordionHtml($container) {
     const $section = $container.find('#dle-sp-ai-connections');
     if (!$section.length) return;
@@ -653,37 +562,31 @@ function buildAccordionHtml($container) {
         html += `</div>`;
         html += `<div class="dle-conn-accordion-body" style="display: none;">`;
 
-        // Mode radios
         html += `<div class="radio_group">`;
         for (const mode of config.supportedModes) {
             html += `<label title="${MODE_LABELS[mode]}"><input type="radio" name="${id}-mode" value="${mode}" /> ${MODE_LABELS[mode]}</label>`;
         }
         html += `</div>`;
 
-        // Inherit note
         if (!config.isRoot) {
             html += `<div class="${id}-inherit-note dle-conn-inherit-note">Uses AI Search connection settings. You can still override model, max tokens, and timeout below.</div>`;
         }
 
-        // Profile dropdown
         html += `<div class="${id}-profile-row flex-container" style="display: none;">`;
         html += `<div class="flex1"><label for="${id}-profile-select"><small>Connection Profile</small></label>`;
         html += `<select id="${id}-profile-select" class="text_pole"><option value="">— Select a profile —</option></select>`;
         html += `</div></div>`;
 
-        // Proxy URL
         html += `<div class="${id}-proxy-row flex-container" style="display: none;">`;
         html += `<div class="flex1"><label for="${id}-proxy-url"><small>Proxy URL</small></label>`;
         html += `<input id="${id}-proxy-url" type="text" class="text_pole" placeholder="http://localhost:42069" />`;
         html += `</div></div>`;
 
-        // Model override
         html += `<div class="flex-container ${id}-model-row">`;
         html += `<div class="flex1"><label for="${id}-model"><small>Model Override</small></label>`;
         html += `<input id="${id}-model" type="text" class="text_pole" placeholder="Leave empty to use profile model" />`;
         html += `</div></div>`;
 
-        // Max Tokens + Timeout
         html += `<div class="flex-container">`;
         html += `<div class="flex1"><label for="${id}-max-tokens"><small>Max Tokens</small></label>`;
         html += `<input id="${id}-max-tokens" type="number" class="text_pole" />`;
@@ -697,9 +600,6 @@ function buildAccordionHtml($container) {
     $section.append(html);
 }
 
-/**
- * Populate accordion values from settings.
- */
 function populateAccordions($container) {
     const settings = getSettings();
     for (const [toolKey, config] of Object.entries(TOOL_CONNECTION_CONFIGS)) {
@@ -719,9 +619,6 @@ function populateAccordions($container) {
     }
 }
 
-/**
- * Update field visibility within an accordion based on current mode.
- */
 function updateAccordionVisibility($container, toolKey) {
     const config = TOOL_CONNECTION_CONFIGS[toolKey];
     const settings = getSettings();
@@ -736,10 +633,9 @@ function updateAccordionVisibility($container, toolKey) {
     $container.find(`.${id}-profile-row`).toggle(isProfile);
     $container.find(`.${id}-proxy-row`).toggle(isProxy);
     $container.find(`.${id}-inherit-note`).toggle(isInherit);
-    // Model row: show for profile/proxy/inherit (override available), hide for st
+    // Model row: hidden in 'st' mode (override unavailable), shown otherwise.
     $container.find(`.${id}-model-row`).toggle(!isSt);
 
-    // Update model placeholder based on resolved mode
     const $modelInput = $container.find(`#${id}-model`);
     if (isProfile || (isInherit && settings.aiSearchConnectionMode === 'profile')) {
         let hint = '';
@@ -756,9 +652,6 @@ function updateAccordionVisibility($container, toolKey) {
     }
 }
 
-/**
- * Update the badge text for an accordion header.
- */
 function updateAccordionBadge($container, toolKey) {
     const config = TOOL_CONNECTION_CONFIGS[toolKey];
     const settings = getSettings();
@@ -792,14 +685,11 @@ function updateAccordionBadge($container, toolKey) {
     }
 }
 
-/**
- * Bind accordion events (delegated on #dle-sp-ai-connections).
- */
+/** Delegated on #dle-sp-ai-connections. */
 function bindAccordionEvents($container) {
     const settings = getSettings();
     const $section = $container.find('#dle-sp-ai-connections');
 
-    // Accordion expand/collapse
     $section.on('click keydown', '.dle-conn-accordion-header', function (e) {
         if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
         e.preventDefault();
@@ -809,7 +699,6 @@ function bindAccordionEvents($container) {
         $header.next('.dle-conn-accordion-body').slideToggle(200);
     });
 
-    // Mode radio change
     $section.on('change', 'input[type="radio"]', function () {
         const $accordion = $(this).closest('.dle-conn-accordion');
         const toolKey = $accordion.data('tool');
@@ -819,7 +708,7 @@ function bindAccordionEvents($container) {
         saveSettingsDebounced();
         updateAccordionVisibility($container, toolKey);
         updateAccordionBadge($container, toolKey);
-        // If AI Search mode changed, update badges for all inheriting tools
+        // AI Search is the inheritance root — update all inheriting tools.
         if (toolKey === 'aiSearch') {
             for (const [key, cfg] of Object.entries(TOOL_CONNECTION_CONFIGS)) {
                 if (!cfg.isRoot && settings[cfg.modeKey] === 'inherit') {
@@ -831,7 +720,6 @@ function bindAccordionEvents($container) {
         }
     });
 
-    // Profile dropdown change
     $section.on('change', 'select[id$="-profile-select"]', function () {
         const $accordion = $(this).closest('.dle-conn-accordion');
         const toolKey = $accordion.data('tool');
@@ -843,7 +731,6 @@ function bindAccordionEvents($container) {
         updateAccordionVisibility($container, toolKey);
     });
 
-    // Proxy URL input
     $section.on('input', 'input[id$="-proxy-url"]', function () {
         const $accordion = $(this).closest('.dle-conn-accordion');
         const toolKey = $accordion.data('tool');
@@ -854,7 +741,6 @@ function bindAccordionEvents($container) {
         updateAccordionBadge($container, toolKey);
     });
 
-    // Model input
     $section.on('input', 'input[id$="-model"]', function () {
         const $accordion = $(this).closest('.dle-conn-accordion');
         const toolKey = $accordion.data('tool');
@@ -864,7 +750,6 @@ function bindAccordionEvents($container) {
         saveSettingsDebounced();
     });
 
-    // Max tokens input
     $section.on('input', 'input[id$="-max-tokens"]', function () {
         const $accordion = $(this).closest('.dle-conn-accordion');
         const toolKey = $accordion.data('tool');
@@ -874,7 +759,6 @@ function bindAccordionEvents($container) {
         saveSettingsDebounced();
     });
 
-    // Timeout input
     $section.on('input', 'input[id$="-timeout"]', function () {
         const $accordion = $(this).closest('.dle-conn-accordion');
         const toolKey = $accordion.data('tool');
@@ -884,7 +768,7 @@ function bindAccordionEvents($container) {
         saveSettingsDebounced();
     });
 
-    // BUG-320: "AI Connections" cross-tab link — switch to Connection tab FIRST, then sub-tab
+    // BUG-320: switch to Connection tab BEFORE the sub-tab so the sub-tab's parent is visible.
     $container.on('click', '.dle-goto-ai-connections', function (e) {
         e.preventDefault();
         const $connTab = $container.find('[data-settings-tab="connection"]');
@@ -896,11 +780,9 @@ function bindAccordionEvents($container) {
 
 function updatePopupInjectionModeVisibility($container, settings) {
     const isPromptList = settings.injectionMode === 'prompt_list';
-    // Toggle extension-mode controls vs PM name labels for all injection rows
     $container.find('.dle-injection-ext-controls').toggle(!isPromptList);
     $container.find('.dle-injection-pm-name').toggle(isPromptList);
     $container.find('#dle-sp-injection-pm-info').toggle(isPromptList);
-    // Disable all injection controls when in PM mode
     $container.find('.dle-injection-ext-controls').find('input, select').prop('disabled', isPromptList);
 }
 
@@ -917,12 +799,8 @@ function updatePopupIndexStats() {
     }
 }
 
-/**
- * Open the settings popup with tabbed layout and live data binding.
- */
 export async function openSettingsPopup(navigateTo = null) {
-    // BUG-341: opportunistic drain of any queued prompt_list PM cleanup now
-    // that PromptManager is (likely) available.
+    // BUG-341: PromptManager is now likely available — drain queued prompt_list cleanup.
     drainPendingPromptListCleanup();
     const html = await renderExtensionTemplateAsync(
         'third-party/sillytavern-DeepLore-Enhanced',
@@ -930,7 +808,6 @@ export async function openSettingsPopup(navigateTo = null) {
     );
     const $container = $(html);
 
-    // Tab switching helper
     function switchSettingsTab($tab) {
         const tab = $tab.data('settings-tab');
         $container.find('.dle-settings-tab').removeClass('active')
@@ -938,18 +815,18 @@ export async function openSettingsPopup(navigateTo = null) {
         $tab.addClass('active').attr('aria-selected', 'true').attr('tabindex', '0');
         $container.find('.dle-settings-panel').removeClass('active').attr('hidden', '');
         $container.find(`[data-settings-panel="${tab}"]`).addClass('active').removeAttr('hidden');
-        // Clear subtab highlighting when leaving their parent tab
+        // Clear subtab highlighting when leaving their parent tab.
         if (tab !== 'features') {
             $container.find('.dle-features-subtab').removeClass('active');
         }
         if (tab !== 'connection') {
             $container.find('.dle-connection-subtab').removeClass('active');
         }
-        // BUG-042: accountStorage for cross-browser sync
+        // BUG-042: accountStorage for cross-browser sync.
         accountStorage.setItem('dle-last-settings-tab', tab);
     }
 
-    // Restore last viewed tab (BUG-042: migrate legacy localStorage once)
+    // BUG-042: one-shot migration from legacy localStorage to accountStorage.
     let lastTab = accountStorage.getItem('dle-last-settings-tab');
     if (!lastTab) {
         const legacy = localStorage.getItem('dle-last-settings-tab');
@@ -964,9 +841,8 @@ export async function openSettingsPopup(navigateTo = null) {
         if ($lastTab.length) switchSettingsTab($lastTab);
     }
 
-    // navigateTo override: callers (e.g. Emma timeout error link) pre-position the popup
-    // on a specific tab/subtab/accordion/field. Runs AFTER lastTab restore so it wins.
-    // Final scroll + pulse is deferred to onOpen below (runs after dialog is in the DOM).
+    // navigateTo: callers pre-position the popup. Runs AFTER lastTab restore so it wins.
+    // Scroll + pulse is deferred to onOpen so it runs after the dialog is mounted.
     function applyNavigateTo() {
         if (!navigateTo) return;
         try {
@@ -991,11 +867,10 @@ export async function openSettingsPopup(navigateTo = null) {
         } catch (e) { console.warn('[DLE] applyNavigateTo failed:', e); }
     }
 
-    // ── Features sidebar expand/collapse + sub-tab switching ──────
     const $featuresTab = $container.find('#dle-sp-tab-features');
     const $featuresChildren = $container.find('.dle-features-children');
 
-    // Features children are always visible — no collapse toggle
+    // Features children always visible — no collapse toggle.
     $featuresChildren.removeAttr('hidden');
     $featuresTab.attr('aria-expanded', 'true');
 
@@ -1006,17 +881,14 @@ export async function openSettingsPopup(navigateTo = null) {
         $container.find('.dle-features-subpanel').removeClass('active').attr('hidden', '');
         $container.find(`[data-features-subpanel="${subtab}"]`).addClass('active').removeAttr('hidden');
         accountStorage.setItem('dle-last-features-subtab', subtab);
-        // Ensure features main panel is active
         if (!$featuresTab.hasClass('active')) {
             switchSettingsTab($featuresTab);
         }
     }
 
-    // ── Connection sidebar sub-tab switching ──────
     const $connectionTab = $container.find('#dle-sp-tab-connection');
     const $connectionChildren = $container.find('.dle-connection-children');
 
-    // Connection children are always visible — no collapse toggle
     $connectionChildren.removeAttr('hidden');
     $connectionTab.attr('aria-expanded', 'true');
 
@@ -1027,32 +899,28 @@ export async function openSettingsPopup(navigateTo = null) {
         $container.find('.dle-connection-subpanel').removeClass('active').attr('hidden', '');
         $container.find(`[data-connection-subpanel="${subtab}"]`).addClass('active').removeAttr('hidden');
         accountStorage.setItem('dle-last-connection-subtab', subtab);
-        // Ensure connection main panel is active
         if (!$connectionTab.hasClass('active')) {
             switchSettingsTab($connectionTab);
         }
     }
 
-    // BUG-225: headers are not interactive — remove from tab order so keyboard users skip them
+    // BUG-225: headers aren't interactive — remove from tab order.
     $container.find('.dle-settings-tab--header').attr('tabindex', '-1').attr('aria-hidden', 'true');
 
-    // Main tab click handler — headers (Features, Connection) are not clickable (sub-tabs handle it)
     $container.on('click', '.dle-settings-tab:not(.dle-settings-tab--header)', function () {
         switchSettingsTab($(this));
     });
 
-    // Connection sub-tab click (direct bind — delegation didn't fire for unknown reason)
+    // Direct bind — delegation didn't fire for an unidentified reason.
     $container.find('.dle-connection-subtab').on('click', function (e) {
         e.stopPropagation();
         switchConnectionSubtab($(this));
     });
 
-    // Feature sub-tab click
     $container.on('click', '.dle-features-subtab', function () {
         switchFeaturesSubtab($(this));
     });
 
-    // Keyboard navigation for main sidebar tabs (skip non-interactive Features header)
     $container.on('keydown', '.dle-settings-tab:not(.dle-settings-tab--header)', function (e) {
         const $tabs = $container.find('.dle-settings-tab:not(.dle-settings-tab--header)');
         const idx = $tabs.index(this);
@@ -1070,7 +938,6 @@ export async function openSettingsPopup(navigateTo = null) {
         $newTab.trigger('focus');
     });
 
-    // Keyboard navigation for feature sub-tabs (Up/Down in sidebar)
     $container.on('keydown', '.dle-features-subtab', function (e) {
         const $subtabs = $container.find('.dle-features-subtab');
         const idx = $subtabs.index(this);
@@ -1088,7 +955,6 @@ export async function openSettingsPopup(navigateTo = null) {
         $newSubtab.trigger('focus');
     });
 
-    // Keyboard navigation for connection sub-tabs (Up/Down in sidebar)
     $container.on('keydown', '.dle-connection-subtab', function (e) {
         const $subtabs = $container.find('.dle-connection-subtab');
         const idx = $subtabs.index(this);
@@ -1112,7 +978,7 @@ export async function openSettingsPopup(navigateTo = null) {
     $container.find('.dle-features-subpanel').not('.active').attr('hidden', '');
     $container.find('.dle-connection-subpanel').not('.active').attr('hidden', '');
 
-    // Restore last viewed features sub-tab on init (BUG-042: migrate legacy)
+    // BUG-042: legacy localStorage migration.
     let lastSubtab = accountStorage.getItem('dle-last-features-subtab');
     if (!lastSubtab) {
         const legacy = localStorage.getItem('dle-last-features-subtab');
@@ -1127,7 +993,7 @@ export async function openSettingsPopup(navigateTo = null) {
         if ($lastSubtab.length) switchFeaturesSubtab($lastSubtab);
     }
 
-    // Restore last viewed connection sub-tab on init (BUG-042: migrate legacy)
+    // BUG-042: legacy localStorage migration.
     let lastConnSubtab = accountStorage.getItem('dle-last-connection-subtab');
     if (!lastConnSubtab) {
         const legacy = localStorage.getItem('dle-last-connection-subtab');
@@ -1142,7 +1008,6 @@ export async function openSettingsPopup(navigateTo = null) {
         if ($lastConnSubtab.length) switchConnectionSubtab($lastConnSubtab);
     }
 
-    // "Go to Matching tab" link in AI disabled notice
     $container.on('click', '#dle-sp-goto-matching', function (e) {
         e.preventDefault();
         const $matchingTab = $container.find('[data-settings-tab="matching"]');
@@ -1152,7 +1017,6 @@ export async function openSettingsPopup(navigateTo = null) {
         setTimeout(() => $modeSelect.removeClass('dle-pulse'), 2000);
     });
 
-    // Keyboard support for all role="button" elements (Enter/Space fires click)
     $container.on('keydown', '[role="button"][tabindex="0"]', function (e) {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -1160,7 +1024,6 @@ export async function openSettingsPopup(navigateTo = null) {
         }
     });
 
-    // Advanced section toggles
     $container.on('click', '.dle-advanced-toggle', function () {
         const section = $(this).data('section');
         const $section = $container.find(`.dle-advanced-section[data-section="${section}"]`);
@@ -1180,8 +1043,7 @@ export async function openSettingsPopup(navigateTo = null) {
     bindPopupEvents($container);
     initPromptPresets($container, getSettings());
 
-    // Pre-position tabs/subtabs/accordion before the dialog renders so the user
-    // sees the right panel from the first frame.
+    // Pre-position before dialog renders so user sees the right panel on first frame.
     applyNavigateTo();
 
     await callGenericPopup($container, POPUP_TYPE.DISPLAY, '', {
@@ -1190,9 +1052,8 @@ export async function openSettingsPopup(navigateTo = null) {
         allowVerticalScrolling: true,
         onOpen: (popup) => {
             updatePopupIndexStats();
-            // Scroll + pulse the target field once dialog is mounted in the DOM.
-            // Two requestAnimationFrames: first lets layout settle after dialog open,
-            // second runs after the slideToggle/scroll finishes painting.
+            // Two rAFs: first lets layout settle after dialog open,
+            // second runs after slideToggle/scroll finishes painting.
             if (navigateTo?.target) {
                 requestAnimationFrame(() => requestAnimationFrame(() => {
                     try {
@@ -1206,9 +1067,9 @@ export async function openSettingsPopup(navigateTo = null) {
                     } catch (e) { console.warn('[DLE] navigateTo scroll/pulse failed:', e); }
                 }));
             }
-            // BUG-102: Use popup.completeCancelled() instead of reaching into .popup-button-close.
-            // Click-outside-to-dismiss: clicking the ::backdrop area of the <dialog>
-            // fires a click on the dialog element itself with target === dialog.
+            // BUG-102: clicking the ::backdrop area of the <dialog> fires a click
+            // on the dialog itself with target === dialog. Use the popup util
+            // rather than reaching into .popup-button-close.
             const dlg = popup?.dlg || $container[0]?.closest('dialog');
             if (dlg) {
                 dlg.addEventListener('click', (e) => {
@@ -1226,9 +1087,7 @@ export async function openSettingsPopup(navigateTo = null) {
     });
 }
 
-// ============================================================================
-// Popup: Load Settings
-// ============================================================================
+// ── Popup: Load Settings ──
 
 function loadPopupSettings($container) {
     const settings = getSettings();
@@ -1248,7 +1107,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-new-chat-threshold').val(settings.newChatThreshold);
 
     // ── Matching ──
-    // BUG-127: canonical runtime value is `keywords-only` (plural); UI dropdowns now match.
+    // BUG-127: canonical runtime value is `keywords-only` (plural).
     const searchMode = !settings.aiSearchEnabled ? 'keywords-only'
         : (settings.aiSearchMode === 'ai-only' ? 'ai-only' : 'two-stage');
     $c('#dle-sp-search-mode').val(searchMode);
@@ -1290,12 +1149,10 @@ function loadPopupSettings($container) {
     $c('#dle-sp-notebook-depth').val(settings.notebookDepth);
     $c('#dle-sp-notebook-role').val(settings.notebookRole);
     $c('#dle-sp-notebook-position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.notebookPosition === 1);
-    // AI Notebook position (now a select dropdown)
     $c('#dle-sp-ai-notepad-position').val(String(settings.aiNotepadPosition));
     $c('#dle-sp-ai-notepad-depth').val(settings.aiNotepadDepth);
     $c('#dle-sp-ai-notepad-role').val(settings.aiNotepadRole);
     $c('#dle-sp-ai-notepad-position').closest('.dle-injection-row').find('.dle-injection-inchat-controls').toggle(settings.aiNotepadPosition === 1);
-    // Advanced injection settings
     $c('#dle-sp-template').val(settings.injectionTemplate);
     $c('#dle-sp-allow-wi-scan').prop('checked', settings.allowWIScan);
 
@@ -1349,17 +1206,14 @@ function loadPopupSettings($container) {
     $c('#dle-sp-librarian-write-folder').val(settings.librarianWriteFolder || '');
     $c('#dle-sp-librarian-auto-send').prop('checked', settings.librarianAutoSendOnGap !== false);
     $c('#dle-sp-librarian-sub').toggle(settings.librarianEnabled);
-    // Advanced budget fields
     $c('#dle-sp-librarian-manifest-max').val(settings.librarianManifestMaxChars || 8000);
     $c('#dle-sp-librarian-related-max').val(settings.librarianRelatedEntriesMaxChars || 4000);
     $c('#dle-sp-librarian-chat-context-max').val(settings.librarianChatContextMaxChars || 4000);
     $c('#dle-sp-librarian-draft-max').val(settings.librarianDraftMaxChars || 4000);
-    // System prompt mode
     $c(`input[name="dle-sp-librarian-prompt-mode"][value="${settings.librarianSystemPromptMode || 'default'}"]`).prop('checked', true);
     $c('#dle-sp-librarian-custom-prompt').val(settings.librarianCustomSystemPrompt || '');
     $c('#dle-sp-librarian-custom-prompt').toggle((settings.librarianSystemPromptMode || 'default') !== 'default');
 
-    // Librarian stats
     $c('#dle-sp-lib-chat-searches').text(librarianChatStats.searchCalls);
     $c('#dle-sp-lib-chat-flags').text(librarianChatStats.flagCalls);
     $c('#dle-sp-lib-chat-tokens').text(librarianChatStats.estimatedExtraTokens);
@@ -1369,7 +1223,6 @@ function loadPopupSettings($container) {
     const allTime = settings.analyticsData?._librarian || {};
     $c('#dle-sp-lib-all-searches').text(allTime.totalGapSearches || 0);
     $c('#dle-sp-lib-all-flags').text(allTime.totalGapFlags || 0);
-    // Entries written + top unmet queries
     $c('#dle-sp-lib-entries-written').text(`Entries written: ${allTime.totalEntriesWritten || 0}`);
     const unmet = allTime.topUnmetQueries || [];
     if (unmet.length > 0) {
@@ -1390,7 +1243,6 @@ function loadPopupSettings($container) {
     $c(`input[name="dle-sp-ai-notepad-mode"][value="${aiNbMode}"]`).prop('checked', true);
     $c('#dle-sp-ai-notepad-prompt').val(settings.aiNotepadPrompt || '');
     $c('#dle-sp-ai-notepad-extract-prompt').val(settings.aiNotepadExtractPrompt || '');
-    // Show/hide mode-specific options
     $c('#dle-sp-ai-notepad-mode-tag-desc').toggle(aiNbMode === 'tag');
     $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(aiNbMode === 'extract');
     $c('#dle-sp-ai-notepad-tag-options').toggle(aiNbMode === 'tag');
@@ -1420,7 +1272,6 @@ function loadPopupSettings($container) {
     $c('#dle-sp-sync-interval').val(settings.syncPollingInterval);
     $c('#dle-sp-index-rebuild-trigger').val(settings.indexRebuildTrigger);
     $c('#dle-sp-rebuild-gen-interval').val(settings.indexRebuildGenerationInterval);
-    // Show/hide rebuild trigger descriptions
     const showTrigger = (t) => {
         $c('#dle-sp-rebuild-trigger-ttl-desc').toggle(t === 'ttl');
         $c('#dle-sp-rebuild-trigger-gen-desc').toggle(t === 'generation');
@@ -1432,8 +1283,7 @@ function loadPopupSettings($container) {
     $c('#dle-sp-review-tokens').val(settings.reviewResponseTokens);
     $c('#dle-sp-debug').prop('checked', settings.debugMode);
 
-    // Migrate renamed data-section keys (D4 consistency fix)
-    // BUG-338: Gate on persistent flag so migration runs once, and persist the result.
+    // BUG-338: D4 rename migration — gated on persistent flag for once-only execution.
     if (settings.advancedVisible && !settings._advancedVisibleMigratedD4) {
         const renames = { sp_vaultTags: 'sp_vault_tags', sp_aiSearch: 'sp_ai_search' };
         let mutated = false;
@@ -1448,7 +1298,6 @@ function loadPopupSettings($container) {
         if (mutated) saveSettingsDebounced();
     }
 
-    // Restore advanced toggles
     const advVisible = settings.advancedVisible || {};
     $container.find('.dle-advanced-section').each(function () {
         const section = jQuery(this).data('section');
@@ -1463,21 +1312,18 @@ function loadPopupSettings($container) {
     updatePopupModeVisibility($container, settings);
 }
 
-// ============================================================================
-// Popup: Bind Events
-// ============================================================================
+// ── Popup: Bind Events ──
 
-/** Parse a numeric input value, returning fallback only when the value is truly non-numeric (not when it's 0). */
+/** Returns fallback only for truly non-numeric input — preserves 0 as a valid value. */
 function numVal(raw, fallback) {
     const n = Number(raw);
     return Number.isNaN(n) ? fallback : n;
 }
 
 /**
- * Pure toy demo for the fuzzy strictness slider — no vault connection needed.
- * Uses real BM25 scoring (same k1/b/tokenizer as bm25.js) against a hardcoded
+ * Toy demo for the fuzzy strictness slider — no vault connection needed.
+ * Uses real BM25 (same k1/b/tokenizer as bm25.js) against a hardcoded
  * mini-corpus so users can see how the threshold controls which entries pass.
- * Also shows which specific words matched, so the user understands the mechanism.
  */
 const FUZZY_TOY_CORPUS = [
     { title: 'Velmira the Blade',    content: 'A retired assassin who once served the shadow court. Now sells guild secrets to the highest bidder from a hidden safehouse.' },
@@ -1490,7 +1336,7 @@ const FUZZY_TOY_CORPUS = [
 const FUZZY_TOY_QUERY = 'shadow assassin guild';
 let _fuzzyToyScores = null;
 
-/** Compute BM25 scores + matched words for the toy corpus once, reuse on slider changes. */
+/** Compute once, reuse on slider changes. */
 function getFuzzyToyScores() {
     if (_fuzzyToyScores) return _fuzzyToyScores;
     const k1 = 1.5, b = 0.75;
@@ -1560,8 +1406,7 @@ function bindPopupEvents($container) {
     const settings = getSettings();
     const $c = (sel) => $container.find(sel);
 
-    // Debounced index rebuild for tag inputs — avoids rebuilding on every keystroke
-    // BUG-120: _rebuildTimer is now module-scoped so new popup cancels stale timer
+    // BUG-120: _rebuildTimer module-scoped so new popup cancels stale timer.
     const debouncedRebuild = () => { clearTimeout(_rebuildTimer); _rebuildTimer = setTimeout(() => buildIndexWithReuse(), 500); };
 
     $container.on('change input', 'input, select, textarea', () => invalidateSettingsCache());
@@ -1578,7 +1423,7 @@ function bindPopupEvents($container) {
     $c('#dle-sp-multi-vault-conflict').on('change', function () { settings.multiVaultConflictResolution = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle-sp-field-definitions-path').on('change', function () { settings.fieldDefinitionsPath = String($(this).val()).trim() || 'DeepLore/field-definitions.yaml'; saveSettingsDebounced(); });
     $c('#dle-sp-edit-fields-btn').on('click', async () => {
-        // BUG-138: await so any errors thrown after the first await surface to the catch
+        // BUG-138: await so post-await errors surface to the catch.
         const { openRuleBuilder } = await import('./rule-builder.js');
         await openRuleBuilder();
     });
@@ -1595,7 +1440,6 @@ function bindPopupEvents($container) {
             const { scrubStats } = await triggerDiagnosticDownload();
             $label.text('Done');
 
-            // Build scrub stats summary for the popup
             const statParts = [];
             if (scrubStats.ips > 0) statParts.push(`${scrubStats.ips} IPs`);
             if (scrubStats.ipv6s > 0) statParts.push(`${scrubStats.ipv6s} IPv6`);
@@ -1651,13 +1495,13 @@ function bindPopupEvents($container) {
         }
     });
 
-    // About tab logo — load icon.svg as inline SVG so currentColor works with themes
+    // Load icon.svg as inline SVG so currentColor works with themes.
     fetch(new URL('../../icon.svg', import.meta.url).href)
         .then(r => r.ok ? r.text() : '')
         .then(svg => { const el = $c('#dle-sp-mascot')[0]; if (el && svg) el.innerHTML = svg; })
         .catch(() => {});
 
-    // Easter egg — companion character cards
+    // Easter egg — companion character cards.
     $c('#dle-sp-mascot').on('click', async function () {
         const basePath = new URL('../../assets/companions/', import.meta.url).href;
         const companions = [
@@ -1692,7 +1536,6 @@ function bindPopupEvents($container) {
         $btn.prop('disabled', true).addClass('disabled');
         try {
             const { openVaultScanPopup } = await import('./vault-scan-popup.js');
-            // Use first enabled vault's host/key as scan defaults
             const first = (settings.vaults || []).find(v => v.enabled) || (settings.vaults || [])[0] || {};
             const picked = await openVaultScanPopup({
                 host: first.host || '127.0.0.1',
@@ -1701,7 +1544,6 @@ function bindPopupEvents($container) {
                 radius: 25,
             });
             if (picked) {
-                // Add as a new vault entry
                 settings.vaults = settings.vaults || [];
                 settings.vaults.push({
                     name: picked.vaultName || `Vault ${picked.port}`,
@@ -1807,13 +1649,12 @@ function bindPopupEvents($container) {
     $c('input[name="dle-sp-injection-mode"]').on('change', function () {
         const oldMode = settings.injectionMode;
         settings.injectionMode = String($(this).val());
-        // H16: Clean up stale PM entries when switching away from prompt_list mode
+        // H16: clean up stale PM entries when switching out of prompt_list mode.
         if (oldMode === 'prompt_list' && settings.injectionMode !== 'prompt_list') {
             if (promptManager) {
                 drainPendingPromptListCleanup();
             } else {
-                // BUG-341: PM not ready — queue cleanup so phantom registrations
-                // can be drained next time PM becomes available.
+                // BUG-341: PM not ready — queue cleanup for next time it's available.
                 settings._pendingPromptListCleanup = true;
             }
         }
@@ -1821,7 +1662,6 @@ function bindPopupEvents($container) {
         saveSettingsDebounced();
     });
 
-    // Helper: wire a position select + in-chat controls for an injection row
     function wirePositionSelect(selectId, depthId, roleId, posKey, depthKey, roleKey) {
         $c(selectId).on('change', function () {
             settings[posKey] = Number($(this).val());
@@ -1838,8 +1678,7 @@ function bindPopupEvents($container) {
     $c('#dle-sp-template').on('input', function () { settings.injectionTemplate = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle-sp-allow-wi-scan').on('change', function () { settings.allowWIScan = $(this).prop('checked'); saveSettingsDebounced(); });
 
-    // Cross-tab links (e.g., "Injection tab" links in Features subtabs)
-    // BUG-320: Cross-tab links with optional sub-tab switch + target scroll/highlight
+    // BUG-320: cross-tab links with optional sub-tab switch + target scroll/highlight.
     $container.on('click', '.dle-goto-tab-link', function (e) {
         e.preventDefault();
         const targetTab = $(this).data('goto-tab');
@@ -1849,7 +1688,6 @@ function bindPopupEvents($container) {
         const $targetTab = $container.find(`[data-settings-tab="${targetTab}"]`);
         if ($targetTab.length) switchSettingsTab($targetTab);
 
-        // Optional sub-tab (features or connection)
         if (targetSubtab) {
             const $featuresSub = $container.find(`.dle-features-subtab[data-features-subtab="${targetSubtab}"]`);
             if ($featuresSub.length) switchFeaturesSubtab($featuresSub);
@@ -1857,7 +1695,6 @@ function bindPopupEvents($container) {
             if ($connSub.length) switchConnectionSubtab($connSub);
         }
 
-        // Optional scroll-into-view + flash-highlight on a target element
         if (targetId) {
             requestAnimationFrame(() => {
                 const el = $container.find(`#${targetId}`)[0] || $container.find(`[data-setting-id="${targetId}"]`)[0];
@@ -1894,12 +1731,13 @@ function bindPopupEvents($container) {
     // ── Graph settings ──
     $c('#dle-sp-graph-color-mode').on('change', function () { settings.graphDefaultColorMode = String($(this).val()); saveSettingsDebounced(); });
     $c('#dle-sp-graph-hover-dim-distance').on('input', function () { settings.graphHoverDimDistance = numVal($(this).val(), 2); saveSettingsDebounced(); });
-    $c('#dle-sp-graph-focus-tree-depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 2); saveSettingsDebounced(); }); // BUG-L4: fallback matches default (2)
+    // BUG-L4: fallback matches default (2)
+    $c('#dle-sp-graph-focus-tree-depth').on('input', function () { settings.graphFocusTreeDepth = numVal($(this).val(), 2); saveSettingsDebounced(); });
     $c('#dle-sp-graph-show-labels').on('change', function () { settings.graphShowLabels = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('#dle-sp-graph-repulsion').on('input', function () { const v = parseFloat($(this).val()); settings.graphRepulsion = isNaN(v) ? 0.3 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-gravity').on('input', function () { const v = parseFloat($(this).val()); settings.graphGravity = isNaN(v) ? 11.0 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-damping').on('input', function () { const v = parseFloat($(this).val()); settings.graphDamping = isNaN(v) ? 0.50 : v; saveSettingsDebounced(); });
-    // BUG-AUDIT-14: Use isNaN check instead of || fallback so 0 is a valid value
+    // BUG-AUDIT-14: isNaN check instead of || so 0 is valid.
     $c('#dle-sp-graph-hover-falloff').on('input', function () { const v = parseFloat($(this).val()); settings.graphHoverFalloff = isNaN(v) ? 0.9 : v; saveSettingsDebounced(); });
     $c('#dle-sp-graph-edge-filter-alpha').on('input', function () { settings.graphEdgeFilterAlpha = parseFloat($(this).val()) || 0.05; saveSettingsDebounced(); });
 
@@ -1914,12 +1752,10 @@ function bindPopupEvents($container) {
         settings.librarianEnabled = enabled;
         $c('#dle-sp-librarian-sub').toggle(enabled);
         saveSettingsDebounced();
-        // Onboarding: when enabling, validate connection and warn about function calling
         if (enabled) {
             const config = resolveConnectionConfig('librarian');
             if (config.mode === 'profile' && !config.profileId) {
                 toastr.warning('Librarian needs an AI connection profile. Opening settings...', 'DeepLore', { timeOut: 6000 });
-                // Navigate to Connection → AI Connections and flash the librarian accordion
                 requestAnimationFrame(() => {
                     const $tab = $container.find('[data-settings-tab="connection"]');
                     if ($tab.length) switchSettingsTab($tab);
@@ -1937,7 +1773,7 @@ function bindPopupEvents($container) {
             }
             toastr.info('Librarian requires "Enable function calling" in SillyTavern\'s AI Response Configuration.', 'DeepLore', { timeOut: 8000 });
         }
-        // One-time cleanup: unregister stale ToolManager tools from pre-agentic-loop versions
+        // One-time: unregister stale ToolManager tools left by pre-agentic-loop versions.
         if (!enabled) {
             import('../../../../../../scripts/tool-calling.js')
                 .then(({ ToolManager }) => {
@@ -1948,7 +1784,6 @@ function bindPopupEvents($container) {
                 })
                 .catch(() => { /* tools may not exist — safe to ignore */ });
         }
-        // Toggle drawer tab/panel visibility + strip per-message dropdowns
         import('../librarian/visibility.js').then(m => m.applyLibrarianVisibility(enabled)).catch(err => console.warn('[DLE] Librarian visibility error:', err));
     });
     $c('#dle-sp-librarian-search').on('change', async function () {
@@ -1956,7 +1791,7 @@ function bindPopupEvents($container) {
         const nowEnabled = $(this).prop('checked');
         settings.librarianSearchEnabled = nowEnabled;
         saveSettingsDebounced();
-        // BUG-373: rebuild BM25 index on false→true flip (cleared to null when disabled)
+        // BUG-373: rebuild BM25 on false→true flip (was cleared to null when disabled).
         if (!wasEnabled && nowEnabled) {
             try {
                 const state = await import('../state.js');
@@ -1966,8 +1801,8 @@ function bindPopupEvents($container) {
                 }
             } catch (err) {
                 console.warn('[DLE] BM25 rebuild on enable failed:', err);
-                // BUG-AUDIT: Librarian search was just turned on but the fuzzy index
-                // is null — the toggle lied. Surface so user knows to refresh.
+                // The toggle lied — Librarian search is enabled but fuzzy index is null.
+                // Surface so the user knows they must refresh.
                 try {
                     toastr.warning(
                         `Librarian search enabled, but fuzzy-index rebuild failed: ${err?.message || 'unknown error'}. Run /dle-force-refresh.`,
@@ -1986,12 +1821,10 @@ function bindPopupEvents($container) {
     $c('#dle-sp-librarian-token-budget').on('input', function () { settings.librarianResultTokenBudget = numVal($(this).val(), 1500); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-write-folder').on('input', function () { settings.librarianWriteFolder = $(this).val().trim(); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-auto-send').on('change', function () { settings.librarianAutoSendOnGap = $(this).prop('checked'); saveSettingsDebounced(); });
-    // Advanced budget fields
     $c('#dle-sp-librarian-manifest-max').on('input', function () { settings.librarianManifestMaxChars = numVal($(this).val(), 8000); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-related-max').on('input', function () { settings.librarianRelatedEntriesMaxChars = numVal($(this).val(), 4000); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-chat-context-max').on('input', function () { settings.librarianChatContextMaxChars = numVal($(this).val(), 4000); saveSettingsDebounced(); });
     $c('#dle-sp-librarian-draft-max').on('input', function () { settings.librarianDraftMaxChars = numVal($(this).val(), 4000); saveSettingsDebounced(); });
-    // System prompt mode
     $c('input[name="dle-sp-librarian-prompt-mode"]').on('change', function () {
         settings.librarianSystemPromptMode = $(this).val();
         $c('#dle-sp-librarian-custom-prompt').toggle(settings.librarianSystemPromptMode !== 'default');
@@ -1999,7 +1832,6 @@ function bindPopupEvents($container) {
     });
     $c('#dle-sp-librarian-custom-prompt').on('input', function () { settings.librarianCustomSystemPrompt = $(this).val(); saveSettingsDebounced(); });
 
-    // Test AI / Preview
     $c('#dle-sp-test-ai').on('click', async function () {
         const $btn = $(this);
         if ($btn.prop('disabled')) return;
@@ -2055,7 +1887,7 @@ function bindPopupEvents($container) {
         $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(!isTag);
         $c('#dle-sp-ai-notepad-tag-options').toggle(isTag);
         $c('#dle-sp-ai-notepad-extract-options').toggle(!isTag);
-        // Tag mode never calls AI — hide its connection accordion
+        // Tag mode never calls AI — hide its connection accordion.
         $c('.dle-conn-accordion[data-tool="aiNotepad"]').toggle(!isTag);
     });
     $c('#dle-sp-open-ai-notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notepad checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
@@ -2107,13 +1939,11 @@ function bindPopupEvents($container) {
     $c('#dle-sp-review-tokens').on('input', function () { settings.reviewResponseTokens = numVal($(this).val(), 0); saveSettingsDebounced(); });
     $c('#dle-sp-debug').on('change', function () { settings.debugMode = $(this).prop('checked'); saveSettingsDebounced(); notifyDebugModeChanged(); });
 
-    // ── Re-run Setup Wizard ──
     $c('#dle-sp-rerun-wizard').on('click', async function () {
         const { showSetupWizard } = await import('./setup-wizard.js');
         await showSetupWizard();
     });
 
-    // ── Reset All Settings ──
     $c('#dle-sp-reset-defaults').on('click', async function () {
         const confirmed = await callGenericPopup(
             '<div style="text-align:center;"><p><strong>Reset all DeepLore Enhanced settings to defaults?</strong></p><p>This cannot be undone. Your vault connections and AI connection profiles will be preserved.</p></div>',
@@ -2121,9 +1951,8 @@ function bindPopupEvents($container) {
         );
         if (!confirmed) return;
 
-        // Preserve all connection settings (vault + AI profiles/proxies) and user data
-        // BUG-AUDIT-H21: Also preserve promptPresets and analyticsData — these are user-created
-        // data, not settings defaults. Wiping them on "reset settings" is data loss.
+        // BUG-AUDIT-H21: preserve user-created data (promptPresets, analyticsData)
+        // alongside connections — wiping them on "reset settings" would be data loss.
         const savedPromptPresets = JSON.parse(JSON.stringify(settings.promptPresets || {}));
         const savedAnalyticsData = JSON.parse(JSON.stringify(settings.analyticsData || {}));
         const savedVaults = JSON.parse(JSON.stringify(settings.vaults || []));
@@ -2156,14 +1985,12 @@ function bindPopupEvents($container) {
             optimizeKeysModel: settings.optimizeKeysModel,
         };
 
-        // Reset all settings to defaults
         for (const [key, value] of Object.entries(defaultSettings)) {
             settings[key] = (typeof value === 'object' && value !== null)
                 ? JSON.parse(JSON.stringify(value))
                 : value;
         }
 
-        // Restore all connection settings and user data
         settings.vaults = savedVaults;
         settings.promptPresets = savedPromptPresets;
         settings.analyticsData = savedAnalyticsData;
@@ -2175,12 +2002,10 @@ function bindPopupEvents($container) {
         invalidateSettingsCache();
         saveSettingsDebounced();
 
-        // Reload the popup contents
         loadPopupSettings($container);
         toastr.success('All settings reset to defaults. Connections preserved.', 'DeepLore Enhanced');
     });
 
-    // Visual clamping
     const clampMap = {
         'dle-sp-scan-depth': 'scanDepth', 'dle-sp-max-entries': 'maxEntries', 'dle-sp-token-budget': 'maxTokensBudget',
         'dle-sp-depth': 'injectionDepth', 'dle-sp-notebook-depth': 'notebookDepth', 'dle-sp-max-recursion': 'maxRecursionSteps',
@@ -2216,18 +2041,13 @@ function bindPopupEvents($container) {
     }
 }
 
-// ============================================================================
-// Load Settings UI (stub — extension panel is gutted)
-// ============================================================================
+// ── Load Settings UI (stub — extension panel is gutted) ──
 
-// BUG-AUDIT: track every state-observer unsubscriber so teardown can release
-// them. Without tracking, re-init via the _dleInitialized guard accumulates
-// duplicate handlers (drawer already does this; settings-ui didn't).
+// Track every state-observer unsubscriber so teardown can release them.
+// Without this, re-init via the _dleInitialized guard accumulates duplicate handlers.
 let _settingsUiUnsubs = [];
 
 export function loadSettingsUI() {
-    // Idempotency guard: if a prior init left observers registered, release them
-    // before re-registering. Prevents duplicate handlers on hot-reload.
     if (_settingsUiUnsubs.length > 0) teardownSettingsUI();
 
     const settings = getSettings();
@@ -2246,16 +2066,14 @@ export function loadSettingsUI() {
     _settingsUiUnsubs.push(onAiStatsUpdated(() => updateStubStatus()));
     _settingsUiUnsubs.push(onCircuitStateChanged(() => { updateStubStatus(); updateHeaderBadge(); }));
     _settingsUiUnsubs.push(onClaudeAutoEffortChanged(() => {
-        // Refresh the AI Connections banner if the popup is currently open.
         const $popup = $('#dle-settings-popup');
         if ($popup.length) refreshClaudeEffortBanner($popup);
     }));
 }
 
-/** Release every state observer registered by loadSettingsUI. */
 export function teardownSettingsUI() {
     for (const unsub of _settingsUiUnsubs) {
-        try { unsub(); } catch { /* ignore — best-effort cleanup */ }
+        try { unsub(); } catch { /* best-effort cleanup */ }
     }
     _settingsUiUnsubs = [];
 }
@@ -2273,9 +2091,7 @@ function updateStubStatus() {
     updateHeaderBadge();
 }
 
-// ============================================================================
-// Bind Settings Events (stub — extension panel is gutted)
-// ============================================================================
+// ── Bind Settings Events (stub — extension panel is gutted) ──
 
 export function bindSettingsEvents(buildIndexFn) {
     const settings = getSettings();

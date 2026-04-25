@@ -17,7 +17,7 @@ import { buildAiChatContext } from '../../core/utils.js';
 import { callAI } from './ai.js';
 import { stripObsidianSyntax } from '../helpers.js';
 import {
-    scribeInProgress, lastScribeSummary, lastScribeChatLength, chatEpoch,
+    scribeInProgress, lastScribeSummary, chatEpoch,
     setScribeInProgress, setLastScribeSummary, setLastScribeChatLength,
     tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure,
 } from '../state.js';
@@ -37,40 +37,36 @@ If a previous session note is provided, do NOT repeat what it already covers —
 Format with markdown headings and bullet points. Be specific — use character names and concrete details, not vague summaries.`;
 
 /**
- * Route a Scribe AI call based on the configured connection mode.
- * @param {string} systemPrompt - System prompt text
- * @param {string} userMessage - User message content (chat context + instructions)
- * @param {typeof import('../settings.js').defaultSettings} settings - Current settings
- * @returns {Promise<string>} Generated summary text
+ * Route a Scribe AI call by configured connection mode.
+ * @returns {Promise<string>} Generated summary text.
  */
-export async function callScribe(systemPrompt, userMessage, settings) {
+export async function callScribe(systemPrompt, userMessage, _settings) {
     const resolved = resolveConnectionConfig('scribe');
     const mode = resolved.mode;
 
     if (mode === 'profile' || mode === 'proxy') {
-        // S4-1: tryAcquireHalfOpenProbe is the mutation gate; isAiCircuitOpen returns
-        // false in half-open-no-probe state, so gating on it first leaks the probe slot.
+        // S4-1: mutation gate — tryAcquireHalfOpenProbe, not isAiCircuitOpen
+        // (returns false in half-open-no-probe → would leak the probe slot).
         if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
         try {
             const result = await callAI(systemPrompt, userMessage, { ...resolved, caller: 'scribe' });
             recordAiSuccess();
             return result.text || '';
         } catch (err) {
-            // BUG-252: user aborts and timeouts must not trip the circuit breaker.
+            // BUG-252: user aborts and timeouts must not trip the breaker.
             if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
             throw err;
         }
     }
 
-    // Default: 'st' mode — use SillyTavern's active connection via generateQuietPrompt
-    // BUG-116: Circuit breaker integration for st mode (consistent with profile/proxy modes)
-    // S4-1: see mutation-gate note above.
+    // 'st' mode — ST's active connection via generateQuietPrompt.
+    // BUG-116: breaker integration to match profile/proxy. S4-1 mutation gate (above).
     if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping scribe');
-    // Note: generateQuietPrompt cannot be aborted — the background generation will complete
-    // regardless, but BUG-241 wires GENERATION_STOPPED so our await resolves early and the
-    // scribeInProgress lock releases promptly instead of waiting out the full timeout.
+    // generateQuietPrompt can't be aborted — the background gen will complete regardless,
+    // but BUG-241 wires GENERATION_STOPPED so our await resolves early and the
+    // scribeInProgress lock releases promptly instead of waiting the full timeout.
     const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-    // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
+    // timeout=0 means "no timeout" — setTimeout(fn, 0) would fire immediately.
     const timeout = resolved.timeout || 60000;
     const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: resolved.maxTokens });
     let scribeTimer;
@@ -91,9 +87,8 @@ export async function callScribe(systemPrompt, userMessage, settings) {
                     err.userAborted = true;
                     reject(err);
                 };
-                // BUG-AUDIT: if registration throws we must null `onStop` so the
-                // finally clause doesn't try to remove a listener that was never
-                // added — otherwise it races with a partial registration state.
+                // BUG-AUDIT: null onStop on registration failure so finally doesn't
+                // remove a listener that was never added.
                 try {
                     eventSource.on(event_types.GENERATION_STOPPED, onStop);
                 } catch (regErr) {
@@ -102,11 +97,11 @@ export async function callScribe(systemPrompt, userMessage, settings) {
                 }
             }),
         ]);
-        // BUG-116: Record success for circuit breaker consistency with profile/proxy modes
+        // BUG-116: breaker integration to match profile/proxy.
         recordAiSuccess();
         return result;
     } catch (err) {
-        // BUG-116: Record failure (skip user aborts and timeouts per BUG-252 pattern)
+        // BUG-116/BUG-252: skip user-abort and timeout for breaker.
         if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
         throw err;
     } finally {
@@ -114,16 +109,12 @@ export async function callScribe(systemPrompt, userMessage, settings) {
     }
 }
 
-/**
- * Run Session Scribe: summarize recent chat and write to Obsidian.
- * @param {string} [customPrompt] - Optional custom focus/question
- */
+/** Summarize recent chat and write to Obsidian. */
 export async function runScribe(customPrompt) {
     if (scribeInProgress) return;
     setScribeInProgress(true);
     pushEvent('scribe', { action: 'start' });
 
-    // Capture epoch to detect chat changes during async scribe work
     const epoch = chatEpoch;
 
     try {
@@ -133,17 +124,14 @@ export async function runScribe(customPrompt) {
             return;
         }
 
-        // Build context using shared utility with configurable depth
         const context = buildAiChatContext(chat, settings.scribeScanDepth);
         if (!context.trim()) {
             dedupWarning('No messages to summarize.', 'scribe_no_messages');
             return;
         }
 
-        // Build system prompt
         const systemPrompt = settings.scribePrompt?.trim() || DEFAULT_SCRIBE_PROMPT;
 
-        // Build user message with optional prior note context and custom focus
         const parts = [];
         if (lastScribeSummary) {
             parts.push(`[PREVIOUS SESSION NOTE]\n${lastScribeSummary}`);
@@ -154,7 +142,6 @@ export async function runScribe(customPrompt) {
         }
         const userMessage = parts.join('\n\n');
 
-        // Generate summary via configured connection
         const summary = await callScribe(systemPrompt, userMessage, settings);
 
         if (!summary || !summary.trim()) {
@@ -162,17 +149,16 @@ export async function runScribe(customPrompt) {
             return;
         }
 
-        // Sanitize AI output: strip Obsidian-interpretable syntax and bare YAML delimiters
+        // Strip Obsidian syntax + neutralize bare YAML delimiters in AI output.
         const sanitizedSummary = stripObsidianSyntax(summary).replace(/^---$/gm, '- - -');
 
-        // Build filename and content
         const now = new Date();
         const dateStr = now.toISOString().slice(0, 10);
         const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-');
         let charName = (name2 || 'Unknown').replace(/[<>:"/\\|?*]/g, '_');
-        charName = charName.replace(/^\.+|\.+$/g, ''); // strip leading/trailing dots
-        charName = charName.trimEnd(); // strip trailing spaces
-        // Prefix Windows reserved names to prevent filesystem conflicts
+        charName = charName.replace(/^\.+|\.+$/g, '');
+        charName = charName.trimEnd();
+        // Prefix Windows reserved names to avoid filesystem collisions.
         if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(charName)) {
             charName = '_' + charName;
         }
@@ -181,18 +167,16 @@ export async function runScribe(customPrompt) {
 
         const noteContent = `---\ntags:\n  - lorebook-session\ndate: ${now.toISOString()}\ncharacter: "${charName.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"\n---\n# Session: ${charName} - ${dateStr} ${timeStr}\n\n${sanitizedSummary.trim()}\n`;
 
-        // Bail if chat changed during async scribe work
         if (epoch !== chatEpoch) {
             if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed during generation, discarding result');
             return;
         }
 
-        // Write to Obsidian directly (uses primary vault)
         const scribeVault = getPrimaryVault(settings);
         const data = await writeNote(scribeVault.host, scribeVault.port, scribeVault.apiKey, filename, noteContent, !!scribeVault.https);
 
         if (data.ok) {
-            // Re-check epoch after async writeNote to avoid writing to wrong chat's metadata
+            // Re-check epoch after the async write — would otherwise persist to wrong chat's metadata.
             if (epoch !== chatEpoch) {
                 if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed during note write, skipping metadata update');
                 return;
@@ -200,20 +184,17 @@ export async function runScribe(customPrompt) {
             const finalSummary = sanitizedSummary.trim();
             setLastScribeSummary(finalSummary);
             const chatLenAtWrite = chat?.length || 0;
-            setLastScribeChatLength(chatLenAtWrite); // Use current length, not stale start value
+            setLastScribeChatLength(chatLenAtWrite);
             // BUG-056: write the local computed value, not the live `lastScribeSummary` binding —
-            // future debounced/setter migration of setLastScribeSummary would otherwise persist
-            // the previous summary here.
+            // a future debounced/setter migration would otherwise persist the previous summary.
             chat_metadata.deeplore_lastScribeSummary = finalSummary;
-            // BUG-308: persist the "we already scribed at length N" guard to chat_metadata so
-            // CHAT_CHANGED / reload can hydrate it. Previously the guard was in-memory only,
-            // so on returning to a chat the next rendered message could re-trigger scribe
-            // immediately even though the chat hadn't grown since the last successful scribe.
+            // BUG-308: persist the "scribed at length N" guard so CHAT_CHANGED / reload can
+            // hydrate it. In-memory-only previously let returning to a chat re-trigger
+            // scribe immediately on the next render despite no growth.
             chat_metadata.deeplore_lastScribeChatLength = chatLenAtWrite;
-            // BUG-AUDIT: Flush synchronously instead of debounced. The debounced save reads
-            // the live chat_metadata at flush time — if CHAT_CHANGED fires in the debounce
-            // window, the orphaned write to the OLD chat_metadata object never hits disk.
-            // Force-flush now while chat_metadata still points at the same object we wrote to.
+            // BUG-AUDIT: flush synchronously. Debounced save reads live chat_metadata at
+            // flush time — CHAT_CHANGED in the debounce window would orphan the write to
+            // the old object and it would never hit disk.
             try {
                 await getContext().saveMetadata();
             } catch (saveErr) {
@@ -222,15 +203,14 @@ export async function runScribe(customPrompt) {
             }
             pushEvent('scribe', { action: 'completed', chatLength: chatLenAtWrite });
             toastr.success(`Session note saved: ${filename}`, 'DeepLore Enhanced', { timeOut: 5000 });
-            // Reindex so the newly-written note is immediately retrievable
             if (epoch !== chatEpoch) {
                 if (getSettings().debugMode) console.log('[DLE] Scribe: chat changed before reindex, skipping buildIndex');
                 return;
             }
             try { await buildIndex(); } catch (reidxErr) {
                 console.warn('[DLE] Scribe reindex after write failed:', reidxErr?.message);
-                // BUG-AUDIT: without a toast the new session note is on disk but
-                // unretrievable until the next manual refresh — user should know.
+                // BUG-AUDIT: without surfacing this, the note is on disk but unretrievable
+                // until the next manual refresh.
                 try {
                     toastr.warning(
                         `Session note saved, but reindex failed: ${reidxErr?.message || 'unknown error'}. Refresh manually from the drawer.`,
@@ -247,9 +227,9 @@ export async function runScribe(customPrompt) {
         pushEvent('scribe', { action: 'error', error: err?.message });
         dedupError('Session Scribe couldn\'t finish — your chat is unchanged.', 'scribe_runtime_error', { hint: err && err.message });
     } finally {
-        // BUG-275: Always release the flag — this scribe invocation owns it from
-        // acquisition (L82) to release here. CHAT_CHANGED no longer touches it, so
-        // the prior epoch-guarded reset would have leaked the flag forever.
+        // BUG-275: always release. This invocation owns the flag from acquisition to
+        // here; CHAT_CHANGED no longer touches it, so an epoch-guarded reset would
+        // have leaked it forever on chat switch mid-scribe.
         setScribeInProgress(false);
     }
 }

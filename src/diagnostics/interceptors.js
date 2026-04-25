@@ -1,33 +1,27 @@
 /**
  * interceptors.js — Always-on monkey patches for console / fetch / XHR / errors.
  *
- * Installed at module-eval time via boot.js (the very first import in index.js).
- * Writes into in-memory ring buffers regardless of debugMode setting; the
- * `debugMode` toggle only controls whether the same data is also echoed to a
- * user-visible log surface (currently: a console group prefixed with [DLE-DBG]).
+ * Installed at module-eval time via boot.js (first import in index.js). Writes to
+ * in-memory ring buffers regardless of debugMode; the toggle only controls whether
+ * the same data echoes to a user-visible log surface (`[DLE-DBG]` console group).
  *
- * Every interceptor is wrapped in try/catch so a bug here can never break ST.
+ * Every interceptor is wrapped in try/catch so a bug here can't break ST.
  */
 
 import { RingBuffer, safeStringify } from './ring-buffer.js';
 
-// ── Buffers (exported so flight-recorder / export.js can drain them).
 export const consoleBuffer = new RingBuffer(800);
 export const networkBuffer = new RingBuffer(300);
 export const errorBuffer = new RingBuffer(100);
 
-/** AI call buffer — per-call details for diagnosing AI failures without debugMode.
- *  Populated by recordAiCall() from ai.js after each callAI invocation. */
+/** Per-call AI details for diagnosing failures without debugMode. */
 export const aiCallBuffer = new RingBuffer(40);
 
-/** AI prompt replay buffer — full system+user prompt text for replay/reproduction.
- *  PII-SENSITIVE: only populated when `debugMode === true` (user opt-in).
- *  Kept small and passed through scrubber on export. User can drain
- *  locally via `__DLE_DEBUG.buffers.aiPrompts` to reproduce failing calls. */
+/** Full system+user prompt text for replay/reproduction. PII-SENSITIVE: only
+ *  populated when `debugMode === true`. Drained locally via `__DLE_DEBUG.buffers.aiPrompts`. */
 export const aiPromptBuffer = new RingBuffer(20);
 
-/** Lifecycle event buffer — settings changes, chat switches, index builds, circuit transitions.
- *  Populated by pushEvent() calls from various DLE modules. */
+/** Lifecycle events — settings changes, chat switches, index builds, circuit transitions. */
 export const eventBuffer = new RingBuffer(200);
 
 /**
@@ -40,11 +34,11 @@ export function pushEvent(kind, data) {
 }
 
 /**
- * Single chokepoint for AbortController.abort() across DLE.
- * Stamps the source onto signal.reason so post-mortem catch blocks can attribute the abort.
- * Reviewers: reject any direct controller.abort() — use this instead. See docs/gotchas.md.
+ * Single chokepoint for AbortController.abort(). Stamps source onto signal.reason
+ * so post-mortem catch blocks can attribute the abort. Reviewers: reject any
+ * direct controller.abort() — use this instead. See docs/gotchas.md.
  * @param {AbortController} controller
- * @param {string} reason - Flat snake_case source identifier (e.g. 'ai:timeout', 'popup_closing')
+ * @param {string} reason - Flat snake_case source (e.g. 'ai:timeout', 'popup_closing')
  */
 export function abortWith(controller, reason) {
     try {
@@ -53,13 +47,12 @@ export function abortWith(controller, reason) {
     } catch { /* never throw */ }
 }
 
-// ── Single install guard (HMR / double-import safe).
+// HMR / double-import safe.
 let installed = false;
 
-/** Best-effort live read of debugMode without creating a hard import dep. */
 function debugModeOn() {
     try {
-        // DIAG-01: canonical settings key is 'deeplore_enhanced', not legacy 'deeplore'.
+        // DIAG-01: canonical key is 'deeplore_enhanced', not legacy 'deeplore'.
         return !!(globalThis.extension_settings?.deeplore_enhanced?.debugMode);
     } catch { return false; }
 }
@@ -67,7 +60,7 @@ function debugModeOn() {
 function maybeEcho(level, label, payload) {
     if (!debugModeOn()) return;
     try {
-        // Use the original (saved) console funcs so we don't recurse.
+        // Use saved originals to avoid recursing into our patched console.
         const fn = ORIGINAL_CONSOLE[level] || ORIGINAL_CONSOLE.log;
         fn.call(console, `[DLE-DBG ${label}]`, payload);
     } catch { /* noop */ }
@@ -85,7 +78,7 @@ function patchConsole() {
             try {
                 const msg = safeStringify(args);
                 const entry = { t: Date.now(), level, msg };
-                // Tag DLE-originated entries so they can be filtered from global noise
+                // Tag DLE-originated entries so they can be split from global noise.
                 if (msg.startsWith('[DLE') || msg.startsWith('"[DLE')) entry.dle = true;
                 consoleBuffer.push(entry);
             } catch {
@@ -116,12 +109,12 @@ function patchFetch() {
             entry.status = resp.status;
             entry.ok = resp.ok;
             entry.durMs = Date.now() - start;
-            // Capture error response body snippet for non-2xx responses (aids AI call debugging)
+            // Body snippet for non-2xx aids AI call debugging.
             if (!resp.ok) {
                 try {
                     const body = await resp.clone().text();
                     entry.errorBody = body.slice(0, 500);
-                } catch { /* body read failed — ok, we still have status */ }
+                } catch { /* body read failed — status alone is fine */ }
             }
             networkBuffer.push(entry);
             maybeEcho('log', 'fetch', entry);
@@ -139,7 +132,7 @@ function patchFetch() {
 function patchXHR() {
     if (typeof XMLHttpRequest === 'undefined') return;
     const proto = XMLHttpRequest.prototype;
-    // Sentinel: prevent double-chaining if module is re-evaluated (e.g., test harness)
+    // Sentinel — module re-eval (test harness) must not double-chain.
     if (proto.open?.__dle_patched) return;
     const origOpen = proto.open;
     const origSend = proto.send;
@@ -156,7 +149,7 @@ function patchXHR() {
         try {
             const meta = this.__dle_diag;
             if (meta) {
-                // { once: true } prevents listener accumulation if XHR object is reused
+                // { once: true } prevents listener accumulation when XHR is reused.
                 this.addEventListener('loadend', () => {
                     try {
                         meta.status = this.status;
@@ -175,8 +168,8 @@ function patchXHR() {
 function patchErrors() {
     if (typeof window === 'undefined') return;
 
-    // Use addEventListener instead of assignment to avoid last-writer-wins conflicts
-    // with ST core or other extensions that also set window.onerror.
+    // addEventListener (not assignment) avoids last-writer-wins with ST core
+    // or other extensions that also set window.onerror.
     window.addEventListener('error', (event) => {
         try {
             errorBuffer.push({
@@ -206,11 +199,10 @@ function patchErrors() {
     });
 }
 
-/**
- * Install all interceptors. Safe to call multiple times — second call is a no-op.
- */
-/** Tracks which interceptors failed to install (readable by export.js for diagnostics). */
+/** Which interceptors failed to install (readable by export.js for diagnostics). */
 export const installFailures = [];
+
+/** Install all interceptors. Safe to call multiple times — second call is a no-op. */
 
 export function installInterceptors() {
     if (installed) return;

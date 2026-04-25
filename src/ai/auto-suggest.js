@@ -1,6 +1,5 @@
 /**
  * DeepLore Enhanced — Auto Lorebook Creation
- * Fixes Bug 1 (callAutoSuggest st mode) and Bug 3 (scan depth)
  */
 import {
     generateQuietPrompt,
@@ -15,9 +14,8 @@ import { getSettings, getPrimaryVault, resolveConnectionConfig } from '../../set
 import { writeNote } from '../vault/obsidian-api.js';
 import { buildAiChatContext, yamlEscape, classifyError } from '../../core/utils.js';
 import { callAI } from './ai.js';
-import { extractAiResponseClient } from '../helpers.js';
-import { getWriterVisibleEntries, chatEpoch, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure, releaseHalfOpenProbe } from '../state.js';
-import { stripObsidianSyntax } from '../helpers.js';
+import { extractAiResponseClient, stripObsidianSyntax } from '../helpers.js';
+import { getWriterVisibleEntries, chatEpoch, tryAcquireHalfOpenProbe, recordAiSuccess, recordAiFailure } from '../state.js';
 import { ensureIndexFresh, buildIndex } from '../vault/vault.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
 
@@ -33,10 +31,7 @@ For each suggested entry, provide:
 Respond with a JSON array of suggested entries. If nothing new is worth creating, respond with [].
 Example: [{"title": "The Silver Crown", "type": "lore", "keys": ["silver crown", "crown"], "summary": "A magical artifact mentioned in the throne room scene.", "content": "The Silver Crown is a..."}]`;
 
-/**
- * Route an Auto Suggest AI call based on connection mode (mirrors callScribe pattern).
- * BUG 1 FIX: st mode now uses object form of generateQuietPrompt.
- */
+/** Route an Auto Suggest AI call by connection mode (mirrors callScribe). */
 export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'autoSuggest') {
     const resolved = resolveConnectionConfig(toolKey);
     const mode = resolved.mode;
@@ -44,14 +39,14 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
     const maxTokens = resolved.maxTokens;
 
     if (mode === 'st') {
-        // S4-2: tryAcquireHalfOpenProbe is the mutation gate; gating on isAiCircuitOpen
-        // first leaks the probe slot in half-open-no-probe state.
+        // S4-2: mutation gate — tryAcquireHalfOpenProbe, not isAiCircuitOpen
+        // (would leak the probe slot in half-open-no-probe state).
         if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
-        // BUG-244: generateQuietPrompt cannot be aborted mid-flight. Mirror scribe's GENERATION_STOPPED
-        // race pattern so our await resolves early on user stop (lock releases promptly) rather than
-        // blocking until the orphaned background generation completes or times out.
+        // BUG-244: generateQuietPrompt cannot be aborted mid-flight. Mirror scribe's
+        // GENERATION_STOPPED race so our await resolves early on user stop and the
+        // lock releases promptly instead of waiting out the orphaned background gen.
         const quietPrompt = `${systemPrompt}\n\n${userMessage}`;
-        // BUG-FIX: timeout=0 should mean "no timeout", not "instant timeout" (setTimeout(fn, 0) fires immediately)
+        // timeout=0 means "no timeout" — setTimeout(fn, 0) would fire immediately.
         const effectiveTimeout = timeout || 60000;
         const quietPromise = generateQuietPrompt({ quietPrompt, skipWIAN: true, responseLength: maxTokens });
         let suggestTimer;
@@ -72,9 +67,8 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
                         err.userAborted = true;
                         reject(err);
                     };
-                    // BUG-AUDIT: if registration throws we must null `onStop` so the
-                    // finally clause doesn't try to remove a listener that was never
-                    // added — otherwise it races with a partial registration state.
+                    // BUG-AUDIT: null onStop on registration failure so finally
+                    // doesn't remove a listener that was never added.
                     try {
                         eventSource.on(event_types.GENERATION_STOPPED, onStop);
                     } catch (regErr) {
@@ -86,14 +80,14 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
             recordAiSuccess();
             return { text: response, usage: null };
         } catch (err) {
-            // BUG-252: user aborts and timeouts must not trip the circuit breaker.
+            // BUG-252: user aborts and timeouts must not trip the breaker.
             if (!err.throttled && !err.userAborted && !err.timedOut) recordAiFailure();
             throw err;
         } finally {
             if (onStop) { try { eventSource.removeListener(event_types.GENERATION_STOPPED, onStop); } catch { /* noop */ } }
         }
     } else if (mode === 'profile' || mode === 'proxy') {
-        // S4-2: see mutation-gate note above.
+        // S4-2: mutation gate (see above).
         if (!tryAcquireHalfOpenProbe()) throw new Error('AI circuit breaker is open — skipping auto-suggest');
         try {
             const result = await callAI(systemPrompt, userMessage, { ...resolved, caller: 'autoSuggest' });
@@ -110,12 +104,9 @@ export async function callAutoSuggest(systemPrompt, userMessage, toolKey = 'auto
 let autoSuggestInProgress = false;
 let autoSuggestInProgressEpoch = -1;
 
-/**
- * Run auto-suggest: analyze chat for entities not in lorebook, return suggestions.
- * BUG 3 FIX: Uses aiSearchScanDepth instead of autoSuggestInterval for chat context depth.
- */
+/** Analyze chat for missing entities and return suggested entries. */
 export async function runAutoSuggest() {
-    // If a previous run was abandoned by a chat switch, the flag would be stuck — reset.
+    // Reset stuck flag from a previous run abandoned by chat switch.
     if (autoSuggestInProgress && autoSuggestInProgressEpoch !== chatEpoch) {
         autoSuggestInProgress = false;
     }
@@ -127,29 +118,26 @@ export async function runAutoSuggest() {
     try {
     const settings = getSettings();
     await ensureIndexFresh();
-    // BUG-398: snapshot the writer-visible entry set BEFORE the epoch check so that
-    // a concurrent rebuild landing between the check and the read cannot inject new
-    // entries into our "existing" list (which would cause us to suggest entries that
-    // already exist, or worse, silently write duplicates under skipReview).
+    // BUG-398: snapshot the writer-visible set BEFORE the epoch check — a concurrent
+    // rebuild landing between check and read could otherwise inject new entries into
+    // our "existing" list, causing duplicate suggestions (or silent dup writes under
+    // skipReview).
     const visibleEntries = getWriterVisibleEntries();
-    if (epoch !== chatEpoch) return []; // chat changed during index refresh
+    if (epoch !== chatEpoch) return [];
     const existingTitles = visibleEntries.map(e => `"${e.title.replace(/"/g, '\\"')}"`).join(', ');
-    // BUG 3 FIX: Use a proper scan depth, not the interval frequency
     const chatContext = buildAiChatContext(chat, settings.aiSearchScanDepth || 20);
 
     const systemPrompt = settings.autoSuggestPrompt?.trim() || DEFAULT_AUTO_SUGGEST_PROMPT;
     const userMessage = `## Existing lorebook entries (do NOT suggest these):\n${existingTitles}\n\n## Recent Chat:\n${chatContext}\n\nSuggest new lorebook entries as a JSON array.`;
 
     const result = await callAutoSuggest(systemPrompt, userMessage);
-    // BUG-023: Post-AI-call epoch guard. If the user switched chats during the AI call,
-    // suggestions were generated against chat A's context — surfacing them in chat B would
-    // tag the wrong chat/characters, and with skipReview on they'd be written silently.
+    // BUG-023: post-await epoch guard — chat switch during the call would mis-tag
+    // these against chat B (and silently write them under skipReview).
     if (epoch !== chatEpoch) return [];
     const parsed = extractAiResponseClient(result.text);
 
     if (!Array.isArray(parsed)) return [];
 
-    // Filter out entries that already exist
     const existingLower = new Set(visibleEntries.map(e => e.title.toLowerCase()));
     const filtered = parsed.filter(s =>
         s && typeof s === 'object' && s.title &&
@@ -163,11 +151,8 @@ export async function runAutoSuggest() {
 }
 
 /**
- * Build the vault file content + filename for a single suggestion. Pure;
- * no UI, no network, no state mutation. Extracted so the review-popup path
- * and the skip-review batch path can share the same write semantics.
- * @param {object} s — single suggestion {title, type, keys, summary, content}
- * @param {object} settings — getSettings() output (lorebookTag, autoSuggestFolder)
+ * Pure file-content + filename builder for one suggestion. No UI/network/state.
+ * Shared by the review-popup path and the skip-review batch path.
  * @returns {{ filename: string, fileContent: string, safeTitle: string }}
  */
 function _buildSuggestionFile(s, settings) {
@@ -195,10 +180,7 @@ ${safeContent}`;
     return { filename, fileContent, safeTitle };
 }
 
-/**
- * Write a single suggestion to the vault. No UI updates — caller handles those.
- * Returns { ok, title, filename, error? } so the caller can render outcome.
- */
+/** Write a single suggestion to the vault; returns outcome shape. */
 async function writeSuggestionToVault(s, settings) {
     try {
         const { filename, fileContent } = _buildSuggestionFile(s, settings);
@@ -212,9 +194,8 @@ async function writeSuggestionToVault(s, settings) {
 }
 
 /**
- * Show suggestion popup with editable fields and accept/reject buttons.
- * Honors `settings.autoSuggestSkipReview` — when true, writes all suggestions
- * directly without the review popup and shows a single summary toast.
+ * Show review popup. With `settings.autoSuggestSkipReview`, batch-writes all
+ * suggestions and shows a summary toast.
  */
 export async function showSuggestionPopup(suggestions) {
     if (!suggestions || suggestions.length === 0) {
@@ -222,22 +203,18 @@ export async function showSuggestionPopup(suggestions) {
         return;
     }
 
-    // BUG-272: capture epoch at popup open. Suggestions were generated against this chat's
-    // context — if the user switches chats before clicking Accept, we must NOT write them
-    // (they'd be tagged as belonging to the new chat's character/context). Vault writes are
-    // global but the conceptual ownership is chat-scoped for auto-suggest.
+    // BUG-272: capture epoch at popup open — auto-suggest is chat-scoped (vault writes
+    // are global but conceptual ownership is per-chat). Switching chats before Accept
+    // mis-tags suggestions against the new character.
     const popupEpoch = chatEpoch;
 
     const settings = getSettings();
 
-    // BUG-AUDIT (Fix 26): honor autoSuggestSkipReview. The setting was previously
-    // displayed as a checkbox and saved on toggle, but no code branched on it —
-    // user expectation ("Write directly") was a UX promise the code never delivered.
     if (settings.autoSuggestSkipReview) {
-        // Continue-on-failure: write every suggestion, summarize at end.
+        // Continue-on-failure: write all, summarize at end.
         const results = [];
         for (const s of suggestions) {
-            // Stale-chat bail: same epoch contract as the per-card Accept handler.
+            // Stale-chat bail: same epoch contract as per-card Accept.
             if (popupEpoch !== chatEpoch) {
                 toastr.warning('Chat changed — remaining suggestions skipped.', 'DeepLore Enhanced');
                 break;
@@ -250,7 +227,7 @@ export async function showSuggestionPopup(suggestions) {
         if (successes.length > 0) {
             const failNote = failures.length > 0 ? `, ${failures.length} failed: ${failures.map(f => f.title).join(', ')}` : '';
             toastr.success(`Wrote ${successes.length}/${results.length}${failNote}`, 'DeepLore Enhanced');
-            // One reindex at the end (per-card flow does one per accept).
+            // Reindex once at end (per-card flow does one per accept).
             try { await buildIndex(); } catch (reidxErr) {
                 console.warn('[DLE] Auto-suggest batch reindex failed:', reidxErr?.message);
                 try {
@@ -310,7 +287,7 @@ export async function showSuggestionPopup(suggestions) {
         large: true,
         allowVerticalScrolling: true,
         onOpen: () => {
-            // E11: Sync skip-review checkbox with settings
+            // E11: sync skip-review checkbox to settings.
             const skipCheckbox = container.querySelector('#dle-suggest-skip-review');
             if (skipCheckbox) {
                 skipCheckbox.addEventListener('change', function () {
@@ -321,7 +298,7 @@ export async function showSuggestionPopup(suggestions) {
 
             container.querySelectorAll('.dle-accept-suggest').forEach(btn => {
                 btn.addEventListener('click', async function () {
-                    if (this.disabled) return; // Double-click guard
+                    if (this.disabled) return;
                     // BUG-272: chat switched since suggestions were generated — refuse to write.
                     if (popupEpoch !== chatEpoch) {
                         toastr.warning('Chat changed — these suggestions are no longer valid.', 'DeepLore Enhanced');
@@ -334,12 +311,11 @@ export async function showSuggestionPopup(suggestions) {
                     const card = document.getElementById(`dle-suggest-${idx}`);
                     if (!card) { this.disabled = false; return; }
 
-                    // Build frontmatter
                     const folder = settings.autoSuggestFolder || '';
-                    // Sanitize title for filesystem safety (same pattern as Scribe)
+                    // Filesystem-safe title (same pattern as Scribe).
                     let safeTitle = s.title.replace(/[<>:"/\\|?*]/g, '_');
-                    safeTitle = safeTitle.replace(/^\.+|\.+$/g, ''); // strip leading/trailing dots
-                    safeTitle = safeTitle.trimEnd(); // strip trailing spaces
+                    safeTitle = safeTitle.replace(/^\.+|\.+$/g, '');
+                    safeTitle = safeTitle.trimEnd();
                     if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(safeTitle)) safeTitle = '_' + safeTitle;
                     if (!safeTitle) safeTitle = 'Untitled';
                     const filename = folder
@@ -347,7 +323,7 @@ export async function showSuggestionPopup(suggestions) {
                         : `${safeTitle}.md`;
 
                     const keysYaml = (s.keys || []).map(k => `  - ${yamlEscape(k)}`).join('\n');
-                    // Sanitize AI-generated content: strip Obsidian-interpretable syntax and bare YAML delimiters
+                    // Strip Obsidian syntax + neutralize bare YAML delimiters in AI content.
                     const safeContent = stripObsidianSyntax(s.content || '').replace(/^---$/gm, '- - -');
                     const fileContent = `---
 type: ${yamlEscape(s.type || 'lore')}
@@ -370,11 +346,10 @@ ${safeContent}`;
                             this.disabled = true;
                             this.textContent = 'Accepted';
                             toastr.success(`Created: ${s.title}`, 'DeepLore Enhanced');
-                            // Reindex so the new entry is immediately retrievable
                             try { await buildIndex(); } catch (reidxErr) {
                                 console.warn('[DLE] Auto-suggest reindex after write failed:', reidxErr?.message);
-                                // BUG-AUDIT: surface reindex failure — otherwise the new
-                                // entry stays invisible to retrieval until the next refresh.
+                                // BUG-AUDIT: without surfacing this, the new entry is
+                                // unretrievable until the next manual refresh.
                                 try {
                                     toastr.warning(
                                         `Entry saved, but reindex failed: ${reidxErr?.message || 'unknown error'}. Refresh manually from the drawer.`,
@@ -389,7 +364,7 @@ ${safeContent}`;
                         }
                     } catch (err) {
                         toastr.error(classifyError(err), 'DeepLore Enhanced');
-                        this.disabled = false; // Re-enable on error
+                        this.disabled = false;
                     }
                 });
             });
@@ -400,7 +375,6 @@ ${safeContent}`;
                     const card = document.getElementById(`dle-suggest-${idx}`);
                     if (card) {
                         card.classList.add('dle-suggest-card--rejected');
-                        // Disable both buttons and update label
                         card.querySelectorAll('button').forEach(b => b.disabled = true);
                         this.textContent = 'Rejected';
                     }

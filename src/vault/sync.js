@@ -6,15 +6,13 @@ import { getSettings } from '../../settings.js';
 import { syncIntervalId, indexing, setSyncIntervalId, setIndexing, setBuildPromise, buildEpoch, setBuildEpoch } from '../state.js';
 import { getAllCircuitStates } from './obsidian-api.js';
 
-// ─── Constants ───
 const SYNC_TOAST_TIMEOUT = 8000;
 const SYNC_EXTENDED_TIMEOUT = 12000;
 
-// Track when we first observe indexing=true, to detect stuck builds
+// First observation of indexing=true — used to detect stuck builds.
 let _indexingSeenSince = 0;
 
-// BUG-018: Epoch counter to prevent orphaned polling chains
-// Each setupSyncPolling call increments this; stale chains bail when epoch changes
+// BUG-018: each setupSyncPolling call bumps this so previously-running chains can bail.
 let _syncEpoch = 0;
 
 /**
@@ -65,33 +63,32 @@ export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
         setSyncIntervalId(null);
     }
 
-    // BUG-018: Increment sync epoch to orphan any previously running polling chain
+    // BUG-018: bump sync epoch to orphan any previously running polling chain.
     const myEpoch = ++_syncEpoch;
 
     if (settings.syncPollingInterval > 0 && settings.enabled && buildIndexFn) {
-        // Use setTimeout chaining instead of setInterval to prevent overlapping callbacks
+        // setTimeout-chained instead of setInterval to prevent overlapping callbacks.
         const scheduleNext = () => {
-            // BUG-018: Bail if this chain has been orphaned by a new setupSyncPolling call
             if (_syncEpoch !== myEpoch) return;
-            // Re-read interval each tick so changes take effect without restarting polling
+            // Re-read interval per tick so changes take effect without restart.
             const currentInterval = getSettings().syncPollingInterval;
-            if (currentInterval <= 0) return; // Setting was changed to disabled mid-run
+            if (currentInterval <= 0) return;
             setSyncIntervalId(setTimeout(async () => {
-                // BUG-018: Re-check epoch after await (another setupSyncPolling may have been called)
-                if (_syncEpoch !== myEpoch) return;
+                if (_syncEpoch !== myEpoch) return; // re-check after await
+
                 const current = getSettings();
                 if (!current.enabled) {
                     scheduleNext();
                     return;
                 }
-                // Guard against stuck indexing flag — force-release after 120s
+                // Stuck-indexing guard: force-release after 120s.
                 if (indexing) {
                     if (!_indexingSeenSince) _indexingSeenSince = Date.now();
                     if (Date.now() - _indexingSeenSince > 120_000) {
                         console.warn('[DLE] Sync: indexing flag stuck for >120s, force-releasing');
                         setIndexing(false);
-                        setBuildPromise(null); // BUG-034: Clear stale buildPromise
-                        setBuildEpoch(buildEpoch + 1); // BUG-015: Invalidate stuck coroutine
+                        setBuildPromise(null); // BUG-034: clear stale buildPromise
+                        setBuildEpoch(buildEpoch + 1); // BUG-015: invalidate stuck coroutine
                         _indexingSeenSince = 0;
                     } else {
                         scheduleNext();
@@ -101,9 +98,8 @@ export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
                     _indexingSeenSince = 0;
                 }
 
-                // Skip fetch only when EVERY Obsidian vault circuit is open. A single open
-                // vault should not starve healthy vaults of polling. Empty circuit state
-                // (no vaults tracked yet) proceeds normally — build will populate on first poll.
+                // Skip only when EVERY vault circuit is open — one open circuit must
+                // not starve healthy vaults. Empty state (cold start) proceeds normally.
                 const allStates = getAllCircuitStates();
                 const keys = Object.keys(allStates);
                 if (keys.length > 0 && keys.every(k => allStates[k].state === 'open')) {
@@ -115,7 +111,6 @@ export function setupSyncPolling(buildIndexFn, buildIndexWithReuseFn) {
                 }
 
                 try {
-                    // Try reuse sync first (skip re-parse of unchanged), fall back to full rebuild
                     if (buildIndexWithReuseFn) {
                         const deltaOk = await buildIndexWithReuseFn();
                         if (deltaOk) { scheduleNext(); return; }

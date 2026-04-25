@@ -1,31 +1,18 @@
 /**
  * DeepLore Enhanced — CORS-Bridged AI Proxy Module
- * Routes proxy-mode AI calls through SillyTavern's built-in CORS proxy (/proxy/:url).
- * Requires enableCorsProxy: true in SillyTavern's config.yaml.
+ * Routes proxy-mode calls through SillyTavern's built-in CORS proxy (/proxy/:url).
+ * Requires `enableCorsProxy: true` in ST's config.yaml.
  */
 import { abortWith } from '../diagnostics/interceptors.js';
 
 /**
- * Call an Anthropic-compatible API through the ST CORS proxy.
- * @param {string} proxyUrl - Base URL of the AI proxy (e.g. http://127.0.0.1:42069). NOTE: literal "localhost" rejected by validateProxyUrl — use 127.0.0.1.
- * @param {string} model - Model identifier
- * @param {string} systemPrompt - System prompt text
- * @param {string} userMessage - User message content
- * @param {number} maxTokens - Max tokens for response
- * @param {number} [timeout=15000] - Timeout in ms
- * @param {{ stablePrefix?: string, dynamicSuffix?: string }} [cacheHints] - Optional cache-aware content blocks for Anthropic prompt caching
- * @param {AbortSignal} [externalSignal] - Optional AbortSignal for caller-initiated cancellation
- * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
- */
-/**
- * Validate a proxy/base URL against SSRF targets (cloud metadata, private ranges, octal/decimal IP shorthand).
- * Throws on bad URL; safe to call from any module that builds outbound HTTP from a user-supplied URL.
- * Allows 127.0.0.1 (local proxies) but blocks broader 127.0.0.0/8 and all RFC1918/CGNAT/link-local ranges.
- * @param {string} url
+ * SSRF validator: blocks cloud metadata, private/CGNAT/link-local ranges, and
+ * octal/decimal IP shorthand. Allows 127.0.0.1 (local proxies) but blocks the
+ * rest of 127.0.0.0/8. Throws on bad URL.
  */
 export function validateProxyUrl(url) {
-    // BUG-396: empty / malformed / non-http(s) URLs must fail loudly here rather than
-    // slip through to callers that assume validateProxyUrl either threw or OK'd the URL.
+    // BUG-396: fail loudly here on empty/malformed/non-http(s) — callers assume
+    // this either threw or OK'd the URL.
     if (typeof url !== 'string' || !url.trim()) {
         throw new Error('Proxy URL is empty');
     }
@@ -67,18 +54,23 @@ export function validateProxyUrl(url) {
     }
 }
 
+/**
+ * Call an Anthropic-compatible API through the ST CORS proxy.
+ * @param {string} proxyUrl - Base URL. NOTE: literal "localhost" is rejected — use 127.0.0.1.
+ * @param {{ stablePrefix?: string, dynamicSuffix?: string }} [cacheHints] - Anthropic prompt-caching blocks.
+ * @returns {Promise<{text: string, usage: {input_tokens: number, output_tokens: number}}>}
+ */
 export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, userMessage, maxTokens, timeout = 15000, cacheHints, externalSignal) {
     validateProxyUrl(proxyUrl);
 
     const targetUrl = proxyUrl.replace(/\/+$/, '') + '/v1/messages';
-    // Encode the target URL to prevent Express from collapsing :// to :/
+    // Encode so Express doesn't collapse :// to :/.
     const corsProxyUrl = `/proxy/${encodeURIComponent(targetUrl)}`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => abortWith(controller, 'proxy:timeout'), timeout);
     let onExternalAbort = null;
 
-    // Wire external signal (user cancellation) to our internal controller
     if (externalSignal) {
         if (externalSignal.aborted) {
             const reason = externalSignal.reason?.message || 'proxy:external_pre_aborted';
@@ -92,7 +84,7 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
         }
     }
 
-    // Build user content — if cache hints provided, split into blocks with cache_control
+    // With cache hints, split into blocks with cache_control for Anthropic prompt caching.
     let userContent;
     if (cacheHints && cacheHints.stablePrefix && cacheHints.dynamicSuffix) {
         userContent = [
@@ -121,21 +113,21 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
 
         if (!response.ok) {
             const text = await response.text();
-            // 404 with CORS proxy disabled message → give a helpful error
+            // Helpful rewrite for the disabled-proxy 404.
             if (response.status === 404 && text.includes('CORS proxy is disabled')) {
                 throw new Error('SillyTavern CORS proxy is not enabled. Set enableCorsProxy: true in config.yaml, or use a Connection Profile instead of Custom Proxy mode.');
             }
-            // Truncate and scrub error response to avoid leaking sensitive data
+            // Truncate + scrub provider-specific keys before surfacing.
             const safeText = text.substring(0, 150)
                 .replace(/sk-[a-zA-Z0-9_-]{10,}/g, 'sk-***')          // Anthropic
                 .replace(/sk-proj-[a-zA-Z0-9_-]{10,}/g, 'sk-proj-***') // OpenAI
                 .replace(/AIza[a-zA-Z0-9_-]{10,}/g, 'AIza***')         // Google
                 .replace(/gsk_[a-zA-Z0-9_-]{10,}/g, 'gsk_***')         // Groq
-                .replace(/Bearer\s+[A-Za-z0-9_\-./]{10,}/g, 'Bearer ***'); // Generic Bearer tokens
+                .replace(/Bearer\s+[A-Za-z0-9_\-./]{10,}/g, 'Bearer ***');
             throw new Error(`Proxy returned HTTP ${response.status}: ${safeText}`);
         }
 
-        // BUG-041: Separate network read (response.text) from JSON parse to get distinct errors
+        // BUG-041: Separate network read from JSON parse so error messages are distinct.
         const text = await response.text();
         let parsed;
         try {
@@ -177,12 +169,7 @@ export async function callProxyViaCorsBridge(proxyUrl, model, systemPrompt, user
     }
 }
 
-/**
- * Test connection to the AI proxy through the ST CORS proxy.
- * @param {string} proxyUrl - Base URL of the AI proxy
- * @param {string} model - Model identifier to test with
- * @returns {Promise<{ok: boolean, response?: string, error?: string}>}
- */
+/** Test connection to the AI proxy through the ST CORS proxy. */
 export async function testProxyConnection(proxyUrl, model) {
     try {
         const result = await callProxyViaCorsBridge(

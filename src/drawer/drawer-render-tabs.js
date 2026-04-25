@@ -1,7 +1,3 @@
-/**
- * DeepLore Enhanced — Drawer Render: Tab Content
- * Renders the Why?, Browse, Gating, and Timers tab panels.
- */
 import { chat_metadata } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
@@ -9,7 +5,7 @@ import {
     vaultIndex, lastInjectionSources, previousSources, lastPipelineTrace,
     generationLock, indexing,
     cooldownTracker, decayTracker, chatInjectionCounts, trackerKey,
-    fieldDefinitions, folderList,
+    fieldDefinitions,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
 import { buildObsidianURI, computeSourcesDiff, categorizeRejections, resolveEntryVault, normalizePinBlock } from '../helpers.js';
@@ -18,24 +14,20 @@ import {
     getMatchLabel, computeEntryTemperatures,
 } from './drawer-state.js';
 
-// ─── Module-level caches ───
 let _cachedRejectionMap = new Map();
 let _cachedRejectionTrace = null;
 let _cachedExpandedPreviewHtml = null;
-// BUG-360: Cache key is trackerKey (vaultSource:title) to prevent multi-vault collision on same title.
+// BUG-360: trackerKey (vaultSource:title) — bare titles would collide across vaults.
 let _cachedExpandedPreviewKey = null;
 let _cachedFieldValues = null;
 let _cachedFieldValuesIndexLen = -1;
-// Hash of last renderInjectionTab inputs — skip render when inputs haven't changed.
+// Hash of last renderInjectionTab inputs — skip render when unchanged.
 let _lastInjectionRenderHash = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Why? Tab
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the "Why?" tab — shows why entries were injected AND why others were filtered out.
- */
 export function renderInjectionTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -43,10 +35,10 @@ export function renderInjectionTab() {
     const prev = previousSources;
     const trace = lastPipelineTrace;
 
-    // Content-hash guard — skip full re-render when inputs are unchanged.
-    // Captures everything this tab renders from: sources (title/tokens/matchedBy/vaultSource),
-    // filter state, and trace's rejected-entry summary. Counts are updated surgically via
-    // updateInjectionCountBadges() and are intentionally excluded from the hash.
+    // Content-hash guard — skip full re-render when inputs are unchanged. Hash inputs:
+    // sources (title/tokens/matchedBy/vaultSource), filter state, trace's rejected-entry
+    // summary. Counts are updated surgically via updateInjectionCountBadges() and are
+    // intentionally excluded from the hash.
     const _hashParts = [
         ds.whyTabFilter || '',
         generationLock ? '1' : '0',
@@ -66,7 +58,6 @@ export function renderInjectionTab() {
         $list.empty();
         $whyNotSection.removeClass('dle-visible');
         $diff.empty();
-        // Show "Choosing lore..." during active generation, otherwise the default empty state
         if (generationLock) {
             $empty.html('<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><p>Choosing lore...</p>').addClass('dle-visible');
         } else {
@@ -89,28 +80,24 @@ export function renderInjectionTab() {
 
     $empty.removeClass('dle-visible');
 
-    // Why? tab filter toggle — now static in drawer.html, just update active state
     const $filterToggle = $drawer.find('.dle-why-filter-toggle');
-    // BUG-AUDIT-C11: Roving tabindex — only active radio button is in tab order.
+    // BUG-AUDIT-C11: roving tabindex — only the active radio button is in tab order.
     $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false').attr('tabindex', '-1');
     $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true').attr('tabindex', '0');
 
-    // Compute diff via shared data layer
     const diff = computeSourcesDiff(sources, prev);
 
-    // Diff header
     $diff.attr('aria-live', 'polite');
     const diffParts = [];
     if (diff.added.length) diffParts.push(`<span class="dle-diff-add">+${diff.added.length} new</span>`);
     if (diff.removed.length) diffParts.push(`<span class="dle-diff-remove">-${diff.removed.length} removed</span>`);
     $diff.html(diffParts.join(' '));
 
-    // Build entries
     const settings = getSettings();
     const addedTitles = new Set(diff.added.map(s => s.title));
     const removedTitles = new Set(diff.removed.map(s => s.title));
 
-    // BUG-AUDIT-H14: Build title→entry lookup once instead of vaultIndex.find() per entry (O(N*M) → O(N+M)).
+    // BUG-AUDIT-H14: title→entry lookup once instead of vaultIndex.find() per entry — O(N+M) vs O(N*M).
     const titleToEntry = new Map();
     for (const e of vaultIndex) {
         if (!titleToEntry.has(e.title)) titleToEntry.set(e.title, e);
@@ -146,7 +133,7 @@ export function renderInjectionTab() {
             h += `</span>`;
             h += `<span class="dle-why-meta">`;
             const tokVal = src.tokens || 0;
-            const tokHue = Math.max(0, 120 - (tokVal / 5000) * 120); // 120=green, 0=red
+            const tokHue = Math.max(0, 120 - (tokVal / 5000) * 120); // hue 120=green (light), 0=red (heavy)
             h += `<span class="dle-why-tokens" style="color: hsl(${Math.round(tokHue)}, 80%, 50%)" aria-label="${tokVal} tokens">${tokVal} tokens</span>`;
             const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
             if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} times this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
@@ -159,13 +146,12 @@ export function renderInjectionTab() {
         return h;
     }
 
-    // Apply filter visibility
     const showInjected = ds.whyTabFilter !== 'filtered';
     const showFiltered = ds.whyTabFilter !== 'injected';
     $list.toggle(showInjected);
     $diff.toggle(showInjected);
 
-    // Animate exit for removed entries, then swap in new content
+    // Animate-out removed entries, then swap; safety timeout in case animationend never fires.
     if (showInjected && removedTitles.size > 0 && $list.children().length > 0) {
         const exitEls = $list.find('.dle-why-entry').filter(function () {
             return removedTitles.has($(this).data('title'));
@@ -174,7 +160,6 @@ export function renderInjectionTab() {
             exitEls.addClass('dle-why-exit');
             let swapped = false;
             const swap = () => { if (!swapped) { swapped = true; $list.html(buildWhyHtml(sources)); } };
-            // Swap after exit animation completes (or safety timeout if animationend doesn't fire)
             exitEls[0].addEventListener('animationend', swap, { once: true });
             setTimeout(swap, 250);
         } else {
@@ -184,11 +169,10 @@ export function renderInjectionTab() {
         $list.html(buildWhyHtml(sources));
     }
 
-    // ── "Why Not" section — entries that were candidates but got filtered out ──
+    // ── "Why Not" section — candidates that got filtered out ──
     if (!showFiltered) {
         $whyNotSection.removeClass('dle-visible');
     } else if (trace) {
-        // Use shared categorization (all 9 rejection stages), render with group headers
         const injectedTitles = new Set(sources.map(s => s.title));
         const rejectedGroups = categorizeRejections(trace, injectedTitles);
         const nonEmpty = rejectedGroups.filter(g => g.entries.length > 0);
@@ -196,13 +180,11 @@ export function renderInjectionTab() {
         if (nonEmpty.length > 0) {
             let whyNotHtml = '';
             for (const group of nonEmpty) {
-                // Group sub-header
                 whyNotHtml += `<div class="dle-why-not-group-header" role="heading" aria-level="4" aria-label="Filtered entries — ${escapeHtml(group.label)}">`;
                 whyNotHtml += `<span class="dle-why-not-group-icon">${group.icon}</span> `;
                 whyNotHtml += `<span class="dle-why-not-group-label">${escapeHtml(group.label)}</span>`;
                 whyNotHtml += `<span class="dle-why-not-group-count">${group.entries.length}</span>`;
                 whyNotHtml += `</div>`;
-                // Entries under this group
                 for (const e of group.entries) {
                     whyNotHtml += `<div class="dle-why-entry dle-why-not-entry dle-why-not-grouped" role="listitem" aria-label="Filtered out: ${escapeHtml(e.reason)}">`;
                     whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(e.title)}</span>`;
@@ -223,9 +205,8 @@ export function renderInjectionTab() {
 
 /**
  * Surgically update `×N` count badges on Why? tab entries without rebuilding DOM.
- * Called in place of renderInjectionTab when only chatInjectionCounts changed —
- * avoids nuking the entry list (which would replay stagger-in animations) and
- * preserves DOM identity.
+ * Called instead of renderInjectionTab when only chatInjectionCounts changed —
+ * avoids replaying stagger-in animations and preserves DOM identity.
  */
 export function updateInjectionCountBadges() {
     const $drawer = ds.$drawer;
@@ -242,7 +223,7 @@ export function updateInjectionCountBadges() {
         if (count > 0) {
             const label = `Injected ${count} times this chat`;
             if ($badge.length === 0) {
-                // Insert before the match-type label so badge order matches buildWhyHtml.
+                // Order must match buildWhyHtml — insert before the match-type label.
                 const $matchLabel = $meta.find('.dle-why-match');
                 const badgeHtml = `<span class="dle-inject-count" title="${label}" aria-label="${label}">${count}×</span>`;
                 if ($matchLabel.length) $matchLabel.before(badgeHtml);
@@ -260,13 +241,10 @@ export function updateInjectionCountBadges() {
 // Browse Tab
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the browse tab with live vault entries.
- */
 export function renderBrowseTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
-    // Invalidate virtual scroll cache so stale entry references are never rendered
+    // Invalidate virtual scroll cache so stale entry references are never rendered.
     ds.browseLastRangeStart = -1;
     ds.browseLastRangeEnd = -1;
     const $list = $drawer.find('.dle-browse-list');
@@ -275,15 +253,12 @@ export function renderBrowseTab() {
     const $emptyNoResults = $drawer.find('#dle-browse-empty-no-results');
     const $refreshSpinner = $drawer.find('.dle-browse-refresh-spinner');
 
-    // Show/hide inline refresh spinner (visible when indexing with existing data)
     $refreshSpinner.toggle(!!indexing && vaultIndex.length > 0);
 
-    // Announce loading state to screen readers
     $drawer.find('#dle-panel-browse').attr('aria-busy', indexing ? 'true' : 'false');
 
     if (!vaultIndex || vaultIndex.length === 0) {
         $list.empty();
-        // Show loading state during first index build, otherwise "no entries" state
         if (indexing) {
             $emptyLoading.addClass('dle-visible');
             $emptyNoData.removeClass('dle-visible');
@@ -301,19 +276,16 @@ export function renderBrowseTab() {
     $emptyLoading.removeClass('dle-visible');
     $emptyNoData.removeClass('dle-visible');
 
-    // Use pre-computed tag cache (rebuilt on index update)
+    // Tag/folder caches are rebuilt on index update; reset stale filters when the tag/folder no longer exists.
     const $tagSelect = $drawer.find('[data-filter="tag"]');
     if (ds.cachedTagOptions) {
         $tagSelect.html(ds.cachedTagOptions);
         if (ds.browseTagFilter) $tagSelect.val(ds.browseTagFilter);
     }
-
-    // Reset stale tag filter if the tag no longer exists in the vault
     if (ds.browseTagFilter && ds.cachedTagSet && !ds.cachedTagSet.has(ds.browseTagFilter)) {
         ds.browseTagFilter = '';
     }
 
-    // Populate folder filter dropdown (cached — rebuilt when index size changes)
     const $folderSelect = $drawer.find('[data-filter="folder"]');
     if ($folderSelect.length) {
         if (ds.cachedFolderOptions) {
@@ -325,7 +297,7 @@ export function renderBrowseTab() {
         }
     }
 
-    // P8: Rebuild tag + folder options with entry counts (done each render; fast Map pass)
+    // P8: rebuild options with live entry counts each render (fast Map pass).
     if ($tagSelect.length && ds.cachedTagSet) {
         const tagCounts = new Map();
         for (const e of vaultIndex) {
@@ -349,12 +321,11 @@ export function renderBrowseTab() {
             [...ds.cachedFolderSet].sort().map(f => `<option value="${escapeHtml(f)}"${ds.browseFolderFilter === f ? ' selected' : ''}>${escapeHtml(f)} (${folderCounts.get(f) || 0})</option>`).join(''));
     }
 
-    // Populate custom field filter dropdowns (cached — only rebuilt when index size changes)
+    // Custom field filter dropdowns — values cached, recomputed only when vault size changes.
     const browseFieldDefs = (fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS)
         .filter(fd => fd.gating?.enabled);
     const $cfContainer = $drawer.find('.dle-browse-custom-filters');
     if ($cfContainer.length && browseFieldDefs.length > 0) {
-        // Cache field values — only recompute when vault index changes
         if (_cachedFieldValuesIndexLen !== vaultIndex.length) {
             _cachedFieldValues = {};
             for (const fd of browseFieldDefs) {
@@ -370,7 +341,6 @@ export function renderBrowseTab() {
             _cachedFieldValuesIndexLen = vaultIndex.length;
         }
         const fieldValues = _cachedFieldValues;
-        // Only render selects for fields that have values in the vault
         let cfHtml = '';
         for (const fd of browseFieldDefs) {
             const vals = fieldValues[fd.name];
@@ -383,7 +353,7 @@ export function renderBrowseTab() {
             }
             cfHtml += '</select>';
         }
-        // Don't replace filter HTML while user has a dropdown open (prevents disruption)
+        // Don't replace HTML while a dropdown is open — would close it mid-interaction.
         const activeEl = document.activeElement;
         if (!(activeEl && $cfContainer[0]?.contains(activeEl) && (activeEl.tagName === 'SELECT' || activeEl.closest('.dle-browse-cf-filter')))) {
             $cfContainer.html(cfHtml);
@@ -392,29 +362,26 @@ export function renderBrowseTab() {
 
     const settings = getSettings();
 
-    // Get filters
     const query = ds.browseQuery.toLowerCase();
     const statusFilter = ds.browseStatusFilter;
     const tagFilter = ds.browseTagFilter;
     const sortKey = ds.browseSort;
 
-    // Pin/block state
+    // BUG-AUDIT-3: normalizePinBlock handles legacy bare-string entries alongside {title,vaultSource} objects.
+    // Multi-vault key vaultSource:title (trackerKey invariant) — same-title cross-vault pins must not collide.
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
-    // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
-    // Multi-vault: key on vaultSource:title (trackerKey invariant) so same-title cross-vault pins don't collide.
     const pinSet = new Set(pins.map(p => { const n = normalizePinBlock(p); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
     const blockSet = new Set(blocks.map(b => { const n = normalizePinBlock(b); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
 
-    // Injected set — fall back to lastPipelineTrace (sources cleared after message render)
+    // lastInjectionSources gets cleared after message render — fall back to lastPipelineTrace.
     const injectedSet = new Set();
     const injSources = lastInjectionSources ?? lastPipelineTrace?.injected;
     if (injSources) {
         for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
-    // Parse field-qualified search prefixes: tag:x folder:x key:x summary:x field:name=val
-    // Multiple tokens ANDed. Bare tokens = title+keys substring match.
+    // Search syntax: bare tokens AND substring-match title+keys; prefixes (tag:/folder:/key:/summary:/field:name=val) are field-qualified.
     const _queryTokens = query ? query.split(/\s+/).filter(Boolean) : [];
     const _prefixFilters = [];
     const _bareTokens = [];
@@ -429,9 +396,7 @@ export function renderBrowseTab() {
         }
     }
 
-    // Filter
     let entries = vaultIndex.filter(e => {
-        // Search — bare tokens: title+keys substring; prefix tokens: field-specific
         if (_bareTokens.length) {
             for (const bt of _bareTokens) {
                 const titleMatch = e.title.toLowerCase().includes(bt);
@@ -450,7 +415,7 @@ export function renderBrowseTab() {
             } else if (prefix === 'summary') {
                 if (!e.summary || !e.summary.toLowerCase().includes(lv)) return false;
             } else if (prefix === 'field') {
-                // field:name=value — exact field value match
+                // field:name=value — exact (case-insensitive) field-value match.
                 const eqIdx = val.indexOf('=');
                 if (eqIdx < 0) return false;
                 const fname = val.slice(0, eqIdx).toLowerCase();
@@ -460,10 +425,9 @@ export function renderBrowseTab() {
                 const evStr = Array.isArray(ev) ? ev.map(v => String(v).toLowerCase()) : [String(ev).toLowerCase()];
                 if (!evStr.includes(fval)) return false;
             }
-            // Unknown prefixes: pass through (don't filter)
+            // Unknown prefixes pass through unfiltered.
         }
 
-        // Status filter
         const tl = e.title.toLowerCase();
         const pbKey = `${e.vaultSource || ''}:${tl}`;
         if (statusFilter === 'injected' && !injectedSet.has(tl)) return false;
@@ -478,16 +442,13 @@ export function renderBrowseTab() {
             if (allTime && (allTime.injected || 0) > 0) return false;
         }
 
-        // Tag filter
         if (tagFilter && (!e.tags || !e.tags.includes(tagFilter))) return false;
 
-        // Folder filter
         if (ds.browseFolderFilter) {
             if (!e.folderPath) return false;
             if (e.folderPath !== ds.browseFolderFilter && !e.folderPath.startsWith(ds.browseFolderFilter + '/')) return false;
         }
 
-        // Custom field filters
         for (const [cfName, cfVal] of Object.entries(ds.browseCustomFieldFilters)) {
             if (!cfVal) continue;
             const ev = e.customFields?.[cfName];
@@ -502,7 +463,6 @@ export function renderBrowseTab() {
         return true;
     });
 
-    // Sort
     entries = [...entries];
     switch (sortKey) {
         case 'priority_asc': entries.sort((a, b) => (a.priority || 50) - (b.priority || 50)); break;
@@ -515,8 +475,7 @@ export function renderBrowseTab() {
         default: entries.sort((a, b) => (a.priority || 50) - (b.priority || 50));
     }
 
-    // P10: Quick-filter pills — "Since last gen" and "Never injected"
-    // ds.browseQuickFilter = null | 'since-gen' | 'never-injected' (state agent owns key; undefined = off)
+    // P10: ds.browseQuickFilter = null | 'since-gen' | 'never-injected' (undefined = off).
     let $quickFilters = $drawer.find('.dle-browse-quick-filters');
     if (!$quickFilters.length) {
         const $browsePanel = $drawer.find('#dle-panel-browse');
@@ -530,7 +489,6 @@ export function renderBrowseTab() {
         `<span class="dle-qf-pill${sinceGenActive ? ' dle-qf-active' : ''}" role="button" tabindex="0" aria-pressed="${sinceGenActive}" data-qf="since-gen">Since last gen</span>` +
         `<span class="dle-qf-pill${neverInjectedActive ? ' dle-qf-active' : ''}" role="button" tabindex="0" aria-pressed="${neverInjectedActive}" data-qf="never-injected">Never injected</span>`
     );
-    // Apply quick filter on top of existing filtered entries
     if (sinceGenActive && lastInjectionSources && previousSources) {
         const diff = computeSourcesDiff(lastInjectionSources, previousSources);
         const addedKeys = new Set(diff.added.map(s => s.title.toLowerCase()));
@@ -539,7 +497,6 @@ export function renderBrowseTab() {
         entries = entries.filter(e => !chatInjectionCounts.has(trackerKey(e)) || chatInjectionCounts.get(trackerKey(e)) === 0);
     }
 
-    // Update filter summary line
     const $summary = $drawer.find('.dle-browse-summary');
     const isFiltered = query || statusFilter !== 'all' || tagFilter || ds.browseFolderFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
     $summary.attr('aria-live', 'polite');
@@ -549,32 +506,29 @@ export function renderBrowseTab() {
         $summary.hide();
     }
 
-    // Store filtered entries for virtual scroll
     ds.browseFilteredEntries = entries;
     ds.browseLastRangeStart = -1;
     ds.browseLastRangeEnd = -1;
-    // If navigating from Carto/Why?, preserve the target for auto-expand; otherwise reset
+    // Carto/Why? navigation target survives one filter run for auto-expand; otherwise collapse.
     if (ds.browseNavigateTarget) {
         ds.browseExpandedEntry = ds.browseNavigateTarget;
         ds.browseNavigateTarget = null;
     } else {
-        ds.browseExpandedEntry = null; // collapse any expanded entry on filter change
+        ds.browseExpandedEntry = null;
         ds.browseExpandedIdx = null;
         ds.browseExpandedExtraHeight = 0;
         _cachedExpandedPreviewKey = null;
         _cachedExpandedPreviewHtml = null;
     }
 
-    // Set up virtual scroll container — use min-height so flex doesn't collapse it
+    // min-height so flex doesn't collapse the virtual-scroll container.
     const listEl = $list[0];
     if (!listEl) return;
     const totalHeight = entries.length * BROWSE_ROW_HEIGHT + (ds.browseExpandedExtraHeight || 0);
     $list.css({ 'min-height': totalHeight + 'px' });
 
-    // Reset scroll to top when filters change (prevents seeing empty results after filtering while scrolled)
-    // BUG-AUDIT: previously reset scroll on EVERY render, so pin/block toggles (which
-    // re-render the tab) yanked the user back to the top mid-scroll. Only reset when
-    // the filter signature actually changed since last render.
+    // Reset scroll to top only when the filter signature actually changed.
+    // Resetting unconditionally on every render (e.g. pin/block toggle that re-renders) yanked the user back mid-scroll.
     const _filterSignature = JSON.stringify({
         q: query || '',
         s: statusFilter || 'all',
@@ -587,14 +541,12 @@ export function renderBrowseTab() {
     const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
     if (scrollContainer && ds._browseLastFilterSig !== _filterSignature) {
         scrollContainer.scrollTop = 0;
-        ds._browseLastScrollTop = undefined; // reset delta check
+        ds._browseLastScrollTop = undefined;
     }
     ds._browseLastFilterSig = _filterSignature;
 
-    // Render visible window
     renderBrowseWindow();
 
-    // B: No-results state — show active filters and clear button
     if (entries.length === 0) {
         const filterDesc = [];
         if (statusFilter && statusFilter !== 'all') filterDesc.push(`status=${escapeHtml(statusFilter)}`);
@@ -610,10 +562,7 @@ export function renderBrowseTab() {
     }
 }
 
-/**
- * Render only the visible window of browse entries (virtual scroll).
- * Reads scroll position from the tab panel, computes visible range, renders only those rows.
- */
+/** Render the visible window of browse entries (virtual scroll). */
 export function renderBrowseWindow() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -624,27 +573,25 @@ export function renderBrowseWindow() {
     const entries = ds.browseFilteredEntries;
     if (!entries.length) { $list.empty(); return; }
 
-    // The scrollable container is .dle-drawer-inner, not the tab panel
+    // Scroll container is .dle-drawer-inner (scrollableInner), not the tab panel.
     const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
     if (!scrollContainer) return;
-    // Guard: skip calculation when drawer is hidden (getBoundingClientRect returns zeros)
+    // Drawer hidden — getBoundingClientRect would return zeros; bail.
     if (!scrollContainer.offsetParent && !scrollContainer.offsetHeight) return;
 
-    // Delta check: skip if scroll position hasn't changed enough to matter
     const scrollTop = scrollContainer.scrollTop;
     if (ds._browseLastScrollTop !== undefined && Math.abs(scrollTop - ds._browseLastScrollTop) < 1) return;
     ds._browseLastScrollTop = scrollTop;
 
     const viewHeight = scrollContainer.clientHeight;
-    // How far the list's top is above (negative) or below (positive) the scroll container's viewport top
-    // Using getBoundingClientRect for robustness against intermediate positioned parents
+    // getBoundingClientRect tolerates intermediate positioned parents; relativeScroll is list-top
+    // minus container-top (negative=list above viewport, positive=below).
     const containerRect = scrollContainer.getBoundingClientRect();
     const listRect = listEl.getBoundingClientRect();
     const relativeScroll = containerRect.top - listRect.top;
 
-    // BUG-350: Account for browseExpandedExtraHeight when mapping pixel offset to row index.
-    // Entries after the expanded row are shifted down by browseExpandedExtraHeight, so subtract it
-    // from pixel offsets that fall past the expanded-entry boundary before dividing by row height.
+    // BUG-350: rows after the expanded entry are shifted down by browseExpandedExtraHeight.
+    // Subtract that offset from pixel offsets past the expanded-entry boundary before dividing by row height.
     const expandedOffset = (ds.browseExpandedIdx !== null && ds.browseExpandedExtraHeight > 0)
         ? ds.browseExpandedExtraHeight : 0;
     const expandedBoundary = ds.browseExpandedIdx !== null
@@ -656,30 +603,25 @@ export function renderBrowseWindow() {
     const startIdx = Math.max(0, Math.floor(adjustedStart / BROWSE_ROW_HEIGHT) - BROWSE_OVERSCAN);
     const endIdx = Math.min(entries.length, Math.ceil(adjustedEnd / BROWSE_ROW_HEIGHT) + BROWSE_OVERSCAN);
 
-    // Skip re-render if visible range hasn't changed
     if (startIdx === ds.browseLastRangeStart && endIdx === ds.browseLastRangeEnd) return;
     ds.browseLastRangeStart = startIdx;
     ds.browseLastRangeEnd = endIdx;
 
-    // Pin/block/injected state for rendering
+    // BUG-AUDIT-3: see renderBrowseTab note on normalizePinBlock and vaultSource:title key.
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
-    // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
-    // Multi-vault: key on vaultSource:title (trackerKey invariant) so same-title cross-vault pins don't collide.
     const pinSet = new Set(pins.map(p => { const n = normalizePinBlock(p); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
     const blockSet = new Set(blocks.map(b => { const n = normalizePinBlock(b); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
-    // Build injected set — fall back to lastPipelineTrace when lastInjectionSources
-    // has been consumed by CHARACTER_MESSAGE_RENDERED (moved to message.extra)
+    // CHARACTER_MESSAGE_RENDERED moves sources to message.extra; lastPipelineTrace is the fallback.
     const injectedSet = new Set();
     const injSources = lastInjectionSources ?? lastPipelineTrace?.injected;
     if (injSources) {
         for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
-    // Compute entry temperatures for visual heat indicator
     const tempMap = computeEntryTemperatures();
 
-    // Build rejection reason lookup from pipeline trace (cached, only rebuilt when trace changes)
+    // Rejection lookup is cached; rebuild only when the trace identity changes.
     if (lastPipelineTrace !== _cachedRejectionTrace) {
         _cachedRejectionMap = new Map();
         _cachedRejectionTrace = lastPipelineTrace;
@@ -723,7 +665,6 @@ export function renderBrowseWindow() {
         if (ds.browseExpandedIdx !== null && i > ds.browseExpandedIdx) {
             top += ds.browseExpandedExtraHeight;
         }
-        // Temperature indicator: tint entry based on injection frequency
         const tempKey = trackerKey(e);
         const temp = tempMap.get(tempKey);
         const tempStyle = temp && temp.hue !== 'neutral' ? `--dle-temp:${temp.tempScore.toFixed(2)};--dle-temp-hue:${temp.hue};` : '';
@@ -741,7 +682,6 @@ export function renderBrowseWindow() {
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
         html += `<div class="dle-browse-controls">`;
-        // "Why not?" rejection indicator for non-injected entries
         const rejection = !isInjected ? rejectionMap.get(tl) : null;
         if (rejection) {
             html += `<span class="dle-browse-why-not" title="${escapeHtml(rejection.label)}: ${escapeHtml(rejection.reason)}" aria-label="${escapeHtml(rejection.label)}"><i class="fa-solid ${escapeHtml(rejection.icon)}" aria-hidden="true"></i></span>`;
@@ -758,14 +698,13 @@ export function renderBrowseWindow() {
 
     $list.html(html);
 
-    // Re-expand entry if one was expanded before this re-render (cached preview HTML)
+    // Re-expand previously-expanded entry across re-renders, reusing cached preview HTML.
     if (ds.browseExpandedEntry) {
         const $entry = $list.find(`.dle-browse-entry[data-title="${CSS.escape(ds.browseExpandedEntry)}"]`);
         if ($entry.length) {
             const entry = ds.browseFilteredEntries.find(e => e.title === ds.browseExpandedEntry);
             if (entry) {
-                // Only rebuild preview HTML when the expanded entry changes.
-                // BUG-360: Key on trackerKey (vaultSource:title) to prevent multi-vault title collision.
+                // BUG-360: trackerKey (vaultSource:title) — bare title collides across vaults.
                 const expandedKey = trackerKey(entry);
                 if (_cachedExpandedPreviewKey !== expandedKey) {
                     const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
@@ -825,9 +764,6 @@ export function renderBrowseWindow() {
 // Gating Tab
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the gating tab with live context state.
- */
 export function renderGatingTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -848,7 +784,6 @@ export function renderGatingTab() {
             for (const f of activeFolders) {
                 chipsHtml += `<span class="dle-chip" title="${escapeHtml(f)}">${escapeHtml(f)} <button class="dle-chip-x dle-folder-chip-x" data-folder="${escapeHtml(f)}" aria-label="Remove ${escapeHtml(f)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`;
             }
-            // Exclusion count
             const excluded = vaultIndex.filter(e => {
                 if (!e.folderPath) return false;
                 return !activeFolders.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));
@@ -864,10 +799,8 @@ export function renderGatingTab() {
         }
     }
 
-    // Dynamic field definitions from state
     const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
 
-    // Build dynamic gating group HTML if container exists
     const $container = $drawer.find('.dle-gating-fields-container');
     const enabledDefs = fieldDefs.filter(fd => fd.gating?.enabled);
     if ($container.length) {
@@ -890,7 +823,6 @@ export function renderGatingTab() {
             </div>`;
             $container.append(fieldHtml);
         }
-        // Empty state hint when all fields are unset
         const anySet = enabledDefs.some(fd => {
             if (!ctx) return false;
             return fd.multi
@@ -903,7 +835,6 @@ export function renderGatingTab() {
         }
     }
 
-    // Render values for each field
     for (const fd of fieldDefs) {
         if (!fd.gating?.enabled) continue;
         const $group = $drawer.find(`.dle-gating-group[data-field="${fd.name}"]`);
@@ -911,13 +842,12 @@ export function renderGatingTab() {
         const value = ctx ? ctx[fd.contextKey] : null;
         const $setBtn = $value.find('.dle-gating-set');
 
-        // Remove everything except the set button
         $value.find('.dle-chip, .dle-gating-empty, .dle-gating-count, .dle-gating-clear-btn').remove();
 
         if (!fd.multi) {
             if (value) {
                 $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span><button class="dle-gating-clear-btn" type="button" data-action="clear-gating-field" data-field="${escapeHtml(fd.name)}" aria-label="Clear ${escapeHtml(fd.label)}">×</button>`);
-                // Impact count: entries with this field set but don't match
+                // Impact count: entries with this field set that don't match the active value.
                 const filtered = vaultIndex.filter(e => {
                     const val = e.customFields?.[fd.name];
                     if (!val || (Array.isArray(val) && val.length === 0)) return false;
@@ -931,12 +861,12 @@ export function renderGatingTab() {
                 $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: not set">Not set — click + to filter</span>`);
             }
         } else {
-            // Array field
+            // Array (multi-value) field.
             if (value && value.length > 0) {
                 for (const c of value) {
                     $setBtn.before(`<span class="dle-chip">${escapeHtml(c)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
                 }
-                // Impact count: entries with this field set but no overlap
+                // Impact count: entries with this field set but no value-overlap with the active selection.
                 const activeSet = new Set(value.map(c => c.toLowerCase()));
                 const filtered = vaultIndex.filter(e => {
                     const eVal = e.customFields?.[fd.name];
@@ -957,7 +887,6 @@ export function renderGatingTab() {
 // Timers
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Render active entry timers (cooldown, decay, warmup) below gating */
 export function renderTimers() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -966,7 +895,6 @@ export function renderTimers() {
     const rows = [];
     const settings = getSettings();
 
-    // Cooldown entries
     let timerIdx = 0;
     for (const [key, remaining] of cooldownTracker) {
         const name = key.includes(':') ? key.split(':').slice(1).join(':') : key;
@@ -976,7 +904,7 @@ export function renderTimers() {
         </div>`);
     }
 
-    // Decay entries (stale = above boost threshold, frequent = consecutive via consecutiveInjections)
+    // Decay: only render entries past the boost threshold.
     if (settings.decayEnabled) {
         const boostThreshold = settings.decayBoostThreshold || 5;
         for (const [key, staleness] of decayTracker) {
@@ -990,8 +918,7 @@ export function renderTimers() {
         }
     }
 
-    // Note: Warmup is static configuration (entry.warmup threshold), not an active timer.
-    // Removed from timers section — would show ALL entries with warmup > 1 regardless of state.
+    // Warmup is static config (entry.warmup threshold), not an active timer — intentionally not surfaced here.
 
     $list.html(rows.join(''));
     $empty.toggleClass('dle-visible', rows.length === 0);

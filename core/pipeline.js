@@ -4,8 +4,8 @@
 
 import { parseFrontmatter, extractWikiLinks, cleanContent, extractTitle } from './utils.js';
 import { extractCustomFields } from '../src/fields.js';
-// BUG-094: Use ST's canonical role name → enum mapper instead of a local positional map.
-// Resolved lazily so unit tests / cold-start don't crash if ST isn't loaded yet.
+// BUG-094: use ST's canonical role-name → enum mapper. Resolved lazily so cold-start
+// / Node tests don't crash if ST isn't loaded.
 let _getExtensionPromptRoleByName = null;
 let _roleByNameAttempted = false;
 const _ROLE_FALLBACK = { system: 0, user: 1, assistant: 2 };
@@ -15,7 +15,6 @@ function _resolveRoleByName(name) {
     if (!_roleByNameAttempted) {
         _roleByNameAttempted = true;
         try {
-            // Probe the global ST namespace; the function is exported on script.js.
             // eslint-disable-next-line no-undef
             const g = (typeof window !== 'undefined' ? window : globalThis);
             if (g && typeof g.getExtensionPromptRoleByName === 'function') {
@@ -74,10 +73,9 @@ function _resolveRoleByName(name) {
  */
 
 /**
- * Canonical frontmatter field names DLE recognizes, keyed by their lowercased lookup
- * form. The value is the canonical spelling the parser reads — mostly lowercase, but
- * `scanDepth` / `excludeRecursion` stay camelCase because the readers below use
- * camelCase (they were grandfathered in before this alias table existed).
+ * Canonical frontmatter names keyed by lowercased lookup form. `scanDepth` and
+ * `excludeRecursion` stay camelCase — the readers below use camelCase (grandfathered
+ * before this alias table existed).
  */
 const CANONICAL_FM_LOOKUP = {
     keys: 'keys',
@@ -121,7 +119,7 @@ function normalizeFrontmatterKeys(fm, warnings) {
         const canonical = CANONICAL_FM_LOOKUP[lower];
         if (!canonical || key === canonical) continue;
         if (Object.prototype.hasOwnProperty.call(fm, canonical)) {
-            // Canonical already exists — drop the alias silently
+            // Canonical wins — drop the alias silently.
             delete fm[key];
             continue;
         }
@@ -176,11 +174,8 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions, options = {}) 
     // Lenient alias normalization — rewrite `Keys` → `keys`, etc.
     if (lenient) normalizeFrontmatterKeys(frontmatter, warnings);
 
-    // Missing-frontmatter surfacing: no fences → parseFrontmatter returns {} for frontmatter.
-    // We treat "no keys at all" as a skip signal only if there's also no lorebook tag (handled below).
     const hasAnyFrontmatter = Object.keys(frontmatter).length > 0;
 
-    // Check if this file has the lorebook tag
     const tags = Array.isArray(frontmatter.tags)
         ? frontmatter.tags.map(t => String(t).toLowerCase())
         : (typeof frontmatter.tags === 'string' ? [frontmatter.tags.toLowerCase()] : []);
@@ -188,26 +183,24 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions, options = {}) 
     const tagToMatch = tagConfig.lorebookTag.toLowerCase();
     const guideTagToMatch = tagConfig.guideTag ? tagConfig.guideTag.toLowerCase() : '';
     const hasGuideTag = !!(guideTagToMatch && tags.includes(guideTagToMatch));
-    // Guide entries are admitted even without the lorebook tag — they live in the index for Emma's tools
+    // Guide entries admitted without the lorebook tag — they live in the index for Emma's tools.
     if (!tags.includes(tagToMatch) && !hasGuideTag) {
         if (onSkip) onSkip(hasAnyFrontmatter ? 'SKIP_NO_LOREBOOK_TAG' : 'SKIP_NO_FRONTMATTER');
         return null;
     }
 
-    // Skip entries explicitly disabled via frontmatter
     if (frontmatter.enabled === false) {
         if (onSkip) onSkip('SKIP_ENABLED_FALSE');
         return null;
     }
 
-    // Skip entries with the never-insert tag
     const neverInsertTagToMatch = tagConfig.neverInsertTag ? tagConfig.neverInsertTag.toLowerCase() : '';
     if (neverInsertTagToMatch && tags.includes(neverInsertTagToMatch)) {
         if (onSkip) onSkip('SKIP_NEVER_INSERT_TAG');
         return null;
     }
 
-    // Extract keys — with lenient comma-string auto-split
+    // Extract keys — lenient comma-string auto-split.
     let keys;
     if (Array.isArray(frontmatter.keys)) {
         keys = frontmatter.keys.map(k => String(k));
@@ -246,42 +239,35 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions, options = {}) 
     const bootstrapTagToMatch = tagConfig.bootstrapTag ? tagConfig.bootstrapTag.toLowerCase() : '';
     const bootstrap = !!(bootstrapTagToMatch && tags.includes(bootstrapTagToMatch));
 
-    // Librarian-only guide flag (filtered out of every writing-AI path; only Emma's tools see these)
+    // Librarian-only — filtered out of every writing-AI surface.
     const guide = hasGuideTag;
 
     const scanDepth = typeof frontmatter.scanDepth === 'number' ? frontmatter.scanDepth : null;
     const excludeRecursion = frontmatter.excludeRecursion === true;
 
-    // Conditional gating
-    // Helper: normalize a frontmatter field that should be an array but may be a scalar string in YAML
+    // Normalize a field that should be array-of-string but may be a scalar string in YAML.
     const toArray = v => Array.isArray(v) ? v.map(r => String(r).trim()).filter(Boolean)
         : (v ? [String(v).trim()].filter(Boolean) : []);
 
     const requires = toArray(frontmatter.requires);
     const excludes = toArray(frontmatter.excludes);
-
-    // Refine keys: require at least one to also match (AND_ANY mode)
     const refineKeys = toArray(frontmatter.refine_keys);
-
-    // Cascade links: explicitly pull in linked entries when this entry matches
     const cascadeLinks = toArray(frontmatter.cascade_links);
 
-    // Folder path for folder-based filtering (extracted from filename, not frontmatter)
+    // Folder path is derived from filename, not frontmatter.
     const folderPath = file.filename.includes('/') ? file.filename.split('/').slice(0, -1).join('/') : null;
 
-    // Per-entry outlet (macro-based injection via {{outlet::name}})
     const outlet = typeof frontmatter.outlet === 'string' && frontmatter.outlet.trim()
         ? frontmatter.outlet.trim() : null;
 
-    // Per-entry injection position overrides
-    // BUG-093: position numbers still need a string→enum map (ST does not export
-    // a public name resolver for positions); roles route through ST's helper.
+    // BUG-093: positions still need a static name→enum map (ST exports no public
+    // name resolver for positions); roles route through ST's helper below.
     const positionMap = { before: 2, after: 0, in_chat: 1 };
 
     const injectionPosition = typeof frontmatter.position === 'string'
         ? (positionMap[frontmatter.position.toLowerCase()] ?? null) : null;
-    // BUG-092: Clamp per-entry depth to MAX_INJECTION_DEPTH (10000) so a typo
-    // like `depth: 50000` no longer makes the entry vanish silently.
+    // BUG-092: clamp depth to MAX_INJECTION_DEPTH (10000) — a typo like depth: 50000
+    // would otherwise make the entry vanish silently.
     let injectionDepth = null;
     if (typeof frontmatter.depth === 'number' && Number.isFinite(frontmatter.depth)) {
         const d = frontmatter.depth;
@@ -295,35 +281,29 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions, options = {}) 
             injectionDepth = d;
         }
     }
-    // BUG-094: Resolve role names through ST's helper (handles future role additions
-    // without code changes here) instead of a static positional map.
+    // BUG-094: route role names through ST's helper so future role additions work
+    // without code changes here.
     const injectionRole = typeof frontmatter.role === 'string'
         ? _resolveRoleByName(frontmatter.role) : null;
 
-    // Per-entry cooldown and warmup (coerce string numbers in lenient mode)
     const cooldownCoerced = coerceNumber(frontmatter.cooldown, 'cooldown', warnings, lenient);
     const cooldown = cooldownCoerced.value !== null && cooldownCoerced.value > 0 ? cooldownCoerced.value : null;
     const warmupCoerced = coerceNumber(frontmatter.warmup, 'warmup', warnings, lenient);
     const warmup = warmupCoerced.value !== null && warmupCoerced.value > 0 ? warmupCoerced.value : null;
 
-    // Per-entry probability (0.0-1.0), clamped to valid range
     const probabilityCoerced = coerceNumber(frontmatter.probability, 'probability', warnings, lenient);
     const probability = probabilityCoerced.value !== null
         ? Math.max(0, Math.min(1, probabilityCoerced.value))
         : null;
 
-    // AI selection summary (dedicated frontmatter field, separate from injected content)
-    // Coerce numeric summaries to string (YAML may parse "42" as a number)
+    // Coerce numeric summaries to string — YAML may parse "42" as a number.
     const summary = (typeof frontmatter.summary === 'string' || typeof frontmatter.summary === 'number')
         ? String(frontmatter.summary).trim() : '';
 
-    // Custom fields extraction (driven by field definitions, replaces hardcoded era/location/sceneType/characterPresent)
     const customFields = extractCustomFields(frontmatter, fieldDefinitions || []);
 
-    // C.3: Preserve WI import fields that DLE doesn't enforce yet. Round-trip-safe:
-    // written by convertWiEntry, stored in customFields, flagged via W_NOT_IMPLEMENTED
-    // so /dle-lint surfaces them. Covers BUG-047 (sticky), BUG-048 (delay), BUG-052
-    // (group / group_weight).
+    // C.3: round-trip-safe preservation of WI fields DLE doesn't enforce yet.
+    // Stored in customFields, flagged via W_NOT_IMPLEMENTED so /dle-lint surfaces them.
     const WI_NOT_IMPLEMENTED_FIELDS = [
         { key: 'sticky', bug: 'BUG-047' },
         { key: 'delay', bug: 'BUG-048' },
@@ -343,7 +323,7 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions, options = {}) 
         }
     }
 
-    // Preserve all tags except the lorebook/guide marker tags themselves
+    // Strip the marker tags themselves; preserve everything else.
     const entryTags = tags.filter(t => t !== tagToMatch && t !== guideTagToMatch);
 
     return {

@@ -15,19 +15,16 @@ import {
     truncateToSentence, simpleHash, escapeRegex, escapeXml,
     buildScanText, buildAiChatContext, validateSettings, yamlEscape,
 } from '../core/utils.js';
-import { testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, formatAndGroup } from '../core/matching.js';
+import { testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, formatAndGroup, clearScanTextCache } from '../core/matching.js';
 import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, normalizeLoreGap, fuzzyTitleMatch, extractAiNotes } from '../src/helpers.js';
-import { encodeVaultPath, validateVaultPath } from '../src/vault/obsidian-api.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, normalizeLoreGap, fuzzyTitleMatch, extractAiNotes, validateSessionResponse, parseSessionResponse, sanitizeFilename } from '../src/helpers.js';
+import { encodeVaultPath, validateVaultPath, pruneCircuitBreakers } from '../src/vault/obsidian-api.js';
 
 // BM25 functions (extracted to bm25.js for testability)
 import { buildBM25Index, queryBM25 } from '../src/vault/bm25.js';
-
-// Obsidian API functions for BUG-040, BUG-045 tests
-import { pruneCircuitBreakers } from '../src/vault/obsidian-api.js';
 
 // Graph analysis pure functions
 import { convexHull, COMMUNITY_PALETTE } from '../src/graph/graph-analysis.js';
@@ -54,6 +51,7 @@ import {
     lastGenerationTrackerSnapshot, setLastGenerationTrackerSnapshot,
     setCooldownTracker, injectionHistory, setInjectionHistory,
     generationCount, setGenerationCount,
+    cooldownTracker,
 } from '../src/state.js';
 
 // normalizeResults is a test-only utility (inlined in aiSearch() in production)
@@ -97,7 +95,7 @@ const settingsConstraints = {
 // Test runner (shared from helpers.mjs)
 // ============================================================================
 
-import { assert, assertEqual, assertNotEqual, test, summary, makeEntry } from './helpers.mjs';
+import { assert, assertEqual, assertNotEqual, test, summary, makeEntry, makeSettings } from './helpers.mjs';
 
 // ============================================================================
 // Tests: parseFrontmatter
@@ -4183,8 +4181,6 @@ test('extractAiNotes: collapses excess newlines after stripping', () => {
 // Librarian: validateSessionResponse
 // ============================================================================
 
-import { validateSessionResponse } from '../src/helpers.js';
-
 test('validateSessionResponse: valid minimal response', () => {
     const r = validateSessionResponse({ message: 'Hello' });
     assert(r.valid, 'should be valid');
@@ -4360,8 +4356,6 @@ test('validateSessionResponse: rejects numeric message', () => {
 // ============================================================================
 // Librarian: parseSessionResponse
 // ============================================================================
-
-import { parseSessionResponse, sanitizeFilename } from '../src/helpers.js';
 
 test('parseSessionResponse: parses raw JSON', () => {
     const result = parseSessionResponse('{"message": "hello", "draft": null}');
@@ -5060,8 +5054,6 @@ test('computeOverallStatus: offline when obsidian circuit open with no entries',
 // ============================================================================
 
 import { matchEntries as matchEntriesPure } from '../src/pipeline/match.js';
-import { cooldownTracker } from '../src/state.js';
-import { clearScanTextCache } from '../core/matching.js';
 
 // Helper: create a chat array from messages
 function makeChat(...messages) {
@@ -5259,7 +5251,6 @@ test('matchEntries: sorted by priority', () => {
 // ============================================================================
 
 import { buildCandidateManifest } from '../src/ai/manifest.js';
-import { makeSettings } from './helpers.mjs';
 
 // Reset field definitions to defaults for manifest tests
 setFieldDefinitions([

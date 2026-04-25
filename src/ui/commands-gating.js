@@ -1,8 +1,4 @@
-/**
- * DeepLore Enhanced — Slash Commands: Per-Chat Gating
- * /dle-pin, /dle-unpin, /dle-block, /dle-unblock, /dle-pins,
- * /dle-set-era, /dle-set-location, /dle-set-scene, /dle-set-characters, /dle-context-state
- */
+/** DeepLore Enhanced — Slash Commands: Per-Chat Gating */
 import { chat_metadata } from '../../../../../../script.js';
 import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { escapeHtml } from '../../../../../utils.js';
@@ -18,7 +14,7 @@ import { ensureIndexFresh } from '../vault/vault.js';
 import { normalizePinBlock, matchesPinBlock } from '../helpers.js';
 
 export function registerGatingCommands() {
-    // ── Per-Chat Pin/Block Commands ──
+    // ── Per-Chat Pin/Block ──
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-pin',
@@ -36,7 +32,6 @@ export function registerGatingCommands() {
             if (chat_metadata.deeplore_pins.some(p => matchesPinBlock(p, entry))) {
                 toastr.info(`"${entry.title}" is already pinned.`, 'DeepLore Enhanced'); return '';
             }
-            // Remove from blocks if present
             if (chat_metadata.deeplore_blocks) {
                 chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(b => !matchesPinBlock(b, entry));
             }
@@ -99,7 +94,6 @@ export function registerGatingCommands() {
             if (chat_metadata.deeplore_blocks.some(b => matchesPinBlock(b, entry))) {
                 toastr.info(`"${entry.title}" is already blocked.`, 'DeepLore Enhanced'); return '';
             }
-            // Remove from pins if present
             if (chat_metadata.deeplore_pins) {
                 chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => !matchesPinBlock(p, entry));
             }
@@ -182,18 +176,14 @@ export function registerGatingCommands() {
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // ── Contextual Gating Commands ──
+    // ── Contextual Gating ──
 
-    /** Helper: initialize deeplore_context in chat_metadata if needed */
     const ensureCtx = () => {
         if (!chat_metadata.deeplore_context) chat_metadata.deeplore_context = {};
         return chat_metadata.deeplore_context;
     };
 
-    /**
-     * Helper: collect unique values for a gating field from the vault index (reads from customFields).
-     * Returns a Map<normalizedValue, { display: string, count: number }>.
-     */
+    /** @returns Map<normalizedValue, { display: string, count: number }> */
     const collectFieldValues = (fieldName) => {
         const valueMap = new Map();
         for (const entry of vaultIndex) {
@@ -212,9 +202,7 @@ export function registerGatingCommands() {
         return valueMap;
     };
 
-    /**
-     * Helper: count entries matching a value for a gating field (case-insensitive exact match, reads from customFields).
-     */
+    /** Case-insensitive exact match against customFields. */
     const countFieldMatches = (fieldName, value) => {
         const lower = value.toLowerCase();
         let count = 0;
@@ -228,9 +216,6 @@ export function registerGatingCommands() {
         return count;
     };
 
-    /**
-     * Helper: build and show a selection popup for a gating field.
-     */
     const showFieldSelectionPopup = async (label, entryField, ctxField) => {
         const ctx = ensureCtx();
         const valueMap = collectFieldValues(entryField);
@@ -243,11 +228,10 @@ export function registerGatingCommands() {
             return;
         }
 
-        // Sort by count descending, then alphabetically
         const sorted = [...valueMap.entries()].sort((a, b) => b[1].count - a[1].count || a[1].display.localeCompare(b[1].display));
 
-        // BUG-AUDIT-10: Handle both scalar and array context values safely.
-        // Multi-value fields (like character_present) store arrays in context.
+        // BUG-AUDIT-10: handle scalar AND array context values — multi-value
+        // fields (e.g. character_present) store arrays.
         const rawCurrentValue = ctx[ctxField] || '';
         const currentDisplay = Array.isArray(rawCurrentValue) ? rawCurrentValue.join(', ') : String(rawCurrentValue);
         const currentLower = Array.isArray(rawCurrentValue) ? rawCurrentValue.map(v => String(v).toLowerCase()) : [];
@@ -266,8 +250,7 @@ export function registerGatingCommands() {
         }
         html += '</div></div>';
 
-        // Show popup and wire up click handlers via onOpen callback
-        // BUG-105: Scope querySelectorAll to the popup root instead of document
+        // BUG-105: scope querySelectorAll to the popup root, not document.
         await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
             wide: false,
             onOpen: (popup) => {
@@ -284,7 +267,6 @@ export function registerGatingCommands() {
                         } else {
                             toastr.success(`${label} cleared.`, 'DeepLore Enhanced');
                         }
-                        // Close the popup
                         document.querySelector('.popup-button-ok')?.click();
                     });
                 }
@@ -298,13 +280,11 @@ export function registerGatingCommands() {
         callback: async (_args, value) => {
             const v = (value || '').trim();
 
-            // No argument — show selection popup
             if (!v) {
                 await showFieldSelectionPopup('Era', 'era', 'era');
                 return '';
             }
 
-            // With argument — set directly with match feedback
             const ctx = ensureCtx();
             ctx.era = v;
             saveMetadataDebounced();
@@ -416,7 +396,6 @@ export function registerGatingCommands() {
             const ctx = ensureCtx();
             const v = (value || '').trim();
 
-            // No argument — show multi-select popup
             if (!v) {
                 const valueMap = collectFieldValues('character_present');
                 if (valueMap.size === 0) {
@@ -431,7 +410,6 @@ export function registerGatingCommands() {
                 const currentArr = Array.isArray(ctx.character_present) ? ctx.character_present : [];
                 const currentLower = new Set(currentArr.map(c => c.toLowerCase()));
 
-                // Track selected set (mutable copy)
                 const selected = new Set(currentArr);
 
                 let html = '<div class="dle-popup"><h4>Characters Present</h4>';
@@ -448,7 +426,7 @@ export function registerGatingCommands() {
                 }
                 html += '</div></div>';
 
-                // BUG-105: Scope querySelectorAll to the popup root
+                // BUG-105: scope querySelectorAll to the popup root, not document.
                 await callGenericPopup(html, POPUP_TYPE.TEXT, '', {
                     wide: false,
                     onOpen: (popup) => {
@@ -458,11 +436,9 @@ export function registerGatingCommands() {
                             btn.addEventListener('click', () => {
                                 const val = btn.getAttribute('data-value');
                                 if (!val) {
-                                    // Clear all
                                     selected.clear();
                                     for (const b of buttons) b.classList.remove('dle-field-select--active');
                                 } else {
-                                    // Toggle
                                     const lower = val.toLowerCase();
                                     const has = [...selected].some(s => s.toLowerCase() === lower);
                                     if (has) {
@@ -492,7 +468,6 @@ export function registerGatingCommands() {
                 return '';
             }
 
-            // With argument — set directly
             ctx.character_present = v.split(',').map(c => c.trim()).filter(Boolean);
             saveMetadataDebounced();
             notifyGatingChanged();
@@ -527,7 +502,7 @@ export function registerGatingCommands() {
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // ── Generic Field Commands (for custom fields) ──
+    // ── Generic Field Commands ──
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-set-field',
@@ -548,7 +523,6 @@ export function registerGatingCommands() {
                 return '';
             }
 
-            // No value — show selection popup
             if (!value) {
                 await showFieldSelectionPopup(fd.label, fd.name, fd.contextKey);
                 return '';
@@ -556,7 +530,6 @@ export function registerGatingCommands() {
 
             const ctx = ensureCtx();
             if (fd.multi) {
-                // For multi fields, add to the array (comma-separated)
                 const newValues = value.split(',').map(v => v.trim()).filter(Boolean);
                 ctx[fd.contextKey] = newValues;
             } else {
@@ -649,7 +622,7 @@ export function registerGatingCommands() {
         returns: ARGUMENT_TYPE.STRING,
     }));
 
-    // ── Folder Filter Commands ──
+    // ── Folder Filter ──
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-set-folder',
@@ -657,7 +630,6 @@ export function registerGatingCommands() {
         callback: async (_args, input) => {
             const value = (input || '').trim();
 
-            // No argument — show selection popup
             if (!value) {
                 if (folderList.length === 0) {
                     toastr.info('No folders found in the vault. All entries are at the root level.', 'DeepLore Enhanced');
@@ -710,14 +682,13 @@ export function registerGatingCommands() {
                 return '';
             }
 
-            // With argument — set directly (space-separated or quoted folder names)
+            // Space-separated, with optional quotes for paths containing spaces.
             const folders = value.match(/"[^"]+"|[^\s]+/g)?.map(f => f.replace(/"/g, '').trim()).filter(Boolean) || [];
             if (folders.length === 0) {
                 toastr.info('Set which folder? Try: /dle-set-folder Characters (run with no args to browse folders).', 'DeepLore Enhanced');
                 return '';
             }
 
-            // Validate folders exist
             const knownPaths = new Set(folderList.map(f => f.path));
             const valid = folders.filter(f => knownPaths.has(f));
             const unknown = folders.filter(f => !knownPaths.has(f));
@@ -733,7 +704,6 @@ export function registerGatingCommands() {
             saveMetadataDebounced();
             notifyGatingChanged();
 
-            // Count matching entries
             const matchCount = vaultIndex.filter(e => {
                 if (!e.folderPath) return true;
                 return valid.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));

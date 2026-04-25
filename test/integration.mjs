@@ -82,7 +82,7 @@ import {
     isForceInjected, normalizePinBlock, matchesPinBlock, fuzzyTitleMatch,
 } from '../src/helpers.js';
 
-import { formatAndGroup, testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks } from '../core/matching.js';
+import { formatAndGroup, testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, clearScanTextCache } from '../core/matching.js';
 import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 import { buildScanText, validateSettings, simpleHash } from '../core/utils.js';
@@ -1519,7 +1519,6 @@ test('Pipeline: takeIndexSnapshot and detectChanges', () => {
 // ============================================================================
 
 import { matchEntries as matchEntriesPure } from '../src/pipeline/match.js';
-import { clearScanTextCache } from '../core/matching.js';
 
 function makeChat2(...messages) {
     return messages.map((m, i) => ({

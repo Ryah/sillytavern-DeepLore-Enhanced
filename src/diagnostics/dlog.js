@@ -1,16 +1,15 @@
 /**
  * DLE diagnostic logger.
  *
- * Pre-formats printf-style specifiers (%s %d %i %f %o %O %j) and object arguments
- * into a single string BEFORE reaching console.*, so logs remain readable when
- * captured by tooling that does not process the Chrome DevTools Protocol formatArgs
- * channel (e.g. preview_console_logs, automated harnesses). Native Chrome DevTools
- * still displays the result correctly — it just loses the expandable-object affordance.
+ * Pre-formats printf specifiers (%s %d %i %f %o %O %j) and object args into a
+ * single string BEFORE console.*, so tooling that doesn't process Chrome
+ * DevTools formatArgs (preview_console_logs, automated harnesses) still gets
+ * readable output. Native DevTools still renders correctly — just loses the
+ * expandable-object affordance.
  *
- * Existing `console.debug('[DLE][DIAG] ... %s %d', a, b)` call sites can migrate by
- * swapping `console.debug` for `ddebug` (same signature). Structured data can be
- * passed as trailing args and will be JSON-stringified rather than flattened to
- * "[object Object]".
+ * Migrate `console.debug('[DLE][DIAG] ... %s %d', a, b)` by swapping in `ddebug`
+ * (same signature). Trailing object args are JSON-stringified instead of
+ * flattening to "[object Object]".
  */
 
 function safeJson(v) {
@@ -31,7 +30,7 @@ function renderValue(v, spec) {
         return Number.isFinite(n) ? String(n) : String(v);
     }
     if (spec === '%o' || spec === '%O' || spec === '%j') return safeJson(v);
-    // %s and default
+    // %s + default
     return typeof v === 'object' && v !== null ? safeJson(v) : String(v);
 }
 
@@ -57,7 +56,7 @@ export function derror(template, ...args) { console.error(fmt(template, ...args)
 export function ddebug(template, ...args) { console.debug(fmt(template, ...args)); }
 
 /**
- * Convenience helper for [DLE][DIAG] probes. Prepends the tag, expands format specifiers.
+ * [DLE][DIAG] probe helper — prepends the tag, expands format specifiers.
  * Example: diag('strip-dedup-log-clear', '— %s, clearing %d stale entries', reason, count);
  */
 export function diag(tag, template, ...args) {

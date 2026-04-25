@@ -1,26 +1,23 @@
 /**
- * DeepLore Enhanced — Agentic Loop Message Assembly
- * Builds the messages array for the agentic loop's API calls.
+ * DeepLore Enhanced — Agentic loop message assembly.
  */
 import { getContext } from '../../../../../extensions.js';
 import { chat_metadata } from '../../../../../../script.js';
-import { getSettings, DEFAULT_AI_NOTEPAD_PROMPT } from '../../settings.js';
+import { DEFAULT_AI_NOTEPAD_PROMPT } from '../../settings.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // System Prompt Builder
 // ════════════════════════════════════════════════════════════════════════════
 
-// BUG-AUDIT (prompt-injection hardening):
-// Untrusted content (vault entries, character card, notebook, notepad, scribe summary)
-// is wrapped in XML-style fences whose tag name carries a per-build random nonce.
-// The nonce is hard to predict, so attacker prose inside a vault entry can't forge a
-// closing tag to "escape" its section. We also strip any occurrence of the nonce tag
-// from the content before wrapping (defense in depth), and we re-state the rule in
-// the role section so the model treats fenced content as data, not instructions.
+// BUG-AUDIT (prompt-injection hardening): untrusted content (vault entries, char
+// card, notebook, notepad, scribe summary) is wrapped in XML fences whose tag
+// name carries a per-build random nonce. Attacker prose inside an entry can't
+// forge a closing tag without knowing it. Also strips any pre-existing nonce
+// tags from content before wrapping (defense in depth), and the role section
+// re-states the data-not-instructions rule.
 
+// 12 hex chars (~48 bits) — unguessable from inside attacker content.
 function randomNonce() {
-    // 12 hex chars: ~48 bits of entropy. Enough that attacker content can't
-    // accidentally or intentionally match without knowing the nonce.
     try {
         if (globalThis.crypto?.getRandomValues) {
             const bytes = new Uint8Array(6);
@@ -31,15 +28,13 @@ function randomNonce() {
     return Math.random().toString(36).slice(2, 14);
 }
 
-/** Strip any `<dle_*_NONCE>` or `</dle_*_NONCE>` occurrences from content so attackers
- *  can't forge a closing fence inside their own text. Case-insensitive. */
+/** Strip `<dle_*_NONCE>` / `</dle_*_NONCE>` so attackers can't forge a closing fence. */
 function scrubFences(content, nonce) {
     if (!content) return '';
     const re = new RegExp(`</?dle_[a-z_]+_${nonce}[^>]*>`, 'gi');
     return String(content).replace(re, '');
 }
 
-/** Wrap untrusted `content` in a nonce-fenced block with a human-readable header. */
 function fence(kind, header, content, nonce) {
     const tag = `dle_${kind}_${nonce}`;
     const safe = scrubFences(content, nonce);
@@ -47,12 +42,10 @@ function fence(kind, header, content, nonce) {
 }
 
 /**
- * Build the 9-section system prompt for the agentic loop.
- * Static per loop run — set once, not mutated per iteration.
- * @param {string} pipelineContext - Formatted lore groups text from pipeline
- * @param {Set<string>} injectedTitles - Titles already in context (lowercased)
- * @param {object} settings - DLE settings snapshot
- * @returns {string}
+ * Build the 9-section system prompt. Static per loop run.
+ * @param {string} pipelineContext
+ * @param {Set<string>} injectedTitles - lowercased
+ * @param {object} settings
  */
 export function buildSystemPromptForLoop(pipelineContext, injectedTitles, settings) {
     const ctx = getContext();
@@ -62,10 +55,8 @@ export function buildSystemPromptForLoop(pipelineContext, injectedTitles, settin
     const sections = [];
     const nonce = randomNonce();
 
-    // Section 1: Role + Constraints
-    // BUG-AUDIT: explicit rule about fences so the model treats fenced sections as
-    // inert reference data, not instructions. The nonce-suffixed tag name is unguessable
-    // from inside attacker-controlled content.
+    // Section 1: Role + Constraints. Explicit fence rule so the model treats
+    // fenced sections as inert data; nonce makes the tag unguessable from inside.
     const roleSection = [
         'You are the writing AI for a roleplay session. You have access to a curated lore vault.',
         'Some entries have already been selected and placed in your context by the retrieval system.',
@@ -90,9 +81,7 @@ export function buildSystemPromptForLoop(pipelineContext, injectedTitles, settin
         sections.push(fence('lore_context', 'Pre-selected lore entries — already in your context', pipelineContext, nonce));
     }
 
-    // Section 4: Injected Entry List
-    // Titles are vault-controlled but benign (short strings, filtered to non-empty).
-    // Still fenced so a crafted title can't break out.
+    // Section 4: Injected Entry List. Fenced so a crafted title can't break out.
     if (injectedTitles.size > 0) {
         const titleList = [...injectedTitles].map(t => `- ${t}`).join('\n');
         sections.push(fence('injected_titles', 'The following entries are already in your context — do NOT search for these', titleList, nonce));
@@ -112,14 +101,11 @@ export function buildSystemPromptForLoop(pipelineContext, injectedTitles, settin
         if (notepad?.trim()) {
             sections.push(fence('notepad', 'Your session notes from previous messages', notepad, nonce));
         }
-        // H3: When tag mode, include AI Notepad instruction prompt
-        // NOTE: notepadPrompt is user-configurable but is treated as trusted system
-        // guidance (same as DEFAULT_AI_NOTEPAD_PROMPT) — no fence. Attacker surface
-        // requires settings write access, which is out of scope for prompt-injection.
+        // notepadPrompt is user-configurable but trusted (settings write is out of
+        // scope for prompt-injection) — no fence.
         if ((settings.aiNotepadMode || 'tag') === 'tag') {
-            // Match index.js:770 semantics: trim-then-default. Whitespace-only user
-            // value must fall back to DEFAULT_AI_NOTEPAD_PROMPT so tag-mode output
-            // stays instructed (otherwise the AI never emits <dle-notes> blocks).
+            // Trim-then-default matches index.js:770. Whitespace-only must fall
+            // back to default so tag-mode keeps emitting <dle-notes> blocks.
             const notepadPrompt = settings.aiNotepadPrompt?.trim() || DEFAULT_AI_NOTEPAD_PROMPT;
             if (notepadPrompt) {
                 sections.push(notepadPrompt);
@@ -127,9 +113,8 @@ export function buildSystemPromptForLoop(pipelineContext, injectedTitles, settin
         }
     }
 
-    // Section 7: Scribe Summary
-    // AI-generated (from prior scribe call) but content derives from chat transcript,
-    // which includes persona/character-card text — treat as untrusted.
+    // Section 7: Scribe Summary. AI-generated but derives from chat transcript
+    // (includes persona/character-card text) — treat as untrusted.
     if (settings.scribeInformedRetrieval) {
         const scribeSummary = chat_metadata?.deeplore_lastScribeSummary;
         if (scribeSummary?.trim()) {
@@ -137,13 +122,11 @@ export function buildSystemPromptForLoop(pipelineContext, injectedTitles, settin
         }
     }
 
-    // Section 8: Tool Instructions
     const maxSearches = settings.librarianMaxSearches || 2;
-    const maxFlags = 5; // H5: flag cap
+    const maxFlags = 5; // H5
     const toolInstructions = buildToolInstructions(settings, maxSearches, maxFlags);
     sections.push(toolInstructions);
 
-    // Section 9: Custom Prompt
     const promptMode = settings.librarianSystemPromptMode || 'default';
     const customPrompt = settings.librarianCustomSystemPrompt || '';
     if (promptMode === 'strict-override' && customPrompt.trim()) {
@@ -153,29 +136,21 @@ export function buildSystemPromptForLoop(pipelineContext, injectedTitles, settin
     if (promptMode === 'append' && customPrompt.trim()) {
         sections.push(customPrompt);
     } else if (promptMode === 'override' && customPrompt.trim()) {
-        // Partial override — replaces role section + tool instructions only.
-        // Manifest, gap context, chat, scribe summary remain.
-        sections[0] = ''; // Clear role section
-        sections[sections.length - 1] = ''; // Clear tool instructions (last section at this point)
+        // Replace role + tool instructions only; manifest/gap/chat/scribe remain.
+        sections[0] = '';
+        sections[sections.length - 1] = '';
         sections.push(customPrompt);
     }
 
     return sections.filter(Boolean).join('\n\n');
 }
 
-/**
- * Build the dynamic tool instructions section.
- * @param {object} settings - DLE settings
- * @param {number} maxSearches - Max search calls allowed
- * @param {number} maxFlags - Max flag calls allowed
- * @returns {string}
- */
 function buildToolInstructions(settings, maxSearches, maxFlags) {
     const parts = [];
     const searchEnabled = settings.librarianSearchEnabled !== false;
     const flagEnabled = settings.librarianFlagEnabled !== false;
 
-    let toolCount = 1; // write is always available
+    let toolCount = 1; // write always available
     if (searchEnabled) toolCount++;
     if (flagEnabled) toolCount++;
 
@@ -213,7 +188,6 @@ function buildToolInstructions(settings, maxSearches, maxFlags) {
         );
     }
 
-    // Workflow summary
     const workflow = ['[search if needed]', 'write (required, exactly once)'];
     if (flagEnabled) workflow.push(`[flag if needed, max ${maxFlags}]`);
     workflow.push('end turn');
@@ -231,15 +205,14 @@ function buildToolInstructions(settings, maxSearches, maxFlags) {
 // Chat Messages Builder
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Max chat history messages to include (count-based cap, G5). */
+/** G5: count-based cap. */
 const MAX_HISTORY_MESSAGES = 40;
 
 /**
- * Build the full [{role, content}] messages array for the API call.
- * @param {Array} chatArray - ST's chat[] array
- * @param {string} pipelineContext - Formatted lore groups text from pipeline
- * @param {Set<string>} injectedTitles - Titles already in context (lowercased)
- * @param {object} settings - DLE settings snapshot
+ * @param {Array} chatArray - ST's chat[]
+ * @param {string} pipelineContext
+ * @param {Set<string>} injectedTitles - lowercased
+ * @param {object} settings
  * @returns {Array<{role: string, content: string}>}
  */
 export function buildChatMessages(chatArray, pipelineContext, injectedTitles, settings) {
@@ -249,13 +222,11 @@ export function buildChatMessages(chatArray, pipelineContext, injectedTitles, se
         { role: 'system', content: systemPrompt },
     ];
 
-    // Walk chat[] backwards, collect recent messages, then reverse
     const history = [];
     let count = 0;
     for (let i = chatArray.length - 1; i >= 0 && count < MAX_HISTORY_MESSAGES; i--) {
         const msg = chatArray[i];
 
-        // Skip DLE system messages and tool_invocation messages
         if (msg?.is_system) continue;
         if (msg?.extra?.tool_invocations) continue;
 
@@ -269,7 +240,7 @@ export function buildChatMessages(chatArray, pipelineContext, injectedTitles, se
 
     history.reverse();
 
-    // Ensure strict alternation: merge consecutive same-role messages
+    // Strict alternation — merge consecutive same-role messages.
     const alternated = [];
     for (const msg of history) {
         if (alternated.length > 0 && alternated[alternated.length - 1].role === msg.role) {
@@ -279,9 +250,8 @@ export function buildChatMessages(chatArray, pipelineContext, injectedTitles, se
         }
     }
 
-    // Ensure the last message is from 'user' (the message that triggered generation)
+    // Last message must be 'user' — the turn that triggered generation.
     if (alternated.length > 0 && alternated[alternated.length - 1].role !== 'user') {
-        // If the last message is assistant, trim it — the AI generates from here
         alternated.pop();
     }
 

@@ -1,29 +1,17 @@
 /**
- * DeepLore Enhanced — Graph analysis module.
- * Disparity filter (Serrano et al. backbone extraction).
- * Louvain community detection.
- */
-
-// ============================================================================
-// Serrano et al. disparity filter
-// ============================================================================
-
-/**
- * Compute the backbone of the graph using the disparity filter.
- * Sets `edge._backbone = true/false` on every edge in `gs.edges`.
+ * Disparity filter (Serrano et al.) — backbone extraction.
  *
- * Algorithm: For each edge (i,j) with weight w_ij, compute the p-value
- * at both endpoints: p_ij = (1 - w_ij / s_i)^(k_i - 1) where s_i is
- * the strength (sum of weights) and k_i is the degree. If either
- * endpoint's p-value < alpha, the edge is part of the backbone.
+ * For each edge (i,j) with weight w_ij, p-value at endpoint i is
+ *   p_ij = (1 - w_ij / s_i)^(k_i - 1)
+ * where s_i = sum of incident edge weights (strength) and k_i = degree.
+ * Edge is in the backbone if EITHER endpoint's p-value < alpha (significance threshold).
  *
- * @param {object} gs   Shared graph state
- * @param {number} alpha  Significance threshold (lower = sparser)
+ * @param {object} gs
+ * @param {number} alpha  significance threshold; lower = sparser backbone.
  */
 export function computeDisparityFilter(gs, alpha) {
     const { nodes, edges } = gs;
 
-    // Compute node strength (sum of incident edge weights) and degree
     const strength = new Float64Array(nodes.length);
     const degree = new Uint32Array(nodes.length);
 
@@ -40,7 +28,6 @@ export function computeDisparityFilter(gs, alpha) {
     for (const e of edges) {
         const w = e.weight || 1;
 
-        // p-value at "from" endpoint
         const kFrom = degree[e.from];
         const sFrom = strength[e.from];
         let pFrom = 1;
@@ -50,18 +37,17 @@ export function computeDisparityFilter(gs, alpha) {
             pFrom = Math.pow(Math.max(0, 1 - w / sFrom), kFrom - 1);
         }
 
-        // p-value at "to" endpoint
         const kTo = degree[e.to];
         const sTo = strength[e.to];
         let pTo = 1;
         if (kTo > 1 && sTo > 0) {
+            // Same BUG-F5 clamp at the "to" endpoint.
             pTo = Math.pow(Math.max(0, 1 - w / sTo), kTo - 1);
         }
 
-        // Edge is backbone if significant at either endpoint
         e._backbone = (pFrom < alpha || pTo < alpha);
 
-        // Degree-1 nodes: their single edge is always backbone
+        // Degree-1 nodes' sole edge is always backbone — disparity filter would otherwise drop them entirely.
         if (kFrom <= 1 || kTo <= 1) e._backbone = true;
 
         if (e._backbone) backboneCount++;
@@ -71,12 +57,9 @@ export function computeDisparityFilter(gs, alpha) {
     gs._disparityAlpha = alpha;
 }
 
-// ============================================================================
-// Louvain community detection
-// ============================================================================
+// ─── Louvain community detection ───
 
-/** 12-color distinguishable palette for Louvain community visualization.
- * @type {string[]} */
+/** @type {string[]} 12-color distinguishable palette indexed by community ID modulo length. */
 export const COMMUNITY_PALETTE = [
     '#4e79a7', '#f28e2b', '#e15759', '#76b7b2',
     '#59a14f', '#edc948', '#b07aa1', '#ff9da7',
@@ -84,20 +67,18 @@ export const COMMUNITY_PALETTE = [
 ];
 
 /**
- * Run Louvain community detection on the graph.
- * Sets `node.community` (integer) on each node in `gs.nodes`.
- * Stores community metadata on `gs.communities`.
+ * Louvain modularity optimization (single-pass, 20-iteration cap).
+ * Sets `node.community` per node and `gs.communities` metadata map.
  *
- * @param {object} gs  Shared graph state
+ * @param {object} gs
  */
 export function computeLouvainCommunities(gs) {
     const { nodes, edges } = gs;
     const n = nodes.length;
     if (n === 0) return;
 
-    // Build weighted adjacency (only non-orphan, non-hidden-permanently)
-    // m = total edge weight
-    let m2 = 0; // 2*m (sum of all weights, counted once per edge = m, but modularity uses 2m)
+    // m2 = 2m (twice total edge weight) — modularity formula needs 2m as the denominator.
+    let m2 = 0;
     const adj = new Array(n);
     for (let i = 0; i < n; i++) adj[i] = [];
 
@@ -108,34 +89,33 @@ export function computeLouvainCommunities(gs) {
         m2 += 2 * w;
     }
     if (m2 === 0) {
-        // No edges — each node is its own community
+        // No edges — each node is its own community.
         for (let i = 0; i < n; i++) nodes[i].community = i;
         gs.communities = buildCommunityMeta(gs);
         return;
     }
 
-    // Node weight (sum of incident edge weights)
     const k = new Float64Array(n);
     for (let i = 0; i < n; i++) {
         for (const nb of adj[i]) k[i] += nb.weight;
     }
 
-    // Initial: each node in its own community
+    // Init: every node is its own singleton community.
     const comm = new Int32Array(n);
     for (let i = 0; i < n; i++) comm[i] = i;
 
-    // Sum of weights inside each community (Σ_in) and total weight of each community (Σ_tot)
+    // Σ_in = sum of weights inside each community; Σ_tot = total incident weight of each community.
     const sigmaIn = new Float64Array(n);
     const sigmaTot = new Float64Array(n);
     for (let i = 0; i < n; i++) sigmaTot[i] = k[i];
 
-    // Phase 1: Local moves — iterate until no improvement
+    // Phase 1: local moves until no node improves modularity by switching communities.
     const MAX_ITERATIONS = 20;
-    // BUG-AUDIT-H17: Allocate order array ONCE, re-shuffle in place each iteration.
+    // BUG-AUDIT-H17: order allocated once, reshuffled in-place to avoid per-iter allocation.
     const order = Array.from({ length: n }, (_, i) => i);
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
         let moved = false;
-        // Shuffle in place for better convergence
+        // Fisher-Yates shuffle — randomized order improves convergence.
         for (let i = order.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [order[i], order[j]] = [order[j], order[i]];
@@ -145,34 +125,31 @@ export function computeLouvainCommunities(gs) {
             if (nodes[i].orphan) continue;
             const ci = comm[i];
 
-            // Compute weight from i to each neighboring community
             const neighborComms = new Map();
-            let ki_in = 0; // weight from i to its own community
+            let ki_in = 0; // weight from i to its own community.
             for (const nb of adj[i]) {
                 const cj = comm[nb.node];
                 neighborComms.set(cj, (neighborComms.get(cj) || 0) + nb.weight);
                 if (cj === ci) ki_in += nb.weight;
             }
 
-            // Remove i from its community
+            // Detach i from ci before considering moves so the gain calculation is symmetric.
             sigmaIn[ci] -= 2 * ki_in;
             sigmaTot[ci] -= k[i];
 
-            // Find best community to move i into
+            // bestDelta=0 baseline → "staying" wins ties (initial bestComm=ci).
             let bestComm = ci;
             let bestDelta = 0;
 
             for (const [cj, ki_cj] of neighborComms) {
-                // Modularity gain of moving i to community cj
+                // Δ modularity of moving i into cj (Newman's formula, omitting constant terms).
                 const delta = ki_cj - sigmaTot[cj] * k[i] / m2;
                 if (delta > bestDelta) {
                     bestDelta = delta;
                     bestComm = cj;
                 }
             }
-            // Also consider staying (delta = 0 baseline already set)
 
-            // Move i to bestComm
             comm[i] = bestComm;
             const ki_best = neighborComms.get(bestComm) || 0;
             sigmaIn[bestComm] += 2 * ki_best;
@@ -184,7 +161,7 @@ export function computeLouvainCommunities(gs) {
         if (!moved) break;
     }
 
-    // Renumber communities to 0..C-1
+    // Compact community IDs to a dense 0..C-1 range for palette indexing.
     const uniqueComms = [...new Set(comm)];
     const commMap = new Map();
     uniqueComms.forEach((c, idx) => commMap.set(c, idx));
@@ -197,8 +174,7 @@ export function computeLouvainCommunities(gs) {
 }
 
 /**
- * Build community metadata: centroid, member count, label, color.
- * @param {object} gs
+ * Build community metadata: members[], color (palette-indexed), label, centroid (cx,cy).
  * @returns {Map<number, {id, members, color, label, cx, cy}>}
  */
 function buildCommunityMeta(gs) {
@@ -219,7 +195,7 @@ function buildCommunityMeta(gs) {
         meta.get(n.community).members.push(n);
     }
 
-    // Compute label: most common non-lorebook tag per community
+    // Label = most common non-lorebook tag in the community (every entry has the lorebook tag → useless as a label).
     const lorebookTag = (gs.settings?.lorebookTag || 'lorebook').toLowerCase();
     for (const [, cm] of meta) {
         const tagCounts = new Map();
@@ -239,10 +215,7 @@ function buildCommunityMeta(gs) {
     return meta;
 }
 
-/**
- * Update community centroids (call each physics frame for cluster forces).
- * @param {object} gs
- */
+/** Recompute community centroids — called per physics frame to drive cluster pull. */
 export function updateCommunityCentroids(gs) {
     if (!gs.communities) return;
     for (const [, cm] of gs.communities) {
@@ -255,15 +228,11 @@ export function updateCommunityCentroids(gs) {
     }
 }
 
-/**
- * Compute convex hull of a set of 2D points using Graham scan.
- * @param {Array<{x: number, y: number}>} points
- * @returns {Array<{x: number, y: number}>}
- */
+/** Convex hull via Graham scan. Mutates `points` (swaps pivot to index 0). */
 export function convexHull(points) {
     if (points.length < 3) return points.slice();
 
-    // Find bottom-most (then left-most) point
+    // Pivot = bottom-most then left-most point (lex-min on (-y, x)).
     let pivot = 0;
     for (let i = 1; i < points.length; i++) {
         if (points[i].y > points[pivot].y ||
@@ -274,11 +243,10 @@ export function convexHull(points) {
     [points[0], points[pivot]] = [points[pivot], points[0]];
     const p0 = points[0];
 
-    // Sort by polar angle
+    // Sort by polar angle around p0; collinear ties broken by distance (nearer first).
     const sorted = points.slice(1).sort((a, b) => {
         const cross = (a.x - p0.x) * (b.y - p0.y) - (a.y - p0.y) * (b.x - p0.x);
-        if (cross !== 0) return -cross; // CCW first
-        // Collinear: closer first
+        if (cross !== 0) return -cross;
         const da = (a.x - p0.x) ** 2 + (a.y - p0.y) ** 2;
         const db = (b.x - p0.x) ** 2 + (b.y - p0.y) ** 2;
         return da - db;
@@ -298,24 +266,20 @@ export function convexHull(points) {
     return stack;
 }
 
-// ============================================================================
-// Gap analysis
-// ============================================================================
+// ─── Gap analysis ───
 
 /**
- * Compute gap analysis overlays. Returns an object with:
- * - orphans: node ids with zero edges
- * - bridges: edge indices connecting different communities with only 1 cross-link
- * - typeImbalance: per-community type distribution
- * - missingConnections: pairs of entries sharing contextual fields but no edges
+ * Returns:
+ *  - orphans: node ids with zero edges.
+ *  - bridges: edge indices that are the SOLE cross-link between two communities (weak bridge).
+ *  - typeImbalance: per-community type distribution.
+ *  - missingConnections: candidate pairs sharing ≥1 custom-field value but no edge.
  *
- * @param {object} gs  Shared graph state (requires communities from Phase 5)
- * @returns {object}
+ * Requires `communities` (from Louvain).
  */
 export function computeGapAnalysis(gs) {
     const { nodes, edges, edgeCountByNode, communities } = gs;
 
-    // -- Orphan nodes: zero edges --
     const orphans = [];
     for (const n of nodes) {
         if ((edgeCountByNode.get(n.id) || 0) === 0) {
@@ -323,12 +287,11 @@ export function computeGapAnalysis(gs) {
         }
     }
 
-    // -- Weak bridges: cross-community edges where communities have only 1 link --
     const bridges = [];
     if (communities && communities.size > 1) {
-        // Count cross-community edges per community pair
-        const crossCounts = new Map(); // "min,max" → count
-        const crossEdgeIdxs = new Map(); // "min,max" → [edge indices]
+        // Group cross-community edges by undirected community-pair key.
+        const crossCounts = new Map();
+        const crossEdgeIdxs = new Map();
         for (let i = 0; i < edges.length; i++) {
             const e = edges[i];
             const ca = nodes[e.from].community;
@@ -346,7 +309,6 @@ export function computeGapAnalysis(gs) {
         }
     }
 
-    // -- Type imbalance per community --
     const typeImbalance = new Map();
     if (communities) {
         for (const [cid, cm] of communities) {
@@ -358,17 +320,16 @@ export function computeGapAnalysis(gs) {
         }
     }
 
-    // -- Missing connections: entries sharing era/location/characterPresent but no edge --
+    // Missing connections: pairs sharing ≥1 custom-field value but no existing edge.
+    // Hard-capped at 200 candidates — beyond that the O(n²) scan would stall the popup.
     const missingConnections = [];
     const edgeSet = new Set();
     for (const e of edges) {
         edgeSet.add(`${Math.min(e.from, e.to)},${Math.max(e.from, e.to)}`);
     }
-    // Only check non-orphan, non-hidden nodes — limit to prevent O(n^2) blowup
     const candidates = nodes.filter(n => !n.orphan && !n.hidden);
     if (candidates.length <= 200) {
-        // Access vault entries for contextual fields
-        const vaultIndex = gs._vaultIndex; // set by graph.js
+        const vaultIndex = gs._vaultIndex;
         for (let i = 0; i < candidates.length; i++) {
             const ni = candidates[i];
             const ei = vaultIndex?.[ni.id];
@@ -380,17 +341,15 @@ export function computeGapAnalysis(gs) {
                 const key = `${Math.min(ni.id, nj.id)},${Math.max(ni.id, nj.id)}`;
                 if (edgeSet.has(key)) continue;
 
-                // Check shared contextual fields (via customFields)
                 let shared = false;
                 const cfi = ei.customFields || {};
                 const cfj = ej.customFields || {};
-                // Check all string/string[] custom fields for overlap
                 for (const key of Object.keys(cfi)) {
                     const vi = cfi[key];
                     const vj = cfj[key];
                     if (vi == null || vj == null) continue;
-                    // BUG-AUDIT-13: Normalize both values to arrays to handle mixed
-                    // scalar/array comparisons (e.g., era: "modern" vs era: ["modern"])
+                    // BUG-AUDIT-13: normalize scalars to arrays so e.g. era:"modern" compares
+                    // correctly against era:["modern"] — mixed-shape custom fields are common.
                     const arrI = Array.isArray(vi) ? vi : [vi];
                     const arrJ = Array.isArray(vj) ? vj : [vj];
                     if (arrI.some(v => arrJ.includes(v))) { shared = true; break; }

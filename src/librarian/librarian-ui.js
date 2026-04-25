@@ -1,15 +1,9 @@
 /**
- * DeepLore Enhanced — Librarian UI: Tool Call Dropdown
- * Injects a consolidated "Consulted lore vault" dropdown into assistant messages,
- * styled like ST's native "Thought for X seconds" reasoning block.
+ * DeepLore Enhanced — Librarian UI: per-message tool-call dropdown.
+ * Mirrors ST's reasoning block ("Thought for X seconds") visually.
  */
 import { getSettings } from '../../settings.js';
 
-/**
- * Build the summary text for the dropdown header.
- * @param {Array} toolCalls - Array of tool call records
- * @returns {string}
- */
 function buildSummaryText(toolCalls) {
     const searches = toolCalls.filter(c => c.type === 'search').length;
     const gaps = toolCalls.filter(c => c.type === 'flag' && c.subtype !== 'update').length;
@@ -34,11 +28,6 @@ function buildSummaryText(toolCalls) {
     return `Noted ${flagParts.join(' and ')} in your lore`;
 }
 
-/**
- * Build the HTML for a single tool call entry inside the dropdown content.
- * @param {object} call - Tool call record
- * @returns {string}
- */
 function buildEntryHtml(call) {
     if (call.type === 'search') {
         const resultText = call.resultCount > 0
@@ -62,31 +51,27 @@ function buildEntryHtml(call) {
     </div>`;
 }
 
-/** Simple HTML escaper */
 function escapeHtml(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 /**
- * Inject a "Consulted lore vault" dropdown into a chat message.
- * Mirrors ST's reasoning dropdown structure for visual consistency.
- *
- * @param {number} messageId - Chat message index (mesid)
- * @param {Array} toolCalls - Array of tool call records to display
+ * Inject the "Consulted lore vault" dropdown into a chat message.
+ * @param {number} messageId - mesid
+ * @param {Array} toolCalls
  */
 export function injectLibrarianDropdown(messageId, toolCalls) {
     if (!toolCalls || toolCalls.length === 0) return;
 
     const settings = getSettings();
-    // Hard gate: if Librarian is disabled, never inject (belt-and-suspenders —
-    // upstream callers should already be gated, but visibility.js relies on this).
+    // visibility.js relies on this gate — keep even though upstream also checks.
     if (!settings.librarianEnabled) return;
     if (!settings.librarianShowToolCalls) return;
 
     const mesEl = document.querySelector(`#chat .mes[mesid="${messageId}"]`);
     if (!mesEl) return;
 
-    // Remove existing dropdown before (re)injecting (handles swipes, re-renders)
+    // Re-inject path: handles swipes and re-renders.
     const existing = mesEl.querySelector('.dle-librarian-details');
     if (existing) existing.remove();
 
@@ -108,9 +93,9 @@ export function injectLibrarianDropdown(messageId, toolCalls) {
         </div>
     `;
 
-    // Insert after reasoning details (if present), otherwise before mes_text
     const mesBlock = mesEl.querySelector('.mes_block');
     if (!mesBlock) return;
+    // Place after reasoning details when present, otherwise before mes_text.
 
     const reasoningDetails = mesBlock.querySelector('.mes_reasoning_details');
     const mesText = mesBlock.querySelector('.mes_text');
@@ -124,10 +109,6 @@ export function injectLibrarianDropdown(messageId, toolCalls) {
     }
 }
 
-/**
- * Remove the librarian dropdown from a chat message (e.g. on swipe).
- * @param {number} messageId - Chat message index (mesid)
- */
 export function removeLibrarianDropdown(messageId) {
     const mesEl = document.querySelector(`#chat .mes[mesid="${messageId}"]`);
     if (!mesEl) return;

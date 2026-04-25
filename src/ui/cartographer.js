@@ -1,6 +1,4 @@
-/**
- * DeepLore Enhanced — Context Cartographer
- */
+/** DeepLore Enhanced — Context Cartographer */
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { buildCopyButton, attachCopyHandler } from './popups.js';
@@ -11,20 +9,11 @@ import { vaultIndex, vaultAvgTokens, previousSources, setPreviousSources, lastPi
 import { diagnoseEntry } from './diagnostics.js';
 import { STAGE_COLORS, computeSourcesDiff, categorizeRejections, resolveEntryVault, parseMatchReason, tokenBarColor, formatRelativeTime } from '../helpers.js';
 import { navigateToBrowseEntry } from '../drawer/drawer.js';
-// buildObsidianURI moved to helpers.js — import directly from there
-
-/**
- * Reset cartographer state on chat change.
- * Clears previousSources so stale diffs don't carry across chats.
- */
+/** Clears previousSources so stale diffs don't carry across chats. */
 export function resetCartographer() {
     setPreviousSources(null);
 }
 
-/**
- * Inject a "Lore Sources" button into a message's action bar.
- * @param {number} messageId - Index in the chat array
- */
 export function injectSourcesButton(messageId) {
     const mesEl = $(`.mes[mesid="${messageId}"]`);
     if (mesEl.length === 0) return;
@@ -34,10 +23,6 @@ export function injectSourcesButton(messageId) {
     mesEl.find('.extraMesButtons').prepend(btn);
 }
 
-/**
- * Format a parsed match reason as a parenthetical label for the popup.
- * e.g. "(Constant)", "(AI)", "(Keyword: Eris)", "(Pinned)", "(Bootstrap)"
- */
 function formatMatchReason(matchedBy) {
     if (!matchedBy) return '';
     const { type, keyword } = parseMatchReason(matchedBy);
@@ -49,10 +34,7 @@ function formatMatchReason(matchedBy) {
     return labels[type] || '';
 }
 
-/**
- * Show an enhanced popup with lore source details for a message.
- * @param {Array<{title: string, filename: string, matchedBy: string, priority: number, tokens: number}>} sources
- */
+/** @param {Array<{title: string, filename: string, matchedBy: string, priority: number, tokens: number}>} sources */
 export function showSourcesPopup(sources, opts = {}) {
     const settings = getSettings();
     const totalTokens = sources.reduce((sum, s) => sum + s.tokens, 0);
@@ -60,11 +42,10 @@ export function showSourcesPopup(sources, opts = {}) {
     const avgTokens = vaultAvgTokens || 0;
     const positionLabels = { 0: 'After Main Prompt', 1: 'In-chat', 2: 'Before Main Prompt' };
 
-    // Group sources by injection position.
     // Keyed by trackerKey (vaultSource:title) so same-title entries across vaults don't collide.
+    // Title-only fallback for callers whose input has no vaultSource (e.g. trace data) —
+    // first-match is correct here.
     const entryByTrackerKey = new Map(vaultIndex.map(e => [trackerKey(e), e]));
-    // Title-only fallback for callers whose input has no vaultSource (e.g. trace data).
-    // Linear scan returns the first match — matches pre-fix behavior when vaultSource is absent.
     const findByTitle = (title) => vaultIndex.find(e => e.title === title);
     const resolveEntry = (title, vaultSource) => (vaultSource ? entryByTrackerKey.get(`${vaultSource}:${title}`) : null) || findByTitle(title);
     const groups = new Map();
@@ -77,11 +58,9 @@ export function showSourcesPopup(sources, opts = {}) {
         groups.get(posKey).push({ ...src, entry });
     }
 
-    // Diff with reasons via shared data layer
     const diff = computeSourcesDiff(sources, previousSources);
     setPreviousSources(sources.map(s => ({ title: s.title, tokens: s.tokens, matchedBy: s.matchedBy })));
 
-    // Build plain-text for clipboard
     const plainLines = [`Injected Sources (${sources.length} entries, ~${totalTokens} tokens)`, '', 'Entry\tTokens\tMatched By\tFolder\tChat×\tAll-time Inj\tAll-time Match\tLast Used'];
     for (const src of sources) {
         const ek = src.entry ? trackerKey(src.entry) : `${src.vaultSource || ''}:${src.title}`;
@@ -91,9 +70,8 @@ export function showSourcesPopup(sources, opts = {}) {
         plainLines.push(`${src.title}\t${src.tokens}\t${src.matchedBy}\t${folder}\t${cc}\t${at?.injected || 0}\t${at?.matched || 0}\t${at?.lastTriggered ? new Date(at.lastTriggered).toLocaleString() : 'Never'}`);
     }
 
-    // BUG-AUDIT: per-render keyword→regex cache. Without this we rebuild identical
-    // RegExp objects for every entry sharing a matchedBy keyword (hundreds on large
-    // vaults). Scoped to one render call; GCed when popup closes.
+    // Per-render regex cache: large vaults share matchedBy keywords across hundreds
+    // of entries — without this, identical RegExp objects rebuild repeatedly.
     /** @type {Map<string, RegExp>} */
     const _highlightRegexCache = new Map();
     function _highlightRegexFor(keyword) {
@@ -108,7 +86,6 @@ export function showSourcesPopup(sources, opts = {}) {
     html += buildCopyButton(plainLines.join('\n'));
     html += `<h3>Why? — Injected Sources (${sources.length} entries, ~${totalTokens} tokens)</h3>`;
 
-    // Diff display with reasons
     if (diff.added.length > 0 || diff.removed.length > 0) {
         html += `<div class="dle-card dle-text-sm">`;
         if (diff.added.length > 0) {
@@ -123,7 +100,7 @@ export function showSourcesPopup(sources, opts = {}) {
     }
 
     for (const [posLabel, groupSources] of groups) {
-        // 7.4: Sort by priority ascending (lower number = higher priority)
+        // Lower priority number = higher priority.
         groupSources.sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50));
 
         const groupTokens = groupSources.reduce((sum, s) => sum + s.tokens, 0);
@@ -131,7 +108,6 @@ export function showSourcesPopup(sources, opts = {}) {
 
         for (const src of groupSources) {
             const pct = Math.max(2, Math.round((src.tokens / maxTokens) * 100));
-            // 7.14: Color bar and token text by vault-relative size
             const barColor = tokenBarColor(src.tokens, avgTokens);
             const { uri } = resolveEntryVault(src, settings.vaults);
             const titleHtml = uri
@@ -153,7 +129,6 @@ export function showSourcesPopup(sources, opts = {}) {
             const folderLabel = src.entry?.folderPath ? ` · <span class="dle-entry-folder">${escapeHtml(src.entry.folderPath)}</span>` : '';
             html += `<span class="dle-text-xs dle-muted">${escapeHtml(src.matchedBy)}${vaultLabel}${folderLabel}</span>`;
 
-            // Per-entry injection stats (chat + all-time)
             const entryKey = src.entry ? trackerKey(src.entry) : `${src.vaultSource || ''}:${src.title}`;
             const chatCount = chatInjectionCounts.get(entryKey) || 0;
             const allTime = settings.analyticsData?.[entryKey];
@@ -169,7 +144,6 @@ export function showSourcesPopup(sources, opts = {}) {
             }
 
             if (src.entry) {
-                // Metadata line
                 const meta = [];
                 if (src.entry.keys?.length > 0) meta.push(`Keys: ${src.entry.keys.slice(0, 5).join(', ')}${src.entry.keys.length > 5 ? '...' : ''}`);
                 if (src.entry.requires?.length > 0) meta.push(`Requires: ${src.entry.requires.join(', ')}`);
@@ -183,14 +157,12 @@ export function showSourcesPopup(sources, opts = {}) {
                 }
                 if (src.entry.resolvedLinks?.length > 0) meta.push(`Links: ${src.entry.resolvedLinks.slice(0, 5).join(', ')}`);
 
-                // Highlight matched keywords in content preview
-                // Run regex on raw text BEFORE escaping to avoid matching inside HTML entities
+                // Run regex on raw text BEFORE escaping to avoid matching inside HTML entities;
+                // use \x00 placeholders that survive escapeHtml, then swap to <mark> tags after.
                 let highlighted = rawPreview;
                 if (src.matchedBy && !src.matchedBy.startsWith('(')) {
                     const keyword = src.matchedBy.split('→')[0].trim();
                     if (keyword.length >= 2) {
-                        // Use a placeholder that won't be escaped, then swap after escapeHtml.
-                        // Regex object is reset-scanned because /g with replace() doesn't mutate lastIndex on string targets.
                         highlighted = highlighted.replace(_highlightRegexFor(keyword), '\x00MARK_START\x00$1\x00MARK_END\x00');
                     }
                 }
@@ -209,7 +181,7 @@ export function showSourcesPopup(sources, opts = {}) {
         }
     }
 
-    // --- Rejected Entries Section (staged breakdown) ---
+    // ── Rejected Entries (staged breakdown) ──
     if (lastPipelineTrace && chat && chat.length > 0) {
         const injectedTitles = new Set(sources.map(s => s.title));
         const rejectedGroups = categorizeRejections(lastPipelineTrace, injectedTitles);
@@ -229,7 +201,7 @@ export function showSourcesPopup(sources, opts = {}) {
                 html += `<div id="dle-rej-${groupId}" class="dle-ctx-detail">`;
 
                 for (const e of group.entries) {
-                    // Trace entries carry no vaultSource — falls back to first title match in vault.
+                    // Trace entries carry no vaultSource — falls back to first title match.
                     const entry = resolveEntry(e.title, e.vaultSource);
                     const whynotId = simpleHash(`whynot_${e.title}`);
                     html += `<div class="dle-carto-entry-row">`;
@@ -238,7 +210,6 @@ export function showSourcesPopup(sources, opts = {}) {
                         html += ` <button class="menu_button dle-carto-whynot-btn dle-text-xs" data-title="${escapeHtml(e.title)}" data-container="dle-whynot-carto-${whynotId}">Why?</button>`;
                         html += `<div id="dle-whynot-carto-${whynotId}"></div>`;
                     }
-                    // All-time stats for rejected entries
                     const rejKey = entry ? trackerKey(entry) : `${e.vaultSource || ''}:${e.title}`;
                     const rejAllTime = settings.analyticsData?.[rejKey];
                     if (rejAllTime) {
@@ -258,7 +229,6 @@ export function showSourcesPopup(sources, opts = {}) {
         ? '<p class="dle-faint dle-text-xs dle-mt-2">Click entry names to open in Obsidian. Click entries to expand content preview.</p>'
         : '<p class="dle-faint dle-text-xs dle-mt-2">Set vault names in Vault Connections to enable deep links.</p>';
 
-    // AI Notepad: show per-message notes if present
     if (opts.aiNotes) {
         html += `<div class="dle-card dle-mt-2">
             <h4><i class="fa-solid fa-robot" style="margin-right: 4px;"></i>AI Notes (this message)</h4>
@@ -271,7 +241,7 @@ export function showSourcesPopup(sources, opts = {}) {
     const container = document.createElement('div');
     container.innerHTML = html;
 
-    // Event delegation for entry detail expansion (mouse + keyboard, BUG-186)
+    // BUG-186: mouse + keyboard activation.
     const _toggleCard = (toggle) => {
         const targetId = toggle.dataset.target;
         const targetEl = document.getElementById(targetId);
@@ -293,7 +263,6 @@ export function showSourcesPopup(sources, opts = {}) {
         _toggleCard(toggle);
     });
 
-    // Event delegation for "Why?" diagnostic buttons in rejected entries
     container.addEventListener('click', (e) => {
         const btn = e.target.closest('.dle-carto-whynot-btn');
         if (!btn) return;
@@ -314,7 +283,6 @@ export function showSourcesPopup(sources, opts = {}) {
         btn.remove();
     });
 
-    // Event delegation for browse navigation buttons (Carto → Drawer Browse)
     container.addEventListener('click', (e) => {
         const browseBtn = e.target.closest('.dle-carto-browse-btn');
         if (!browseBtn) return;
@@ -322,7 +290,6 @@ export function showSourcesPopup(sources, opts = {}) {
         const title = browseBtn.dataset.browseTitle;
         if (title) {
             navigateToBrowseEntry(title);
-            // Close the popup
             document.querySelector('.popup .popup_ok')?.click();
         }
     });

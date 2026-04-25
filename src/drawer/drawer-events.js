@@ -1,7 +1,3 @@
-/**
- * DeepLore Enhanced — Drawer Event Wiring
- * All event handlers and interaction wiring for the drawer panel.
- */
 import { chat_metadata, saveSettingsDebounced } from '../../../../../../script.js';
 import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { accountStorage } from '../../../../../util/AccountStorage.js';
@@ -13,24 +9,23 @@ import {
     generationLock, indexing,
     notifyGatingChanged, notifyPinBlockChanged,
     fieldDefinitions, folderList,
-    loreGaps, setLoreGaps,
-    setAiSearchCache, resetAiSearchCache, setLastInjectionSources,
+    loreGaps,
+    resetAiSearchCache, setLastInjectionSources,
     aiSearchCache, lastGenerationTrackerSnapshot,
     generationCount, chatEpoch,
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
-import { normalizePinBlock } from '../helpers.js';
+import { normalizePinBlock, buildObsidianURI } from '../helpers.js';
 import { buildIndex } from '../vault/vault.js';
-import { buildObsidianURI } from '../helpers.js';
 import { openRuleBuilder } from '../ui/rule-builder.js';
 import {
     ds, TAB_LABELS, TOOL_ACTIONS, EXPAND_ACTIONS, BROWSE_ROW_HEIGHT,
     scheduleRender, announceToScreenReader,
 } from './drawer-state.js';
-import { renderInjectionTab, renderBrowseTab, renderBrowseWindow, renderGatingTab, renderStatusZone } from './drawer-render.js';
+import { renderInjectionTab, renderBrowseTab, renderBrowseWindow, renderStatusZone } from './drawer-render.js';
 import { renderLibrarianTab } from './drawer-render-librarian.js';
-import { hideGap, dismissGap, getHiddenGapIds, getDismissedGapIds, persistGaps } from '../librarian/librarian-tools.js';
+import { hideGap, dismissGap, getHiddenGapIds, persistGaps } from '../librarian/librarian-tools.js';
 import { dedupError } from '../toast-dedup.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -38,25 +33,20 @@ import { dedupError } from '../toast-dedup.js';
 // ════════════════════════════════════════════════════════════════════════════
 
 /**
- * BUG-AUDIT: Shortcut keys (d, Delete, Backspace) must not fire while the user is
- * editing in a text surface. Previous guard only checked INPUT/TEXTAREA/SELECT and
- * missed `contenteditable` editors (e.g. rich-text notebook, CKEditor surfaces),
- * so the user's keystroke would stomp the drawer selection instead of the text.
+ * Shortcut keys (d, Delete, Backspace) must not fire while the user is editing.
+ * INPUT/TEXTAREA/SELECT alone misses contenteditable surfaces (rich-text notebook,
+ * CKEditor) — those keys would stomp the drawer selection instead of the text.
  * @param {Element|null} el
  */
 function _isSafeShortcutTarget(el) {
     if (!el) return true;
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName)) return false;
     if (el.isContentEditable) return false;
-    // contenteditable attr explicitly set (isContentEditable checks inheritance too, but be defensive).
+    // isContentEditable already covers inheritance; closest() check is belt-and-braces.
     try { if (el.closest && el.closest('[contenteditable="true"]')) return false; } catch { /* ignore selector errors */ }
     return true;
 }
 
-/**
- * Highlight filter dropdowns that have a non-default value selected.
- * @param {jQuery} $drawer - The drawer root element
- */
 export function updateFilterActiveIndicators($drawer) {
     $drawer.find('.dle-browse-filter-select').each(function () {
         const $sel = $(this);
@@ -65,7 +55,6 @@ export function updateFilterActiveIndicators($drawer) {
     });
 }
 
-/** Execute a slash command via ST's context API */
 function executeCommand(cmd) {
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
     if (ctx?.executeSlashCommands) {
@@ -82,17 +71,12 @@ function executeCommand(cmd) {
 // Tab Switching
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Switch to a tab by name. Updates ARIA, classes, hidden state, roving tabindex, and label.
- * @param {jQuery} $drawer - The drawer root element
- * @param {string} tabName - Tab name to activate
- */
 export function switchTab($drawer, tabName) {
     const $tabs = $drawer.find('.dle-tab');
     const $panels = $drawer.find('.dle-tab-panel');
     const $label = $drawer.find('.dle-tab-label');
 
-    // Update tab bar — roving tabindex
+    // Roving tabindex: only the active tab is in the tab order.
     $tabs.each(function () {
         const $t = $(this);
         const isActive = $t.data('tab') === tabName;
@@ -101,25 +85,20 @@ export function switchTab($drawer, tabName) {
             .attr('tabindex', isActive ? '0' : '-1');
     });
 
-    // Update panels — CSS handles visibility via .active class (fade-in animation)
     $panels.each(function () {
         const $p = $(this);
         const isActive = $p.data('tab') === tabName;
         $p.toggleClass('active', isActive);
     });
 
-    // Update label
     $label.text(TAB_LABELS[tabName] || tabName);
 
-    // Re-render browse window when switching to browse tab (may have been rendered
-    // while hidden with degenerate viewport dimensions)
-    // Cancel any pending browse scroll RAF when leaving browse tab
     if (ds.browseScrollRAF) {
         cancelAnimationFrame(ds.browseScrollRAF);
         ds.browseScrollRAF = null;
     }
 
-    // Librarian: always land on Flags. Sub-tab selection is intentionally NOT preserved.
+    // Librarian sub-tab selection is intentionally not preserved across visits.
     if (tabName === 'librarian') {
         ds.librarianFilter = 'flag';
         scheduleRender(renderLibrarianTab);
@@ -129,17 +108,15 @@ export function switchTab($drawer, tabName) {
         ds.browseLastRangeStart = -1;
         ds.browseLastRangeEnd = -1;
         ds._browseLastScrollTop = undefined;
-        // BUG-FIX-5: Call renderBrowseTab() (not just renderBrowseWindow()) to ensure
-        // ds.browseFilteredEntries is populated before the virtual scroll render. Then
-        // use requestAnimationFrame to defer renderBrowseWindow() until the panel's
-        // CSS .active class has painted — otherwise the visibility guard
-        // (!offsetParent && !offsetHeight) returns early on a still-hidden panel.
+        // BUG-FIX-5: renderBrowseTab() populates ds.browseFilteredEntries; defer
+        // renderBrowseWindow() via rAF until the panel's .active class has painted —
+        // otherwise the visibility guard (!offsetParent && !offsetHeight) early-returns
+        // on a still-hidden panel.
         renderBrowseTab();
         requestAnimationFrame(() => renderBrowseWindow());
     }
 
-    // E10: Persist last viewed tab
-    // BUG-042: accountStorage syncs across browsers; localStorage fallback for migration grace period
+    // BUG-042: accountStorage syncs across browsers; localStorage fallback for migration grace period.
     try { accountStorage.setItem('dle-last-drawer-tab', tabName); } catch { /* noop */ }
 }
 
@@ -147,14 +124,13 @@ export function switchTab($drawer, tabName) {
 // Wire Functions (one-time event binding)
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Wire tools tab buttons to slash commands */
 export function wireToolsTab($drawer) {
-    // BUG-354: Delegate from $drawer, not #dle-panel-tools, so the binding survives container replacement.
+    // BUG-354: Delegate from $drawer (not #dle-panel-tools) so binding survives container replacement.
     $drawer.on('click', '#dle-panel-tools .dle-tool-btn[data-action]', function () {
         const action = $(this).data('action');
         const cmd = TOOL_ACTIONS[action];
         if (!cmd) return;
-        // BUG-359: Guard against firing during generation lock, active indexing, or master-disabled state.
+        // BUG-359: gate on generation lock, indexing, or master-disabled.
         const settings = getSettings();
         if (!settings.enabled) {
             toastr.warning('DeepLore Enhanced is disabled.', 'DeepLore Enhanced', { timeOut: 2500 });
@@ -176,16 +152,15 @@ export function wireToolsTab($drawer) {
     });
 }
 
-/** Wire tab expand buttons */
 export function wireTabExpand($drawer) {
     $drawer.on('click', '[data-expand]', async function () {
         try {
             const target = $(this).data('expand');
-            // Why tab "Full View" → show Context Cartographer popup (no API call)
+            // Why tab "Full View" → Context Cartographer popup (no API call).
             if (target === 'injection') {
                 const { lastInjectionSources } = await import('../state.js');
                 let sources = lastInjectionSources;
-                // Fallback: lastInjectionSources gets cleared after render — check the last AI message
+                // lastInjectionSources gets cleared after render — fall back to the last AI message.
                 if (!sources || sources.length === 0) {
                     const { chat } = await import('../../../../../../script.js');
                     if (chat) {
@@ -214,7 +189,6 @@ export function wireTabExpand($drawer) {
     });
 }
 
-/** Wire status zone quick action buttons */
 export function wireStatusActions($drawer) {
     $drawer.on('click', '.dle-action-btn[data-action]', function () {
         const action = $(this).data('action');
@@ -225,8 +199,7 @@ export function wireStatusActions($drawer) {
                 const $refreshBtn = $(this);
                 $refreshBtn.prop('disabled', true).find('i').removeClass('fa-sync').addClass('fa-spin fa-spinner');
                 buildIndex().catch(err => {
-                    // BUG-AUDIT: manual refresh was user-initiated — surface failure
-                    // instead of leaving them wondering why the status bar didn't update.
+                    // Manual refresh is user-initiated; surface failure rather than silently letting the status bar stay stale.
                     console.warn('[DLE] Manual refresh failed:', err?.message);
                     try {
                         toastr.error(
@@ -294,8 +267,7 @@ export function wireStatusActions($drawer) {
                 }
                 resetAiSearchCache();
                 setLastInjectionSources(null);
-                // BUG-396: Also clear the injection log so strip-dedup doesn't remove
-                // entries that were in deleted/regenerated messages.
+                // BUG-396: clear injection log too, so strip-dedup doesn't remove entries that were in deleted/regenerated messages.
                 if (chat_metadata.deeplore_injection_log) {
                     chat_metadata.deeplore_injection_log = [];
                     saveMetadataDebounced();
@@ -324,7 +296,6 @@ export function wireStatusActions($drawer) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 
-    // First-run setup banner actions
     $drawer.on('click', '.dle-setup-banner-btn', async () => {
         try {
             const { showSetupWizard } = await import('../ui/setup-wizard.js');
@@ -343,7 +314,6 @@ export function wireStatusActions($drawer) {
     });
 }
 
-/** Wire the Why? tab filter toggle (Injected / Filtered / Both) */
 export function wireInjectionTab($drawer) {
     $drawer.on('click', '.dle-why-filter-btn', function () {
         ds.whyTabFilter = $(this).data('filter') || 'both';
@@ -353,7 +323,7 @@ export function wireInjectionTab($drawer) {
         scheduleRender(renderInjectionTab);
     });
 
-    // BUG-AUDIT-C11: Roving tabindex for Why? filter radiogroup — matches Librarian sub-tab pattern.
+    // BUG-AUDIT-C11: roving tabindex for Why? filter radiogroup — mirrors Librarian sub-tabs.
     $drawer.on('keydown', '.dle-why-filter-btn', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); $(this).trigger('click'); return; }
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -364,7 +334,6 @@ export function wireInjectionTab($drawer) {
         $btns.eq(next).trigger('click').focus();
     });
 
-    // Copy injected entry titles to clipboard
     $drawer.on('click', '.dle-copy-titles-btn', function () {
         const $btn = $(this);
         const sources = lastInjectionSources;
@@ -381,12 +350,10 @@ export function wireInjectionTab($drawer) {
     });
 }
 
-/** Wire browse tab interactions (search, filters, pin/block, expand preview) */
 export function wireBrowseTab($drawer) {
-    // Virtual scroll — re-render visible window on scroll (RAF-throttled)
-    // The actual scroll container is .dle-drawer-inner (scrollableInner), not the tab panel
-    // BUG-AUDIT: namespaced (`.dle-browse`) so repeated wireBrowseTab calls (drawer
-    // rebuilds on chat switch / re-init) can off() the prior binding and not stack.
+    // Virtual scroll RAF-throttled re-render. Scroll container is .dle-drawer-inner, not the tab panel.
+    // Namespace `.dle-browse` so repeated wireBrowseTab calls (drawer rebuild on chat switch / re-init)
+    // can off() the prior binding without stacking.
     const $scrollInner = $drawer.find('.dle-drawer-inner');
     $scrollInner.off('scroll.dle-browse');
     $scrollInner.on('scroll.dle-browse', function () {
@@ -397,7 +364,6 @@ export function wireBrowseTab($drawer) {
         });
     });
 
-    // Search input with debounce
     $drawer.find('.dle-browse-input').on('input', function () {
         const val = $(this).val();
         clearTimeout(ds.browseSearchTimeout);
@@ -413,7 +379,6 @@ export function wireBrowseTab($drawer) {
         }, 250);
     });
 
-    // Filter selects
     $drawer.find('[data-filter="status"]').on('change', function () {
         ds.browseStatusFilter = $(this).val();
         updateFilterActiveIndicators($drawer);
@@ -439,7 +404,7 @@ export function wireBrowseTab($drawer) {
         scheduleRender(renderBrowseTab);
     });
 
-    // Custom field filter selects (delegated — selects are dynamically created)
+    // Delegated — custom field selects are dynamically rendered.
     $drawer.find('.dle-browse-filters').on('change', '.dle-browse-cf-filter', function () {
         const field = $(this).data('cf');
         const val = $(this).val();
@@ -452,9 +417,6 @@ export function wireBrowseTab($drawer) {
         scheduleRender(renderBrowseTab);
     });
 
-    // Quick-filter pills (Since last gen / Never injected). Pills render via
-    // drawer-render-tabs.js:478-479 with data-qf attribute and role="button" tabindex=0.
-    // ds.browseQuickFilter already read by renderBrowseTab — wiring completes the loop.
     $drawer.on('click', '.dle-qf-pill', function () {
         const qf = $(this).data('qf');
         ds.browseQuickFilter = (ds.browseQuickFilter === qf) ? null : qf;
@@ -467,7 +429,6 @@ export function wireBrowseTab($drawer) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 
-    // B: Clear all browse filters button (in empty-no-results state)
     $drawer.on('click', '.dle-browse-clear-filters', function () {
         ds.browseQuery = '';
         ds.browseStatusFilter = 'all';
@@ -483,10 +444,8 @@ export function wireBrowseTab($drawer) {
         toastr.info('Filters cleared.', 'DeepLore Enhanced', { timeOut: 2000 });
     });
 
-    // BUG-AUDIT-3: Pin/block buttons via event delegation
-    // Store {title, vaultSource} objects to match the format used by slash commands.
-    // Use normalizePinBlock() to safely compare existing entries (handles both legacy
-    // bare strings and structured objects).
+    // BUG-AUDIT-3: Store {title, vaultSource} objects to match slash-command format.
+    // normalizePinBlock() handles both legacy bare strings and structured objects.
     $drawer.find('.dle-browse-list').on('click', '.dle-browse-pin', function () {
         const title = $(this).data('entry');
         const vaultSource = $(this).data('vault') || null;
@@ -500,12 +459,11 @@ export function wireBrowseTab($drawer) {
         });
 
         if (idx !== -1) {
-            // Unpin
             chat_metadata.deeplore_pins.splice(idx, 1);
             announceToScreenReader(`Unpinned ${title}`);
             toastr.info(`Unpinned: ${title}`, 'DeepLore Enhanced', { timeOut: 2000 });
         } else {
-            // Pin — also remove from blocks
+            // Pin → also remove from blocks (mutually exclusive).
             chat_metadata.deeplore_pins.push({ title, vaultSource });
             if (chat_metadata.deeplore_blocks) {
                 chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(b => {
@@ -537,12 +495,11 @@ export function wireBrowseTab($drawer) {
         });
 
         if (idx !== -1) {
-            // Unblock
             chat_metadata.deeplore_blocks.splice(idx, 1);
             announceToScreenReader(`Unblocked ${title}`);
             toastr.info(`Unblocked: ${title}`, 'DeepLore Enhanced', { timeOut: 2000 });
         } else {
-            // Block — also remove from pins
+            // Block → also remove from pins (mutually exclusive).
             chat_metadata.deeplore_blocks.push({ title, vaultSource });
             if (chat_metadata.deeplore_pins) {
                 chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => {
@@ -561,11 +518,10 @@ export function wireBrowseTab($drawer) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 
-    // Click/keyboard-to-expand entry preview (click on entry info area, not buttons)
     $drawer.find('.dle-browse-list').on('click keydown', '.dle-browse-info', function (e) {
         if (e.type === 'keydown' && e.key === 'Escape' && $(this).attr('aria-expanded') === 'true') {
             e.preventDefault();
-            $(this).trigger('click'); // collapse
+            $(this).trigger('click');
             return;
         }
         if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
@@ -577,23 +533,21 @@ export function wireBrowseTab($drawer) {
         const $list = $drawer.find('.dle-browse-list');
         const $existing = $entry.find('.dle-browse-preview');
         if ($existing.length) {
-            // Collapse: reset expanded state and force re-render to fix positions
+            // Collapse — reset expanded state and force a virtual-scroll re-render to fix row positions.
             $existing.remove();
             $entry.css('height', BROWSE_ROW_HEIGHT + 'px');
             $(this).attr('aria-expanded', 'false');
             ds.browseExpandedEntry = null;
             ds.browseExpandedIdx = null;
             ds.browseExpandedExtraHeight = 0;
-            // Update container min-height and force re-render
             const totalHeight = ds.browseFilteredEntries.length * BROWSE_ROW_HEIGHT;
             $list.css({ 'min-height': totalHeight + 'px' });
-            ds.browseLastRangeStart = -1; // invalidate cache
+            ds.browseLastRangeStart = -1;
             ds._browseLastScrollTop = undefined;
             renderBrowseWindow();
             return;
         }
 
-        // Collapse the previously expanded entry (if different from this one)
         if (ds.browseExpandedEntry) {
             const $prev = $list.find(`.dle-browse-entry[data-title="${CSS.escape(ds.browseExpandedEntry)}"]`);
             if ($prev.length) {
@@ -603,7 +557,6 @@ export function wireBrowseTab($drawer) {
             }
         }
 
-        // Find the entry data
         const entry = ds.browseFilteredEntries.find(e => e.title === title);
         if (!entry) return;
 
@@ -611,11 +564,9 @@ export function wireBrowseTab($drawer) {
         ds.browseExpandedEntry = title;
         $(this).attr('aria-expanded', 'true');
 
-        // Build preview content
         const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
         const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
 
-        // Build Obsidian link
         const settings = getSettings();
         const srcVault = entry.vaultSource && settings.vaults
             ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
@@ -623,7 +574,6 @@ export function wireBrowseTab($drawer) {
         const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
         const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
 
-        // Custom fields line
         let fieldsHtml = '';
         if (entry.customFields && Object.keys(entry.customFields).length > 0) {
             const pairs = Object.entries(entry.customFields)
@@ -634,28 +584,25 @@ export function wireBrowseTab($drawer) {
 
         const previewHtml = `<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
 
-        // Expand: append preview, measure, then batch all writes
+        // Append → height:auto → measure (single forced reflow) → batch writes after the read.
         $entry.append(previewHtml);
         $entry.css('height', 'auto');
-        // Read: measure natural height (single forced reflow)
         const naturalHeight = $entry[0].scrollHeight;
         const extraHeight = Math.max(0, naturalHeight - BROWSE_ROW_HEIGHT);
 
-        // Batch all state + DOM writes after the read
         ds.browseExpandedIdx = entryIdx;
         ds.browseExpandedExtraHeight = extraHeight;
 
         const totalHeight = ds.browseFilteredEntries.length * BROWSE_ROW_HEIGHT + extraHeight;
         $list.css({ 'min-height': totalHeight + 'px' });
-        ds.browseLastRangeStart = -1; // invalidate cache
+        ds.browseLastRangeStart = -1;
         ds._browseLastScrollTop = undefined;
         renderBrowseWindow();
     });
 }
 
-/** Wire gating tab interactions (chip remove, set buttons) */
 export function wireGatingTab($drawer) {
-    // Chip X buttons via event delegation — animate out before removing
+    // Chip X buttons via event delegation — animate out before removing.
     $drawer.find('#dle-panel-gating').on('click', '.dle-chip-x', function () {
         const field = $(this).data('field');
         const value = $(this).data('value');
@@ -664,14 +611,12 @@ export function wireGatingTab($drawer) {
         if (!chat_metadata.deeplore_context) return;
         const ctx = chat_metadata.deeplore_context;
 
-        // Animate the chip out
         const $chip = $(this).closest('.dle-chip');
         $chip.addClass('dle-chip-removing');
 
-        // Update state after animation starts (don't wait for transitionend to avoid
-        // the chip being re-rendered by a concurrent gating render)
+        // State update fires on transitionend OR a 200ms safety timeout (whichever first).
+        // Don't wait for transitionend exclusively — a concurrent gating render would re-create the chip.
         const applyRemoval = () => {
-            // Look up the field definition to find the contextKey
             const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
             const fd = allDefs.find(d => d.name === field);
             if (fd) {
@@ -686,24 +631,22 @@ export function wireGatingTab($drawer) {
             notifyGatingChanged();
         };
 
-        // Fire state update after animation completes (guard against double-fire)
         let fired = false;
         const once = () => { if (!fired) { fired = true; applyRemoval(); } };
         $chip.one('transitionend', once);
-        setTimeout(once, 200); // safety timeout
+        setTimeout(once, 200);
     });
 
     $drawer.find('#dle-panel-gating').on('keydown', '.dle-chip-x', function (e) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 
-    // Set buttons via event delegation — uses generic /dle-set-field for custom fields
     $drawer.find('#dle-panel-gating').on('click', '.dle-gating-set', async function () {
         const $group = $(this).closest('.dle-gating-group');
         const field = $group.data('field');
         if (!field) return;
 
-        // Built-in fields have dedicated commands; custom fields use generic command
+        // Built-in fields have dedicated commands; custom fields fall through to generic /dle-set-field.
         const cmdMap = {
             era: '/dle-set-era',
             location: '/dle-set-location',
@@ -714,7 +657,6 @@ export function wireGatingTab($drawer) {
         executeCommand(cmd);
     });
 
-    // Clear All gating button — reset all active context fields
     $drawer.find('.dle-clear-all-gating-btn').on('click', function () {
         if (!chat_metadata?.deeplore_context) return;
         const ctx = chat_metadata.deeplore_context;
@@ -737,12 +679,10 @@ export function wireGatingTab($drawer) {
         toastr.success(`Cleared ${cleared} gating filter${cleared !== 1 ? 's' : ''}.`, 'DeepLore Enhanced', { timeOut: 2000 });
     });
 
-    // Manage Fields button — opens the rule builder popup
     $drawer.find('.dle-manage-fields-btn').on('click', () => openRuleBuilder());
 
-    // ── Folder filter events ──
+    // ── Folder filter ──
 
-    // Folder chip X buttons — remove a folder from the filter
     $drawer.find('#dle-panel-gating').on('click', '.dle-folder-chip-x', function () {
         const folder = $(this).data('folder');
         if (!folder || !chat_metadata) return;
@@ -768,7 +708,6 @@ export function wireGatingTab($drawer) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 
-    // Folder "Set" button — open folder selection popup
     $drawer.find('.dle-folder-set-btn').on('keydown', function (e) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
@@ -804,7 +743,6 @@ export function wireGatingTab($drawer) {
                     btn.addEventListener('click', () => {
                         const selected = btn.getAttribute('data-value');
                         if (!selected) {
-                            // Clear all
                             chat_metadata.deeplore_folder_filter = null;
                             saveMetadataDebounced();
                             notifyGatingChanged();
@@ -812,7 +750,6 @@ export function wireGatingTab($drawer) {
                             document.querySelector('.popup-button-ok')?.click();
                             return;
                         }
-                        // Toggle
                         if (!chat_metadata.deeplore_folder_filter) chat_metadata.deeplore_folder_filter = [];
                         const idx = chat_metadata.deeplore_folder_filter.indexOf(selected);
                         if (idx !== -1) {
@@ -823,7 +760,6 @@ export function wireGatingTab($drawer) {
                             chat_metadata.deeplore_folder_filter.push(selected);
                             btn.classList.add('dle-field-select--active');
                         }
-                        // Update the "Active:" label in real-time
                         const pEl = document.querySelector('.dle-popup p.dle-mb-2');
                         const cf = chat_metadata.deeplore_folder_filter || [];
                         if (pEl) pEl.innerHTML = cf.length ? `Active: <strong>${escapeHtml(cf.join(', '))}</strong>` : '';
@@ -835,7 +771,7 @@ export function wireGatingTab($drawer) {
         });
     });
 
-    // Folder badge in status zone + gating value chips → switch to gating tab (BUG-188: keyboard)
+    // BUG-188: keyboard activation on status-zone folder badge + gating value chips.
     $drawer.on('click', '.dle-folder-badge-chip, .dle-gating-value-chip', function () {
         switchTab($drawer, 'gating');
     });
@@ -846,7 +782,6 @@ export function wireGatingTab($drawer) {
         }
     });
 
-    // Reasoning chip → open AI Connections settings (P13: goto-ai-connections)
     $drawer.on('click', '[data-action="goto-ai-connections"]', function (e) {
         e.stopPropagation();
         announceToScreenReader('Open Settings, then Connection, then AI Connections subtab.');
@@ -856,7 +791,6 @@ export function wireGatingTab($drawer) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
     });
 
-    // Reasoning warning dismiss button (P13: .dle-chip-dismiss)
     $drawer.on('click', '.dle-chip-dismiss', function (e) {
         e.stopPropagation();
         ds.reasoningWarningDismissed = true;
@@ -867,9 +801,6 @@ export function wireGatingTab($drawer) {
     });
 }
 
-/**
- * Wire health icon click handlers (one-time binding).
- */
 export function wireHealthIcons($drawer) {
     const $footer = $drawer.find('#dle-drawer-footer');
     if (!$footer.length) return;
@@ -899,7 +830,6 @@ export function wireHealthIcons($drawer) {
         }
     });
 
-    // Also handle Enter/Space for keyboard a11y
     $footer.find('.dle-health-icons').on('keydown', '[data-health]', function (e) {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -913,20 +843,18 @@ export function wireHealthIcons($drawer) {
 // ════════════════════════════════════════════════════════════════════════════
 let removeArmedAt = 0;
 
-/** Wire Librarian tab interactions (sub-tabs, sort, selection, footer actions) */
 export function wireLibrarianTab($drawer) {
-    // Sub-tab buttons (Flags / Activity) — selection NOT persisted across tab entries
+    // Sub-tab selection (Flags/Activity) is intentionally not persisted across tab entries.
     $drawer.on('click', '.dle-librarian-sub-tab', function () {
         ds.librarianFilter = $(this).data('filter') || 'flag';
         $drawer.find('.dle-librarian-sub-tab').attr('tabindex', '-1').attr('aria-checked', 'false');
         $(this).attr('tabindex', '0').attr('aria-checked', 'true');
-        // Sub-tab change clears selection (a different list is now displayed)
+        // Sub-tab change displays a different list — clear selection.
         ds.librarianSelected.clear();
         ds.librarianLastClicked = null;
         scheduleRender(renderLibrarianTab);
     });
 
-    // Roving tabindex: arrow keys between sub-tabs
     $drawer.on('keydown', '.dle-librarian-sub-tab', function (e) {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
         e.preventDefault();
@@ -936,14 +864,12 @@ export function wireLibrarianTab($drawer) {
         $tabs.eq(next).trigger('click').focus();
     });
 
-    // Sort select
     $drawer.on('change', '.dle-librarian-sort', function () {
         ds.librarianSort = $(this).val() || 'newest';
         try { accountStorage.setItem('dle-librarian-sort', ds.librarianSort); } catch { /* noop */ }
         scheduleRender(renderLibrarianTab);
     });
 
-    // Clear selection × button (drawer-render-librarian.js renders this pill; handler was missing).
     $drawer.on('click', '.dle-librarian-clear-btn', function () {
         ds.librarianSelected.clear();
         ds.librarianLastClicked = null;
@@ -951,8 +877,7 @@ export function wireLibrarianTab($drawer) {
         announceToScreenReader('Selection cleared');
     });
 
-    // Click on a gap row → toggle expand (plain text detail). Ignore clicks on
-    // the checkbox itself.
+    // Click a gap row → toggle expand (ignore clicks on the checkbox itself).
     $drawer.on('click', '.dle-librarian-entry', function (e) {
         if ($(e.target).closest('.dle-gap-check').length) return;
 
@@ -983,7 +908,6 @@ export function wireLibrarianTab($drawer) {
         $entry.addClass('dle-gap-expanded').attr('aria-expanded', 'true');
     });
 
-    // Keyboard arrows on focused entry
     $drawer.on('keydown', '.dle-librarian-entry', function (e) {
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -996,17 +920,15 @@ export function wireLibrarianTab($drawer) {
             const $target = $prev.length ? $prev : $drawer.find('.dle-librarian-entry').last();
             if ($target.length) $target[0].focus();
         } else if (e.key === ' ') {
-            // Space: toggle expand only (not checkbox)
+            // Space toggles expand; the checkbox handles its own activation.
             e.preventDefault();
             $(this).trigger('click');
         } else if (e.key === 'd' && _isSafeShortcutTarget(document.activeElement)) {
-            // d: mark selected as written (P14)
             if (ds.librarianSelected.size > 0) {
                 e.preventDefault();
                 $drawer.find('.dle-librarian-action[data-librarian-action="done"]').trigger('click');
             }
         } else if ((e.key === 'Delete' || e.key === 'Backspace') && _isSafeShortcutTarget(document.activeElement)) {
-            // Delete/Backspace: remove selected (P14)
             if (ds.librarianSelected.size > 0) {
                 e.preventDefault();
                 $drawer.find('.dle-librarian-action[data-librarian-action="remove"]').trigger('click');
@@ -1014,7 +936,6 @@ export function wireLibrarianTab($drawer) {
         }
     });
 
-    // New Entry / Vault Review buttons (empty state and bottom toolbar)
     $drawer.on('click', '.dle-librarian-new-entry-btn', function () {
         executeCommand('/dle-librarian');
     });
@@ -1041,7 +962,6 @@ export function wireLibrarianTab($drawer) {
 
     // ─── Selection ───────────────────────────────────────────────────────────
 
-    // Per-row checkbox (always visible)
     $drawer.on('click', '.dle-gap-check', function (e) {
         e.stopPropagation();
         const $entry = $(this).closest('.dle-librarian-entry');
@@ -1069,7 +989,6 @@ export function wireLibrarianTab($drawer) {
         scheduleRender(renderLibrarianTab);
     });
 
-    // Select-all checkbox in header strip
     $drawer.on('click', '.dle-librarian-select-all', function () {
         const checked = $(this).prop('checked');
         const $entries = $drawer.find('.dle-librarian-list .dle-librarian-entry');
@@ -1093,7 +1012,6 @@ export function wireLibrarianTab($drawer) {
         if (ids.length === 0) return;
 
         if (action === 'open') {
-            // Open is single-selection only
             if (ids.length !== 1) return;
             executeCommand(`/dle-librarian gap ${ids[0]}`);
             return;
@@ -1121,8 +1039,8 @@ export function wireLibrarianTab($drawer) {
         if (action === 'remove') {
             const $btn = $(this);
             const now = Date.now();
+            // Two-click confirm pattern: first click arms for 3s, second click within window executes.
             if (now - removeArmedAt > 3000) {
-                // Arm: first click — show confirm state, revert after 3s if no second click
                 removeArmedAt = now;
                 const origHtml = $btn.html();
                 $btn.html('<i class="fa-solid fa-trash" aria-hidden="true"></i> Click again to confirm');
@@ -1131,7 +1049,6 @@ export function wireLibrarianTab($drawer) {
                 }, 3000);
                 return;
             }
-            // Confirmed: second click within 3s — execute
             removeArmedAt = 0;
             const hidden = getHiddenGapIds();
             let hideN = 0, dismissN = 0;
@@ -1154,7 +1071,6 @@ export function wireLibrarianTab($drawer) {
         }
     });
 
-    // Invert selection
     $drawer.on('click keydown', '.dle-librarian-invert-btn', function (e) {
         if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
         if (e.type === 'keydown') e.preventDefault();
@@ -1165,7 +1081,7 @@ export function wireLibrarianTab($drawer) {
     });
 }
 
-/** Wire global drawer keyboard shortcuts (r=refresh, s=scribe, n=newlore, g=graph, /=focus search) */
+/** Drawer-wide shortcuts: r=refresh, s=scribe, n=newlore, g=graph, /=focus search. */
 export function wireGlobalShortcuts($drawer) {
     $drawer.on('keydown.dle-shortcuts', function (e) {
         if (e.target.matches('input, textarea, [contenteditable]')) return;

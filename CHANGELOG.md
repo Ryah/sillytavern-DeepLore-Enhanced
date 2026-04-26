@@ -14,7 +14,7 @@
 
 ---
 
-## 2.0-beta (2026-04-11)
+## 2.0-beta (2026-04-26)
 
 > The Librarian update. Your lorebook grows with your story — the writing AI flags what's missing, Emma helps you write it.
 

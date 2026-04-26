@@ -24,6 +24,14 @@ labels: bug
 2.
 3.
 
+## Diagnostic report (recommended)
+<!--
+The fastest way to get help is to attach a DLE diagnostic export.
+- DLE settings → About tab → Diagnostics → "Export Diagnostics".
+- File is anonymized (API keys, IPs, hostnames, user paths pseudonymized).
+- Drag the .json file into this issue, or paste the contents in a code block.
+-->
+
 ## Console errors
 <!-- Open browser DevTools (F12) → Console tab. Copy any red errors. -->
 

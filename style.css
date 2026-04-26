@@ -166,6 +166,15 @@
     pointer-events: none;
 }
 
+/* --- Diagnostics export button: ~20% larger to match its prominence --- */
+#dle-sp-export-diagnostics {
+    font-size: 1.2em;
+    padding: 7px 14px;
+}
+#dle-sp-export-diagnostics i {
+    font-size: 1.1em;
+}
+
 /* --- Focus-visible styles (accessibility) --- */
 .dle-settings button:focus-visible,
 .dle-settings input:focus-visible,

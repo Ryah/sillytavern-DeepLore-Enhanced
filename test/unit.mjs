@@ -2604,12 +2604,12 @@ test('testEntryMatch: refineKeys allows match when both present', () => {
     assert(match, 'should match when both key and refineKey are present');
 });
 
-test('XML escaping in content templates', () => {
+test('XML escaping in content templates: title escaped, content raw (issue #16)', () => {
     const entries = [
-        { title: 'Test<Entry>', content: 'Has <xml> & "quotes"', tokenEstimate: 10, priority: 50, injectionPosition: 0 },
+        { title: 'Test<Entry>', content: 'Has <xml> & "quotes" <3', tokenEstimate: 10, priority: 50, injectionPosition: 0 },
     ];
     const settings = {
-        injectionTemplate: '<{{title}}>\\n{{content}}\\n</{{title}}>',
+        injectionTemplate: '<{{title}}>\n{{content}}\n</{{title}}>',
         injectionPosition: 0,
         injectionDepth: 4,
         injectionRole: 0,
@@ -2619,11 +2619,16 @@ test('XML escaping in content templates', () => {
         unlimitedBudget: false,
     };
     const result = formatAndGroup(entries, settings, 'deeplore_');
-    if (result.groups.length > 0) {
-        const text = result.groups[0].text;
-        assert(!text.includes('<Test<Entry>>'), 'title should be XML-escaped in template');
-        assert(text.includes('&lt;'), 'should contain escaped angle brackets');
-    }
+    assert(result.groups.length > 0, 'should produce at least one group');
+    const text = result.groups[0].text;
+    // Title MUST be escaped (interpolated as the wrapper tag name).
+    assert(!text.includes('<Test<Entry>>'), 'raw title must not appear inside wrapper');
+    assert(text.includes('Test&lt;Entry&gt;'), 'title must be XML-escaped');
+    // Content MUST pass through raw — authors intentionally use XML/markup in entries.
+    assert(text.includes('Has <xml> & "quotes" <3'), 'content must not be escaped');
+    assert(!text.includes('&lt;xml&gt;'), 'content angle brackets must not be escaped');
+    assert(!text.includes('&amp;'), 'content ampersand must not be escaped');
+    assert(!text.includes('&quot;'), 'content quotes must not be escaped');
 });
 
 test('normalizeResults: production function handles all formats', () => {

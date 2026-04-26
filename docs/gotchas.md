@@ -487,3 +487,13 @@ if (lockEpoch === generationLockEpoch) setGenerationLock(false);
 **Why:** A handler signature like `(messageId) => ...` silently receives the entire object. Downstream operations such as `chat?.[messageId]` or `Number(messageId)` produce `undefined` / `NaN` and the handler no-ops without throwing. Symptoms: stale `perSwipeInjectedKeys` accumulate after every swipe delete, `deeplore_tool_calls` / `deeplore_sources` / `deeplore_ai_notes` cleanup never fires, `chat_metadata.deeplore_swipe_injected_keys` grows monotonically. Verified upstream emit shape in `public/script.js` (ST 1.12.x).
 
 **Where:** `index.js` — `_registerEs(event_types.MESSAGE_SWIPE_DELETED, ...)`. Same applies to any new ST event handler — confirm the emit shape in upstream `script.js` before assuming scalar params.
+
+---
+
+## 45. `formatAndGroup` Title-Only Escaping Policy
+
+**Rule:** In `formatEntry` (inside `formatAndGroup`), apply `escapeXml` to `entry.title` only. `entry.content` MUST pass through unmodified. Do not re-introduce `escapeXml(entry.content)` or any `<` / `>` / `&` / `"` substitution on content.
+
+**Why:** Title is interpolated as the wrapper tag name (`<{{title}}>`), so unescaped `<` in a title produces an unparseable wrapper. Content is freeform text to ST, the LLM, and every downstream consumer in the injection path — there is no XML parser between `setExtensionPrompt` and the model. Vault authors intentionally embed XML, markdown, code samples, `<3`, nested tags, and ampersands in entry content; escaping clobbers all of those (issue #16). Earlier BUG-090 expanded the escape on the assumption of "downstream XML tooling" — no such tooling exists. The original pre-BUG-090 stub was paranoia about prompt-injection from `</system>`-style tokens, but vault content is author-controlled, not user-input, and ST's prompt structure is JSON-shaped, not text-parsed.
+
+**Where:** `core/matching.js` — `formatEntry` arrow inside `formatAndGroup`. Test: `test/unit.mjs` "XML escaping in content templates: title escaped, content raw (issue #16)".

@@ -423,11 +423,17 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         count++;
     }
 
-    // BUG-090: use canonical escapeXml — local stub only handled `<` and `>`, leaving
-    // `&` and `"` to break downstream XML tooling.
+    // Title is interpolated as the wrapper tag name (`<{{title}}>`), so it MUST be
+    // XML-escaped or a title like `Test<Entry>` produces an unparseable wrapper.
+    // Content passes through raw — vault authors deliberately use XML/markup inside
+    // entries (nested tags, examples, `<3`, code samples) and downstream consumers
+    // (ST, LLMs) treat injected text as freeform. Escaping content broke entries that
+    // intentionally contained `<tag>` markup (issue #16). Earlier BUG-090 expanded the
+    // escape on the assumption of "downstream XML tooling" — no such tooling exists in
+    // the injection path.
     const formatEntry = (entry) => {
         let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
-        text = text.replace(/\{\{content\}\}/g, escapeXml(entry.content));
+        text = text.replace(/\{\{content\}\}/g, entry.content);
         return text;
     };
 

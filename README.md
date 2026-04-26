@@ -50,6 +50,10 @@ Chat → matchEntries (keywords + BM25 fuzzy)
   <a href="https://youtu.be/tiq0dfD6-RU?si=pTBw4r-RNCkHsoYZ">
     <img src="https://img.youtube.com/vi/tiq0dfD6-RU/maxresdefault.jpg" alt="Watch: Drawer, Search, and Flagging" width="720">
   </a>
+  <br>
+  <a href="https://youtu.be/tiq0dfD6-RU?si=pTBw4r-RNCkHsoYZ">
+    <img src="https://img.shields.io/badge/%E2%96%B6_Watch_on_YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch on YouTube">
+  </a>
 </p>
 
 ## New in v2: Emma, your librarian
@@ -72,6 +76,10 @@ Your story fills in your world. Your world fires back into your story.
 <p align="center">
   <a href="https://youtu.be/jsPE9vkA8ck?si=6r-czyn5TvjdRf7M">
     <img src="https://img.youtube.com/vi/jsPE9vkA8ck/maxresdefault.jpg" alt="Watch: Librarian (Emma)" width="720">
+  </a>
+  <br>
+  <a href="https://youtu.be/jsPE9vkA8ck?si=6r-czyn5TvjdRf7M">
+    <img src="https://img.shields.io/badge/%E2%96%B6_Watch_on_YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch on YouTube">
   </a>
 </p>
 
@@ -120,6 +128,10 @@ The Local REST API plugin ships with a self-signed HTTPS cert. Browsers block it
 <p align="center">
   <a href="https://youtu.be/5oU1nFPh_m8?si=DcHkV0XeQJj3bk50">
     <img src="https://img.youtube.com/vi/5oU1nFPh_m8/maxresdefault.jpg" alt="Watch: Relationship Graph" width="720">
+  </a>
+  <br>
+  <a href="https://youtu.be/5oU1nFPh_m8?si=DcHkV0XeQJj3bk50">
+    <img src="https://img.shields.io/badge/%E2%96%B6_Watch_on_YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch on YouTube">
   </a>
 </p>
 

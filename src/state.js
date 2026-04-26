@@ -2,9 +2,36 @@
  * DeepLore Enhanced — Shared mutable state
  * All globals live here; modules import and read/write directly.
  */
+// Late-bound pushEvent — avoids circular import at module eval. Lazy on first use.
+let _pushEventRef = null;
+function pushEventSafe(kind, data) {
+    try {
+        if (!_pushEventRef) {
+            // Dynamic import: fire-and-forget on first call, sync after.
+            // .catch is required — without it, a future syntax error in interceptors.js
+            // would surface as an unhandled-rejection on every state mutation.
+            import('./diagnostics/interceptors.js')
+                .then(m => { _pushEventRef = m.pushEvent; })
+                .catch(() => { /* diagnostics are best-effort */ });
+            return;
+        }
+        _pushEventRef(kind, data);
+    } catch { /* never block state mutations for diagnostic logging */ }
+}
 
 /** @type {import('../core/pipeline.js').VaultEntry[]} */
 export let vaultIndex = [];
+
+// Per-build parser ledger. Consumed by /dle-lint and the post-index summary toast.
+export let indexBuildReport = {
+    okCount: 0,
+    warnCount: 0,
+    skipCount: 0,
+    skipped: [],      // [{ filename, reason }]
+    entriesWithWarnings: [], // [{ filename, title, warnings[] }]
+};
+/** Computed folder list from vault index: [{path, entryCount}] sorted by count desc */
+export let folderList = [];
 export let indexTimestamp = 0;
 export let indexing = false;
 /** @type {Promise<void>|null} In-progress build promise for deduplication */
@@ -13,10 +40,10 @@ export let buildPromise = null;
 export let indexEverLoaded = false;
 
 /** AI search result cache (sliding window: tracks manifest + chat lines separately) */
-export let aiSearchCache = { hash: '', manifestHash: '', chatLineCount: 0, results: [] };
+export let aiSearchCache = { hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null };
 
 /** Session-scoped AI search usage stats */
-export let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+export let aiSearchStats = { calls: 0, cachedHits: 0, totalInputTokens: 0, totalOutputTokens: 0, hierarchicalCalls: 0 };
 
 /** Context Cartographer: sources from the last generation interceptor run */
 export let lastInjectionSources = null;
@@ -65,6 +92,11 @@ export let chatInjectionCounts = new Map();
 /** Last health check result for settings badge */
 export let lastHealthResult = null;
 
+/** Tracker snapshot for swipe rollback: pre-mutation state of cooldown/decay/consecutive/injectionHistory/generationCount.
+ * Captured at the start of each generation; restored at the start of the next generation if it's detected as a swipe. */
+export let lastGenerationTrackerSnapshot = null;
+export function setLastGenerationTrackerSnapshot(v) { lastGenerationTrackerSnapshot = v; }
+
 /** Vault fetch failure tracking: how many enabled vaults failed during the last index build */
 export let lastVaultFailureCount = 0;
 /** How many vaults were attempted during the last index build */
@@ -79,27 +111,76 @@ export let vaultAvgTokens = 0;
 /** Chat epoch counter — increments on every CHAT_CHANGED to detect stale onGenerate writes */
 export let chatEpoch = 0;
 
-// ── Utility: consistent tracker key for Maps (cooldown, injection, decay, analytics) ──
-// Uses vaultSource:title to avoid collisions when the same title exists in multiple vaults.
+// `vaultSource:title` — avoids collisions when the same title exists in multiple vaults.
 export function trackerKey(entry) {
     return `${entry.vaultSource || ''}:${entry.title}`;
 }
 
-// ── Setter functions ──
-// ES modules export live bindings but `let` exports can only be reassigned
-// from within the module that declared them. These setters allow other
-// modules to update the state.
+// `let` exports are read-only bindings outside this module — setters bridge that.
 
 export function setVaultIndex(v) { vaultIndex = v; }
+
+export function setIndexBuildReport(r) { indexBuildReport = r; }
+export function getIndexBuildReport() { return indexBuildReport; }
+
+/**
+ * Returns vault entries that are safe to show to the writing AI.
+ * Filters out `lorebook-guide` entries (Librarian-only meta/style guides).
+ *
+ * **Use this everywhere except:** Emma's Librarian chat tools, the drawer Browse tab,
+ * the graph, and diagnostics. Anything that produces content the writing AI may see —
+ * pipeline matching, AI candidate manifest, dle_search_lore, scribe, auto-suggest —
+ * MUST go through this function instead of reading `vaultIndex` directly.
+ *
+ * @returns {Array} Filtered vault index excluding guide entries.
+ */
+export function getWriterVisibleEntries() {
+    return vaultIndex.filter(e => !e.guide);
+}
+export function setFolderList(v) { folderList = v; }
 export function setIndexTimestamp(v) { indexTimestamp = v; }
 export function setIndexing(v) { indexing = v; notifyIndexingChanged(); }
 export function setBuildPromise(v) { buildPromise = v; }
 export function setIndexEverLoaded(v) { indexEverLoaded = v; }
 export function setAiSearchCache(v) { aiSearchCache = v; }
+/** Canonical empty aiSearchCache shape. Use everywhere the cache is invalidated
+ *  so partial writes can't drop fields (notably `matchedEntrySet`) and leak stale
+ *  state across chats / rebuilds. */
+export function emptyAiSearchCache() {
+    return { hash: '', manifestHash: '', chatLineCount: 0, results: [], matchedEntrySet: null };
+}
+export function resetAiSearchCache() { aiSearchCache = emptyAiSearchCache(); }
 export function setLastInjectionSources(v) { lastInjectionSources = v; }
 export function setLastInjectionEpoch(v) { lastInjectionEpoch = v; }
 export function setLastScribeChatLength(v) { lastScribeChatLength = v; }
 export function setScribeInProgress(v) { scribeInProgress = v; }
+
+/** AI Notepad extract lock — prevents concurrent extraction calls */
+export let notepadExtractInProgress = false;
+export function setNotepadExtractInProgress(v) { notepadExtractInProgress = v; }
+
+/** Claude adaptive-thinking misconfiguration flag (any feature in bad combo) */
+export let claudeAutoEffortBad = false;
+export let claudeAutoEffortDetail = null;
+const claudeAutoEffortObservers = new Set();
+export function setClaudeAutoEffortState(bad, detail) {
+    claudeAutoEffortBad = !!bad;
+    claudeAutoEffortDetail = detail || null;
+    for (const cb of claudeAutoEffortObservers) {
+        try { cb(claudeAutoEffortBad, claudeAutoEffortDetail); } catch (e) { console.warn('[DLE] Claude auto-effort observer callback error:', e?.message); }
+    }
+}
+export function onClaudeAutoEffortChanged(cb) { claudeAutoEffortObservers.add(cb); return () => claudeAutoEffortObservers.delete(cb); }
+
+// Settings write paths must call notifyDebugModeChanged() after mutating debugMode.
+const debugModeObservers = new Set();
+export function onDebugModeChanged(cb) { debugModeObservers.add(cb); return () => debugModeObservers.delete(cb); }
+export function notifyDebugModeChanged() {
+    for (const cb of [...debugModeObservers]) {
+        try { cb(); } catch (err) { console.warn('[DLE] debugMode observer callback error:', err?.message); }
+    }
+}
+
 export function setLastScribeSummary(v) { lastScribeSummary = v; }
 export function setPreviousIndexSnapshot(v) { previousIndexSnapshot = v; }
 export function setCooldownTracker(v) { cooldownTracker = v; }
@@ -107,11 +188,11 @@ export function setGenerationCount(v) { generationCount = v; }
 export function setInjectionHistory(v) { injectionHistory = v; }
 export function setSyncIntervalId(v) { syncIntervalId = v; }
 export function setLastWarningRatio(v) { lastWarningRatio = v; }
-export function setLastPipelineTrace(v) { lastPipelineTrace = v; }
+export function setLastPipelineTrace(v) { lastPipelineTrace = v; notifyPipelineTraceUpdated(); }
 export function setAutoSuggestMessageCount(v) { autoSuggestMessageCount = v; }
 export function setDecayTracker(v) { decayTracker = v; }
 export function setConsecutiveInjections(v) { consecutiveInjections = v; }
-export function setChatInjectionCounts(v) { chatInjectionCounts = v; }
+export function setChatInjectionCounts(v) { chatInjectionCounts = v; notifyChatInjectionCountsUpdated(); }
 export function setLastHealthResult(v) { lastHealthResult = v; }
 export function setLastVaultFailureCount(v) { lastVaultFailureCount = v; }
 export function setLastVaultAttemptCount(v) { lastVaultAttemptCount = v; }
@@ -119,13 +200,15 @@ export function setPreviousSources(v) { previousSources = v; }
 export function setVaultAvgTokens(v) { vaultAvgTokens = v; }
 export function setChatEpoch(v) { chatEpoch = v; }
 
-/** Swipe detection: hash of last message at last generation (to detect swipe/regen = same hash) */
-export let lastGenerationChatHash = '';
-export function setLastGenerationChatHash(v) { lastGenerationChatHash = v; }
-
-/** Swipe detection: keys injected in last generation (to undo on swipe) */
-export let lastGenerationInjectedKeys = new Set();
-export function setLastGenerationInjectedKeys(v) { lastGenerationInjectedKeys = v; }
+/** BUG-291/292/293: Per-swipe injected keys, identified by `${msgIdx}|${swipe_id}`.
+ * Replaces the old content-hash + single-Set approach which:
+ *   - missed alternate-swipe navigation (content changes → thought it was a new gen)
+ *   - collided with delete-then-regenerate
+ *   - decremented the wrong keys (last gen's, not the swipe actually being replaced)
+ * Persisted to chat_metadata.deeplore_swipe_injected_keys so rollback survives reload.
+ * Pruned on write to keep only recent message slots. */
+export let perSwipeInjectedKeys = new Map();
+export function setPerSwipeInjectedKeys(v) { perSwipeInjectedKeys = v; }
 
 /** E9: Generation count at last index rebuild (for generation-based rebuild trigger) */
 export let lastIndexGenerationCount = 0;
@@ -149,6 +232,28 @@ export function setGenerationLock(v) {
     notifyGenerationLockChanged();
 }
 export function setGenerationLockEpoch(v) { generationLockEpoch = v; }
+/** Update lock timestamp without toggling the lock itself (C9: agentic loop keepalive). */
+export function setGenerationLockTimestamp(v) { generationLockTimestamp = v; }
+
+/** Pipeline phase for drawer status display.
+ *  @type {'idle'|'choosing'|'generating'|'writing'|'searching'|'flagging'} */
+export let pipelinePhase = 'idle';
+
+/** @type {Set<() => void>} */
+const pipelinePhaseCallbacks = new Set();
+
+export function setPipelinePhase(phase) {
+    if (pipelinePhase === phase) return;
+    pipelinePhase = phase;
+    for (const cb of [...pipelinePhaseCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Pipeline phase callback error:', err.message); }
+    }
+}
+
+export function onPipelinePhaseChanged(cb) {
+    pipelinePhaseCallbacks.add(cb);
+    return () => pipelinePhaseCallbacks.delete(cb);
+}
 
 /** Pre-computed entity name Set for AI cache sliding window check */
 export let entityNameSet = new Set();
@@ -156,11 +261,33 @@ export function setEntityNameSet(v) { entityNameSet = v; }
 
 /** Pre-compiled word-boundary regexes for short entity names (≤3 chars) */
 export let entityShortNameRegexes = new Map();
-export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; }
+/** Monotonic version counter bumped whenever entityShortNameRegexes is rebuilt.
+ *  Consumers (e.g. aiSearchCache) can stamp this at write time and compare on read
+ *  to detect post-rebuild staleness. (BUG-394) */
+export let entityRegexVersion = 0;
+export function setEntityShortNameRegexes(v) { entityShortNameRegexes = v; entityRegexVersion++; }
 
 /** BM25 fuzzy search index: { idf: Map<term, number>, docs: Map<title, {tf: Map<term, number>, len: number}>, avgDl: number } */
 export let fuzzySearchIndex = null;
 export function setFuzzySearchIndex(v) { fuzzySearchIndex = v; }
+
+// ── Librarian: tool-assisted lore retrieval + gap detection ──
+
+/** Librarian: gap records for current chat (hydrated from chat_metadata.deeplore_lore_gaps) */
+export let loreGaps = [];
+export function setLoreGaps(v) { loreGaps = v; notifyLoreGapsChanged(); }
+
+/** Librarian: per-generation search_lore call counter (reset at generation start) */
+export let loreGapSearchCount = 0;
+export function setLoreGapSearchCount(v) { loreGapSearchCount = v; }
+
+/** Librarian: session-scoped stats (reset on page load, NOT persisted) */
+export let librarianSessionStats = { searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 };
+export function setLibrarianSessionStats(v) { librarianSessionStats = v; }
+
+/** Librarian: per-chat stats (reset on CHAT_CHANGED) */
+export let librarianChatStats = { searchCalls: 0, flagCalls: 0, estimatedExtraTokens: 0 };
+export function setLibrarianChatStats(v) { librarianChatStats = v; }
 
 /** Custom field definitions: loaded from Obsidian YAML or defaults */
 /** @type {import('./fields.js').FieldDefinition[]} */
@@ -174,6 +301,17 @@ export function setFieldDefinitionsLoaded(v) { fieldDefinitionsLoaded = v; }
  *  Built during finalizeIndex(), cached in IndexedDB with the rest of the index. */
 export let mentionWeights = new Map();
 export function setMentionWeights(v) { mentionWeights = v; }
+
+// ── One-shot pipeline control flags ──
+// Consumed and cleared on use — no async race risk.
+
+/** Skip the entire DLE pipeline for the next generation (e.g. vault review). */
+export let skipNextPipeline = false;
+export function setSkipNextPipeline(v) { skipNextPipeline = v; }
+
+/** Suppress Librarian agentic loop for the next generation (one-shot toggle). */
+export let suppressNextAgenticLoop = false;
+export function setSuppressNextAgenticLoop(v) { suppressNextAgenticLoop = v; }
 
 // ── AI service circuit breaker ──
 // Prevents repeated full-timeout waits when AI services are down.
@@ -189,8 +327,10 @@ export function setAiCircuitOpenedAt(v) { aiCircuitOpenedAt = v; }
 
 export function recordAiFailure() {
     const wasClosed = !aiCircuitOpen;
-    aiCircuitHalfOpenProbe = false;
-    aiCircuitProbeTimestamp = 0;
+    if (aiCircuitHalfOpenProbe) {
+        aiCircuitHalfOpenProbe = false;
+        aiCircuitProbeTimestamp = 0;
+    }
     aiCircuitFailures++;
     if (aiCircuitFailures >= AI_CIRCUIT_THRESHOLD) {
         aiCircuitOpen = true;
@@ -198,7 +338,10 @@ export function recordAiFailure() {
         aiCircuitOpenedAt = Date.now();
     }
     // Notify observers if state changed (closed → open)
-    if (wasClosed && aiCircuitOpen) notifyCircuitStateChanged();
+    if (wasClosed && aiCircuitOpen) {
+        pushEventSafe('ai_circuit', { from: 'closed', to: 'open', failures: aiCircuitFailures });
+        notifyCircuitStateChanged();
+    }
 }
 export function recordAiSuccess() {
     const wasOpen = aiCircuitOpen;
@@ -208,7 +351,17 @@ export function recordAiSuccess() {
     aiCircuitOpen = false;
     aiCircuitOpenedAt = 0;
     // Notify observers if state changed (open → closed)
-    if (wasOpen) notifyCircuitStateChanged();
+    if (wasOpen) {
+        pushEventSafe('ai_circuit', { from: 'open', to: 'closed' });
+        notifyCircuitStateChanged();
+    }
+}
+/** Release the half-open probe without recording success or failure.
+ *  Used by hierarchicalPreFilter: its outcome shouldn't affect the circuit breaker
+ *  since the main aiSearch() call handles its own probing independently. */
+export function releaseHalfOpenProbe() {
+    aiCircuitHalfOpenProbe = false;
+    aiCircuitProbeTimestamp = 0;
 }
 /**
  * Circuit breaker state machine (3 states):
@@ -273,84 +426,70 @@ export function tryAcquireHalfOpenProbe() {
 }
 
 // ── Observer callbacks ──
-// DLE uses a simple observer pattern to break circular dependencies between data
-// and UI layers. Producers (vault.js, ai.js, pipeline.js) call notify*() functions;
-// consumers (drawer, settings-ui) register via on*() during init.
+// Producers (vault.js, ai.js, pipeline.js) call notify*(); consumers (drawer,
+// settings-ui) register via on*() during init. Observer pattern breaks the
+// data → UI layer circular dependency.
 //
-// The clear*Callbacks() functions exist for completeness but are intentionally never
-// called — the extension initializes once when SillyTavern loads and never tears down.
-// There is no unmount/destroy lifecycle for ST extensions, so callbacks accumulate
-// exactly once and persist for the page lifetime. This is by design, not a leak.
+// clear*Callbacks() exist for completeness but are intentionally never called —
+// ST extensions initialize once and never tear down, so callbacks accumulate
+// exactly once and persist for page lifetime. This is by design, not a leak.
 
-// ── Index lifecycle callbacks ──
-// Registered by the UI layer so the data layer (vault.js) can notify without importing UI modules.
-// This breaks the vault.js → settings-ui.js inverted dependency.
+// BUG-026: all observer registries use Set + return-unsubscribe. Mirrors the
+// claudeAutoEffortObservers pattern; makes callers responsible for releasing
+// subscriptions on teardown. clear*Callbacks remain for CHAT_CHANGED flushes
+// and test setup.
 
-/** @type {Array<() => void>} */
-const indexUpdatedCallbacks = [];
+/** @type {Set<() => void>} */
+const indexUpdatedCallbacks = new Set();
 
-/** Register a callback to run after the vault index is updated (built, delta-synced, or hydrated). */
 export function onIndexUpdated(callback) {
-    indexUpdatedCallbacks.push(callback);
+    indexUpdatedCallbacks.add(callback);
+    return () => indexUpdatedCallbacks.delete(callback);
 }
 
-
-/** Invoke all registered index-updated callbacks. Called by vault.js after index changes. */
 export function notifyIndexUpdated() {
     for (const cb of [...indexUpdatedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Index update callback error:', err.message); }
     }
 }
 
-// ── AI stats lifecycle callbacks ──
-// Same observer pattern: breaks the ai.js → settings-ui.js circular dependency.
+/** @type {Set<() => void>} */
+const aiStatsCallbacks = new Set();
 
-/** @type {Array<() => void>} */
-const aiStatsCallbacks = [];
-
-/** Register a callback to run when AI search stats are updated. */
 export function onAiStatsUpdated(callback) {
-    aiStatsCallbacks.push(callback);
+    aiStatsCallbacks.add(callback);
+    return () => aiStatsCallbacks.delete(callback);
 }
 
-
-/** Invoke all registered AI stats callbacks. Called by ai.js after stats change. */
 export function notifyAiStatsUpdated() {
     for (const cb of [...aiStatsCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] AI stats callback error:', err.message); }
     }
 }
 
-// ── AI circuit breaker state callbacks ──
-// Same observer pattern: notifies UI when the circuit breaker opens or closes.
+/** @type {Set<() => void>} */
+const circuitStateCallbacks = new Set();
 
-/** @type {Array<() => void>} */
-const circuitStateCallbacks = [];
-
-/** Register a callback to run when the AI circuit breaker state changes. */
 export function onCircuitStateChanged(callback) {
-    circuitStateCallbacks.push(callback);
+    circuitStateCallbacks.add(callback);
+    return () => circuitStateCallbacks.delete(callback);
 }
 
-
-/** Invoke all registered circuit state callbacks. Called by recordAiFailure/recordAiSuccess on state transitions. */
 export function notifyCircuitStateChanged() {
     for (const cb of [...circuitStateCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Circuit state callback error:', err.message); }
     }
 }
 
-// ── Pipeline complete callbacks ──
-// Fired after onGenerate completes (success or failure). Drawer uses this to update injection tab, status zone.
-
-/** @type {Array<() => void>} */
-const pipelineCompleteCallbacks = [];
+/** @type {Set<() => void>} */
+const pipelineCompleteCallbacks = new Set();
 
 export function onPipelineComplete(callback) {
-    pipelineCompleteCallbacks.push(callback);
+    pipelineCompleteCallbacks.add(callback);
+    return () => pipelineCompleteCallbacks.delete(callback);
 }
 
-export function clearPipelineCompleteCallbacks() { pipelineCompleteCallbacks.length = 0; }
+export function clearPipelineCompleteCallbacks() { pipelineCompleteCallbacks.clear(); }
 
 export function notifyPipelineComplete() {
     for (const cb of [...pipelineCompleteCallbacks]) {
@@ -358,53 +497,65 @@ export function notifyPipelineComplete() {
     }
 }
 
-// ── Gating changed callbacks ──
-// Fired after gating commands modify chat_metadata.deeplore_context.
+// Fires BEFORE notifyPipelineComplete so the drawer Why? tab populates before
+// the agentic loop / ST generation runs.
+/** @type {Set<() => void>} */
+const injectionSourcesReadyCallbacks = new Set();
 
-/** @type {Array<() => void>} */
-const gatingChangedCallbacks = [];
-
-export function onGatingChanged(callback) {
-    gatingChangedCallbacks.push(callback);
+export function onInjectionSourcesReady(callback) {
+    injectionSourcesReadyCallbacks.add(callback);
+    return () => injectionSourcesReadyCallbacks.delete(callback);
 }
 
-export function clearGatingCallbacks() { gatingChangedCallbacks.length = 0; }
+export function notifyInjectionSourcesReady() {
+    for (const cb of [...injectionSourcesReadyCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Injection sources ready callback error:', err.message); }
+    }
+}
+
+/** @type {Set<() => void>} */
+const gatingChangedCallbacks = new Set();
+
+export function onGatingChanged(callback) {
+    gatingChangedCallbacks.add(callback);
+    return () => gatingChangedCallbacks.delete(callback);
+}
+
+export function clearGatingCallbacks() { gatingChangedCallbacks.clear(); }
 
 export function notifyGatingChanged() {
+    resetAiSearchCache();
     for (const cb of [...gatingChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Gating changed callback error:', err.message); }
     }
 }
 
-// ── Pin/block changed callbacks ──
-// Fired after pin/block commands modify chat_metadata.deeplore_pins/blocks.
-
-/** @type {Array<() => void>} */
-const pinBlockChangedCallbacks = [];
+/** @type {Set<() => void>} */
+const pinBlockChangedCallbacks = new Set();
 
 export function onPinBlockChanged(callback) {
-    pinBlockChangedCallbacks.push(callback);
+    pinBlockChangedCallbacks.add(callback);
+    return () => pinBlockChangedCallbacks.delete(callback);
 }
 
-export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.length = 0; }
+export function clearPinBlockCallbacks() { pinBlockChangedCallbacks.clear(); }
 
 export function notifyPinBlockChanged() {
+    resetAiSearchCache();
     for (const cb of [...pinBlockChangedCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Pin/block changed callback error:', err.message); }
     }
 }
 
-// ── Generation lock changed callbacks ──
-// Fired when generationLock toggles (pipeline start/end). Drawer uses this for the "Choosing Lore..." label.
-
-/** @type {Array<() => void>} */
-const generationLockCallbacks = [];
+/** @type {Set<() => void>} */
+const generationLockCallbacks = new Set();
 
 export function onGenerationLockChanged(callback) {
-    generationLockCallbacks.push(callback);
+    generationLockCallbacks.add(callback);
+    return () => generationLockCallbacks.delete(callback);
 }
 
-export function clearGenerationLockCallbacks() { generationLockCallbacks.length = 0; }
+export function clearGenerationLockCallbacks() { generationLockCallbacks.clear(); }
 
 function notifyGenerationLockChanged() {
     for (const cb of [...generationLockCallbacks]) {
@@ -412,30 +563,27 @@ function notifyGenerationLockChanged() {
     }
 }
 
-// ── Field definitions changed callbacks ──
-// Fired when setFieldDefinitions() is called (e.g., after loading from Obsidian or rule builder save).
-
-/** @type {Array<() => void>} */
-const fieldDefinitionsCallbacks = [];
+/** @type {Set<() => void>} */
+const fieldDefinitionsCallbacks = new Set();
 
 export function onFieldDefinitionsUpdated(callback) {
-    fieldDefinitionsCallbacks.push(callback);
+    fieldDefinitionsCallbacks.add(callback);
+    return () => fieldDefinitionsCallbacks.delete(callback);
 }
 
 function notifyFieldDefinitionsUpdated() {
+    resetAiSearchCache();
     for (const cb of [...fieldDefinitionsCallbacks]) {
         try { cb(); } catch (err) { console.warn('[DLE] Field definitions callback error:', err.message); }
     }
 }
 
-// ── Indexing state changed callbacks ──
-// Fired when setIndexing() toggles. Drawer uses this for loading indicators.
-
-/** @type {Array<() => void>} */
-const indexingChangedCallbacks = [];
+/** @type {Set<() => void>} */
+const indexingChangedCallbacks = new Set();
 
 export function onIndexingChanged(callback) {
-    indexingChangedCallbacks.push(callback);
+    indexingChangedCallbacks.add(callback);
+    return () => indexingChangedCallbacks.delete(callback);
 }
 
 function notifyIndexingChanged() {
@@ -444,12 +592,60 @@ function notifyIndexingChanged() {
     }
 }
 
-// ── Overall status computation ──
+/** @type {Set<() => void>} */
+const loreGapsChangedCallbacks = new Set();
+
+export function onLoreGapsChanged(callback) {
+    loreGapsChangedCallbacks.add(callback);
+    return () => loreGapsChangedCallbacks.delete(callback);
+}
+
+export function clearLoreGapsCallbacks() { loreGapsChangedCallbacks.clear(); }
+
+export function notifyLoreGapsChanged() {
+    for (const cb of [...loreGapsChangedCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Lore gaps changed callback error:', err.message); }
+    }
+}
+
+/** @type {Set<() => void>} */
+const chatInjectionCountsCallbacks = new Set();
+
+export function onChatInjectionCountsUpdated(callback) {
+    chatInjectionCountsCallbacks.add(callback);
+    return () => chatInjectionCountsCallbacks.delete(callback);
+}
+
+export function clearChatInjectionCountsCallbacks() { chatInjectionCountsCallbacks.clear(); }
+
+export function notifyChatInjectionCountsUpdated() {
+    for (const cb of [...chatInjectionCountsCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] chatInjectionCounts callback error:', err.message); }
+    }
+}
+
+// Distinct from notifyPipelineComplete — avoids firing the SR "Pipeline complete:
+// N entries injected" announcement for every trace write.
+/** @type {Set<() => void>} */
+const pipelineTraceCallbacks = new Set();
+
+export function onPipelineTraceUpdated(callback) {
+    pipelineTraceCallbacks.add(callback);
+    return () => pipelineTraceCallbacks.delete(callback);
+}
+
+export function clearPipelineTraceCallbacks() { pipelineTraceCallbacks.clear(); }
+
+export function notifyPipelineTraceUpdated() {
+    for (const cb of [...pipelineTraceCallbacks]) {
+        try { cb(); } catch (err) { console.warn('[DLE] pipelineTrace callback error:', err.message); }
+    }
+}
 
 /**
- * Compute the overall system status for the header badge.
- * Pure function that reads current state values.
- * @param {{ state: string, failures: number }} [obsidianCircuitState] - Aggregate Obsidian circuit breaker state (from getCircuitState())
+ * Compute overall system status for the header badge. Pure (reads state).
+ * @param {{ state: string, failures: number }} [obsidianCircuitState] - Aggregate
+ *        Obsidian circuit-breaker state (from getCircuitState())
  * @returns {'ok'|'degraded'|'limited'|'offline'}
  */
 export function computeOverallStatus(obsidianCircuitState) {
@@ -460,28 +656,26 @@ export function computeOverallStatus(obsidianCircuitState) {
     const usingStaleCache = hasEntries && !indexEverLoaded;
     const obsidianDown = obsidianCircuitState?.state === 'open';
 
-    // Red: no vaults reachable AND no cached data
+    // Red: no vaults reachable AND no cached data.
     if (!hasEntries && (allVaultsFailed || obsidianDown || lastVaultAttemptCount === 0)) {
         return 'offline';
     }
 
-    // Orange: AI circuit breaker tripped, Obsidian circuit open, or running from stale cache only
+    // Orange: AI circuit tripped, Obsidian circuit open, or running from stale cache.
     if (circuitTripped || obsidianDown || usingStaleCache) {
         return 'limited';
     }
 
-    // Yellow: some vaults unreachable, or health grade is B/C/D
+    // Yellow: some vaults unreachable, or health grade B/C/D.
     if (someVaultsFailed) {
         return 'degraded';
     }
     if (lastHealthResult) {
         const { errors, warnings } = lastHealthResult;
-        // Grade B or worse: errors > 0, or warnings > 3
         if (errors > 0 || warnings > 3) {
             return 'degraded';
         }
     }
 
-    // Green: all good
     return 'ok';
 }

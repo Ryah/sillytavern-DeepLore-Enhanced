@@ -1,15 +1,15 @@
 # Custom Fields
 
-DeepLore Enhanced lets you define your own frontmatter fields for contextual gating. Instead of being limited to the four built-in fields (era, location, scene_type, character_present), you can create any field your world needs -- mood, faction, time_of_day, threat_level, whatever fits your setting.
+DeepLore lets you define your own frontmatter fields for contextual gating. Beyond the four built-in fields (era, location, scene_type, character_present), you can create any field your world needs: mood, faction, time_of_day, threat_level, whatever fits your setting.
 
-## How It Works
+## How it works
 
 1. **Define fields** in a YAML file in your vault (or use the visual editor)
 2. **Tag entries** with field values in their frontmatter
-3. **Set the active context** with slash commands or the Drawer's Gating tab
+3. **Set the active context** with slash commands or the drawer's Filters tab
 4. Entries whose field values don't match the active context are filtered out during lore selection
 
-## Built-In Fields
+## Built-in fields
 
 Four fields are included by default. You can modify or remove them.
 
@@ -22,11 +22,11 @@ Four fields are included by default. You can modify or remove them.
 
 All four use the `match_any` operator and `moderate` tolerance by default.
 
-## Defining Custom Fields
+## Defining custom fields
 
-### Visual Editor (Recommended)
+### Visual editor (recommended)
 
-Click **Manage Fields** in the Drawer's Gating tab or in Settings. The rule builder lets you:
+Click **Manage Fields** in the drawer's Filters tab or in Settings. The rule builder lets you:
 
 - Add, delete, duplicate, and reorder fields
 - Set field name (snake_case), display label, data type, and multi-value toggle
@@ -35,7 +35,7 @@ Click **Manage Fields** in the Drawer's Gating tab or in Settings. The rule buil
 
 Changes are saved to your Obsidian vault and the index rebuilds automatically.
 
-### YAML File
+### YAML file
 
 Field definitions are stored at `DeepLore/field-definitions.yaml` in your primary vault (configurable in settings). You can edit this file directly in Obsidian.
 
@@ -63,7 +63,7 @@ Field definitions are stored at `DeepLore/field-definitions.yaml` in your primar
   values: []
 ```
 
-### Field Definition Schema
+### Field definition schema
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
@@ -77,9 +77,9 @@ Field definitions are stored at `DeepLore/field-definitions.yaml` in your primar
 | `contextKey` | string | No | Key in chat context state (default: same as `name`) |
 | `values` | string[] | No | Allowed values list (empty = freeform) |
 
-Reserved names that cannot be used: `keys`, `tags`, `priority`, `summary`, `content`, `title`, `filename`, `enabled`, `constant`, `seed`, `bootstrap`, `links`, `graph`, `position`, `depth`, `role`.
+Reserved names that cannot be used: `keys`, `priority`, `tags`, `requires`, `excludes`, `position`, `depth`, `role`, `scandepth`, `excluderecursion`, `refine_keys`, `cascade_links`, `cooldown`, `warmup`, `probability`, `summary`, `graph`, `enabled`, `constant`, `seed`, `bootstrap`, `type`, `fileclass`, `status`, `aliases`.
 
-## Using Fields in Frontmatter
+## Using fields in frontmatter
 
 Add your custom field to any entry's frontmatter:
 
@@ -107,7 +107,7 @@ era:                    # multiple values
   - renaissance
 ```
 
-## Setting Active Context
+## Setting active context
 
 Use slash commands to set the current context:
 
@@ -130,9 +130,9 @@ The built-in fields have shorthand aliases:
 
 View all active filters with `/dle-context-state` (alias: `/dle-ctx`).
 
-You can also set context from the Drawer's **Gating** tab by clicking the value buttons.
+You can also set context from the drawer's **Gating** tab by clicking the value buttons.
 
-## Gating Operators
+## Gating operators
 
 | Operator | Behavior |
 |----------|----------|
@@ -145,7 +145,7 @@ You can also set context from the Drawer's **Gating** tab by clicking the value 
 | `gt` | Entry value is greater than active context value (numeric) |
 | `lt` | Entry value is less than active context value (numeric) |
 
-## Tolerance Levels
+## Tolerance levels
 
 Tolerance controls what happens when an entry has a field value but the check fails:
 
@@ -172,15 +172,19 @@ These entries always bypass contextual gating regardless of field values:
 
 ## Integration
 
-- **Drawer Gating tab** -- Shows all active fields with status dots, impact counts ("excluding N entries"), and quick-set buttons
-- **Browse tab** -- Custom field filter dropdowns appear automatically for fields with values in the vault
-- **Graph** -- Color nodes by any custom field value
-- **AI manifest** -- Field labels shown in AI search manifests for better selection
-- **`/dle-inspect`** -- Shows per-field mismatch reasons (e.g., `era: medieval != renaissance`)
-- **`/dle-status`** -- Shows custom field count and names
+- **Drawer Filters tab:** shows all active fields with status dots, impact counts ("excluding N entries"), and quick-set buttons
+- **Browse tab:** custom field filter dropdowns appear automatically for fields with values in the vault
+- **Graph:** color nodes by any custom field value
+- **AI manifest:** field labels shown in AI search manifests for better selection
+- **`/dle-inspect`:** shows per-field mismatch reasons (e.g., `era: medieval != renaissance`)
+- **`/dle-status`:** shows custom field count and names
 
-## See Also
+## Related: folder filtering
 
-- [[Injection and Context Control]] -- How gating fits into the injection pipeline
-- [[Slash Commands]] -- Full command reference
-- [[Writing Vault Entries]] -- Frontmatter field reference
+Beyond field-based gating, DLE supports per-chat folder filtering via `/dle-set-folder`. This restricts injection to entries from specific vault folders, complementing custom field gating. See [[Injection and Context Control#Per-Chat Folder Filter]] for details.
+
+## See also
+
+- [[Injection and Context Control]]: how gating fits into the injection pipeline
+- [[Slash Commands]]: full command reference
+- [[Writing Vault Entries]]: frontmatter field reference

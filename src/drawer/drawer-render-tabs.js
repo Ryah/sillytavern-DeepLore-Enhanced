@@ -1,7 +1,3 @@
-/**
- * DeepLore Enhanced — Drawer Render: Tab Content
- * Renders the Why?, Browse, Gating, and Timers tab panels.
- */
 import { chat_metadata } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { getSettings } from '../../settings.js';
@@ -18,19 +14,40 @@ import {
     getMatchLabel, computeEntryTemperatures,
 } from './drawer-state.js';
 
+let _cachedRejectionMap = new Map();
+let _cachedRejectionTrace = null;
+let _cachedExpandedPreviewHtml = null;
+// BUG-360: trackerKey (vaultSource:title) — bare titles would collide across vaults.
+let _cachedExpandedPreviewKey = null;
+let _cachedFieldValues = null;
+let _cachedFieldValuesIndexLen = -1;
+// Hash of last renderInjectionTab inputs — skip render when unchanged.
+let _lastInjectionRenderHash = null;
+
 // ════════════════════════════════════════════════════════════════════════════
 // Why? Tab
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the "Why?" tab — shows why entries were injected AND why others were filtered out.
- */
 export function renderInjectionTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
     const sources = lastInjectionSources;
     const prev = previousSources;
     const trace = lastPipelineTrace;
+
+    // Content-hash guard — skip full re-render when inputs are unchanged. Hash inputs:
+    // sources (title/tokens/matchedBy/vaultSource), filter state, trace's rejected-entry
+    // summary. Counts are updated surgically via updateInjectionCountBadges() and are
+    // intentionally excluded from the hash.
+    const _hashParts = [
+        ds.whyTabFilter || '',
+        generationLock ? '1' : '0',
+        sources ? sources.map(s => `${s.title}|${s.tokens}|${s.matchedBy}|${s.vaultSource || ''}`).join(';') : 'null',
+        trace ? `${trace.injected?.length ?? 0}:${trace.matched?.length ?? 0}:${trace.aiSelected?.length ?? 0}:${trace.budgetCut?.length ?? 0}` : 'null',
+    ];
+    const _hash = _hashParts.join('#');
+    if (_hash === _lastInjectionRenderHash) return;
+    _lastInjectionRenderHash = _hash;
     const $list = $drawer.find('.dle-why-list');
     const $empty = $drawer.find('#dle-panel-injection .dle-empty-state');
     const $diff = $drawer.find('.dle-section-diff');
@@ -41,35 +58,50 @@ export function renderInjectionTab() {
         $list.empty();
         $whyNotSection.removeClass('dle-visible');
         $diff.empty();
-        // Show "Choosing lore..." during active generation, otherwise the default empty state
         if (generationLock) {
             $empty.html('<i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i><p>Choosing lore...</p>').addClass('dle-visible');
         } else {
-            $empty.html('<i class="fa-solid fa-circle-question" aria-hidden="true"></i><p>No lore selected yet. Send a message to see which entries are included and why.</p>').addClass('dle-visible');
+            $empty.html(
+                '<i class="fa-solid fa-circle-question" aria-hidden="true"></i>'
+                + '<p>No entries injected yet. Send a message mentioning entry keywords, or check Obsidian connection.</p>'
+                + '<div class="dle-empty-guide">'
+                + '<p>To see lore injection in action:</p>'
+                + '<ol>'
+                + '<li>Connect to an Obsidian vault with <code>#lorebook</code>-tagged entries</li>'
+                + '<li>Send a message mentioning a keyword from your entries</li>'
+                + '<li>This tab will show which entries were injected and why</li>'
+                + '</ol>'
+                + '<p class="dle-empty-commands"><code>/dle-setup</code> — configure your vault &nbsp; <code>/dle-browse</code> — see indexed entries</p>'
+                + '</div>',
+            ).addClass('dle-visible');
         }
         return;
     }
 
     $empty.removeClass('dle-visible');
 
-    // Why? tab filter toggle — now static in drawer.html, just update active state
     const $filterToggle = $drawer.find('.dle-why-filter-toggle');
-    $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false');
-    $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true');
+    // BUG-AUDIT-C11: roving tabindex — only the active radio button is in tab order.
+    $filterToggle.find('.dle-why-filter-btn').removeClass('active').attr('aria-checked', 'false').attr('tabindex', '-1');
+    $filterToggle.find(`[data-filter="${ds.whyTabFilter}"]`).addClass('active').attr('aria-checked', 'true').attr('tabindex', '0');
 
-    // Compute diff via shared data layer
     const diff = computeSourcesDiff(sources, prev);
 
-    // Diff header
+    $diff.attr('aria-live', 'polite');
     const diffParts = [];
-    if (diff.added.length) diffParts.push(`<span class="dle-diff-add" aria-label="${diff.added.length} new entries added">+${diff.added.length} new</span>`);
-    if (diff.removed.length) diffParts.push(`<span class="dle-diff-remove" aria-label="${diff.removed.length} entries removed">-${diff.removed.length} removed</span>`);
+    if (diff.added.length) diffParts.push(`<span class="dle-diff-add">+${diff.added.length} new</span>`);
+    if (diff.removed.length) diffParts.push(`<span class="dle-diff-remove">-${diff.removed.length} removed</span>`);
     $diff.html(diffParts.join(' '));
 
-    // Build entries
     const settings = getSettings();
     const addedTitles = new Set(diff.added.map(s => s.title));
     const removedTitles = new Set(diff.removed.map(s => s.title));
+
+    // BUG-AUDIT-H14: title→entry lookup once instead of vaultIndex.find() per entry — O(N+M) vs O(N*M).
+    const titleToEntry = new Map();
+    for (const e of vaultIndex) {
+        if (!titleToEntry.has(e.title)) titleToEntry.set(e.title, e);
+    }
 
     function buildWhyHtml(srcs) {
         let h = '';
@@ -84,23 +116,29 @@ export function renderInjectionTab() {
             const { uri } = resolveEntryVault(src, settings.vaults);
             const matchLabel = getMatchLabel(src.matchedBy);
 
-            const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens || '?'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
-            h += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}" data-title="${escapeHtml(src.title)}">`;
+            const entryAriaLabel = `${escapeHtml(src.title)}, ${src.tokens != null ? src.tokens : 'unknown'} tokens, matched by ${matchLabel}${isNew ? ', newly added' : ''}`;
+            const countKey = `${src.vaultSource || ''}:${src.title}`;
+            h += `<div class="${classes.join(' ')}" style="--i:${idx}" role="listitem" aria-label="${entryAriaLabel}" data-title="${escapeHtml(src.title)}" data-count-key="${escapeHtml(countKey)}">`;
             h += `<span class="dle-why-title">`;
             if (uri) {
-                h += `<a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open ${escapeHtml(src.title)} in Obsidian">${escapeHtml(src.title)}</a>`;
+                h += `<a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">${escapeHtml(src.title)}</a>`;
             } else {
                 h += escapeHtml(src.title);
+            }
+            // Show folder path if entry has one
+            const whyEntry = titleToEntry.get(src.title);
+            if (whyEntry?.folderPath) {
+                h += ` <span class="dle-entry-folder" title="${escapeHtml(whyEntry.folderPath)}">${escapeHtml(whyEntry.folderPath)}</span>`;
             }
             h += `</span>`;
             h += `<span class="dle-why-meta">`;
             const tokVal = src.tokens || 0;
-            const tokHue = Math.max(0, 120 - (tokVal / 5000) * 120); // 120=green, 0=red
+            const tokHue = Math.max(0, 120 - (tokVal / 5000) * 120); // hue 120=green (light), 0=red (heavy)
             h += `<span class="dle-why-tokens" style="color: hsl(${Math.round(tokHue)}, 80%, 50%)" aria-label="${tokVal} tokens">${tokVal} tokens</span>`;
             const whyChatCount = chatInjectionCounts.get(`${src.vaultSource || ''}:${src.title}`) || 0;
-            if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} time${whyChatCount !== 1 ? 's' : ''} this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
-            h += `<span class="dle-why-match" data-match-type="${matchLabel.toLowerCase()}" title="Matched via ${escapeHtml(src.matchedBy || '?')}" aria-label="Match type: ${matchLabel}">${matchLabel}</span>`;
-            if (isNew) h += `<span class="dle-why-new-badge" aria-label="Newly added entry">NEW</span>`;
+            if (whyChatCount > 0) h += `<span class="dle-inject-count" title="Injected ${whyChatCount} times this chat" aria-label="Injected ${whyChatCount} times this chat">${whyChatCount}×</span>`;
+            h += `<span class="dle-why-match" data-match-type="${matchLabel.toLowerCase()}" title="Matched via ${escapeHtml(src.matchedBy || '?')}">${matchLabel}</span>`;
+            if (isNew) h += `<span class="dle-why-new-badge" title="New this message — not injected in previous response" aria-label="New this message — not injected in previous response">NEW</span>`;
             h += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(src.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(src.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button>`;
             h += `</span>`;
             h += `</div>`;
@@ -108,13 +146,12 @@ export function renderInjectionTab() {
         return h;
     }
 
-    // Apply filter visibility
     const showInjected = ds.whyTabFilter !== 'filtered';
     const showFiltered = ds.whyTabFilter !== 'injected';
     $list.toggle(showInjected);
     $diff.toggle(showInjected);
 
-    // Animate exit for removed entries, then swap in new content
+    // Animate-out removed entries, then swap; safety timeout in case animationend never fires.
     if (showInjected && removedTitles.size > 0 && $list.children().length > 0) {
         const exitEls = $list.find('.dle-why-entry').filter(function () {
             return removedTitles.has($(this).data('title'));
@@ -123,7 +160,6 @@ export function renderInjectionTab() {
             exitEls.addClass('dle-why-exit');
             let swapped = false;
             const swap = () => { if (!swapped) { swapped = true; $list.html(buildWhyHtml(sources)); } };
-            // Swap after exit animation completes (or safety timeout if animationend doesn't fire)
             exitEls[0].addEventListener('animationend', swap, { once: true });
             setTimeout(swap, 250);
         } else {
@@ -133,28 +169,29 @@ export function renderInjectionTab() {
         $list.html(buildWhyHtml(sources));
     }
 
-    // ── "Why Not" section — entries that were candidates but got filtered out ──
+    // ── "Why Not" section — candidates that got filtered out ──
     if (!showFiltered) {
         $whyNotSection.removeClass('dle-visible');
     } else if (trace) {
-        // Use shared categorization (all 8 rejection stages), flatten to list
         const injectedTitles = new Set(sources.map(s => s.title));
         const rejectedGroups = categorizeRejections(trace, injectedTitles);
-        const rejections = [];
-        for (const group of rejectedGroups) {
-            for (const e of group.entries) {
-                rejections.push({ title: e.title, reason: e.reason });
-            }
-        }
+        const nonEmpty = rejectedGroups.filter(g => g.entries.length > 0);
 
-        if (rejections.length > 0) {
+        if (nonEmpty.length > 0) {
             let whyNotHtml = '';
-            for (const r of rejections) {
-                whyNotHtml += `<div class="dle-why-entry dle-why-not-entry" role="listitem" aria-label="${escapeHtml(r.title)}, filtered: ${escapeHtml(r.reason)}">`;
-                whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(r.title)}</span>`;
-                whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(r.reason)}">${escapeHtml(r.reason)}</span>`;
-                whyNotHtml += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(r.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(r.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
+            for (const group of nonEmpty) {
+                whyNotHtml += `<div class="dle-why-not-group-header" role="heading" aria-level="4" aria-label="Filtered entries — ${escapeHtml(group.label)}">`;
+                whyNotHtml += `<span class="dle-why-not-group-icon">${group.icon}</span> `;
+                whyNotHtml += `<span class="dle-why-not-group-label">${escapeHtml(group.label)}</span>`;
+                whyNotHtml += `<span class="dle-why-not-group-count">${group.entries.length}</span>`;
                 whyNotHtml += `</div>`;
+                for (const e of group.entries) {
+                    whyNotHtml += `<div class="dle-why-entry dle-why-not-entry dle-why-not-grouped" role="listitem" aria-label="Filtered out: ${escapeHtml(e.reason)}">`;
+                    whyNotHtml += `<span class="dle-why-title dle-muted">${escapeHtml(e.title)}</span>`;
+                    whyNotHtml += `<span class="dle-why-meta"><span class="dle-why-match dle-why-not-reason" title="${escapeHtml(e.reason)}" aria-label="${escapeHtml(e.reason)}">${escapeHtml(e.reason)}</span>`;
+                    whyNotHtml += `<button class="dle-browse-nav-btn" data-browse-title="${escapeHtml(e.title)}" title="Show in Browse" aria-label="Show ${escapeHtml(e.title)} in Browse tab"><i class="fa-solid fa-arrow-right-to-bracket" aria-hidden="true"></i></button></span>`;
+                    whyNotHtml += `</div>`;
+                }
             }
             $whyNotList.html(whyNotHtml);
             $whyNotSection.addClass('dle-visible');
@@ -166,37 +203,71 @@ export function renderInjectionTab() {
     }
 }
 
+/**
+ * Surgically update `×N` count badges on Why? tab entries without rebuilding DOM.
+ * Called instead of renderInjectionTab when only chatInjectionCounts changed —
+ * avoids replaying stagger-in animations and preserves DOM identity.
+ */
+export function updateInjectionCountBadges() {
+    const $drawer = ds.$drawer;
+    if (!$drawer) return;
+    const $entries = $drawer.find('.dle-why-list .dle-why-entry');
+    if (!$entries.length) return;
+    $entries.each(function () {
+        const $entry = $(this);
+        const key = $entry.attr('data-count-key');
+        if (!key) return;
+        const count = chatInjectionCounts.get(key) || 0;
+        const $meta = $entry.find('.dle-why-meta');
+        let $badge = $meta.find('.dle-inject-count');
+        if (count > 0) {
+            const label = `Injected ${count} times this chat`;
+            if ($badge.length === 0) {
+                // Order must match buildWhyHtml — insert before the match-type label.
+                const $matchLabel = $meta.find('.dle-why-match');
+                const badgeHtml = `<span class="dle-inject-count" title="${label}" aria-label="${label}">${count}×</span>`;
+                if ($matchLabel.length) $matchLabel.before(badgeHtml);
+                else $meta.append(badgeHtml);
+            } else {
+                $badge.text(`${count}×`).attr('title', label).attr('aria-label', label);
+            }
+        } else if ($badge.length) {
+            $badge.remove();
+        }
+    });
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // Browse Tab
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the browse tab with live vault entries.
- */
 export function renderBrowseTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
+    // Invalidate virtual scroll cache so stale entry references are never rendered.
+    ds.browseLastRangeStart = -1;
+    ds.browseLastRangeEnd = -1;
     const $list = $drawer.find('.dle-browse-list');
     const $emptyLoading = $drawer.find('#dle-browse-loading');
     const $emptyNoData = $drawer.find('#dle-browse-empty-no-data');
     const $emptyNoResults = $drawer.find('#dle-browse-empty-no-results');
     const $refreshSpinner = $drawer.find('.dle-browse-refresh-spinner');
 
-    // Show/hide inline refresh spinner (visible when indexing with existing data)
     $refreshSpinner.toggle(!!indexing && vaultIndex.length > 0);
 
-    // Announce loading state to screen readers
     $drawer.find('#dle-panel-browse').attr('aria-busy', indexing ? 'true' : 'false');
 
     if (!vaultIndex || vaultIndex.length === 0) {
         $list.empty();
-        // Show loading state during first index build, otherwise "no entries" state
         if (indexing) {
             $emptyLoading.addClass('dle-visible');
             $emptyNoData.removeClass('dle-visible');
         } else {
             $emptyLoading.removeClass('dle-visible');
-            $emptyNoData.addClass('dle-visible');
+            $emptyNoData.html(
+                '<p>No vault entries indexed yet. Connect Obsidian and run <code>/dle-setup</code> to get started.</p>' +
+                '<p class="dle-empty-legend">Entries show P50 priority (lower wins) or CONST (always injected).</p>'
+            ).addClass('dle-visible');
         }
         $emptyNoResults.removeClass('dle-visible');
         return;
@@ -205,36 +276,71 @@ export function renderBrowseTab() {
     $emptyLoading.removeClass('dle-visible');
     $emptyNoData.removeClass('dle-visible');
 
-    // Use pre-computed tag cache (rebuilt on index update)
+    // Tag/folder caches are rebuilt on index update; reset stale filters when the tag/folder no longer exists.
     const $tagSelect = $drawer.find('[data-filter="tag"]');
     if (ds.cachedTagOptions) {
         $tagSelect.html(ds.cachedTagOptions);
         if (ds.browseTagFilter) $tagSelect.val(ds.browseTagFilter);
     }
-
-    // Reset stale tag filter if the tag no longer exists in the vault
     if (ds.browseTagFilter && ds.cachedTagSet && !ds.cachedTagSet.has(ds.browseTagFilter)) {
         ds.browseTagFilter = '';
     }
 
-    // Populate custom field filter dropdowns
+    const $folderSelect = $drawer.find('[data-filter="folder"]');
+    if ($folderSelect.length) {
+        if (ds.cachedFolderOptions) {
+            $folderSelect.html(ds.cachedFolderOptions);
+            if (ds.browseFolderFilter) $folderSelect.val(ds.browseFolderFilter);
+        }
+        if (ds.browseFolderFilter && ds.cachedFolderSet && !ds.cachedFolderSet.has(ds.browseFolderFilter)) {
+            ds.browseFolderFilter = '';
+        }
+    }
+
+    // P8: rebuild options with live entry counts each render (fast Map pass).
+    if ($tagSelect.length && ds.cachedTagSet) {
+        const tagCounts = new Map();
+        for (const e of vaultIndex) {
+            if (e.tags) for (const t of e.tags) tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+        }
+        $tagSelect.html('<option value="">Tags</option>' +
+            [...ds.cachedTagSet].sort().map(t => `<option value="${escapeHtml(t)}"${ds.browseTagFilter === t ? ' selected' : ''}>${escapeHtml(t)} (${tagCounts.get(t) || 0})</option>`).join(''));
+    }
+    if ($folderSelect.length && ds.cachedFolderSet) {
+        const folderCounts = new Map();
+        for (const e of vaultIndex) {
+            if (e.folderPath) {
+                const parts = e.folderPath.split('/');
+                for (let i = 1; i <= parts.length; i++) {
+                    const seg = parts.slice(0, i).join('/');
+                    if (ds.cachedFolderSet.has(seg)) folderCounts.set(seg, (folderCounts.get(seg) || 0) + 1);
+                }
+            }
+        }
+        $folderSelect.html('<option value="">Folder</option>' +
+            [...ds.cachedFolderSet].sort().map(f => `<option value="${escapeHtml(f)}"${ds.browseFolderFilter === f ? ' selected' : ''}>${escapeHtml(f)} (${folderCounts.get(f) || 0})</option>`).join(''));
+    }
+
+    // Custom field filter dropdowns — values cached, recomputed only when vault size changes.
     const browseFieldDefs = (fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS)
         .filter(fd => fd.gating?.enabled);
     const $cfContainer = $drawer.find('.dle-browse-custom-filters');
     if ($cfContainer.length && browseFieldDefs.length > 0) {
-        // Collect unique values per field from vault
-        const fieldValues = {};
-        for (const fd of browseFieldDefs) {
-            const vals = new Set();
-            for (const e of vaultIndex) {
-                const v = e.customFields?.[fd.name];
-                if (v == null) continue;
-                if (Array.isArray(v)) v.forEach(x => { if (x) vals.add(String(x)); });
-                else if (v !== '') vals.add(String(v));
+        if (_cachedFieldValuesIndexLen !== vaultIndex.length) {
+            _cachedFieldValues = {};
+            for (const fd of browseFieldDefs) {
+                const vals = new Set();
+                for (const e of vaultIndex) {
+                    const v = e.customFields?.[fd.name];
+                    if (v == null) continue;
+                    if (Array.isArray(v)) v.forEach(x => { if (x) vals.add(String(x)); });
+                    else if (v !== '') vals.add(String(v));
+                }
+                if (vals.size > 0) _cachedFieldValues[fd.name] = [...vals].sort();
             }
-            if (vals.size > 0) fieldValues[fd.name] = [...vals].sort();
+            _cachedFieldValuesIndexLen = vaultIndex.length;
         }
-        // Only render selects for fields that have values in the vault
+        const fieldValues = _cachedFieldValues;
         let cfHtml = '';
         for (const fd of browseFieldDefs) {
             const vals = fieldValues[fd.name];
@@ -247,45 +353,86 @@ export function renderBrowseTab() {
             }
             cfHtml += '</select>';
         }
-        $cfContainer.html(cfHtml);
+        // Don't replace HTML while a dropdown is open — would close it mid-interaction.
+        const activeEl = document.activeElement;
+        if (!(activeEl && $cfContainer[0]?.contains(activeEl) && (activeEl.tagName === 'SELECT' || activeEl.closest('.dle-browse-cf-filter')))) {
+            $cfContainer.html(cfHtml);
+        }
     }
 
     const settings = getSettings();
 
-    // Get filters
     const query = ds.browseQuery.toLowerCase();
     const statusFilter = ds.browseStatusFilter;
     const tagFilter = ds.browseTagFilter;
     const sortKey = ds.browseSort;
 
-    // Pin/block state
+    // BUG-AUDIT-3: normalizePinBlock handles legacy bare-string entries alongside {title,vaultSource} objects.
+    // Multi-vault key vaultSource:title (trackerKey invariant) — same-title cross-vault pins must not collide.
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
-    // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
-    const pinSet = new Set(pins.map(p => normalizePinBlock(p).title.toLowerCase()));
-    const blockSet = new Set(blocks.map(b => normalizePinBlock(b).title.toLowerCase()));
+    const pinSet = new Set(pins.map(p => { const n = normalizePinBlock(p); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
+    const blockSet = new Set(blocks.map(b => { const n = normalizePinBlock(b); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
 
-    // Injected set — fall back to lastPipelineTrace (sources cleared after message render)
+    // lastInjectionSources gets cleared after message render — fall back to lastPipelineTrace.
     const injectedSet = new Set();
     const injSources = lastInjectionSources ?? lastPipelineTrace?.injected;
     if (injSources) {
         for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
-    // Filter
+    // Search syntax: bare tokens AND substring-match title+keys; prefixes (tag:/folder:/key:/summary:/field:name=val) are field-qualified.
+    const _queryTokens = query ? query.split(/\s+/).filter(Boolean) : [];
+    const _prefixFilters = [];
+    const _bareTokens = [];
+    for (const tok of _queryTokens) {
+        const colonIdx = tok.indexOf(':');
+        if (colonIdx > 0) {
+            const prefix = tok.slice(0, colonIdx);
+            const val = tok.slice(colonIdx + 1);
+            if (val) _prefixFilters.push({ prefix, val });
+        } else {
+            _bareTokens.push(tok);
+        }
+    }
+
     let entries = vaultIndex.filter(e => {
-        // Search
-        if (query) {
-            const titleMatch = e.title.toLowerCase().includes(query);
-            const keyMatch = e.keys && e.keys.some(k => k.toLowerCase().includes(query));
-            if (!titleMatch && !keyMatch) return false;
+        if (_bareTokens.length) {
+            for (const bt of _bareTokens) {
+                const titleMatch = e.title.toLowerCase().includes(bt);
+                const keyMatch = e.keys && e.keys.some(k => k.toLowerCase().includes(bt));
+                if (!titleMatch && !keyMatch) return false;
+            }
+        }
+        for (const { prefix, val } of _prefixFilters) {
+            const lv = val.toLowerCase();
+            if (prefix === 'tag') {
+                if (!e.tags || !e.tags.some(t => t.toLowerCase().includes(lv))) return false;
+            } else if (prefix === 'folder') {
+                if (!e.folderPath || !e.folderPath.toLowerCase().includes(lv)) return false;
+            } else if (prefix === 'key') {
+                if (!e.keys || !e.keys.some(k => k.toLowerCase().includes(lv))) return false;
+            } else if (prefix === 'summary') {
+                if (!e.summary || !e.summary.toLowerCase().includes(lv)) return false;
+            } else if (prefix === 'field') {
+                // field:name=value — exact (case-insensitive) field-value match.
+                const eqIdx = val.indexOf('=');
+                if (eqIdx < 0) return false;
+                const fname = val.slice(0, eqIdx).toLowerCase();
+                const fval = val.slice(eqIdx + 1).toLowerCase();
+                const ev = e.customFields?.[fname] ?? e.customFields?.[Object.keys(e.customFields || {}).find(k => k.toLowerCase() === fname) || ''];
+                if (ev == null) return false;
+                const evStr = Array.isArray(ev) ? ev.map(v => String(v).toLowerCase()) : [String(ev).toLowerCase()];
+                if (!evStr.includes(fval)) return false;
+            }
+            // Unknown prefixes pass through unfiltered.
         }
 
-        // Status filter
         const tl = e.title.toLowerCase();
+        const pbKey = `${e.vaultSource || ''}:${tl}`;
         if (statusFilter === 'injected' && !injectedSet.has(tl)) return false;
-        if (statusFilter === 'pinned' && !pinSet.has(tl)) return false;
-        if (statusFilter === 'blocked' && !blockSet.has(tl)) return false;
+        if (statusFilter === 'pinned' && !pinSet.has(pbKey)) return false;
+        if (statusFilter === 'blocked' && !blockSet.has(pbKey)) return false;
         if (statusFilter === 'constant' && !e.constant) return false;
         if (statusFilter === 'seed' && !e.seed) return false;
         if (statusFilter === 'bootstrap' && !e.bootstrap) return false;
@@ -295,10 +442,13 @@ export function renderBrowseTab() {
             if (allTime && (allTime.injected || 0) > 0) return false;
         }
 
-        // Tag filter
         if (tagFilter && (!e.tags || !e.tags.includes(tagFilter))) return false;
 
-        // Custom field filters
+        if (ds.browseFolderFilter) {
+            if (!e.folderPath) return false;
+            if (e.folderPath !== ds.browseFolderFilter && !e.folderPath.startsWith(ds.browseFolderFilter + '/')) return false;
+        }
+
         for (const [cfName, cfVal] of Object.entries(ds.browseCustomFieldFilters)) {
             if (!cfVal) continue;
             const ev = e.customFields?.[cfName];
@@ -313,7 +463,6 @@ export function renderBrowseTab() {
         return true;
     });
 
-    // Sort
     entries = [...entries];
     switch (sortKey) {
         case 'priority_asc': entries.sort((a, b) => (a.priority || 50) - (b.priority || 50)); break;
@@ -326,48 +475,94 @@ export function renderBrowseTab() {
         default: entries.sort((a, b) => (a.priority || 50) - (b.priority || 50));
     }
 
-    // Update filter summary line
+    // P10: ds.browseQuickFilter = null | 'since-gen' | 'never-injected' (undefined = off).
+    let $quickFilters = $drawer.find('.dle-browse-quick-filters');
+    if (!$quickFilters.length) {
+        const $browsePanel = $drawer.find('#dle-panel-browse');
+        $browsePanel.find('.dle-browse-controls-row, .dle-browse-toolbar').first().after('<div class="dle-browse-quick-filters" role="group" aria-label="Quick filters"></div>');
+        $quickFilters = $drawer.find('.dle-browse-quick-filters');
+    }
+    const activeQF = ds.browseQuickFilter ?? null;
+    const sinceGenActive = activeQF === 'since-gen';
+    const neverInjectedActive = activeQF === 'never-injected';
+    $quickFilters.html(
+        `<span class="dle-qf-pill${sinceGenActive ? ' dle-qf-active' : ''}" role="button" tabindex="0" aria-pressed="${sinceGenActive}" data-qf="since-gen">Since last gen</span>` +
+        `<span class="dle-qf-pill${neverInjectedActive ? ' dle-qf-active' : ''}" role="button" tabindex="0" aria-pressed="${neverInjectedActive}" data-qf="never-injected">Never injected</span>`
+    );
+    if (sinceGenActive && lastInjectionSources && previousSources) {
+        const diff = computeSourcesDiff(lastInjectionSources, previousSources);
+        const addedKeys = new Set(diff.added.map(s => s.title.toLowerCase()));
+        entries = entries.filter(e => addedKeys.has(e.title.toLowerCase()));
+    } else if (neverInjectedActive) {
+        entries = entries.filter(e => !chatInjectionCounts.has(trackerKey(e)) || chatInjectionCounts.get(trackerKey(e)) === 0);
+    }
+
     const $summary = $drawer.find('.dle-browse-summary');
-    const isFiltered = query || statusFilter !== 'all' || tagFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
+    const isFiltered = query || statusFilter !== 'all' || tagFilter || ds.browseFolderFilter || Object.values(ds.browseCustomFieldFilters).some(v => v);
+    $summary.attr('aria-live', 'polite');
     if (isFiltered && entries.length !== vaultIndex.length) {
         $summary.text(`Showing ${entries.length} of ${vaultIndex.length} entries`).show();
     } else {
         $summary.hide();
     }
 
-    // Store filtered entries for virtual scroll
     ds.browseFilteredEntries = entries;
     ds.browseLastRangeStart = -1;
     ds.browseLastRangeEnd = -1;
-    // If navigating from Carto/Why?, preserve the target for auto-expand; otherwise reset
+    // Carto/Why? navigation target survives one filter run for auto-expand; otherwise collapse.
     if (ds.browseNavigateTarget) {
         ds.browseExpandedEntry = ds.browseNavigateTarget;
         ds.browseNavigateTarget = null;
     } else {
-        ds.browseExpandedEntry = null; // collapse any expanded entry on filter change
+        ds.browseExpandedEntry = null;
         ds.browseExpandedIdx = null;
         ds.browseExpandedExtraHeight = 0;
+        _cachedExpandedPreviewKey = null;
+        _cachedExpandedPreviewHtml = null;
     }
 
-    // Set up virtual scroll container — use min-height so flex doesn't collapse it
+    // min-height so flex doesn't collapse the virtual-scroll container.
     const listEl = $list[0];
     if (!listEl) return;
     const totalHeight = entries.length * BROWSE_ROW_HEIGHT + (ds.browseExpandedExtraHeight || 0);
     $list.css({ 'min-height': totalHeight + 'px' });
 
-    // Reset scroll to top when filters change (prevents seeing empty results after filtering while scrolled)
+    // Reset scroll to top only when the filter signature actually changed.
+    // Resetting unconditionally on every render (e.g. pin/block toggle that re-renders) yanked the user back mid-scroll.
+    const _filterSignature = JSON.stringify({
+        q: query || '',
+        s: statusFilter || 'all',
+        t: tagFilter || '',
+        f: ds.browseFolderFilter || '',
+        cf: ds.browseCustomFieldFilters || {},
+        qf: ds.browseQuickFilter ?? null,
+        sort: sortKey || 'priority_asc',
+    });
     const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
-    if (scrollContainer) scrollContainer.scrollTop = 0;
+    if (scrollContainer && ds._browseLastFilterSig !== _filterSignature) {
+        scrollContainer.scrollTop = 0;
+        ds._browseLastScrollTop = undefined;
+    }
+    ds._browseLastFilterSig = _filterSignature;
 
-    // Render visible window
     renderBrowseWindow();
-    $emptyNoResults.toggleClass('dle-visible', entries.length === 0);
+
+    if (entries.length === 0) {
+        const filterDesc = [];
+        if (statusFilter && statusFilter !== 'all') filterDesc.push(`status=${escapeHtml(statusFilter)}`);
+        if (tagFilter) filterDesc.push(`tag=${escapeHtml(tagFilter)}`);
+        if (ds.browseFolderFilter) filterDesc.push(`folder=${escapeHtml(ds.browseFolderFilter)}`);
+        if (query) filterDesc.push(`search=${escapeHtml(query)}`);
+        for (const [k, v] of Object.entries(ds.browseCustomFieldFilters)) { if (v) filterDesc.push(`${escapeHtml(k)}=${escapeHtml(v)}`); }
+        if (activeQF) filterDesc.push(`quick=${escapeHtml(activeQF)}`);
+        const filterMsg = filterDesc.length ? `No entries match: ${filterDesc.join(', ')}` : 'No entries match your filters';
+        $emptyNoResults.html(`<p>${filterMsg}</p><button class="dle-browse-clear-filters" type="button">Clear all filters</button>`).addClass('dle-visible');
+    } else {
+        $emptyNoResults.removeClass('dle-visible');
+    }
 }
 
-/**
- * Render only the visible window of browse entries (virtual scroll).
- * Reads scroll position from the tab panel, computes visible range, renders only those rows.
- */
+/** Render the visible window of browse entries (virtual scroll). */
 export function renderBrowseWindow() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -378,60 +573,78 @@ export function renderBrowseWindow() {
     const entries = ds.browseFilteredEntries;
     if (!entries.length) { $list.empty(); return; }
 
-    // The scrollable container is .dle-drawer-inner, not the tab panel
+    // Scroll container is .dle-drawer-inner (scrollableInner), not the tab panel.
     const scrollContainer = $drawer.find('.dle-drawer-inner')[0];
     if (!scrollContainer) return;
-    // Guard: skip calculation when drawer is hidden (getBoundingClientRect returns zeros)
+    // Drawer hidden — getBoundingClientRect would return zeros; bail.
     if (!scrollContainer.offsetParent && !scrollContainer.offsetHeight) return;
+
+    const scrollTop = scrollContainer.scrollTop;
+    if (ds._browseLastScrollTop !== undefined && Math.abs(scrollTop - ds._browseLastScrollTop) < 1) return;
+    ds._browseLastScrollTop = scrollTop;
+
     const viewHeight = scrollContainer.clientHeight;
-    // How far the list's top is above (negative) or below (positive) the scroll container's viewport top
-    // Using getBoundingClientRect for robustness against intermediate positioned parents
-    const relativeScroll = scrollContainer.getBoundingClientRect().top - listEl.getBoundingClientRect().top;
+    // getBoundingClientRect tolerates intermediate positioned parents; relativeScroll is list-top
+    // minus container-top (negative=list above viewport, positive=below).
+    const containerRect = scrollContainer.getBoundingClientRect();
+    const listRect = listEl.getBoundingClientRect();
+    const relativeScroll = containerRect.top - listRect.top;
 
-    const startIdx = Math.max(0, Math.floor(relativeScroll / BROWSE_ROW_HEIGHT) - BROWSE_OVERSCAN);
-    const endIdx = Math.min(entries.length, Math.ceil((relativeScroll + viewHeight) / BROWSE_ROW_HEIGHT) + BROWSE_OVERSCAN);
+    // BUG-350: rows after the expanded entry are shifted down by browseExpandedExtraHeight.
+    // Subtract that offset from pixel offsets past the expanded-entry boundary before dividing by row height.
+    const expandedOffset = (ds.browseExpandedIdx !== null && ds.browseExpandedExtraHeight > 0)
+        ? ds.browseExpandedExtraHeight : 0;
+    const expandedBoundary = ds.browseExpandedIdx !== null
+        ? (ds.browseExpandedIdx + 1) * BROWSE_ROW_HEIGHT : Infinity;
+    const adjustedStart = relativeScroll > expandedBoundary
+        ? relativeScroll - expandedOffset : relativeScroll;
+    const adjustedEnd = (relativeScroll + viewHeight) > expandedBoundary
+        ? (relativeScroll + viewHeight) - expandedOffset : (relativeScroll + viewHeight);
+    const startIdx = Math.max(0, Math.floor(adjustedStart / BROWSE_ROW_HEIGHT) - BROWSE_OVERSCAN);
+    const endIdx = Math.min(entries.length, Math.ceil(adjustedEnd / BROWSE_ROW_HEIGHT) + BROWSE_OVERSCAN);
 
-    // Skip re-render if visible range hasn't changed
     if (startIdx === ds.browseLastRangeStart && endIdx === ds.browseLastRangeEnd) return;
     ds.browseLastRangeStart = startIdx;
     ds.browseLastRangeEnd = endIdx;
 
-    // Pin/block/injected state for rendering
+    // BUG-AUDIT-3: see renderBrowseTab note on normalizePinBlock and vaultSource:title key.
     const pins = chat_metadata?.deeplore_pins || [];
     const blocks = chat_metadata?.deeplore_blocks || [];
-    // BUG-AUDIT-3: Use normalizePinBlock to handle both {title,vaultSource} objects and legacy bare strings
-    const pinSet = new Set(pins.map(p => normalizePinBlock(p).title.toLowerCase()));
-    const blockSet = new Set(blocks.map(b => normalizePinBlock(b).title.toLowerCase()));
-    // Build injected set — fall back to lastPipelineTrace when lastInjectionSources
-    // has been consumed by CHARACTER_MESSAGE_RENDERED (moved to message.extra)
+    const pinSet = new Set(pins.map(p => { const n = normalizePinBlock(p); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
+    const blockSet = new Set(blocks.map(b => { const n = normalizePinBlock(b); return `${n.vaultSource || ''}:${n.title.toLowerCase()}`; }));
+    // CHARACTER_MESSAGE_RENDERED moves sources to message.extra; lastPipelineTrace is the fallback.
     const injectedSet = new Set();
     const injSources = lastInjectionSources ?? lastPipelineTrace?.injected;
     if (injSources) {
         for (const s of injSources) injectedSet.add(s.title.toLowerCase());
     }
 
-    // Compute entry temperatures for visual heat indicator
     const tempMap = computeEntryTemperatures();
 
-    // Build rejection reason lookup from pipeline trace (for "why not?" indicators)
-    const rejectionMap = new Map();
-    if (lastPipelineTrace) {
-        const rejGroups = categorizeRejections(lastPipelineTrace, injectedSet);
-        for (const group of rejGroups) {
-            for (const entry of group.entries) {
-                if (!rejectionMap.has(entry.title.toLowerCase())) {
-                    rejectionMap.set(entry.title.toLowerCase(), { label: group.label, icon: group.icon, reason: entry.reason });
+    // Rejection lookup is cached; rebuild only when the trace identity changes.
+    if (lastPipelineTrace !== _cachedRejectionTrace) {
+        _cachedRejectionMap = new Map();
+        _cachedRejectionTrace = lastPipelineTrace;
+        if (lastPipelineTrace) {
+            const rejGroups = categorizeRejections(lastPipelineTrace, injectedSet);
+            for (const group of rejGroups) {
+                for (const entry of group.entries) {
+                    if (!_cachedRejectionMap.has(entry.title.toLowerCase())) {
+                        _cachedRejectionMap.set(entry.title.toLowerCase(), { label: group.label, icon: group.icon, reason: entry.reason });
+                    }
                 }
             }
         }
     }
+    const rejectionMap = _cachedRejectionMap;
 
     let html = '';
     for (let i = startIdx; i < endIdx; i++) {
         const e = entries[i];
         const tl = e.title.toLowerCase();
-        const isPinned = pinSet.has(tl);
-        const isBlocked = blockSet.has(tl);
+        const pbKey = `${e.vaultSource || ''}:${tl}`;
+        const isPinned = pinSet.has(pbKey);
+        const isBlocked = blockSet.has(pbKey);
         const isInjected = injectedSet.has(tl);
 
         const classes = ['dle-browse-entry'];
@@ -442,7 +655,7 @@ export function renderBrowseWindow() {
         const prioClass = e.constant ? ' dle-browse-constant' : '';
 
         const statusParts = [];
-        if (isInjected) statusParts.push('currently injected');
+        if (isInjected) statusParts.push('Injected');
         if (isPinned) statusParts.push('pinned');
         if (isBlocked) statusParts.push('blocked');
         if (e.constant) statusParts.push('constant');
@@ -452,58 +665,93 @@ export function renderBrowseWindow() {
         if (ds.browseExpandedIdx !== null && i > ds.browseExpandedIdx) {
             top += ds.browseExpandedExtraHeight;
         }
-        // Temperature indicator: tint entry based on injection frequency
         const tempKey = trackerKey(e);
         const temp = tempMap.get(tempKey);
         const tempStyle = temp && temp.hue !== 'neutral' ? `--dle-temp:${temp.tempScore.toFixed(2)};--dle-temp-hue:${temp.hue};` : '';
         const tempClass = temp && temp.hue !== 'neutral' ? ` dle-temp-${temp.hue}` : '';
 
-        html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" aria-setsize="${entries.length}" aria-posinset="${i + 1}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
-        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)}">`;
-        html += `<span class="dle-browse-title">${escapeHtml(e.title)}</span>`;
+        const previewId = `dle-preview-${CSS.escape(trackerKey(e))}`;
+        html += `<div class="${classes.join(' ')}${tempClass}" data-title="${escapeHtml(e.title)}" data-idx="${i}" role="listitem" aria-label="${browseAriaLabel}" aria-controls="${previewId}" aria-setsize="${entries.length}" aria-posinset="${i + 1}" style="position:absolute;top:${top}px;left:0;right:0;height:${BROWSE_ROW_HEIGHT}px;${tempStyle}">`;
+        const _hoverParts = [];
+        if (e.summary) _hoverParts.push(escapeHtml(e.summary));
+        if (e.keys && e.keys.length) _hoverParts.push(`Keys: ${escapeHtml(e.keys.join(', '))}`);
+        if (e.tokenEstimate) _hoverParts.push(`Tokens: ${e.tokenEstimate}`);
+        const _hoverTitle = _hoverParts.length ? ` title="${_hoverParts.join('&#10;&#10;')}"` : '';
+        html += `<div class="dle-browse-info" role="button" tabindex="0" aria-expanded="false" aria-label="Expand ${escapeHtml(e.title)} (Enter or click)" aria-describedby="${previewId}"${_hoverTitle}>`;
+        html += `<span class="dle-browse-title">${escapeHtml(e.title)}${e.guide ? ' <span class="dle-browse-guide-pill" title="Writing guide — read by the Librarian (Emma) only, never sent to the writing AI. Add \'lorebook-guide\' tag to create one."><i class="fa-solid fa-book-open-reader" aria-hidden="true"></i> Guide</span>' : ''}</span>`;
         html += `<span class="dle-browse-keys" aria-label="Keywords: ${escapeHtml(keysStr || 'none')}">${escapeHtml(keysStr)}</span>`;
         html += `</div>`;
         html += `<div class="dle-browse-controls">`;
-        // "Why not?" rejection indicator for non-injected entries
         const rejection = !isInjected ? rejectionMap.get(tl) : null;
         if (rejection) {
-            html += `<span class="dle-browse-why-not" title="${escapeHtml(rejection.label)}: ${escapeHtml(rejection.reason)}" aria-label="Not injected: ${escapeHtml(rejection.reason)}"><i class="fa-solid ${escapeHtml(rejection.icon)}" aria-hidden="true"></i></span>`;
+            html += `<span class="dle-browse-why-not" title="${escapeHtml(rejection.label)}: ${escapeHtml(rejection.reason)}" aria-label="${escapeHtml(rejection.label)}"><i class="fa-solid ${escapeHtml(rejection.icon)}" aria-hidden="true"></i></span>`;
         }
         const browseCount = chatInjectionCounts.get(trackerKey(e)) || 0;
-        if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} time${browseCount !== 1 ? 's' : ''} this chat">${browseCount}×</span>`;
-        html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
-        html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(e.title)}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
-        html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(e.title)}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;
+        if (browseCount > 0) html += `<span class="dle-inject-count" title="Injected ${browseCount} times this chat" aria-label="Injected ${browseCount} times this chat">${browseCount}×</span>`;
+        html += `<span class="dle-browse-priority${prioClass}" title="${e.constant ? 'Constant — always injected. Set via #lorebook-always tag.' : `Priority ${e.priority || 50} (lower = more important)`}" aria-label="${e.constant ? 'Constant entry, always injected' : `Priority ${e.priority || 50}`}">${prioLabel}</span>`;
+        html += `<button class="dle-browse-pin${isPinned ? ' dle-pin-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isPinned ? 'Unpin' : 'Pin'}" title="${isPinned ? 'Pinned — always inject' : 'Click to pin'}"><i class="fa-solid fa-thumbtack" aria-hidden="true"></i></button>`;
+        html += `<button class="dle-browse-block${isBlocked ? ' dle-block-active' : ''}" data-entry="${escapeHtml(e.title)}" data-vault="${escapeHtml(e.vaultSource || '')}" aria-label="${isBlocked ? 'Unblock' : 'Block'}" title="${isBlocked ? 'Blocked — never inject' : 'Click to block'}"><i class="fa-solid fa-ban" aria-hidden="true"></i></button>`;
+        html += `<button class="dle-browse-copy-title-btn" data-action="copy-title" data-title="${escapeHtml(e.title)}" aria-label="Copy title" title="Copy title"><i class="fa-solid fa-copy" aria-hidden="true"></i></button>`;
         html += `</div>`;
         html += `</div>`;
     }
 
     $list.html(html);
 
-    // Re-expand entry if one was expanded before this re-render
+    // Re-expand previously-expanded entry across re-renders, reusing cached preview HTML.
     if (ds.browseExpandedEntry) {
         const $entry = $list.find(`.dle-browse-entry[data-title="${CSS.escape(ds.browseExpandedEntry)}"]`);
         if ($entry.length) {
             const entry = ds.browseFilteredEntries.find(e => e.title === ds.browseExpandedEntry);
             if (entry) {
-                const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
-                const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
-                const settings = getSettings();
-                const srcVault = entry.vaultSource && settings.vaults ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
-                const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
-                const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
-                const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
-                // Custom fields line
-                let fieldsHtml = '';
-                if (entry.customFields && Object.keys(entry.customFields).length > 0) {
-                    const pairs = Object.entries(entry.customFields)
-                        .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
-                        .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : String(v))}`);
-                    if (pairs.length) fieldsHtml = `<div class="dle-browse-fields">${pairs.join(' &middot; ')}</div>`;
+                // BUG-360: trackerKey (vaultSource:title) — bare title collides across vaults.
+                const expandedKey = trackerKey(entry);
+                if (_cachedExpandedPreviewKey !== expandedKey) {
+                    const preview = entry.summary || (entry.content ? entry.content.substring(0, 200) + (entry.content.length > 200 ? '...' : '') : 'No content');
+                    const tokens = entry.tokenEstimate ? `${entry.tokenEstimate} tokens` : '';
+                    const settings = getSettings();
+                    const srcVault = entry.vaultSource && settings.vaults ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
+                    const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
+                    const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
+                    const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
+                    let fieldsHtml = '';
+                    if (entry.customFields && Object.keys(entry.customFields).length > 0) {
+                        const pairs = Object.entries(entry.customFields)
+                            .filter(([, v]) => v != null && v !== '' && (!Array.isArray(v) || v.length > 0))
+                            .map(([k, v]) => `${escapeHtml(k)}: ${escapeHtml(Array.isArray(v) ? v.join(', ') : String(v))}`);
+                        if (pairs.length) fieldsHtml = `<div class="dle-browse-fields">${pairs.join(' &middot; ')}</div>`;
+                    }
+                    let relatedHtml = '';
+                    const related = [];
+                    for (const link of entry.resolvedLinks || []) {
+                        if (!related.includes(link)) related.push(link);
+                    }
+                    if (related.length < 5) {
+                        const entryKeys = new Set((entry.keys || []).map(k => k.toLowerCase()));
+                        if (entryKeys.size > 0) {
+                            for (const other of vaultIndex) {
+                                if (other.title === entry.title) continue;
+                                if (related.includes(other.title)) continue;
+                                const overlap = (other.keys || []).filter(k => entryKeys.has(k.toLowerCase())).length;
+                                if (overlap > 0) related.push(other.title);
+                                if (related.length >= 5) break;
+                            }
+                        }
+                    }
+                    if (related.length > 0) {
+                        relatedHtml = `<div class="dle-browse-related"><span class="dle-muted">Related:</span> `;
+                        for (const r of related.slice(0, 5)) {
+                            relatedHtml += `<span class="dle-browse-related-chip dle-browse-nav-btn" data-browse-title="${escapeHtml(r)}" title="Show in Browse">${escapeHtml(r)}</span>`;
+                        }
+                        relatedHtml += `</div>`;
+                    }
+                    _cachedExpandedPreviewHtml = `<div class="dle-browse-preview" id="dle-preview-${CSS.escape(expandedKey)}"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}${relatedHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`;
+                    _cachedExpandedPreviewKey = expandedKey;
                 }
-                $entry.append(`<div class="dle-browse-preview"><div class="dle-browse-preview-text">${escapeHtml(preview)}</div>${fieldsHtml}<div class="dle-browse-preview-meta">${escapeHtml(tokens)}${linkHtml}</div></div>`);
+
+                $entry.append(_cachedExpandedPreviewHtml);
+                $entry.find('.dle-browse-info').attr('aria-expanded', 'true');
                 $entry.css({ height: 'auto' });
-                // Measure expanded height and store for virtual scroll offset
                 const expandedHeight = $entry[0].scrollHeight;
                 ds.browseExpandedIdx = parseInt($entry.data('idx'), 10);
                 ds.browseExpandedExtraHeight = Math.max(0, expandedHeight - BROWSE_ROW_HEIGHT);
@@ -516,18 +764,43 @@ export function renderBrowseWindow() {
 // Gating Tab
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the gating tab with live context state.
- */
 export function renderGatingTab() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
     const ctx = chat_metadata?.deeplore_context;
 
-    // Dynamic field definitions from state
+    // ── Folder filter section ──
+    const activeFolders = chat_metadata?.deeplore_folder_filter || [];
+    const $folderSection = $drawer.find('.dle-gating-folder-section');
+    if ($folderSection.length) {
+        const hasFolders = activeFolders.length > 0;
+        $folderSection.find('.dle-folder-dot')
+            .toggleClass('dle-gating-dot-active', hasFolders)
+            .toggleClass('dle-gating-dot-empty', !hasFolders);
+        const $chips = $folderSection.find('.dle-folder-chips');
+        const $empty = $folderSection.find('.dle-folder-empty');
+        if (hasFolders) {
+            let chipsHtml = '';
+            for (const f of activeFolders) {
+                chipsHtml += `<span class="dle-chip" title="${escapeHtml(f)}">${escapeHtml(f)} <button class="dle-chip-x dle-folder-chip-x" data-folder="${escapeHtml(f)}" aria-label="Remove ${escapeHtml(f)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`;
+            }
+            const excluded = vaultIndex.filter(e => {
+                if (!e.folderPath) return false;
+                return !activeFolders.some(f => e.folderPath === f || e.folderPath.startsWith(f + '/'));
+            }).length;
+            if (excluded > 0) {
+                chipsHtml += `<span class="dle-gating-count" title="${excluded} entries outside selected folders will be filtered out" aria-label="Excluding ${excluded} entries">excluding ${excluded}</span>`;
+            }
+            $chips.html(chipsHtml).show();
+            $empty.hide();
+        } else {
+            $chips.empty().hide();
+            $empty.show();
+        }
+    }
+
     const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
 
-    // Build dynamic gating group HTML if container exists
     const $container = $drawer.find('.dle-gating-fields-container');
     const enabledDefs = fieldDefs.filter(fd => fd.gating?.enabled);
     if ($container.length) {
@@ -550,7 +823,6 @@ export function renderGatingTab() {
             </div>`;
             $container.append(fieldHtml);
         }
-        // Empty state hint when all fields are unset
         const anySet = enabledDefs.some(fd => {
             if (!ctx) return false;
             return fd.multi
@@ -559,11 +831,10 @@ export function renderGatingTab() {
         });
         $container.find('.dle-gating-hint').remove();
         if (!anySet && enabledDefs.length > 0) {
-            $container.append('<div class="dle-gating-hint">Set gating fields to filter which lore entries are included. Use <code>/dle-set-field</code> or click the edit icon on any field.</div>');
+            $container.append('<div class="dle-gating-hint">Set gating fields to filter which lore entries are included. Set via slash command (<code>/dle-set-field</code>) or click the field below.</div>');
         }
     }
 
-    // Render values for each field
     for (const fd of fieldDefs) {
         if (!fd.gating?.enabled) continue;
         const $group = $drawer.find(`.dle-gating-group[data-field="${fd.name}"]`);
@@ -571,13 +842,12 @@ export function renderGatingTab() {
         const value = ctx ? ctx[fd.contextKey] : null;
         const $setBtn = $value.find('.dle-gating-set');
 
-        // Remove everything except the set button
-        $value.find('.dle-chip, .dle-gating-empty, .dle-gating-count').remove();
+        $value.find('.dle-chip, .dle-gating-empty, .dle-gating-count, .dle-gating-clear-btn').remove();
 
         if (!fd.multi) {
             if (value) {
-                $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
-                // Impact count: entries with this field set but don't match
+                $setBtn.before(`<span class="dle-chip">${escapeHtml(value)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(value)}" aria-label="Remove ${escapeHtml(value)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span><button class="dle-gating-clear-btn" type="button" data-action="clear-gating-field" data-field="${escapeHtml(fd.name)}" aria-label="Clear ${escapeHtml(fd.label)}">×</button>`);
+                // Impact count: entries with this field set that don't match the active value.
                 const filtered = vaultIndex.filter(e => {
                     const val = e.customFields?.[fd.name];
                     if (!val || (Array.isArray(val) && val.length === 0)) return false;
@@ -588,15 +858,15 @@ export function renderGatingTab() {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
             } else {
-                $setBtn.before('<span class="dle-gating-empty">Not set</span>');
+                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: not set">Not set — click + to filter</span>`);
             }
         } else {
-            // Array field
+            // Array (multi-value) field.
             if (value && value.length > 0) {
                 for (const c of value) {
                     $setBtn.before(`<span class="dle-chip">${escapeHtml(c)} <button class="dle-chip-x" data-field="${escapeHtml(fd.name)}" data-value="${escapeHtml(c)}" aria-label="Remove ${escapeHtml(c)}"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></span>`);
                 }
-                // Impact count: entries with this field set but no overlap
+                // Impact count: entries with this field set but no value-overlap with the active selection.
                 const activeSet = new Set(value.map(c => c.toLowerCase()));
                 const filtered = vaultIndex.filter(e => {
                     const eVal = e.customFields?.[fd.name];
@@ -605,8 +875,9 @@ export function renderGatingTab() {
                 if (filtered > 0) {
                     $setBtn.before(`<span class="dle-gating-count" aria-label="Excluding ${filtered} entries" title="${filtered} entries don't match this value and will be filtered out">excluding ${filtered}</span>`);
                 }
+                $setBtn.before(`<button class="dle-gating-clear-btn" type="button" data-action="clear-gating-field-all" data-field="${escapeHtml(fd.name)}" aria-label="Clear all ${escapeHtml(fd.label)}">Clear all</button>`);
             } else {
-                $setBtn.before('<span class="dle-gating-empty">None set</span>');
+                $setBtn.before(`<span class="dle-gating-empty" aria-label="${escapeHtml(fd.label)}: none set">None set — click + to add</span>`);
             }
         }
     }
@@ -616,7 +887,6 @@ export function renderGatingTab() {
 // Timers
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Render active entry timers (cooldown, decay, warmup) below gating */
 export function renderTimers() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -625,7 +895,6 @@ export function renderTimers() {
     const rows = [];
     const settings = getSettings();
 
-    // Cooldown entries
     let timerIdx = 0;
     for (const [key, remaining] of cooldownTracker) {
         const name = key.includes(':') ? key.split(':').slice(1).join(':') : key;
@@ -635,7 +904,7 @@ export function renderTimers() {
         </div>`);
     }
 
-    // Decay entries (stale = above boost threshold, frequent = consecutive via consecutiveInjections)
+    // Decay: only render entries past the boost threshold.
     if (settings.decayEnabled) {
         const boostThreshold = settings.decayBoostThreshold || 5;
         for (const [key, staleness] of decayTracker) {
@@ -649,8 +918,7 @@ export function renderTimers() {
         }
     }
 
-    // Note: Warmup is static configuration (entry.warmup threshold), not an active timer.
-    // Removed from timers section — would show ALL entries with warmup > 1 regardless of state.
+    // Warmup is static config (entry.warmup threshold), not an active timer — intentionally not surfaced here.
 
     $list.html(rows.join(''));
     $empty.toggleClass('dle-visible', rows.length === 0);

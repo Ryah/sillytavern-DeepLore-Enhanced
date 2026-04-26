@@ -4,6 +4,29 @@
 
 import { parseFrontmatter, extractWikiLinks, cleanContent, extractTitle } from './utils.js';
 import { extractCustomFields } from '../src/fields.js';
+// BUG-094: use ST's canonical role-name → enum mapper. Resolved lazily so cold-start
+// / Node tests don't crash if ST isn't loaded.
+let _getExtensionPromptRoleByName = null;
+let _roleByNameAttempted = false;
+const _ROLE_FALLBACK = { system: 0, user: 1, assistant: 2 };
+function _resolveRoleByName(name) {
+    if (typeof name !== 'string') return null;
+    const lower = name.toLowerCase();
+    if (!_roleByNameAttempted) {
+        _roleByNameAttempted = true;
+        try {
+            const g = (typeof window !== 'undefined' ? window : globalThis);
+            if (g && typeof g.getExtensionPromptRoleByName === 'function') {
+                _getExtensionPromptRoleByName = g.getExtensionPromptRoleByName;
+            }
+        } catch { /* ignore */ }
+    }
+    if (typeof _getExtensionPromptRoleByName === 'function') {
+        const v = _getExtensionPromptRoleByName(lower);
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+    }
+    return _ROLE_FALLBACK[lower] ?? null;
+}
 
 /**
  * @typedef {object} VaultEntry
@@ -16,6 +39,7 @@ import { extractCustomFields } from '../src/fields.js';
  * @property {boolean} constant - Always inject regardless of keywords
  * @property {boolean} seed - Content sent to AI as story context on new chats
  * @property {boolean} bootstrap - Force-inject when chat is short
+ * @property {boolean} guide - Librarian-only writing/style/meta guide; never reaches the writing AI
  * @property {number} tokenEstimate - Rough token count estimate
  * @property {number|null} scanDepth - Per-entry scan depth override (null = use global)
  * @property {boolean} excludeRecursion - Don't scan this entry's content during recursion
@@ -24,12 +48,14 @@ import { extractCustomFields } from '../src/fields.js';
  * @property {string[]} tags - All Obsidian tags (excluding the lorebook marker tag)
  * @property {string[]} requires - Entry titles that must all be matched for this entry to activate
  * @property {string[]} excludes - Entry titles that, if any matched, prevent this entry from activating
+ * @property {string|null} outlet - Outlet name for macro-based injection (null = normal positional injection)
  * @property {number|null} injectionPosition - Per-entry injection position override (null = use global)
  * @property {number|null} injectionDepth - Per-entry injection depth override (null = use global)
  * @property {number|null} injectionRole - Per-entry injection role override (null = use global)
  * @property {number|null} cooldown - Generations to skip after triggering (null = no cooldown)
  * @property {number|null} warmup - Keyword hit count required before triggering (null = no warmup)
  * @property {number|null} probability - Chance of triggering when matched (0.0-1.0, null = always trigger)
+ * @property {string|null} folderPath - Parent folder path within vault (null = vault root)
  * @property {string} vaultSource - Name of the vault this entry came from (multi-vault)
  * @property {Object<string, *>} customFields - User-defined custom fields extracted by field definitions
  * @property {boolean} graph - Whether this entry should appear in the relationship graph (default true)
@@ -42,48 +68,166 @@ import { extractCustomFields } from '../src/fields.js';
  * @property {string} neverInsertTag - Tag for entries to skip
  * @property {string} [seedTag] - Tag for seed entries (Enhanced only)
  * @property {string} [bootstrapTag] - Tag for bootstrap entries (Enhanced only)
+ * @property {string} [guideTag] - Tag for Librarian-only writing-guide entries
  */
+
+/**
+ * Canonical frontmatter names keyed by lowercased lookup form. `scanDepth` and
+ * `excludeRecursion` stay camelCase — the readers below use camelCase (grandfathered
+ * before this alias table existed).
+ */
+const CANONICAL_FM_LOOKUP = {
+    keys: 'keys',
+    tags: 'tags',
+    priority: 'priority',
+    summary: 'summary',
+    depth: 'depth',
+    position: 'position',
+    role: 'role',
+    scandepth: 'scanDepth',
+    cooldown: 'cooldown',
+    warmup: 'warmup',
+    probability: 'probability',
+    requires: 'requires',
+    excludes: 'excludes',
+    refine_keys: 'refine_keys',
+    cascade_links: 'cascade_links',
+    enabled: 'enabled',
+    constant: 'constant',
+    seed: 'seed',
+    bootstrap: 'bootstrap',
+    guide: 'guide',
+    outlet: 'outlet',
+    era: 'era',
+    location: 'location',
+    scene_type: 'scene_type',
+    character_present: 'character_present',
+    graph: 'graph',
+    excluderecursion: 'excludeRecursion',
+};
+
+/**
+ * Normalize non-canonical case variants of known frontmatter keys in-place.
+ * Pushes a `W_ALIAS_USED` warning for each rewrite. If both variants exist, canonical wins.
+ * @param {object} fm - Frontmatter object (mutated)
+ * @param {Array} warnings - Warning sink
+ */
+function normalizeFrontmatterKeys(fm, warnings) {
+    for (const key of Object.keys(fm)) {
+        const lower = key.toLowerCase();
+        const canonical = CANONICAL_FM_LOOKUP[lower];
+        if (!canonical || key === canonical) continue;
+        if (Object.prototype.hasOwnProperty.call(fm, canonical)) {
+            // Canonical wins — drop the alias silently.
+            delete fm[key];
+            continue;
+        }
+        fm[canonical] = fm[key];
+        delete fm[key];
+        warnings.push({
+            code: 'W_ALIAS_USED',
+            severity: 'warn',
+            field: key,
+            message: `Field '${key}' should be '${canonical}'.`,
+            suggestedFix: `Rename '${key}:' to '${canonical}:'.`,
+        });
+    }
+}
+
+/**
+ * Coerce a value to a number when lenient. Returns { value, warned } — `value` is
+ * the coerced number if successful, or null if not coercible (caller keeps default).
+ */
+function coerceNumber(raw, fieldName, warnings, lenient) {
+    if (typeof raw === 'number' && Number.isFinite(raw)) return { value: raw, warned: false };
+    if (!lenient) return { value: null, warned: false };
+    if (typeof raw === 'string' && raw.trim() !== '' && !isNaN(Number(raw))) {
+        const coerced = Number(raw);
+        warnings.push({
+            code: 'W_COERCED_NUM',
+            severity: 'warn',
+            field: fieldName,
+            message: `Field '${fieldName}' should be a number, got string "${raw}". Coerced to ${coerced}.`,
+            suggestedFix: `Remove the quotes around ${fieldName}'s value.`,
+        });
+        return { value: coerced, warned: true };
+    }
+    return { value: null, warned: false };
+}
 
 /**
  * Parse a single vault file into a VaultEntry, or return null if it should be skipped.
  * @param {{ filename: string, content: string }} file - Raw file from server
  * @param {TagConfig} tagConfig - Tag configuration from settings
  * @param {import('../src/fields.js').FieldDefinition[]} [fieldDefinitions] - Custom field definitions (optional, for extracting customFields)
+ * @param {{ lenientAuthoring?: boolean, onSkip?: (reason: string) => void }} [options] - Parser options
  * @returns {VaultEntry|null}
  */
-export function parseVaultFile(file, tagConfig, fieldDefinitions) {
+export function parseVaultFile(file, tagConfig, fieldDefinitions, options = {}) {
+    const lenient = options.lenientAuthoring !== false;
+    const onSkip = typeof options.onSkip === 'function' ? options.onSkip : null;
+    const warnings = [];
+
     const { frontmatter, body } = parseFrontmatter(file.content);
 
-    // Check if this file has the lorebook tag
+    // Lenient alias normalization — rewrite `Keys` → `keys`, etc.
+    if (lenient) normalizeFrontmatterKeys(frontmatter, warnings);
+
+    const hasAnyFrontmatter = Object.keys(frontmatter).length > 0;
+
     const tags = Array.isArray(frontmatter.tags)
         ? frontmatter.tags.map(t => String(t).toLowerCase())
         : (typeof frontmatter.tags === 'string' ? [frontmatter.tags.toLowerCase()] : []);
 
     const tagToMatch = tagConfig.lorebookTag.toLowerCase();
-    if (!tags.includes(tagToMatch)) {
+    const guideTagToMatch = tagConfig.guideTag ? tagConfig.guideTag.toLowerCase() : '';
+    const hasGuideTag = !!(guideTagToMatch && tags.includes(guideTagToMatch));
+    // Guide entries admitted without the lorebook tag — they live in the index for Emma's tools.
+    if (!tags.includes(tagToMatch) && !hasGuideTag) {
+        if (onSkip) onSkip(hasAnyFrontmatter ? 'SKIP_NO_LOREBOOK_TAG' : 'SKIP_NO_FRONTMATTER');
         return null;
     }
 
-    // Skip entries explicitly disabled via frontmatter
     if (frontmatter.enabled === false) {
+        if (onSkip) onSkip('SKIP_ENABLED_FALSE');
         return null;
     }
 
-    // Skip entries with the never-insert tag
     const neverInsertTagToMatch = tagConfig.neverInsertTag ? tagConfig.neverInsertTag.toLowerCase() : '';
     if (neverInsertTagToMatch && tags.includes(neverInsertTagToMatch)) {
+        if (onSkip) onSkip('SKIP_NEVER_INSERT_TAG');
         return null;
     }
 
-    // Extract keys
-    const keys = Array.isArray(frontmatter.keys)
-        ? frontmatter.keys.map(k => String(k))
-        : (frontmatter.keys ? [String(frontmatter.keys)] : []);
+    // Extract keys — lenient comma-string auto-split.
+    let keys;
+    if (Array.isArray(frontmatter.keys)) {
+        keys = frontmatter.keys.map(k => String(k));
+    } else if (typeof frontmatter.keys === 'string') {
+        const raw = frontmatter.keys;
+        if (lenient && raw.includes(',')) {
+            keys = raw.split(',').map(k => k.trim()).filter(Boolean);
+            warnings.push({
+                code: 'W_COMMA_SPLIT',
+                severity: 'warn',
+                field: 'keys',
+                message: `'keys' was a comma-separated string ("${raw}"). Split into ${keys.length} keys.`,
+                suggestedFix: 'Use a YAML list (one key per line with `- `) instead of a comma-separated string.',
+            });
+        } else {
+            keys = [raw];
+        }
+    } else if (frontmatter.keys) {
+        keys = [String(frontmatter.keys)];
+    } else {
+        keys = [];
+    }
 
     const title = extractTitle(body, file.filename);
     const links = extractWikiLinks(body);
     const content = cleanContent(body);
-    const priority = typeof frontmatter.priority === 'number' ? frontmatter.priority : 100;
+    const priorityCoerced = coerceNumber(frontmatter.priority, 'priority', warnings, lenient);
+    const priority = priorityCoerced.value !== null ? priorityCoerced.value : 100;
 
     const constantTagToMatch = tagConfig.constantTag ? tagConfig.constantTag.toLowerCase() : '';
     const constant = frontmatter.constant === true || (constantTagToMatch && tags.includes(constantTagToMatch));
@@ -94,53 +238,92 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
     const bootstrapTagToMatch = tagConfig.bootstrapTag ? tagConfig.bootstrapTag.toLowerCase() : '';
     const bootstrap = !!(bootstrapTagToMatch && tags.includes(bootstrapTagToMatch));
 
+    // Librarian-only — filtered out of every writing-AI surface.
+    const guide = hasGuideTag;
+
     const scanDepth = typeof frontmatter.scanDepth === 'number' ? frontmatter.scanDepth : null;
     const excludeRecursion = frontmatter.excludeRecursion === true;
 
-    // Conditional gating
-    const requires = Array.isArray(frontmatter.requires)
-        ? frontmatter.requires.map(r => String(r).trim()).filter(Boolean) : [];
-    const excludes = Array.isArray(frontmatter.excludes)
-        ? frontmatter.excludes.map(r => String(r).trim()).filter(Boolean) : [];
+    // Normalize a field that should be array-of-string but may be a scalar string in YAML.
+    const toArray = v => Array.isArray(v) ? v.map(r => String(r).trim()).filter(Boolean)
+        : (v ? [String(v).trim()].filter(Boolean) : []);
 
-    // Refine keys: require at least one to also match (AND_ANY mode)
-    const refineKeys = Array.isArray(frontmatter.refine_keys)
-        ? frontmatter.refine_keys.map(k => String(k).trim()).filter(Boolean) : [];
+    const requires = toArray(frontmatter.requires);
+    const excludes = toArray(frontmatter.excludes);
+    const refineKeys = toArray(frontmatter.refine_keys);
+    const cascadeLinks = toArray(frontmatter.cascade_links);
 
-    // Cascade links: explicitly pull in linked entries when this entry matches
-    const cascadeLinks = Array.isArray(frontmatter.cascade_links)
-        ? frontmatter.cascade_links.map(l => String(l).trim()).filter(Boolean) : [];
+    // Folder path is derived from filename, not frontmatter.
+    const folderPath = file.filename.includes('/') ? file.filename.split('/').slice(0, -1).join('/') : null;
 
-    // Per-entry injection position overrides
+    const outlet = typeof frontmatter.outlet === 'string' && frontmatter.outlet.trim()
+        ? frontmatter.outlet.trim() : null;
+
+    // BUG-093: positions still need a static name→enum map (ST exports no public
+    // name resolver for positions); roles route through ST's helper below.
     const positionMap = { before: 2, after: 0, in_chat: 1 };
-    const roleMap = { system: 0, user: 1, assistant: 2 };
 
     const injectionPosition = typeof frontmatter.position === 'string'
         ? (positionMap[frontmatter.position.toLowerCase()] ?? null) : null;
-    const injectionDepth = typeof frontmatter.depth === 'number'
-        ? frontmatter.depth : null;
+    // BUG-092: clamp depth to MAX_INJECTION_DEPTH (10000) — a typo like depth: 50000
+    // would otherwise make the entry vanish silently.
+    let injectionDepth = null;
+    if (typeof frontmatter.depth === 'number' && Number.isFinite(frontmatter.depth)) {
+        const d = frontmatter.depth;
+        if (d < 0) {
+            console.warn(`[DLE] entry "${file.filename}": depth ${d} < 0 — clamping to 0`);
+            injectionDepth = 0;
+        } else if (d > 10000) {
+            console.warn(`[DLE] entry "${file.filename}": depth ${d} exceeds MAX_INJECTION_DEPTH (10000) — clamping`);
+            injectionDepth = 10000;
+        } else {
+            injectionDepth = d;
+        }
+    }
+    // BUG-094: route role names through ST's helper so future role additions work
+    // without code changes here.
     const injectionRole = typeof frontmatter.role === 'string'
-        ? (roleMap[frontmatter.role.toLowerCase()] ?? null) : null;
+        ? _resolveRoleByName(frontmatter.role) : null;
 
-    // Per-entry cooldown and warmup
-    const cooldown = typeof frontmatter.cooldown === 'number' && frontmatter.cooldown > 0 ? frontmatter.cooldown : null;
-    const warmup = typeof frontmatter.warmup === 'number' && frontmatter.warmup > 0 ? frontmatter.warmup : null;
+    const cooldownCoerced = coerceNumber(frontmatter.cooldown, 'cooldown', warnings, lenient);
+    const cooldown = cooldownCoerced.value !== null && cooldownCoerced.value > 0 ? cooldownCoerced.value : null;
+    const warmupCoerced = coerceNumber(frontmatter.warmup, 'warmup', warnings, lenient);
+    const warmup = warmupCoerced.value !== null && warmupCoerced.value > 0 ? warmupCoerced.value : null;
 
-    // Per-entry probability (0.0-1.0), clamped to valid range
-    const probability = typeof frontmatter.probability === 'number'
-        ? Math.max(0, Math.min(1, frontmatter.probability))
+    const probabilityCoerced = coerceNumber(frontmatter.probability, 'probability', warnings, lenient);
+    const probability = probabilityCoerced.value !== null
+        ? Math.max(0, Math.min(1, probabilityCoerced.value))
         : null;
 
-    // AI selection summary (dedicated frontmatter field, separate from injected content)
-    // Coerce numeric summaries to string (YAML may parse "42" as a number)
+    // Coerce numeric summaries to string — YAML may parse "42" as a number.
     const summary = (typeof frontmatter.summary === 'string' || typeof frontmatter.summary === 'number')
         ? String(frontmatter.summary).trim() : '';
 
-    // Custom fields extraction (driven by field definitions, replaces hardcoded era/location/sceneType/characterPresent)
     const customFields = extractCustomFields(frontmatter, fieldDefinitions || []);
 
-    // Preserve all tags except the lorebook marker tag itself
-    const entryTags = tags.filter(t => t !== tagToMatch);
+    // C.3: round-trip-safe preservation of WI fields DLE doesn't enforce yet.
+    // Stored in customFields, flagged via W_NOT_IMPLEMENTED so /dle-lint surfaces them.
+    const WI_NOT_IMPLEMENTED_FIELDS = [
+        { key: 'sticky', bug: 'BUG-047' },
+        { key: 'delay', bug: 'BUG-048' },
+        { key: 'group', bug: 'BUG-052' },
+        { key: 'group_weight', bug: 'BUG-052' },
+    ];
+    for (const { key: fieldName, bug } of WI_NOT_IMPLEMENTED_FIELDS) {
+        if (Object.prototype.hasOwnProperty.call(frontmatter, fieldName)) {
+            customFields[fieldName] = frontmatter[fieldName];
+            warnings.push({
+                code: 'W_NOT_IMPLEMENTED',
+                severity: 'warn',
+                field: fieldName,
+                message: `Field '${fieldName}' preserved but not enforced yet (${bug}).`,
+                suggestedFix: `Remove '${fieldName}' if you don't need it round-tripped.`,
+            });
+        }
+    }
+
+    // Strip the marker tags themselves; preserve everything else.
+    const entryTags = tags.filter(t => t !== tagToMatch && t !== guideTagToMatch);
 
     return {
         filename: file.filename,
@@ -152,6 +335,7 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
         constant,
         seed,
         bootstrap,
+        guide,
         tokenEstimate: 0,
         scanDepth,
         excludeRecursion,
@@ -162,15 +346,18 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
         excludes,
         refineKeys,
         cascadeLinks,
+        outlet,
         injectionPosition,
         injectionDepth,
         injectionRole,
         cooldown,
         warmup,
         probability,
+        folderPath,
         vaultSource: '',
         customFields,
         graph: frontmatter.graph !== false,
+        _parserWarnings: warnings.length > 0 ? warnings : undefined,
     };
 }
 
@@ -182,7 +369,7 @@ export function parseVaultFile(file, tagConfig, fieldDefinitions) {
  */
 export function clearPrompts(extensionPrompts, promptTagPrefix, promptTag) {
     for (const key of Object.keys(extensionPrompts)) {
-        if (key.startsWith(promptTagPrefix) || key === promptTag) {
+        if (key.startsWith(promptTagPrefix) || key === promptTag || key.startsWith('customWIOutlet_')) {
             delete extensionPrompts[key];
         }
     }

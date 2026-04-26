@@ -10,3 +10,18 @@ Entry summaries are included in the AI search manifest. In multi-author vaults, 
 
 ## No AI Call Rate Limiting
 All AI features (search, scribe, auto-suggest) make API calls without rate limiting. A fast typist or auto-generation could cause many calls in quick succession. This is a design decision — rate limiting would add latency. **Mitigation:** Each feature has configurable intervals and timeouts.
+
+## Librarian Auto-Enables Function Calling
+When the Librarian feature is enabled, DLE automatically enables function calling on the active API connection. Disabling function calling elsewhere while Librarian is active will break tool invocations. **Mitigation:** If you need function calling off, disable Librarian first.
+
+## Guide Tag Conflict Resolution
+Entries tagged `lorebook-guide` that also carry conflicting tags (`lorebook-seed`, `lorebook-bootstrap`, or base `lorebook`) have runtime conflict resolution: `guide` wins. The entry will be treated as guide-only (never injected into the writing AI context). This is intentional but may surprise authors who expect seed/bootstrap behavior.
+
+## Duplicate Entry Titles Across Vaults
+Entry titles must be unique across all enabled vaults. If two vaults contain entries with the same title (case-insensitive), DLE will show a warning and keep only the first vault's copy. Rename one copy to avoid data loss. This is a design constraint — many internal data structures key on entry title.
+
+## CMRS Timeout Enforcement
+SillyTavern's Connection Manager Request Service (CMRS) may not respect `AbortSignal` in all cases. DLE works around this with a `Promise.race` backup timer, but in rare cases an AI request may hang longer than the configured timeout before the backup fires. **Mitigation:** The backup timer fires 500ms after the configured timeout as a safety net.
+
+## Graph Focus Mode Exit Key
+Graph focus mode exits with the `e` key, not Escape. Escape bubbles up to SillyTavern's popup event handler and would close the graph dialog instead of just exiting focus mode.

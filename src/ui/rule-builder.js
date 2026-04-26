@@ -1,21 +1,14 @@
-/**
- * DeepLore Enhanced — Rule Builder Popup
- * Zapier-style field definition editor for custom frontmatter gating fields.
- * Opens via "Manage Fields" button in the Gating tab.
- */
-import { saveSettingsDebounced } from '../../../../../../script.js';
+/** DeepLore Enhanced — Rule Builder Popup. Custom frontmatter gating field editor. */
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../popup.js';
 import { getSettings, getPrimaryVault, invalidateSettingsCache } from '../../settings.js';
 import { fieldDefinitions, setFieldDefinitions } from '../state.js';
 import {
-    DEFAULT_FIELD_DEFINITIONS, RESERVED_FIELD_NAMES, VALID_OPERATORS,
-    validateFieldName, validateFieldDefinition, serializeFieldDefinitions,
+    DEFAULT_FIELD_DEFINITIONS,
+    validateFieldDefinition, serializeFieldDefinitions,
 } from '../fields.js';
 import { writeFieldDefinitions } from '../vault/obsidian-api.js';
 import { buildIndex } from '../vault/vault.js';
-
-// ── Operator labels for the dropdown ──
 
 const OPERATOR_LABELS = {
     match_any: 'Match Any',
@@ -39,8 +32,6 @@ const TYPE_LABELS = {
     number: 'Number',
     boolean: 'Boolean',
 };
-
-// ── Build a single field row ──
 
 function buildFieldRowHtml(field, index) {
     const nameVal = escapeHtml(field.name || '');
@@ -89,7 +80,7 @@ function buildFieldRowHtml(field, index) {
             <div class="dle-rb-row">
                 <label class="dle-rb-lbl">Context Key</label>
                 <input class="dle-rb-ctx text_pole" data-prop="contextKey" value="${contextKeyVal}" placeholder="chat_metadata key" title="Key used in chat_metadata.deeplore_context" />
-                <span class="dle-rb-link-icon" title="Linked to field name — click to unlink"><i class="fa-solid fa-link"></i></span>
+                <span class="dle-rb-link-icon" role="button" tabindex="0" aria-label="Toggle link between context key and field name" title="Linked to field name — click to unlink"><i class="fa-solid fa-link"></i></span>
             </div>
             <div class="dle-rb-row">
                 <label class="dle-rb-lbl">Allowed Values</label>
@@ -99,16 +90,12 @@ function buildFieldRowHtml(field, index) {
     </div>`;
 }
 
-// ── Re-index field rows after add/delete/move ──
-
 function reindexFields($container) {
     $container.find('.dle-rb-field').each(function (i) {
         $(this).attr('data-idx', i);
         $(this).find('.dle-rb-field-num').text(`#${i + 1}`);
     });
 }
-
-// ── Read field data from a row DOM element ──
 
 function readFieldFromRow($row) {
     const get = (prop) => {
@@ -135,13 +122,8 @@ function readFieldFromRow($row) {
     };
 }
 
-// ── Main popup ──
-
-/**
- * Open the rule builder popup for managing custom field definitions.
- */
 export async function openRuleBuilder() {
-    // Deep clone current definitions to work with
+    // Deep clone — edits live in `working` until Save commits to module state.
     const working = JSON.parse(JSON.stringify(
         fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS
     ));
@@ -174,14 +156,11 @@ export async function openRuleBuilder() {
     let saved = false;
     let saving = false;
 
-    // Mark dirty on any input change within field rows
     $container.on('input change', '.dle-rb-field input, .dle-rb-field select', () => {
         dirty = true;
-        // Clear error markers on edit
         $container.find('.dle-rb-field-error').removeClass('dle-rb-field-error');
     });
 
-    // ── Add Field ──
     $container.on('click', '.dle-rb-add', () => {
         const count = $container.find('.dle-rb-field').length;
         const newField = {
@@ -197,17 +176,15 @@ export async function openRuleBuilder() {
         dirty = true;
     });
 
-    // ── Delete Field (with fade-out animation) ──
     $container.on('click', '.dle-rb-delete', function () {
         const $field = $(this).closest('.dle-rb-field');
         $field.addClass('dle-rb-removing');
-        $field.one('transitionend', () => { $field.remove(); reindexFields($container); }); // BUG-M1: .one() auto-removes listener
-        // Fallback in case transitionend doesn't fire
+        // BUG-M1: .one() auto-removes the listener; setTimeout is a fallback if transitionend never fires.
+        $field.one('transitionend', () => { $field.remove(); reindexFields($container); });
         setTimeout(() => { if ($field.parent().length) { $field.remove(); reindexFields($container); } }, 200);
         dirty = true;
     });
 
-    // ── Move Up / Move Down ──
     $container.on('click', '.dle-rb-move-up', function () {
         const $field = $(this).closest('.dle-rb-field');
         const $prev = $field.prev('.dle-rb-field');
@@ -227,7 +204,6 @@ export async function openRuleBuilder() {
         }
     });
 
-    // ── Duplicate Field ──
     $container.on('click', '.dle-rb-dupe', function () {
         const $row = $(this).closest('.dle-rb-field');
         const data = readFieldFromRow($row);
@@ -243,12 +219,11 @@ export async function openRuleBuilder() {
         dirty = true;
     });
 
-    // ── Auto-fill context key from name ──
+    // Auto-sync contextKey from name unless user has manually edited contextKey.
     $container.on('input', '.dle-rb-name', function () {
         const $row = $(this).closest('.dle-rb-field');
         const $ctx = $row.find('[data-prop="contextKey"]');
         const $icon = $row.find('.dle-rb-link-icon');
-        // Only auto-fill if context key is empty or was previously auto-generated
         if (!$ctx.data('manual')) {
             $ctx.val($(this).val().trim());
             $icon.find('i').removeClass('fa-link-slash').addClass('fa-link');
@@ -265,20 +240,25 @@ export async function openRuleBuilder() {
         $icon.css('opacity', '0.4');
     });
 
-    // ── Link icon click: toggle sync ──
+    // BUG-189: keyboard activation for the link/unlink icon.
+    $container.on('keydown', '.dle-rb-link-icon', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            $(this).trigger('click');
+        }
+    });
+
     $container.on('click', '.dle-rb-link-icon', function () {
         const $row = $(this).closest('.dle-rb-field');
         const $ctx = $row.find('[data-prop="contextKey"]');
         const isManual = $ctx.data('manual');
         if (isManual) {
-            // Re-link: sync contextKey from name
             $ctx.data('manual', false);
             $ctx.val($row.find('[data-prop="name"]').val().trim());
             $(this).find('i').removeClass('fa-link-slash').addClass('fa-link');
             $(this).attr('title', 'Linked to field name — click to unlink');
             $(this).css('opacity', '');
         } else {
-            // Unlink
             $ctx.data('manual', true);
             $(this).find('i').removeClass('fa-link').addClass('fa-link-slash');
             $(this).attr('title', 'Unlinked from field name — click to re-link');
@@ -287,7 +267,6 @@ export async function openRuleBuilder() {
         dirty = true;
     });
 
-    // ── Gating enabled toggle: dim/undim operator + tolerance ──
     $container.on('change', '[data-prop="gating.enabled"]', function () {
         const $row = $(this).closest('.dle-rb-field');
         const isEnabled = $(this).is(':checked');
@@ -295,7 +274,6 @@ export async function openRuleBuilder() {
             .toggleClass('dle-rb-gating-disabled', !isEnabled);
     });
 
-    // ── Type change: disable multi for boolean ──
     $container.on('change', '[data-prop="type"]', function () {
         const $row = $(this).closest('.dle-rb-field');
         const isBool = $(this).val() === 'boolean';
@@ -307,7 +285,6 @@ export async function openRuleBuilder() {
         }
     });
 
-    // ── Reset Defaults ──
     $container.on('click', '.dle-rb-reset', async () => {
         const confirm = await callGenericPopup(
             'Reset all fields to the 4 built-in defaults? Custom fields will be lost.',
@@ -323,7 +300,6 @@ export async function openRuleBuilder() {
         dirty = true;
     });
 
-    // ── Save ──
     $container.on('click', '.dle-rb-save', async () => {
         if (saving) return;
         saving = true;
@@ -333,18 +309,15 @@ export async function openRuleBuilder() {
         try {
             const $errBox = $container.find('.dle-rb-errors');
             $errBox.hide().empty();
-            // Clear previous error markers
             $container.find('.dle-rb-field-error').removeClass('dle-rb-field-error');
             const allErrors = [];
             let firstBadIdx = -1;
 
-            // Collect all fields from the DOM
             const newDefs = [];
             $container.find('.dle-rb-field').each(function (idx) {
                 const raw = readFieldFromRow($(this));
                 const { field, errors } = validateFieldDefinition(raw);
                 if (!field && errors.length > 0) {
-                    // Hard errors — field is invalid and cannot be saved
                     allErrors.push(`<b>${escapeHtml(raw.name || '(unnamed)')}</b>: ${errors.map(escapeHtml).join(', ')}`);
                     $(this).addClass('dle-rb-field-error');
                     if (firstBadIdx < 0) firstBadIdx = idx;
@@ -352,7 +325,6 @@ export async function openRuleBuilder() {
                 if (field) newDefs.push(field);
             });
 
-            // Check for duplicate names
             const names = newDefs.map(f => f.name);
             const dupes = names.filter((n, i) => names.indexOf(n) !== i);
             if (dupes.length > 0) {
@@ -361,14 +333,12 @@ export async function openRuleBuilder() {
 
             if (allErrors.length > 0) {
                 $errBox.html(allErrors.join('<br>')).show();
-                // Scroll to first invalid field
                 if (firstBadIdx >= 0) {
                     $container.find('.dle-rb-field').eq(firstBadIdx)[0]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
                 return;
             }
 
-            // Write to Obsidian
             const settings = getSettings();
             const vault = getPrimaryVault(settings);
             if (!vault) {
@@ -377,23 +347,34 @@ export async function openRuleBuilder() {
             }
             const yaml = serializeFieldDefinitions(newDefs);
             const path = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
-            const result = await writeFieldDefinitions(vault.host || '127.0.0.1', vault.port, vault.apiKey, path, yaml);
+            const result = await writeFieldDefinitions(vault.host || '127.0.0.1', vault.port, vault.apiKey, path, yaml, vault.https || false);
             if (!result?.ok) {
                 $errBox.html('<i class="fa-solid fa-triangle-exclamation"></i> Failed to write field definitions to Obsidian. Check your connection and try again.').show();
                 return;
             }
 
-            // Update state
+            // BUG-134: explicitly invalidate settings cache — field defs feed into
+            // settings-derived state downstream.
             setFieldDefinitions(newDefs);
+            invalidateSettingsCache();
             saved = true;
             dirty = false;
 
-            // Rebuild index to pick up new field extractions
             const fieldNames = newDefs.map(f => f.name).join(', ');
             toastr.success(`Saved ${newDefs.length} field${newDefs.length !== 1 ? 's' : ''} (${fieldNames}). Rebuilding index...`, 'Fields Updated');
-            buildIndex();
+            // Surface reindex failure: fields saved but vault still indexed without
+            // new extractions is a silent data-drift footgun.
+            buildIndex().catch(err => {
+                console.warn('[DLE] Index rebuild after field save failed:', err?.message);
+                try {
+                    toastr.error(
+                        `Fields saved, but index rebuild failed: ${err?.message || 'unknown error'}. Run /dle-force-refresh or rebuild from the drawer.`,
+                        'Reindex Failed',
+                        { timeOut: 12000 },
+                    );
+                } catch { /* toastr unavailable */ }
+            });
 
-            // Close the popup by clicking the dialog's close button
             $container.closest('.dialogue_popup').find('.dialogue_popup_ok').trigger('click');
         } finally {
             saving = false;
@@ -401,7 +382,6 @@ export async function openRuleBuilder() {
         }
     });
 
-    // ── Cancel ──
     $container.on('click', '.dle-rb-cancel', () => {
         $container.closest('.dialogue_popup').find('.dialogue_popup_ok').trigger('click');
     });

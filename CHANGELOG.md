@@ -1,5 +1,78 @@
 # Changelog
 
+## 2.0-beta (2026-04-11)
+
+> The Librarian update. Your lorebook grows with your story — the writing AI flags what's missing, Emma helps you write it.
+
+### The Librarian (Emma)
+
+DeepLore now has Emma, your librarian. As you roleplay, the writing AI reaches for details it needs; when one isn't in your vault, it flags the gap. You open the flag, chat with Emma, and she helps you author a vault-accurate entry. Your lorebook grows alongside your story.
+
+- **Automatic gap detection** -- As the writing AI reaches for lore that isn't in your vault, it flags the gap to a dedicated inbox. Two dismissal tiers: hide to suppress, dismiss to bury. Re-flagging a hidden gap resurfaces it.
+- **Vault audits** -- `/dle-librarian audit` walks through your entire vault and flags gaps, inconsistencies, and entries that need updating.
+- **Generation tools** -- Writing AI gets two tools it calls automatically mid-generation: `search` queries your vault for relevant entries, `flag` silently notes gaps and stale entries. Runs in the background when the Librarian is enabled.
+- **Emma's toolset** -- In her chat session, Emma has a dozen tools: `search_vault`, `get_entry`, `get_full_content`, `find_similar`, `list_flags`, `get_links`, `get_backlinks`, `list_entries`, `get_recent_chat`, `flag_entry_update`, `compare_entry_to_chat`, and `get_writing_guide`.
+- **Writing guides** -- Tag any vault entry with `lorebook-guide` to make it a Librarian-only style reference. Emma fetches these guides via `get_writing_guide` to inform her suggestions; they never reach the writing AI through any path.
+- **Graph-aware search** -- Writing AI's `search` tool resolves linked entries from `resolvedLinks`, not just BM25 matches — results pull in directly-related lore automatically.
+- **Behind-the-scenes UX** -- Tool calls are hidden during generation and consolidated into a single expandable dropdown on the final message. Real-time status ("Choosing Lore...", "Consulting vault...", "Generating...") shows pipeline and writing-AI tool progress, and cleans up when done.
+- **Session continuity** -- Emma's chat session (messages, draft state, work queue) persists in `chat_metadata` across page reloads and chat switches. Gaps flagged by the writing AI persist separately. Pick up where you left off.
+- **Librarian drawer tab** -- See your gap list, flagged entries, and session stats at a glance with quick-dismiss controls.
+- **Customizable persona** -- Tweak Emma's personality and focus through an editable prompt. Make her chattier, more formal, or focused on specific aspects of your world.
+- **Auto-enables function calling** -- Turning on the Librarian automatically enables function calling on your active API connection, so you don't have to hunt for the setting.
+
+### Drawer Polish
+
+- **Toolbar buttons** -- Librarian and Graph buttons added to the drawer header toolbar for quick access.
+- **Footer simplification** -- The footer now shows `totalUsed / maxContext` with a tooltip breakdown, replacing the verbose multi-line display.
+- **Librarian popup** -- Unified textarea replaces the old form-field layout. Chat auto-expands as you type, and tool names are shown in plain English.
+
+### Performance & Indexing
+
+- **BM25 inverted index** -- Fuzzy search now uses an inverted posting list, scoring only documents that contain query terms instead of scanning the full index.
+- **Multi-vault duplicate detection** -- Vaults with overlapping entries now detect duplicates via content hashing, preventing double-injection.
+- **Cache fingerprinting** -- Improved cache fingerprint logic for more reliable freshness detection across vault rebuilds.
+- **HTTPS support** -- Obsidian connections now support HTTPS for remote or secured setups.
+
+### Settings Redesign
+
+The settings popup has been reorganized for clarity and easier navigation.
+
+- **About tab** -- Redesigned as the landing tab with the DLE logo, master enable toggle, social links, diagnostics panel (moved from System), and a danger zone for destructive actions.
+- **Reference tab** -- The slash command quick-reference grid now lives in its own tab instead of being buried in another section.
+- **Grey-out audit** -- 43 disable patterns now correctly dim dependent settings when their parent feature is off. No more editing settings for features you've disabled.
+
+### Diagnostics
+
+A new diagnostics subsystem for debugging issues and filing bug reports.
+
+- **Flight recorder** -- A ring buffer captures recent extension activity (pipeline runs, tool calls, errors) for export.
+- **State snapshots** -- Capture the current extension state for debugging without restarting.
+- **Diagnostics panel** -- View, export, and manage diagnostic data from the About tab in settings.
+- **IP masking** -- Diagnostic exports automatically mask IP addresses, preserving the first two octets for network-level debugging while protecting your identity.
+
+### New Slash Command
+
+| Command | Description |
+|---------|-------------|
+| `/dle-librarian` | Toggle the Librarian on/off. Use `/dle-librarian audit` to trigger a comprehensive vault review. |
+
+### New Frontmatter Field
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `guide` | boolean | Via `lorebook-guide` tag -- Librarian-only writing/style guide. Never reaches the writing AI. |
+
+### Bug Fixes
+
+Fixed ~350 stability and correctness bugs across comprehensive code audits. Highlights include data integrity safeguards (multi-vault safety, cache consistency, vault sync reliability), AI selection robustness (timeout handling, search fallback logic, circuit breaker fixes), UI and state reliability (chat lifecycle resets, drawer rendering, gating field persistence, swipe/regen handling), and edge case hardening (special character support, abort/stop races, multi-vault path collisions, and more).
+
+### Under the Hood
+
+- 960 → 1,313 passing tests.
+- New `librarian/` module directory (8 focused files).
+
+---
+
 ## 1.0.0-beta (2026-03-30)
 
 > Feature-complete release. Combines all v0.2.0 development work with v1.0.0 stabilization.
@@ -91,19 +164,25 @@ Contextual gating is now fully customizable. Define your own frontmatter fields 
 - **Responsive** -- Rule builder adapts at 1024px and 768px breakpoints.
 - **Drawer icon** -- Changed from FA scroll to inline Obsidian crystal SVG.
 
-### New Slash Commands
+### Slash Commands
 
 | Command | Description |
 |---------|-------------|
-| `/dle-notebook` | Open/edit persistent per-chat AI scratchpad |
-| `/dle-ai-notepad` | View or clear AI-written session notes |
+| `/dle-why` | Show why entries would/wouldn't inject (alias: `/dle-context`) |
 | `/dle-browse` | Searchable entry browser with content preview |
 | `/dle-graph` | Interactive entry relationship graph |
 | `/dle-simulate` | Replay chat showing entry activation timeline |
-| `/dle-suggest` | AI suggests new lorebook entries from chat |
+| `/dle-inspect` | Detailed pipeline trace of last generation |
+| `/dle-status` | Show extension status, vault stats, and active settings |
+| `/dle-notebook` | Open/edit persistent per-chat AI scratchpad |
+| `/dle-ai-notepad` | View or clear AI-written session notes |
+| `/dle-newlore` | AI suggests new lorebook entries from chat (alias: `/dle-suggest`) |
 | `/dle-optimize-keys` | AI keyword suggestions for entries |
-| `/dle-context` | Show what would be injected right now |
+| `/dle-summarize` | Generate AI summaries for entries without one |
+| `/dle-review` | AI review of vault entry quality |
+| `/dle-scribe` | Write a session summary to Obsidian on demand |
 | `/dle-scribe-history` | View all session notes from Obsidian |
+| `/dle-librarian` | Toggle the Librarian AI tool system on/off |
 | `/dle-pin` | Pin an entry to always inject in the current chat |
 | `/dle-unpin` | Remove a pin from the current chat |
 | `/dle-block` | Block an entry from injecting in the current chat |
@@ -116,11 +195,16 @@ Contextual gating is now fully customizable. Define your own frontmatter fields 
 | `/dle-set-scene` | Alias: set active scene type |
 | `/dle-set-characters` | Alias: set present characters |
 | `/dle-context-state` | Show all active gating fields |
-| `/dle-setup` | Run the first-time setup wizard |
-| `/dle-summarize` | Generate AI summaries for entries without one |
-| `/dle-import` | Import SillyTavern World Info JSON into the vault |
-| `/dle-cache-info` | View vault cache status and storage info |
+| `/dle-set-folder` | Filter entries by vault folder path |
+| `/dle-clear-folder` | Clear folder filter |
 | `/dle-clear-all-context` | Clear all active gating filters at once |
+| `/dle-refresh` | Refresh vault index from Obsidian |
+| `/dle-import` | Import SillyTavern World Info JSON into the vault |
+| `/dle-setup` | Run the first-time setup wizard |
+| `/dle-health` | Audit entries for common issues (30+ checks) |
+| `/dle-analytics` | Show entry usage analytics popup |
+| `/dle-diagnostics` | Export diagnostics bundle (alias: `/dle-diag`) |
+| `/dle-cache-info` | View vault cache status and storage info |
 
 ### New Frontmatter Fields
 

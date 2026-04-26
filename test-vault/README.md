@@ -1,6 +1,6 @@
 # Duskfrost Test Vault
 
-A fully realized Obsidian lorebook vault for DeepLore Enhanced. **~257 entries** covering the city of Duskfrost — its factions, districts, species, history, and political intrigue — while simultaneously exercising every frontmatter field, gating mechanism, health-check condition, and graph topology the extension supports. Versioned with the extension source.
+A fully realized Obsidian lorebook vault for DeepLore Enhanced. **~256 entries** covering the city of Duskfrost — its factions, districts, species, history, and political intrigue — while simultaneously exercising every frontmatter field, gating mechanism, health-check condition, and graph topology the extension supports. Versioned with the extension source.
 
 **Theme:** Duskfrost — a sprawling fantasy city built on the ruins of a pre-Calamity civilization. Gritty urban fantasy with political intrigue, faction conflict, underground economies, and magic that always has costs.
 
@@ -9,15 +9,18 @@ A fully realized Obsidian lorebook vault for DeepLore Enhanced. **~257 entries**
 ## Directory Structure
 
 ```
-_edge-cases/     27 files — intentionally broken/weird entries (DO NOT EDIT)
-characters/      51 files — faction leaders, officers, criminals, scholars, merchants
-events/          25 files — wars, treaties, disasters, political crises
-items/           20 files — artifacts, tools, weapons, cursed objects
-locations/       35 files — districts, taverns, tunnels, guild halls, markets
-lore/            45 files — magic theory, history, customs, ecology, politics
-meta/            15 files — world rules, geography, timeline, climate, religion, naming
-organizations/   20 files — guilds, factions, cults, enforcement bodies
-species/         18 files — 15 fantasy species + 3 core (elf, dwarf, human)
+Bloodline Affinities.md  — standalone lore entry (root level)
+DeepLore/            1 file  — field-definitions.yaml (custom gating field definitions)
+Sessions/            — session data directory
+_edge-cases/        27 files — intentionally broken/weird entries (DO NOT EDIT)
+characters/         51 files — faction leaders, officers, criminals, scholars, merchants
+events/             25 files — wars, treaties, disasters, political crises
+items/              20 files — artifacts, tools, weapons, cursed objects
+locations/          35 files — districts, taverns, tunnels, guild halls, markets
+lore/               45 files — magic theory, history, customs, ecology, politics
+meta/               15 files — world rules, geography, timeline, climate, religion, naming
+organizations/      20 files — guilds, factions, cults, enforcement bodies
+species/            18 files — 15 fantasy species + 3 core (elf, dwarf, human)
 ```
 
 ---
@@ -38,7 +41,7 @@ The current year is **355 PC** (Post-Calamity). The city sits on the ruins of a 
 
 Run `/dle-health` with this vault connected (default settings). Expected output:
 
-### ERRORS (8)
+### ERRORS (7)
 
 | Entry | Error |
 |-------|-------|
@@ -113,7 +116,7 @@ Run `/dle-health` with this vault connected (default settings). Expected output:
 | excludes — self (ERROR) | `_edge-cases/_self-exclude.md` |
 | requires + excludes contradiction (ERROR) | `_edge-cases/_requires-excludes-contradiction.md` |
 | cascade_links — basic | `characters/gorduin-wynlar.md` → Oracles of Might, Bellsummit |
-| cascade_links — target has cooldown | `items/angel-crown.md` → `lore/war-of-glimmering-hope.md` |
+| cascade_links — source has cooldown | `items/angel-crown.md` (cooldown:2) → `lore/war-of-glimmering-hope.md` |
 
 ### Behavioral Gating
 
@@ -343,6 +346,10 @@ ISOLATED PAIR (only links to each other):
 
 ## Vault Entry Index
 
+### Root-Level Entries
+
+**Bloodline Affinities** (`Bloodline Affinities.md`) — arcane lore entry at vault root (not in a subdirectory)
+
 ### characters/ (51 entries)
 
 **Inner Circle (priority ≤30):** Archmage Tessavel Orindal (elf, Academy head), Warden-Captain Orin Castellan (half-elf, Solarguard), High Champion Mira Veldthar (human, Champions of Patience), Gorduin Wynlar (Head Archivist, hub node), Ayre Waesphyra (Senior Researcher)
@@ -419,6 +426,10 @@ Pre-Calamity artifacts and dangerous objects, each with specific provenance, cos
 
 **Tag subcategories:** species/aquatic, species/humanoid, species/insectoid, species/subterranean, species/winged, species/nocturnal, species/arcane, species/botanical, species/illusory, species/nomadic
 
+### DeepLore/
+
+**field-definitions.yaml** — Custom gating field definitions for this vault. DLE reads this file (path configurable via `fieldDefinitionsPath` setting, default `DeepLore/field-definitions.yaml`) to discover user-defined contextual gating fields beyond the built-in era/location/scene_type/character_present.
+
 ### _edge-cases/ (27 entries — DO NOT EDIT)
 
 Intentionally broken/weird entries for health check and parser testing:
@@ -430,7 +441,7 @@ _empty-content, _orphaned-requires, _circular-requires-a, _circular-requires-b, 
 
 ### For RP Testing
 1. Point DLE at this vault directory
-2. Run `/dle-rebuild` — should index ~230 entries (minus disabled/never-insert)
+2. Run `/dle-rebuild` — should index ~256 entries (minus disabled/never-insert)
 3. Set era to `medieval` or `renaissance`, set a location, and start chatting
 4. The vault is a coherent world — entries cross-reference naturally and the AI should produce consistent RP
 

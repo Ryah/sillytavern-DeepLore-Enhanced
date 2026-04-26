@@ -1,297 +1,46 @@
 /**
  * DeepLore Enhanced — Pipeline runner
- * matchEntries, runPipeline, matchTextForExternal
  */
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
-import { buildScanText } from '../../core/utils.js';
-import { testEntryMatch, testPrimaryMatchOnly, countKeywordOccurrences, formatAndGroup } from '../../core/matching.js';
-import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
+import { formatAndGroup, clearScanTextCache } from '../../core/matching.js';
+import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating, applyFolderFilter } from '../stages.js';
 import {
-    vaultIndex, cooldownTracker, injectionHistory, generationCount,
-    trackerKey, setLastPipelineTrace, fuzzySearchIndex, fieldDefinitions,
+    vaultIndex, generationCount,
+    fieldDefinitions,
+    getWriterVisibleEntries,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
-import { buildCandidateManifest, aiSearch, hierarchicalPreFilter, isForceInjected } from '../ai/ai.js';
-import { ensureIndexFresh, queryBM25 } from '../vault/vault.js';
+import { buildCandidateManifest, aiSearch, hierarchicalPreFilter } from '../ai/ai.js';
+import { isForceInjected } from '../helpers.js';
+import { ensureIndexFresh } from '../vault/vault.js';
 import { name2 } from '../../../../../../script.js';
 import { dedupWarning } from '../toast-dedup.js';
+import { matchEntries as _matchEntriesPure } from './match.js';
 
-const MAX_RECURSION_TEXT = 50000;
-
-/**
- * Match vault entries against chat messages, with recursive scanning support.
- * @param {object[]} chat - Chat messages array
- * @returns {{ matched: VaultEntry[], matchedKeys: Map<string, string>, probabilitySkipped: Array<{title: string, probability: number, roll: number}>, warmupFailed: Array<{title: string, needed: number, found: number}> }}
- */
-export function matchEntries(chat, snapshot = null) {
-    const settings = getSettings();
-    const entries = snapshot || vaultIndex;
-    /** @type {Set<VaultEntry>} */
-    const matchedSet = new Set();
-    /** @type {Map<string, string>} entry title -> matched key */
-    const matchedKeys = new Map();
-    /** @type {Array<{title: string, probability: number, roll: number}>} */
-    const probabilitySkipped = [];
-    /** @type {Array<{title: string, needed: number, found: number}>} */
-    const warmupFailed = [];
-    /** @type {Array<{title: string, primaryKey: string, refineKeys: string[]}>} */
-    const refineKeyBlocked = [];
-
-    // Always collect constants regardless of scan depth
-    for (const entry of entries) {
-        if (entry.constant) {
-            matchedSet.add(entry);
-            matchedKeys.set(entry.title, '(constant)');
-        }
-    }
-
-    // Collect bootstrap entries when chat is short (cold-start injection)
-    if (chat.length <= settings.newChatThreshold) {
-        for (const entry of entries) {
-            if (entry.bootstrap && !matchedSet.has(entry)) {
-                matchedSet.add(entry);
-                matchedKeys.set(entry.title, '(bootstrap)');
-            }
-        }
-    }
-
-    // Memoize buildScanText by depth — shared across keyword matching and BM25 fuzzy search
-    const scanTextMemo = new Map();
-    function getScanText(depth) {
-        if (!scanTextMemo.has(depth)) scanTextMemo.set(depth, buildScanText(chat, depth));
-        return scanTextMemo.get(depth);
-    }
-
-    // Keyword matching: skip entirely when scanDepth is 0 (AI-only mode)
-    if (settings.scanDepth > 0) {
-        const globalScanText = getScanText(settings.scanDepth);
-
-        // Initial scan pass
-        for (const entry of entries) {
-            if (entry.constant) continue; // Already added above
-
-            // Use per-entry scan depth if set, otherwise use global scan text
-            const scanText = entry.scanDepth !== null
-                ? getScanText(entry.scanDepth)
-                : globalScanText;
-
-            const key = testEntryMatch(entry, scanText, settings);
-            if (!key && entry.refineKeys?.length > 0) {
-                // Check if primary key matched but refine keys blocked
-                const primaryHit = testPrimaryMatchOnly(entry, scanText, settings);
-                if (primaryHit) {
-                    refineKeyBlocked.push({ title: entry.title, primaryKey: primaryHit, refineKeys: [...entry.refineKeys] });
-                }
-            }
-            if (key) {
-                // Warmup check: require N keyword occurrences before triggering
-                if (entry.warmup !== null) {
-                    const occurrences = countKeywordOccurrences(entry, scanText, settings);
-                    if (occurrences < entry.warmup) {
-                        if (settings.debugMode) {
-                            console.debug(`[DLE] Warmup: "${entry.title}" needs ${entry.warmup} occurrences, found ${occurrences} — skipping`);
-                        }
-                        warmupFailed.push({ title: entry.title, needed: entry.warmup, found: occurrences });
-                        continue;
-                    }
-                }
-
-                // Probability check: explicit zero = never fires, otherwise random roll
-                if (entry.probability === 0) {
-                    if (settings.debugMode) {
-                        console.debug(`[DLE] Probability: "${entry.title}" has probability 0 — skipping`);
-                    }
-                    probabilitySkipped.push({ title: entry.title, probability: 0, roll: 0 });
-                    continue;
-                }
-                if (entry.probability !== null && entry.probability < 1.0) {
-                    const roll = Math.random();
-                    if (roll > entry.probability) {
-                        if (settings.debugMode) {
-                            console.debug(`[DLE] Probability: "${entry.title}" rolled ${roll.toFixed(3)} > ${entry.probability} — skipping`);
-                        }
-                        probabilitySkipped.push({ title: entry.title, probability: entry.probability, roll });
-                        continue;
-                    }
-                }
-
-                // Cooldown check: skip entries still on cooldown
-                const remaining = cooldownTracker.get(trackerKey(entry));
-                if (remaining !== undefined && remaining > 0) {
-                    if (settings.debugMode) {
-                        console.debug(`[DLE] Cooldown: "${entry.title}" has ${remaining} generations remaining — skipping`);
-                    }
-                    continue;
-                }
-
-                matchedSet.add(entry);
-                matchedKeys.set(entry.title, key);
-            }
-        }
-
-        // Pre-compute title lookup map for cascade links and character matching
-        const titleMap = new Map(entries.map(e => [e.title.toLowerCase(), e]));
-
-        // Active Character Boost: auto-match active character's vault entry
-        if (settings.characterContextScan && name2) {
-            const nameLower = name2.toLowerCase();
-            const charEntry = titleMap.get(nameLower) || entries.find(e =>
-                e.keys.some(k => k.toLowerCase() === nameLower)
-            );
-            if (charEntry && !matchedSet.has(charEntry)) {
-                matchedSet.add(charEntry);
-                matchedKeys.set(charEntry.title, '(active character)');
-            }
-        }
-
-        // Cascade links: explicitly pull in linked entries from matched entries
-        // Cascade-linked entries still respect cooldown/warmup/probability gates
-        const cascadeSource = [...matchedSet];
-        for (const entry of cascadeSource) {
-            if (!entry.cascadeLinks || entry.cascadeLinks.length === 0) continue;
-            for (const linkTitle of entry.cascadeLinks) {
-                const linked = titleMap.get(linkTitle.toLowerCase());
-                if (linked && !matchedSet.has(linked)) {
-                    // Apply same gates as direct matches
-                    if (linked.cooldown !== null) {
-                        const remaining = cooldownTracker.get(trackerKey(linked));
-                        if (remaining !== undefined && remaining > 0) continue;
-                    }
-                    if (linked.probability === 0) continue;
-                    if (linked.probability !== null && linked.probability < 1.0 && Math.random() > linked.probability) continue;
-                    // BUG-035: Skip warmup check for cascade-linked entries — cascade links are
-                    // explicit author-defined relationships, not keyword-triggered matches
-                    matchedSet.add(linked);
-                    matchedKeys.set(linked.title, `(cascade from: ${entry.title})`);
-                }
-            }
-        }
-
-        // Recursive scanning: scan matched entry content for more matches
-        if (settings.recursiveScan && settings.maxRecursionSteps > 0) {
-            let step = 0;
-            let newlyMatched = new Set(matchedSet);
-
-            while (newlyMatched.size > 0 && step < settings.maxRecursionSteps) {
-                step++;
-
-                let recursionText = [...newlyMatched]
-                    .filter(e => !e.excludeRecursion)
-                    .map(e => e.content)
-                    .join('\n');
-                if (recursionText.length > MAX_RECURSION_TEXT) {
-                    if (settings.debugMode) console.debug('[DLE] Recursion text truncated from', recursionText.length, 'to', MAX_RECURSION_TEXT, 'chars');
-                    recursionText = recursionText.substring(0, MAX_RECURSION_TEXT);
-                }
-
-                if (!recursionText.trim()) break;
-
-                newlyMatched = new Set();
-
-                for (const entry of entries) {
-                    if (matchedSet.has(entry)) continue;
-                    if (entry.constant) continue;
-
-                    const key = testEntryMatch(entry, recursionText, settings);
-                    if (key) {
-                        // Recursive matches still respect cooldown/warmup/probability gates
-                        if (entry.cooldown !== null) {
-                            const remaining = cooldownTracker.get(trackerKey(entry));
-                            if (remaining !== undefined && remaining > 0) continue;
-                        }
-                        if (entry.probability === 0) continue;
-                        if (entry.probability !== null && entry.probability < 1.0 && Math.random() > entry.probability) continue;
-                        if (entry.warmup !== null) {
-                            const occurrences = countKeywordOccurrences(entry, recursionText, settings);
-                            if (occurrences < entry.warmup) continue;
-                        }
-                        matchedSet.add(entry);
-                        newlyMatched.add(entry);
-                        matchedKeys.set(entry.title, `${key} (recursion step ${step})`);
-                    }
-                }
-            }
-        }
-    }
-
-    // BM25 fuzzy search: supplement keyword matches with TF-IDF scored results
-    /** @type {{ active: boolean, candidates: number, matched: number, threshold: number }} */
-    const fuzzyStats = { active: false, candidates: 0, matched: 0, threshold: settings.fuzzySearchMinScore || 0.5 };
-    if (settings.fuzzySearchEnabled && fuzzySearchIndex && settings.scanDepth > 0) {
-        fuzzyStats.active = true;
-        const fuzzyText = getScanText(settings.scanDepth);
-        const bm25Results = queryBM25(fuzzySearchIndex, fuzzyText, 20, fuzzyStats.threshold);
-        fuzzyStats.candidates = bm25Results.length;
-        for (const result of bm25Results) {
-            const entry = result.entry;
-            if (matchedSet.has(entry)) continue; // Already matched by keywords
-            if (entry.constant) continue;         // Constants already handled
-
-            // Respect cooldown
-            const remaining = cooldownTracker.get(trackerKey(entry));
-            if (remaining !== undefined && remaining > 0) continue;
-
-            // BUG-AUDIT-8: Respect warmup — BM25 fuzzy matches must also honor warmup gates.
-            // Without this, entries with warmup requirements could be injected via fuzzy search
-            // with a single term similarity match, bypassing the author's intended gating.
-            // BUG-FIX: Was > 1, skipping warmup=1 entries. Must be >= 1 to enforce all warmup gates.
-            if (entry.warmup && entry.warmup >= 1) {
-                const scanText = getScanText(entry.scanDepth ?? settings.scanDepth);
-                const occurrences = countKeywordOccurrences(entry, scanText, settings);
-                if (occurrences < entry.warmup) continue;
-            }
-
-            // Respect probability
-            if (entry.probability === 0) continue;
-            if (entry.probability !== null && entry.probability < 1.0 && Math.random() > entry.probability) continue;
-
-            matchedSet.add(entry);
-            matchedKeys.set(entry.title, `(fuzzy, score: ${result.score.toFixed(1)})`);
-            fuzzyStats.matched++;
-        }
-    }
-
-    // Sort by priority (ascending - lower number = higher priority)
-    const matched = [...matchedSet].sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
-
-    // Keyword occurrence weighting: re-sort within same priority group using hit count as tiebreaker
-    // BUG-M11: Memoize counts so sort comparator doesn't recompute O(n log n) times
-    if (settings.keywordOccurrenceWeighting) {
-        const scanText = buildScanText(chat, settings.scanDepth);
-        const occurrenceCache = new Map();
-        const getCachedCount = (entry) => {
-            let count = occurrenceCache.get(entry.title);
-            if (count === undefined) {
-                count = countKeywordOccurrences(entry, scanText, settings);
-                occurrenceCache.set(entry.title, count);
-            }
-            return count;
-        };
-        matched.sort((a, b) => {
-            if (a.priority !== b.priority) return a.priority - b.priority;
-            return getCachedCount(b) - getCachedCount(a) || a.title.localeCompare(b.title);
-        });
-    }
-
-    return { matched, matchedKeys, probabilitySkipped, warmupFailed, fuzzyStats, refineKeyBlocked };
+/** Inject settings + name2 into the extracted pure matcher. */
+export function matchEntries(chat, snapshot = null, opts = {}) {
+    return _matchEntriesPure(chat, snapshot, {
+        settings: opts.settings || getSettings(),
+        characterName: opts.characterName !== undefined ? opts.characterName : name2,
+    });
 }
 
 /**
- * Run the full entry selection pipeline (3-mode branching: keywords-only, two-stage, ai-only).
+ * Full entry-selection pipeline. 3-mode branching: keywords-only, two-stage, ai-only.
  * Records a trace for the Pipeline Inspector (/dle-inspect).
- * BUG 6 FIX: Reset lastWarningRatio when ratio drops below threshold.
- * @param {object[]} chat - Chat messages array
- * @param {VaultEntry[]} [externalSnapshot] - Optional pre-taken vault snapshot (avoids double-snapshotting with onGenerate)
  * @returns {Promise<{ finalEntries: VaultEntry[], matchedKeys: Map<string, string>, trace: object }>}
  */
-export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [] } = {}) {
-    // Snapshot settings and vault index so async stages (AI search) see a consistent view
+export async function runPipeline(chat, externalSnapshot, contextualGatingContext, { pins = [], blocks = [], folderFilter = null, signal = null, onStatus = null, genId = null } = {}) {
+    // Snapshot settings and vault so async stages (AI search) see a consistent view.
     const rawSettings = getSettings();
     const settings = { ...rawSettings, analyticsData: { ...rawSettings.analyticsData } };
-    const vaultSnapshot = externalSnapshot || [...vaultIndex];
+    // External snapshots are assumed already-filtered (caller used getWriterVisibleEntries()).
+    // Otherwise filter out lorebook-guide here — Librarian-only, must never reach the writing AI.
+    const vaultSnapshot = externalSnapshot || getWriterVisibleEntries();
     const bootstrapActive = chat.length <= settings.newChatThreshold;
 
     const trace = {
+        genId,
         mode: settings.aiSearchEnabled
             ? settings.aiSearchMode
             : 'keywords-only',
@@ -307,20 +56,49 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         contextualGatingRemoved: [],
         stripDedupRemoved: [],
         bootstrapActive,
+        chatMessageCount: chat.length,
+        vaultSnapshotSize: vaultSnapshot.length,
+        generationNumber: generationCount,
         aiFallback: false,
-        aiError: '', // BUG-004: Capture AI error message for toast enrichment
+        aiError: '', // BUG-004: surface to toast.
         fuzzyStats: null,
         refineKeyBlocked: [],
+        // Per-stage timings populated by onGenerate.
+        ensureIndexFreshMs: null,
+        pinBlockMs: null,
+        contextualGatingMs: null,
+        reinjectionCooldownMs: null,
+        requiresExcludesMs: null,
+        stripDedupMs: null,
+        formatGroupMs: null,
+        trackGenerationMs: null,
+        recordAnalyticsMs: null,
+        perChatCountsMs: null,
     };
+
+    if (settings.debugMode) {
+        console.debug('[DLE][DIAG] pipeline-run', {
+            mode: trace.mode,
+            vaultSnapshotSize: vaultSnapshot.length,
+            chatLength: chat.length,
+            bootstrapActive,
+            generationCount,
+            aiSearchEnabled: settings.aiSearchEnabled,
+            aiSearchMode: settings.aiSearchMode,
+            pinCount: pins.length,
+            blockCount: blocks.length,
+            folderFilter: folderFilter?.length ?? 'none',
+        });
+    }
 
     let finalEntries;
     let matchedKeys = new Map();
 
     if (settings.aiSearchEnabled && settings.aiSearchMode === 'ai-only') {
-        // Hierarchical pre-filter: for large vaults, narrow candidates by category first
         let aiOnlyCandidates = vaultSnapshot;
-        const preFiltered = await hierarchicalPreFilter(vaultSnapshot, chat);
-        // BUG-FIX: Was `if (preFiltered)` which treats [] as falsy, discarding valid empty results
+        const preFiltered = await hierarchicalPreFilter(vaultSnapshot, chat, signal);
+        if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
+        // `if (preFiltered)` would discard valid empty-array results — null is the skip sentinel.
         if (preFiltered != null) {
             aiOnlyCandidates = preFiltered;
             if (settings.debugMode) {
@@ -328,13 +106,19 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             }
         }
 
-        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
+        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries.
         if (contextualGatingContext) {
             const beforeGating = aiOnlyCandidates.length;
             const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
             const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
             aiOnlyCandidates = applyContextualGating(aiOnlyCandidates, contextualGatingContext, prePolicy, settings.debugMode, settings, fieldDefs);
             trace.aiPreFilter = { before: beforeGating, after: aiOnlyCandidates.length, removed: beforeGating - aiOnlyCandidates.length };
+        }
+
+        // Pre-filter by folder so AI doesn't see entries from excluded folders.
+        if (folderFilter && folderFilter.length > 0) {
+            const prePolicy = buildExemptionPolicy(aiOnlyCandidates, pins, blocks);
+            aiOnlyCandidates = applyFolderFilter(aiOnlyCandidates, folderFilter, prePolicy, settings.debugMode);
         }
 
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(aiOnlyCandidates, bootstrapActive);
@@ -345,16 +129,20 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                 if (e.bootstrap && !e.constant) matchedKeys.set(e.title, '(bootstrap)');
             }
         }
-        // Always label constants in matchedKeys
         for (const e of alwaysInject) {
             if (e.constant && !matchedKeys.has(e.title)) matchedKeys.set(e.title, '(constant)');
         }
 
         if (candidateManifest) {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates);
+            onStatus?.('Consulting vault\u2026');
+            const _aiStart = performance.now();
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, aiOnlyCandidates, signal);
+            trace.aiSearchMs = Math.round(performance.now() - _aiStart);
+            trace.aiCached = aiResult.cached ?? false; // BUG-396c: feeds injection-log staleness detection.
+            if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
-                trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details
+                trace.aiError = aiResult.errorMessage || ''; // BUG-004
                 const fallback = settings.aiErrorFallback || 'keyword';
                 if (fallback === 'keyword') {
                     const kwResult = matchEntries(chat, vaultSnapshot);
@@ -365,26 +153,29 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
                     trace.warmupFailed = kwResult.warmupFailed;
                     trace.fuzzyStats = kwResult.fuzzyStats;
                     trace.refineKeyBlocked = kwResult.refineKeyBlocked;
-                    // Warn if ai-only fallback collapsed to constants-only
+                    // Warn when ai-only fallback collapsed to constants-only.
                     const nonConstant = finalEntries.filter(e => !e.constant && !e.bootstrap);
                     if (nonConstant.length === 0 && finalEntries.length > 0) {
                         console.warn('[DLE] AI-only mode failed and keyword fallback found only constants/bootstraps — lore coverage is minimal');
-                        dedupWarning('AI search failed — only always-send entries are active. Check your AI connection in DeepLore settings.', 'ai_fallback');
+                        dedupWarning('AI search hit a snag — only your always-send lore is active.', 'ai_fallback', { hint: 'Check AI connection in DeepLore settings.' });
                     }
                 } else if (fallback === 'constants_only') {
-                    finalEntries = alwaysInject;
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (fallback === 'bootstrap_only') {
-                    finalEntries = alwaysInject.filter(e => bootstrapActive && e.bootstrap);
-                } else { // 'none'
+                    finalEntries = vaultSnapshot.filter(e => bootstrapActive && e.bootstrap);
+                } else {
                     finalEntries = [];
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
-                if (emptyFallback === 'constants' || emptyFallback === 'constants_bootstrap') {
+                dedupWarning('AI didn\'t pick any lore for this scene — using your fallback.', 'ai_empty_fallback', { hint: `Empty fallback mode: ${emptyFallback}` });
+                if (emptyFallback === 'constants') {
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
+                } else if (emptyFallback === 'constants_bootstrap') {
                     finalEntries = alwaysInject;
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = matchEntries(chat, vaultSnapshot).matched;
-                } else { // 'none'
+                } else {
                     finalEntries = [];
                 }
             } else {
@@ -399,7 +190,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
     } else if (settings.aiSearchEnabled && settings.aiSearchMode === 'two-stage') {
+        const _kwStart = performance.now();
         const keywordResult = matchEntries(chat, vaultSnapshot);
+        trace.keywordMatchMs = Math.round(performance.now() - _kwStart);
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
         trace.probabilitySkipped = keywordResult.probabilitySkipped;
@@ -407,7 +200,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.fuzzyStats = keywordResult.fuzzyStats;
         trace.refineKeyBlocked = keywordResult.refineKeyBlocked;
 
-        // Wiki-link candidate expansion: add entries referenced by matched entries as AI candidates
+        // Wiki-link expansion: add entries referenced by matched entries as AI candidates.
         const matchedTitles = new Set(keywordResult.matched.map(e => e.title));
         const titleLookup = new Map(vaultSnapshot.map(e => [e.title, e]));
         const linkedCandidates = [];
@@ -431,18 +224,18 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             }
         }
 
-        // Hierarchical pre-filter for large keyword match sets
-        // BUG-022: Use expandedMatched (includes wiki-linked candidates), not keywordResult.matched
+        // BUG-022: pass expandedMatched (includes wiki-linked), not keywordResult.matched.
+        // null = skip, use all; [] = AI picked zero categories (valid filter result).
         let twoStageCandidates = expandedMatched;
-        const preFiltered = await hierarchicalPreFilter(expandedMatched, chat);
-        if (preFiltered) {
+        const preFiltered = await hierarchicalPreFilter(expandedMatched, chat, signal);
+        if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
+        if (preFiltered != null) {
             twoStageCandidates = preFiltered;
             if (settings.debugMode) {
                 console.log(`[DLE] Two-stage hierarchical: ${keywordResult.matched.length} → ${twoStageCandidates.length} candidates`);
             }
         }
 
-        // Pre-filter by contextual gating so AI doesn't waste selections on gated entries
         if (contextualGatingContext) {
             const beforeGating = twoStageCandidates.length;
             const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
@@ -451,35 +244,45 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
             trace.aiPreFilter = { before: beforeGating, after: twoStageCandidates.length, removed: beforeGating - twoStageCandidates.length };
         }
 
+        if (folderFilter && folderFilter.length > 0) {
+            const prePolicy = buildExemptionPolicy(twoStageCandidates, pins, blocks);
+            twoStageCandidates = applyFolderFilter(twoStageCandidates, folderFilter, prePolicy, settings.debugMode);
+        }
+
         const { manifest: candidateManifest, header: candidateHeader } = buildCandidateManifest(twoStageCandidates, bootstrapActive);
 
         if (!candidateManifest) {
             finalEntries = keywordResult.matched;
         } else {
-            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates);
+            onStatus?.('Consulting vault\u2026');
+            const _aiStart2 = performance.now();
+            const aiResult = await aiSearch(chat, candidateManifest, candidateHeader, vaultSnapshot, twoStageCandidates, signal);
+            trace.aiSearchMs = Math.round(performance.now() - _aiStart2);
+            trace.aiCached = aiResult.cached ?? false; // BUG-396c
+            if (signal?.aborted) { const e = new Error('Pipeline aborted by user'); e.name = 'AbortError'; e.userAborted = true; throw e; }
             if (aiResult.error) {
                 trace.aiFallback = true;
-                trace.aiError = aiResult.errorMessage || ''; // BUG-004: Capture error details
+                trace.aiError = aiResult.errorMessage || ''; // BUG-004
                 const fallback = settings.aiErrorFallback || 'keyword';
                 if (fallback === 'keyword') {
                     finalEntries = keywordResult.matched;
                 } else if (fallback === 'constants_only') {
-                    finalEntries = keywordResult.matched.filter(e => e.constant || (bootstrapActive && e.bootstrap));
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (fallback === 'bootstrap_only') {
-                    finalEntries = keywordResult.matched.filter(e => bootstrapActive && e.bootstrap);
-                } else { // 'none'
+                    finalEntries = vaultSnapshot.filter(e => bootstrapActive && e.bootstrap);
+                } else {
                     finalEntries = [];
                 }
             } else if (aiResult.results.length === 0) {
                 const emptyFallback = settings.aiEmptyFallback || 'constants';
+                dedupWarning('AI didn\'t pick any lore for this scene — using your fallback.', 'ai_empty_fallback', { hint: `Empty fallback mode: ${emptyFallback}` });
                 if (emptyFallback === 'constants') {
-                    // AI found nothing relevant — fall back to force-injected entries only (constants + active bootstrap)
-                    finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));
+                    finalEntries = vaultSnapshot.filter(e => e.constant);
                 } else if (emptyFallback === 'constants_bootstrap') {
-                    finalEntries = keywordResult.matched.filter(e => isForceInjected(e, { bootstrapActive }));
+                    finalEntries = vaultSnapshot.filter(e => e.constant || (bootstrapActive && e.bootstrap));
                 } else if (emptyFallback === 'keyword') {
                     finalEntries = keywordResult.matched;
-                } else { // 'none'
+                } else {
                     finalEntries = [];
                 }
             } else {
@@ -497,7 +300,9 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
 
     } else {
+        const _kwStart2 = performance.now();
         const keywordResult = matchEntries(chat, vaultSnapshot);
+        trace.keywordMatchMs = Math.round(performance.now() - _kwStart2);
         finalEntries = keywordResult.matched;
         matchedKeys = keywordResult.matchedKeys;
         trace.keywordMatched = keywordResult.matched.map(e => ({ title: e.title, matchedBy: matchedKeys.get(e.title) || '?' }));
@@ -506,7 +311,7 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         trace.fuzzyStats = keywordResult.fuzzyStats;
         trace.refineKeyBlocked = keywordResult.refineKeyBlocked;
 
-        // BUG-F1: Apply contextual gating in keywords-only mode (was previously skipped)
+        // BUG-F1: contextual gating must run in keywords-only mode (previously skipped).
         if (contextualGatingContext) {
             const prePolicy = buildExemptionPolicy(finalEntries, pins, blocks);
             const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
@@ -514,19 +319,27 @@ export async function runPipeline(chat, externalSnapshot, contextualGatingContex
         }
     }
 
-    // Re-sort by user priority (with tiebreaker) after all modes.
-    // In AI modes, confidence sorting may have overridden user priority — this restores it
-    // so budget trimming respects the user's explicit priority field.
+    if (folderFilter && folderFilter.length > 0) {
+        const beforeFolder = finalEntries.length;
+        const folderPolicy = buildExemptionPolicy(finalEntries, pins, blocks);
+        finalEntries = applyFolderFilter(finalEntries, folderFilter, folderPolicy, settings.debugMode);
+        trace.folderFilter = { folders: folderFilter, before: beforeFolder, after: finalEntries.length, removed: beforeFolder - finalEntries.length };
+    }
+
+    // Restore user priority after AI modes — confidence sort may have overridden it,
+    // and budget trimming must respect the explicit priority field.
     finalEntries.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
 
-    // Note: trace is set by onGenerate after enrichment — don't set here to avoid double-write
+    clearScanTextCache();
+
+    // trace is finalized by onGenerate after enrichment — don't set here to avoid double-write.
     return { finalEntries, matchedKeys, trace };
 }
 
 /**
  * External API: match vault entries against arbitrary text.
  * Used by other extensions (e.g. BurnerPhone) to get lore without going through the interceptor.
- * @param {string|object[]} scanInput - Text string or array of {name, mes, is_user} chat objects
+ * @param {string|object[]} scanInput - Text string or array of {name, mes, is_user} chat objects.
  * @returns {Promise<{text: string, count: number, tokens: number}>}
  */
 export async function matchTextForExternal(scanInput) {
@@ -540,7 +353,12 @@ export async function matchTextForExternal(scanInput) {
         ? [{ name: 'context', mes: scanInput, is_user: true }]
         : scanInput;
 
-    const { matched } = matchEntries(fakeChat);
+    // BUG-AUDIT (Fix 6): pass the writer-visible snapshot. Without this, matchEntries
+    // falls back to raw vaultIndex and leaks lorebook-guide entries to external
+    // consumers (e.g. globalThis.deepLoreEnhanced_matchText), violating the
+    // "guides never reach the writing AI" contract in CLAUDE.md.
+    const { matched } = matchEntries(fakeChat, getWriterVisibleEntries());
+    clearScanTextCache();
     const policy = buildExemptionPolicy(matched, [], []);
     const { result: gated } = applyRequiresExcludesGating(matched, policy, false);
     const { groups, count, totalTokens } = formatAndGroup(gated, getSettings(), PROMPT_TAG_PREFIX);

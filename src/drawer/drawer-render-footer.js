@@ -1,23 +1,16 @@
-/**
- * DeepLore Enhanced — Drawer Render: Footer Zone
- * Context bar, health icons, and AI stats.
- */
 import { amount_gen } from '../../../../../../script.js';
 import { getSettings } from '../../settings.js';
 import {
-    vaultIndex, lastPipelineTrace,
+    vaultIndex, lastPipelineTrace, librarianChatStats,
     aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
-import { ds, formatTokensCompact } from './drawer-state.js';
+import { ds, formatTokensCompact, activityLog, announceToScreenReader } from './drawer-state.js';
 
 // ════════════════════════════════════════════════════════════════════════════
 // Footer Zone — Health Icons + AI Stats + Context Bar
 // ════════════════════════════════════════════════════════════════════════════
 
-/**
- * Render the footer zone: context bar, health icons, AI stats.
- */
 export function renderFooter() {
     const $drawer = ds.$drawer;
     if (!$drawer) return;
@@ -25,15 +18,25 @@ export function renderFooter() {
     if (!$footer.length) return;
 
     // ── Context window bar ──
+    const $barContainer = $footer.find('.dle-context-bar-container');
+
+    // Non-OAI backends don't expose prompt token tracking — hide the bar entirely.
+    if (!ds.contextBarAvailable) {
+        $barContainer.hide();
+    } else {
+        $barContainer.show();
+    }
+
     const ctx = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
-    // Prefer chatCompletionSettings (respects unlocked context) over maxContext (base slider)
+    // chatCompletionSettings respects "unlocked context"; ctx.maxContext is the base slider only.
     const maxContext = ctx?.chatCompletionSettings?.openai_max_context || ctx?.maxContext || 0;
     const responseTokens = ctx?.chatCompletionSettings?.openai_max_tokens || amount_gen || 0;
     const contextUsed = ds.contextTokens || 0;
+    const libExtra = librarianChatStats?.estimatedExtraTokens || 0;
+    const totalUsed = contextUsed + libExtra;
 
-    const $barContainer = $footer.find('.dle-context-bar-container');
     if (maxContext > 0) {
-        const contextPct = Math.min(100, (contextUsed / maxContext) * 100);
+        const contextPct = Math.min(100, (totalUsed / maxContext) * 100);
         const responsePct = Math.min(100 - contextPct, (responseTokens / maxContext) * 100);
 
         $footer.find('.dle-context-bar-context').css('width', `${contextPct}%`);
@@ -42,26 +45,49 @@ export function renderFooter() {
             width: `${responsePct}%`,
         });
 
-        const label = contextUsed
-            ? `Context | ${contextUsed.toLocaleString()} + ${responseTokens.toLocaleString()} / ${maxContext.toLocaleString()}`
-            : `Context | ${responseTokens.toLocaleString()} res / ${maxContext.toLocaleString()}`;
+        const label = totalUsed
+            ? `${formatTokensCompact(totalUsed)} / ${formatTokensCompact(maxContext)}${libExtra > 0 ? ` (+${formatTokensCompact(libExtra)} lib)` : ''}`
+            : `— / ${formatTokensCompact(maxContext)}`;
         $footer.find('.dle-context-bar-label').text(label);
 
-        const contextTitle = `${contextUsed.toLocaleString()} tokens used + ${responseTokens.toLocaleString()} reserved for the AI's response, out of ${maxContext.toLocaleString()} total`;
-        $barContainer.attr('aria-valuenow', contextUsed + responseTokens).attr('aria-valuemax', maxContext);
+        const tooltipParts = [`${formatTokensCompact(contextUsed)} prompt tokens`];
+        if (libExtra > 0) tooltipParts.push(`${formatTokensCompact(libExtra)} librarian tokens`);
+        tooltipParts.push(`${formatTokensCompact(responseTokens)} response reserve`);
+        tooltipParts.push(`${formatTokensCompact(maxContext)} max context`);
+        const contextTitle = tooltipParts.join(' · ');
+        $barContainer.attr('aria-valuenow', totalUsed + responseTokens).attr('aria-valuemax', maxContext);
         $barContainer.attr('title', contextTitle);
     } else {
         $footer.find('.dle-context-bar-context').css('width', '0%');
         $footer.find('.dle-context-bar-response').css({ left: '0%', width: '0%' });
-        $footer.find('.dle-context-bar-label').text('Context | — / —');
+        $footer.find('.dle-context-bar-label').text('Context data unavailable \u2014 waiting for first generation');
         $barContainer.attr('aria-valuenow', 0).attr('aria-valuemax', 0);
-        $barContainer.attr('title', 'Context window: waiting for data');
+        $barContainer.attr('title', 'Context data unavailable \u2014 waiting for first generation');
+    }
+
+    // ── Activity feed ──
+    const $activityFeed = $footer.find('.dle-activity-feed');
+    $activityFeed.attr('role', 'log').attr('aria-live', 'polite');
+    if ($activityFeed.length && activityLog.length > 0) {
+        let feedHtml = '';
+        for (const a of activityLog) {
+            const time = new Date(a.ts);
+            const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const isoTime = time.toISOString();
+            feedHtml += `<div class="dle-activity-row">`;
+            feedHtml += `<span class="dle-activity-time" title="${isoTime}">${timeStr}</span>`;
+            feedHtml += `<span class="dle-activity-mode">${a.mode}</span>`;
+            let detail = `${a.injected} entr${a.injected === 1 ? 'y' : 'ies'}, ${formatTokensCompact(a.tokens)} tok`;
+            if (a.folderFilter?.length) detail += ` [${a.folderFilter.length} folder${a.folderFilter.length !== 1 ? 's' : ''}]`;
+            feedHtml += `<span>${detail}</span>`;
+            feedHtml += `</div>`;
+        }
+        $activityFeed.html(feedHtml);
     }
 
     // ── Health icons ──
     const settings = getSettings();
 
-    // Vault health
     const $vault = $footer.find('[data-health="vault"]');
     if (lastHealthResult) {
         const { errors, warnings } = lastHealthResult;
@@ -80,7 +106,7 @@ export function renderFooter() {
         $vault.attr('aria-label', 'Vault health: not checked yet — click to run health check').attr('title', 'Vault health: not checked yet — click to run health check');
     }
 
-    // Connection (Obsidian circuit breaker — aggregate)
+    // Connection icon = aggregate Obsidian circuit-breaker state across vaults.
     const $conn = $footer.find('[data-health="connection"]');
     const circuit = getCircuitState();
     if (circuit.state === 'closed') {
@@ -88,13 +114,12 @@ export function renderFooter() {
         $conn.attr('aria-label', 'Obsidian: connected — click for full status').attr('title', 'Obsidian: connected — click for full status');
     } else if (circuit.state === 'half-open') {
         $conn.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
-        $conn.attr('aria-label', 'Obsidian: recovering — probing vault').attr('title', 'Obsidian: recovering — click to retry');
+        $conn.attr('aria-label', 'Obsidian: recovering — probing vault').attr('title', 'Obsidian: recovering — click to view connection status');
     } else {
         $conn.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
-        $conn.attr('aria-label', `Obsidian: unreachable (${circuit.failures} failures) — click to retry`).attr('title', `Obsidian: unreachable (${circuit.failures} failures) — click to retry`);
+        $conn.attr('aria-label', `Obsidian: unreachable (${circuit.failures} failures) — click to view connection status`).attr('title', `Obsidian: unreachable (${circuit.failures} failures) — click to view connection status`);
     }
 
-    // Pipeline
     const $pipe = $footer.find('[data-health="pipeline"]');
     if (lastPipelineTrace) {
         const entryCount = lastPipelineTrace.injected?.length || 0;
@@ -111,17 +136,17 @@ export function renderFooter() {
         $pipe.attr('aria-label', 'Lore selection: no runs yet').attr('title', 'Lore selection: no runs yet — send a message to trigger');
     }
 
-    // Cache
     const $cache = $footer.find('[data-health="cache"]');
     if (indexEverLoaded && indexTimestamp) {
         const ageMs = Date.now() - indexTimestamp;
         const cacheTTL = (settings.cacheTTL || 300) * 1000;
+        const ageSecs = Math.round(ageMs / 1000);
         if (ageMs < cacheTTL) {
-            const cacheLabel = `Cache: fresh (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries)`;
+            const cacheLabel = `Cache: fresh (${ageSecs} seconds old, ${vaultIndex.length} entries)`;
             $cache.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
             $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
         } else {
-            const cacheLabel = `Cache: stale (${Math.round(ageMs / 1000)}s old, ${vaultIndex.length} entries) — click to refresh`;
+            const cacheLabel = `Cache: stale (${ageSecs} seconds old, ${vaultIndex.length} entries) — click to view cache status`;
             $cache.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
             $cache.attr('aria-label', cacheLabel).attr('title', cacheLabel);
         }
@@ -134,7 +159,6 @@ export function renderFooter() {
         $cache.attr('aria-label', 'Cache: empty — no index loaded').attr('title', 'Cache: empty — no index loaded');
     }
 
-    // AI service
     const $ai = $footer.find('[data-health="ai"]');
     if (isAiCircuitOpen()) {
         $ai.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
@@ -155,4 +179,16 @@ export function renderFooter() {
     $footer.find('[data-ai-stat="cached"]').text(`${aiSearchStats.cachedHits} cached`);
     const totalTok = aiSearchStats.totalInputTokens + aiSearchStats.totalOutputTokens;
     $footer.find('[data-ai-stat="tokens"]').text(`${formatTokensCompact(totalTok)} tokens`);
+
+    // Click/keyboard surface — announces input/output token split for screen readers.
+    const $aiStats = $footer.find('.dle-ai-stats');
+    if ($aiStats.length && (aiSearchStats.totalInputTokens > 0 || aiSearchStats.totalOutputTokens > 0)) {
+        const splitTitle = `${formatTokensCompact(aiSearchStats.totalInputTokens)} input tokens · ${formatTokensCompact(aiSearchStats.totalOutputTokens)} output tokens`;
+        $aiStats.attr('title', splitTitle).attr('role', 'button').attr('tabindex', '0');
+        $aiStats.off('click.aistats keydown.aistats').on('click.aistats', function () {
+            announceToScreenReader(`AI search: ${aiSearchStats.calls} calls, ${aiSearchStats.cachedHits} cached. ${splitTitle}`);
+        }).on('keydown.aistats', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $(this).trigger('click'); }
+        });
+    }
 }

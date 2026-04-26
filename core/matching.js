@@ -2,14 +2,49 @@
  * DeepLore Enhanced Core — Matching, Gating & Formatting
  */
 
-import { escapeRegex, truncateToSentence } from './utils.js';
+import { escapeRegex, truncateToSentence, escapeXml } from './utils.js';
+// BUG-092/093: Use ST's enums and MAX_INJECTION_DEPTH constant rather than magic numbers.
+// Resolved lazily off the global so node-side unit tests (which never load script.js) still work.
+const _PT_FALLBACK = { NONE: -1, IN_PROMPT: 0, IN_CHAT: 1, BEFORE_PROMPT: 2 };
+const _PR_FALLBACK = { SYSTEM: 0, USER: 1, ASSISTANT: 2 };
+const _g = (typeof window !== 'undefined' ? window : globalThis);
+const _PT = (_g && _g.extension_prompt_types) || _PT_FALLBACK;
+const _PR = (_g && _g.extension_prompt_roles) || _PR_FALLBACK;
+const _MAX_DEPTH = (_g && Number.isFinite(_g.MAX_INJECTION_DEPTH)) ? _g.MAX_INJECTION_DEPTH : 10000;
 
-// ── Regex cache (C4): WeakMap keyed by entry object, invalidated when settings change ──
+/**
+ * Clamp an injection depth to ST's MAX_INJECTION_DEPTH range, warning on out-of-range values.
+ * BUG-092: Typo'd `depth: 50000` previously caused entries to vanish silently.
+ * @param {number} depth
+ * @param {string} [label]
+ * @returns {number}
+ */
+function clampDepth(depth, label) {
+    const n = Number(depth);
+    if (!Number.isFinite(n)) return 0;
+    if (n < 0) {
+        console.warn(`[DLE] injection depth ${n} < 0${label ? ` (${label})` : ''} — clamping to 0`);
+        return 0;
+    }
+    if (n > _MAX_DEPTH) {
+        console.warn(`[DLE] injection depth ${n} > MAX_INJECTION_DEPTH (${_MAX_DEPTH})${label ? ` (${label})` : ''} — clamping`);
+        return _MAX_DEPTH;
+    }
+    return n;
+}
+
+// C4: regex cache keyed by entry object, invalidated when settings change.
 const _regexCache = new WeakMap();
 
-// ── H9: Cache lowercased scanText to avoid 25MB transient allocations per-entry ──
+// H9: cache lowercased scanText to avoid ~25MB transient allocations per-entry.
 let _lastScanText = '';
 let _lastScanTextLower = '';
+
+/** Release the cached scan text strings after the matching phase completes. */
+export function clearScanTextCache() {
+    _lastScanText = '';
+    _lastScanTextLower = '';
+}
 
 /**
  * Get or build cached compiled regexes for an entry's keys and refine keys.
@@ -27,18 +62,30 @@ function getCachedRegexes(entry, settings) {
     cache = { _key: cacheKey, primary: [], refine: [] };
     for (const rawKey of entry.keys) {
         if (!rawKey || !rawKey.trim()) continue;
+        // BUG-148: warn (once per build) on overflow so silent truncation doesn't eat
+        // the tail of long phrasal triggers.
+        if (rawKey.length > MAX_KEYWORD_LENGTH) {
+            console.warn(`[DLE] keyword "${rawKey.slice(0, 40)}..." exceeds MAX_KEYWORD_LENGTH (${MAX_KEYWORD_LENGTH}) on entry "${entry.title}" — truncated`);
+        }
         const truncatedKey = rawKey.length > MAX_KEYWORD_LENGTH ? rawKey.substring(0, MAX_KEYWORD_LENGTH) : rawKey;
         const key = settings.caseSensitive ? truncatedKey : truncatedKey.normalize('NFC').toLowerCase();
         if (settings.matchWholeWords) {
-            const escaped = escapeRegex(key);
-            const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
-            const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
-            cache.primary.push({
-                rawKey,
-                key,
-                regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
-                regexG: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? 'g' : 'gi'),
-            });
+            // BUG-044: ST's world-info.js matchKeys() falls back to substring match when
+            // a key contains whitespace. We previously wrapped multi-word keys in `\b…\b`,
+            // which silently diverged from imported WI books.
+            if (/\s/.test(key)) {
+                cache.primary.push({ rawKey, key, regex: null, regexG: null, isMultiWord: true });
+            } else {
+                const escaped = escapeRegex(key);
+                const prefix = /^\w/.test(key) ? '\\b' : '(?<!\\w)';
+                const suffix = /\w$/.test(key) ? '\\b' : '(?!\\w)';
+                cache.primary.push({
+                    rawKey,
+                    key,
+                    regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
+                    regexG: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? 'g' : 'gi'),
+                });
+            }
         } else {
             cache.primary.push({ rawKey, key, regex: null, regexG: null });
         }
@@ -47,14 +94,19 @@ function getCachedRegexes(entry, settings) {
         for (const rk of entry.refineKeys) {
             const rKey = settings.caseSensitive ? rk : rk.normalize('NFC').toLowerCase();
             if (settings.matchWholeWords) {
-                // M13: Smart word boundary for refine keys (same logic as primary keys)
-                const escaped = escapeRegex(rKey);
-                const prefix = /^\w/.test(rKey) ? '\\b' : '(?<!\\w)';
-                const suffix = /\w$/.test(rKey) ? '\\b' : '(?!\\w)';
-                cache.refine.push({
-                    rKey,
-                    regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
-                });
+                // BUG-044: same multi-word substring fallback as primary keys.
+                if (/\s/.test(rKey)) {
+                    cache.refine.push({ rKey, regex: null, isMultiWord: true });
+                } else {
+                    // M13: same smart word-boundary logic as primary keys.
+                    const escaped = escapeRegex(rKey);
+                    const prefix = /^\w/.test(rKey) ? '\\b' : '(?<!\\w)';
+                    const suffix = /\w$/.test(rKey) ? '\\b' : '(?!\\w)';
+                    cache.refine.push({
+                        rKey,
+                        regex: new RegExp(`${prefix}${escaped}${suffix}`, settings.caseSensitive ? '' : 'i'),
+                    });
+                }
             } else {
                 cache.refine.push({ rKey, regex: null });
             }
@@ -70,9 +122,13 @@ function getCachedRegexes(entry, settings) {
  * @param {import('./pipeline.js').VaultEntry} entry
  * @param {string} scanText
  * @param {{ caseSensitive: boolean, matchWholeWords: boolean }} settings
+ * @param {Array<object>} [trace] - Optional diagnostic collector. If provided, a record
+ *   `{ title, vaultSource, result, primaryMatched, refineKeys, reason }` is pushed
+ *   on any outcome where the entry had keys (match, no-primary, blocked-by-refine).
+ *   Callers opt in — pipeline passes one only when debugMode is on.
  * @returns {string|null} The matched key, or null if no match
  */
-export function testEntryMatch(entry, scanText, settings) {
+export function testEntryMatch(entry, scanText, settings, trace = null) {
     if (entry.keys.length === 0) return null;
 
     const cached = getCachedRegexes(entry, settings);
@@ -90,24 +146,34 @@ export function testEntryMatch(entry, scanText, settings) {
     let primaryMatch = null;
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            // Test against normalized text to match NFC-normalized regex pattern
-            if (item.regex.test(haystack)) { primaryMatch = item.rawKey; break; }
+            // BUG-044: multi-word keys fall through with regex===null and substring-match (ST parity).
+            if (item.isMultiWord) {
+                if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
+            } else if (item.regex.test(haystack)) { primaryMatch = item.rawKey; break; }
         } else {
             if (haystack.includes(item.key)) { primaryMatch = item.rawKey; break; }
         }
     }
-    if (!primaryMatch) return null;
+    if (!primaryMatch) {
+        if (trace) trace.push({ title: entry.title, vaultSource: entry.vaultSource, result: 'no-primary', primaryMatched: null, refineKeys: cached.refine.map(r => r.rKey), reason: 'no primary key in scan text' });
+        return null;
+    }
 
     // Refine keys: if non-empty, at least one must also match (AND_ANY mode)
     if (cached.refine.length > 0) {
         const hasRefine = cached.refine.some(item => {
             if (settings.matchWholeWords) {
+                if (item.isMultiWord) return haystack.includes(item.rKey);
                 return item.regex.test(haystack);
             }
             return haystack.includes(item.rKey);
         });
-        if (!hasRefine) return null;
+        if (!hasRefine) {
+            if (trace) trace.push({ title: entry.title, vaultSource: entry.vaultSource, result: 'refine-blocked', primaryMatched: primaryMatch, refineKeys: cached.refine.map(r => r.rKey), reason: `primary matched "${primaryMatch}" but no refine_keys present in scan text` });
+            return null;
+        }
     }
+    if (trace) trace.push({ title: entry.title, vaultSource: entry.vaultSource, result: 'match', primaryMatched: primaryMatch, refineKeys: cached.refine.map(r => r.rKey), reason: null });
     return primaryMatch;
 }
 
@@ -136,7 +202,9 @@ export function testPrimaryMatchOnly(entry, scanText, settings) {
 
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            if (item.regex.test(haystack)) return item.rawKey;
+            if (item.isMultiWord) {
+                if (haystack.includes(item.key)) return item.rawKey;
+            } else if (item.regex.test(haystack)) return item.rawKey;
         } else {
             if (haystack.includes(item.key)) return item.rawKey;
         }
@@ -168,8 +236,17 @@ export function countKeywordOccurrences(entry, scanText, settings) {
     }
     for (const item of cached.primary) {
         if (settings.matchWholeWords) {
-            const matches = text.match(item.regexG); // use normalized text (consistent with testEntryMatch)
-            if (matches) count += matches.length;
+            // BUG-044: multi-word has regexG===null; substring-count occurrences.
+            if (item.isMultiWord) {
+                let idx = 0;
+                while ((idx = text.indexOf(item.key, idx)) !== -1) {
+                    count++;
+                    idx += item.key.length;
+                }
+            } else {
+                const matches = text.match(item.regexG);
+                if (matches) count += matches.length;
+            }
         } else {
             let idx = 0;
             while ((idx = text.indexOf(item.key, idx)) !== -1) {
@@ -188,8 +265,8 @@ export function countKeywordOccurrences(entry, scanText, settings) {
  * @returns {import('./pipeline.js').VaultEntry[]}
  */
 export function applyGating(entries) {
-    // BUG-029: Sort descending by priority number for deterministic mutual-excludes resolution.
-    // Note: This is legacy code — the live pipeline uses applyRequiresExcludesGating in stages.js.
+    // BUG-029: descending by priority for deterministic mutual-excludes resolution.
+    // Legacy — live pipeline uses applyRequiresExcludesGating in stages.js.
     let result = [...entries].sort((a, b) => ((b.priority || 50) - (a.priority || 50)) || a.title.localeCompare(b.title));
     let changed = true;
     let iterations = 0;
@@ -224,7 +301,7 @@ export function applyGating(entries) {
         result = nextResult;
     }
 
-    // Detect contradictory gating (A requires B, B excludes A) — warn for debugging
+    // Detect contradictory gating (A requires B, B excludes A) for debugging.
     const removedEntries = entries.filter(e => !result.includes(e));
     if (removedEntries.length > 0) {
         for (const removed of removedEntries) {
@@ -276,50 +353,62 @@ export function resolveLinks(vaultIndex) {
  * @returns {{ groups: Array<{ tag: string, text: string, position: number, depth: number, role: number }>, count: number, totalTokens: number, acceptedEntries: import('./pipeline.js').VaultEntry[] }}
  */
 export function formatAndGroup(entries, settings, promptTagPrefix) {
+    // BUG-158: the `</{{title}}>` close tag is load-bearing — without it, multi-line
+    // entries concatenated with `\n` bleed into each other and the model can't tell
+    // where one ends and the next begins.
     const template = settings.injectionTemplate || '<{{title}}>\n{{content}}\n</{{title}}>';
     let totalTokens = 0;
     let count = 0;
 
+    // Outlet entries bypass positional injection.
+    const outletEntries = entries.filter(e => e.outlet);
+    const positionalEntries = entries.filter(e => !e.outlet);
+
     const accepted = [];
+    let truncatedCount = 0;
 
     const MIN_TRUNCATION_TOKENS = 50;
 
-    for (const entry of entries) {
+    for (const entry of positionalEntries) {
         if (!settings.unlimitedEntries && count >= settings.maxEntries) break;
         if (!settings.unlimitedBudget && totalTokens + entry.tokenEstimate > settings.maxTokensBudget) {
             const remainingTokens = settings.maxTokensBudget - totalTokens;
 
             if (remainingTokens >= MIN_TRUNCATION_TOKENS) {
-                // MIN_TRUNCATION_TOKENS (50) prevents uselessly small fragments.
-                // At ~4 chars/token, 50 tokens ≈ 200 chars — enough for a meaningful
-                // paragraph. Below this threshold, the truncated entry would be too
-                // short to provide useful context, so it's better to skip it entirely.
-                // Truncate entry to fit remaining budget (shallow copy — never mutate original)
-                // BUG-032: Use chars/4.0 ratio (more conservative, better alignment with actual tokenizer)
-                const maxChars = Math.floor(remainingTokens * 4.0);
+                // 50 tokens ≈ 200 chars at 4 chars/token — below this, the fragment is
+                // too short to be useful context, so skip rather than truncate.
+                // Shallow copy (never mutate original).
+                // BUG-053: per-entry chars/token derived from the real index-time
+                // tokenEstimate (getTokenCountAsync in vault.js). Falls back to 4.0
+                // only when content/tokenEstimate are missing — keeps core/ pure.
+                const charsPerToken = (entry.tokenEstimate > 0 && entry.content && entry.content.length > 0)
+                    ? (entry.content.length / entry.tokenEstimate)
+                    : 4.0;
+                const maxChars = Math.floor(remainingTokens * charsPerToken);
                 const truncatedContent = truncateToSentence(entry.content, maxChars);
                 const truncatedEntry = {
                     ...entry,
                     content: truncatedContent,
-                    tokenEstimate: Math.ceil(truncatedContent.length / 4.0),
+                    tokenEstimate: Math.ceil(truncatedContent.length / charsPerToken),
                     _truncated: true,
                     _originalTokens: entry.tokenEstimate,
-                    // Recompute content hash so strip-dedup doesn't use the pre-truncation hash
+                    // Distinct hash so strip-dedup doesn't match the pre-truncation entry.
                     _contentHash: typeof entry._contentHash === 'string' ? entry._contentHash + '_trunc' : '',
                 };
                 accepted.push({
                     entry: truncatedEntry,
                     position: truncatedEntry.injectionPosition ?? settings.injectionPosition,
-                    depth: truncatedEntry.injectionDepth ?? settings.injectionDepth,
+                    depth: clampDepth(truncatedEntry.injectionDepth ?? settings.injectionDepth, truncatedEntry.title),
                     role: truncatedEntry.injectionRole ?? settings.injectionRole,
                 });
                 totalTokens += truncatedEntry.tokenEstimate;
                 count++;
-                break; // Budget is now fully consumed
+                truncatedCount++;
+                break; // budget fully consumed
             }
 
             if (count > 0) break;
-            // First entry exceeds budget and remaining is too small to truncate — skip
+            // First entry exceeds entire budget and remaining is too small to truncate.
             console.warn(`[DLE] Entry "${entry.title}" (${entry.tokenEstimate} tokens) exceeds entire budget (${settings.maxTokensBudget}) — skipping`);
             continue;
         }
@@ -327,37 +416,65 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         accepted.push({
             entry,
             position: entry.injectionPosition ?? settings.injectionPosition,
-            depth: entry.injectionDepth ?? settings.injectionDepth,
+            depth: clampDepth(entry.injectionDepth ?? settings.injectionDepth, entry.title),
             role: entry.injectionRole ?? settings.injectionRole,
         });
         totalTokens += entry.tokenEstimate;
         count++;
     }
 
-    // Only escape angle brackets to prevent structural XML injection (e.g. </system>).
-    // Do NOT escape quotes or ampersands — those are valid content the AI should see as-is.
-    const escapeBrackets = (s) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // BUG-090: use canonical escapeXml — local stub only handled `<` and `>`, leaving
+    // `&` and `"` to break downstream XML tooling.
     const formatEntry = (entry) => {
-        let text = template.replace(/\{\{title\}\}/g, escapeBrackets(entry.title));
-        text = text.replace(/\{\{content\}\}/g, escapeBrackets(entry.content));
+        let text = template.replace(/\{\{title\}\}/g, escapeXml(entry.title));
+        text = text.replace(/\{\{content\}\}/g, escapeXml(entry.content));
         return text;
     };
+
+    // Outlet entries: group by outlet name, written to extension_prompts under
+    // `customWIOutlet_<name>` and read by ST's `{{outlet::name}}` macro. Position is
+    // NONE — they're user-placed via macros, so budget/maxEntries don't apply.
+    // BUG-146: carry per-entry role through the group; first non-null wins. Mixed-role
+    // outlets are an authoring error (one tag = one role), not something we can split.
+    const outletGroupMap = new Map();
+    let outletTokens = 0;
+    for (const entry of outletEntries) {
+        const key = `customWIOutlet_${entry.outlet}`;
+        if (!outletGroupMap.has(key)) {
+            outletGroupMap.set(key, { tag: key, texts: [], tokens: 0, role: null });
+        }
+        const g = outletGroupMap.get(key);
+        g.texts.push(formatEntry(entry));
+        g.tokens += entry.tokenEstimate;
+        if (g.role === null && entry.injectionRole !== null && entry.injectionRole !== undefined) {
+            g.role = entry.injectionRole;
+        }
+        outletTokens += entry.tokenEstimate;
+    }
+    const outletGroups = [...outletGroupMap.values()].map(g => ({
+        tag: g.tag,
+        text: g.texts.join('\n\n'),
+        position: _PT.NONE,
+        depth: 0,
+        role: g.role ?? _PR.SYSTEM,
+    }));
 
     const mode = settings.injectionMode || 'extension';
 
     if (mode === 'prompt_list') {
-        // ── Prompt List mode: group by type (constants vs lore) with stable keys ──
-        // Entries with per-entry overrides get their own IN_CHAT group (bypasses PM).
+        // Group by type (constants vs lore) with stable keys. Per-entry overrides
+        // get their own IN_CHAT group (bypassing the Prompt Manager).
         const groupMap = new Map();
-        const IN_PROMPT = 0; // extension_prompt_types.IN_PROMPT
+        // BUG-093: use imported enum, not a magic number that drifts on ST refactor.
+        const IN_PROMPT = _PT.IN_PROMPT;
+        const SYSTEM_ROLE = _PR.SYSTEM;
 
         for (const item of accepted) {
             const hasOverride = item.entry.injectionPosition !== null || item.entry.injectionDepth !== null || item.entry.injectionRole !== null;
 
             let key, position, depth, role;
             if (hasOverride) {
-                // Per-entry override → own group with IN_CHAT, bypasses PM
-                key = `${promptTagPrefix}override_d${item.depth}_r${item.role}`;
+                key = `${promptTagPrefix}override_p${item.position}_d${item.depth}_r${item.role}`;
                 position = item.position;
                 depth = item.depth;
                 role = item.role;
@@ -365,12 +482,12 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
                 key = `${promptTagPrefix}constants`;
                 position = IN_PROMPT;
                 depth = 0;
-                role = 0;
+                role = SYSTEM_ROLE;
             } else {
                 key = `${promptTagPrefix}lore`;
                 position = IN_PROMPT;
                 depth = 0;
-                role = 0;
+                role = SYSTEM_ROLE;
             }
 
             if (!groupMap.has(key)) {
@@ -387,10 +504,14 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
             role: g.role,
         }));
 
-        return { groups, count, totalTokens, acceptedEntries: accepted.map(a => a.entry) };
+        groups.push(...outletGroups);
+        console.log('[DLE] Format: %d/%d entries, %d/%d tokens%s, %d groups, %d outlet',
+            count, positionalEntries.length, totalTokens, settings.unlimitedBudget ? totalTokens : settings.maxTokensBudget,
+            truncatedCount > 0 ? `, ${truncatedCount} truncated` : '', groups.length, outletEntries.length);
+        return { groups, count: count + outletEntries.length, totalTokens: totalTokens + outletTokens, acceptedEntries: [...accepted.map(a => a.entry), ...outletEntries] };
     }
 
-    // ── Extension mode (default): group by (position, depth, role) ──
+    // Extension mode (default): group by (position, depth, role).
     const groupMap = new Map();
     for (const item of accepted) {
         const key = `${promptTagPrefix}p${item.position}_d${item.depth}_r${item.role}`;
@@ -414,5 +535,9 @@ export function formatAndGroup(entries, settings, promptTagPrefix) {
         role: g.role,
     }));
 
-    return { groups, count, totalTokens, acceptedEntries: accepted.map(a => a.entry) };
+    groups.push(...outletGroups);
+    console.log('[DLE] Format: %d/%d entries, %d/%d tokens%s, %d groups, %d outlet',
+        count, positionalEntries.length, totalTokens, settings.unlimitedBudget ? totalTokens : settings.maxTokensBudget,
+        truncatedCount > 0 ? `, ${truncatedCount} truncated` : '', groups.length, outletEntries.length);
+    return { groups, count: count + outletEntries.length, totalTokens: totalTokens + outletTokens, acceptedEntries: [...accepted.map(a => a.entry), ...outletEntries] };
 }

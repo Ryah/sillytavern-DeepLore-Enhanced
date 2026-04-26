@@ -1,279 +1,216 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/icon-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/icon-light.svg">
-    <img alt="DeepLore Enhanced" src="docs/icon-light.svg" width="96">
+    <img src="docs/icon-light.svg" alt="DeepLore" width="96">
   </picture>
 </p>
 
-<h1 align="center">DeepLore Enhanced</h1>
+<h1 align="center">DeepLore</h1>
 
-<p align="center">
-  <strong>AI-Powered Obsidian Vault Lorebook for SillyTavern</strong><br>
-  Your worldbuilding lives in Obsidian. DeepLore makes sure the AI actually reads it.
-</p>
+**World Info keyword matching breaks at scale. DeepLore reads your Obsidian vault instead: keywords plus AI retrieval, so the right lore fires even when the word wasn't typed.**
 
-<p align="center">
-  <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki">Wiki</a> &middot;
-  <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Installation">Install</a> &middot;
-  <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Quick-Start">Quick Start</a> &middot;
-  <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Slash-Commands">Commands</a> &middot;
-  <a href="CHANGELOG.md">Changelog</a>
-</p>
+![Version](https://img.shields.io/badge/version-2.0.0--beta-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![SillyTavern](https://img.shields.io/badge/SillyTavern-1.12.14+-orange)
 
-<p align="center">
-  <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/actions/workflows/tests.yml"><img alt="Tests" src="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/actions/workflows/tests.yml/badge.svg"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0--beta-blue">
-  <img alt="License" src="https://img.shields.io/badge/license-MIT-green">
-  <img alt="SillyTavern" src="https://img.shields.io/badge/SillyTavern-1.12.6%2B-purple">
-</p>
+[**Live demo →**](https://pixelnull.github.io/sillytavern-DeepLore-Enhanced/) · [Wiki](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki)
 
 ---
 
-### What people are saying:
+<p align="center">
+  <img src="https://i.imgur.com/vx4EJeD.png" alt="DeepLore drawer with injection list and graph" width="800">
+</p>
+
+<p align="center"><em>What 200 lorebook entries looks like when retrieval actually works.</em></p>
+
+---
+
+## The problem
+
+World Info's keyword matching breaks down around 80-100 entries. You write a scene about the consequences of breaking an oath. Your Bloodchain entry stays cold. The word was never typed.
+
+Meanwhile the AI invents details you already wrote, and gets them wrong.
+
+And your lore lives in two places: half in an Obsidian vault, half in ST's JSON. They drift.
+
+## Two-stage retrieval
+
+**Keywords cast a wide net. An AI narrows it down by reading entry summaries.** The AI reads your summaries and picks Bloodchain. No keyword needed.
+
+```
+Chat → matchEntries (keywords + BM25 fuzzy)
+     → hierarchicalPreFilter (40+ entries cluster first)
+     → aiSearch (reasoning model selects from summaries)
+     → gating (era / location / scene / character)
+     → cooldown / dedup / budget
+     → inject → generate
+```
+
+<p align="center">
+  <a href="https://youtu.be/tiq0dfD6-RU?si=pTBw4r-RNCkHsoYZ">
+    <img src="https://img.youtube.com/vi/tiq0dfD6-RU/maxresdefault.jpg" alt="Watch: Drawer, Search, and Flagging" width="720">
+  </a>
+</p>
+
+## New in v2: Emma, your librarian
+
+Emma is how your lorebook grows.
+
+As you roleplay, the writing AI reaches for details: characters, places, rules, consequences. When it reaches for something that isn't in your vault, it flags the gap. You open the flag and chat with Emma, a separate librarian agent who helps you author a vault-accurate entry (or update one that drifted). She checks what already exists, pulls in style guides marked `lorebook-guide`, finds similar entries to dedupe against, and drafts the new file. Write-to-vault saves it back to Obsidian.
+
+Your story fills in your world. Your world fires back into your story.
+
+- Writing AI's tool activity collapses into one expandable dropdown on the final message
+- Emma has her own connection channel; route her to something cheaper if you want
+- `lorebook-guide` entries reach Emma only, never the writing AI
+- Tool-calling provider required for both (Claude, Gemini, OpenAI-compat, Cohere)
+
+<p align="center">
+  <img src="https://i.imgur.com/V8RnLdy.png" alt="Librarian tab with a flagged worldbuilding gap opened" width="640">
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/jsPE9vkA8ck?si=6r-czyn5TvjdRf7M">
+    <img src="https://img.youtube.com/vi/jsPE9vkA8ck/maxresdefault.jpg" alt="Watch: Librarian (Emma)" width="720">
+  </a>
+</p>
+
+## What an entry looks like
+
+```yaml
+---
+tags: [lorebook]
+keys: [Bloodchain, oath, vow]
+priority: 100
+summary: |
+  When to select: scenes involving oaths, vows, sworn debts, or consequences
+  of breaking trust. Select when loyalty, betrayal, or magical binding is at
+  stake, even without the word "Bloodchain" appearing.
+era: [post-Schism]
+requires: []
+---
+
+A Bloodchain is a blood-magic oath. Breaking one doesn't kill you outright.
+It hollows you. The chain pulls at everything you used to love until there's
+nothing left to pull at.
+```
+
+<p align="center">
+  <img src="https://i.imgur.com/QA75e7J.png" alt="Entry open in Obsidian" width="640">
+</p>
+
+Write it in Obsidian. DeepLore reads it. The AI writes as if it always knew how Bloodchains work, even if the word "Bloodchain" was never said.
+
+## Obsidian connection: HTTPS or HTTP
+
+The Local REST API plugin ships with a self-signed HTTPS cert. Browsers block it unless you install the cert to your OS trust store, and SillyTavern's cross-origin `fetch()` path ignores per-site browser exceptions. Previously: silent failure with no error telling you why.
+
+**v2 handles both:**
+- Auto-diagnoses connection failures: distinguishes cert error vs unreachable vs auth
+- Falls back to HTTP (port 27123) with a one-click suggestion if HTTPS fails
+- Full OS-level trust-store walkthrough for Windows / macOS / Linux if you want HTTPS
+- Scans localhost for responding vault instances
+
+<p align="center">
+  <img src="https://i.imgur.com/x74FYZV.png" alt="HTTPS diagnostic panel" width="640">
+</p>
+
+## Relationship Graph
+
+<p align="center">
+  <a href="https://youtu.be/5oU1nFPh_m8?si=DcHkV0XeQJj3bk50">
+    <img src="https://img.youtube.com/vi/5oU1nFPh_m8/maxresdefault.jpg" alt="Watch: Relationship Graph" width="720">
+  </a>
+</p>
+
+Force-directed layout, 200+ nodes, Louvain clustering, gap analysis, focus mode. See which entries cluster together, where orphans live, what chains hang off `requires` and `cascade_links`.
+
+## Cost
+
+Keyword-only mode: free. AI search adds ~1 extra provider call per turn. Emma adds 1-3 tool-call rounds when she's active. Fraction of a cent per message on Haiku-class models; more on Sonnet / Opus.
+
+Each feature has an independent connection channel. Run free keyword retrieval and pay only for Emma, or vice versa. Works with local providers (Ooba, KoboldCpp, llama.cpp) for the AI search stage. Emma still needs a tool-calling provider.
+
+## Privacy
+
+Vault content goes to your configured LLM provider during retrieval and generation. Use a dedicated lorebook vault rather than your personal Obsidian vault.
+
+Diagnostics exports for bug reports are pseudonymized before they leave your machine: IPs, hostnames, API keys, profile names, vault names, character names all masked. Readable format, auditable before you share:
+
+<p align="center">
+  <img src="https://i.imgur.com/OhOUjLw.png" alt="Diagnostics export with anonymization summary" width="640">
+</p>
+
+## What people are saying
 
 > *"[I've] been using it all day and still amazed by it."*
-> — /u/chaeriixo ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxd24v/))
+> - /u/chaeriixo ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxd24v/))
 
 > *"I just installed this and this has all the features that I've been doing manually! This is freaking amazing and also dangerous, because I love world building as well."*
-> — /u/realedazed ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxwj40/))
+> - /u/realedazed ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1s07i8f/deeplore_enhanced_v020_your_obsidian_vault_is_now/obxwj40/))
 
 > *"I figured [how to import SillyTavern lore] out! This seems really cool! I have imported my lorebooks into an Obsidian vault and my brain is exploding a bit because I have a HUGE chat with naturally HUGE lorebooks and there are so many things floating around my graphs. It was very easy to set up once I got past the newness of Obsidian. The wizard was easy to follow and clear. I can easily see myself spending hours curating my vaults this weekend."*
-> — /u/morty_morty ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1sayvas/announcing_deeplore_enhanced_10beta_your_obsidian/oe4edb8/)
+> - /u/morty_morty ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1sayvas/announcing_deeplore_enhanced_10beta_your_obsidian/oe4edb8/))
 
----
+## Prerequisites
 
-## The Problem
+- **SillyTavern 1.12.14+**
+- **Obsidian** with the **Local REST API** plugin enabled
+- A lore vault (your existing one works; `/dle-import` converts World Info JSON into vault entries)
+- Optional: any LLM provider for AI search; keywords-only mode works without one
 
-When you roleplay with an AI, it only sees what's in the current prompt: the character card, the system prompt, and the last few messages. It has no memory of your world. A hundred characters, three factions, a magic system, a thousand years of history — the AI knows none of it unless you tell it, every single time.
+## Install
 
-A **lorebook** fixes this by injecting reference entries into the prompt when they become relevant. SillyTavern has a built-in lorebook (World Info), but it's limited to exact keyword matching against a JSON file.
-
-**DeepLore Enhanced** takes a different approach. Your lore lives as plain markdown in an [Obsidian](https://obsidian.md/) vault — backlinks, graph view, templates, the full plugin ecosystem. DLE indexes your vault and runs a retrieval pipeline every generation:
-
-```
- Obsidian Vault                     SillyTavern
- ┌─────────────────┐               ┌───────────────────────┐
- │  Markdown notes │    index      │                       │
- │  with YAML      │ ───────────▶ | DeepLore Enhanced     │ ──▶ Injected into
- │  frontmatter    │  (REST API)   │                       │     the AI prompt
- │                 │               │  1. Keyword scan      │
- │  #lorebook tag  │               │  2. AI selection      │ 
- │  keys, summary  │               │  3. Gating & filters  |
- │  priority, etc. │               │  4. Budget & format   │
- └─────────────────┘               └───────────────────────┘
-```
-
-**Keywords cast a wide net; AI narrows it down.** A conversation about "the consequences of breaking an oath" can pull in your Bloodchain entry without the word ever being mentioned. The AI finds what's *contextually* relevant, not just what's lexically matched.
-
-See [Wiki: Pipeline](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Pipeline) for the full technical breakdown.
-
-> **Do NOT run both [DeepLore](https://github.com/pixelnull/sillytavern-DeepLore) and DeepLore Enhanced.** They are the same extension family. DeepLore is the stable keyword-only version, but is now depreciated. DeepLore Enhanced, this extension, is a superset that adds AI search and advanced features. Use this one.
-
----
+1. SillyTavern → Extensions → **Install Extension**
+2. Paste: `https://github.com/pixelnull/sillytavern-DeepLore-Enhanced`
+3. Run `/dle-setup`, which walks through vault connection, tags, search mode, and provider
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/main/wiki/images/dle-drawer.png" alt="DLE Drawer panel showing the Browse tab with a filterable entry list, token budget bar, priority badges, and temperature heatmap coloring across 234 vault entries" width="360">
-  &nbsp;&nbsp;
-  <img src="https://raw.githubusercontent.com/pixelnull/sillytavern-DeepLore-Enhanced/main/wiki/images/dle-graph.png" alt="Entry Relationship Graph visualization showing 209 nodes and 418 edges in a force-directed layout with color-coded node types for Constants, Seeds, Bootstrap, and Regular entries" width="360">
+  <img src="https://i.imgur.com/8Mktt2y.png" alt="Setup wizard first page" width="640">
 </p>
 
-## Features
+## What's in the box
 
-- **The AI picks your lore for you** — Two-stage pipeline (keywords then AI) or AI-only mode, so the right entries show up even when keywords aren't mentioned
-- **Works with any AI provider** — Anthropic, OpenAI, OpenRouter, or anything SillyTavern's Connection Manager supports
-- **Your lore stays in Obsidian** — Plain markdown files with backlinks, templates, and the full Obsidian ecosystem
-- **Connect multiple vaults** — Merge entries from separate Obsidian vaults with clear attribution
-- **Control what injects per chat** — Pin entries to force-inject, block entries to suppress, without editing your vault
-- **Custom gating fields** — Define your own frontmatter fields (mood, faction, time_of_day — anything) with a visual rule builder, then filter entries dynamically by era, location, scene type, characters, or any custom field
-- **AI Notepad** — The AI maintains running session notes about story details, decisions, and reveals — stripped from chat, reinjected as context
-- **See exactly what the AI received** — Context Cartographer shows token usage, injection positions, and content previews per message
-- **Auto-write session notes** — Session Scribe summarizes your roleplay to Obsidian with a timeline view
-- **AI suggests new entries** — Auto Lorebook analyzes your chat for characters and concepts you haven't documented yet
-- **Import existing lorebooks** — Convert SillyTavern World Info exports into vault notes with AI-generated summaries
-- **Interactive relationship graph** — Visualize how your entries connect with force-directed layout, Louvain clustering, ego-centric focus mode, and gap analysis
-- **Live drawer panel** — Real-time view of injected entries, vault browser with temperature heatmap, and gating controls without leaving the chat
-- **Diagnose everything** — 30+ health checks, pipeline inspector, activation simulation, "Why Not?" diagnostics on any unmatched entry
-- **Zero loading delays** — Instant page loads from browser cache, with background sync to keep entries fresh
-- **Fine-grained matching** — Cooldowns, warmup thresholds, probability rolls, BM25 fuzzy search, refine keys, cascade links, and per-entry injection overrides
+<p align="center">
+  <img src="https://i.imgur.com/vzqxpr5.png" alt="Entry browser" width="640">
+</p>
 
-See [Wiki: Features](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Features) for the full list.
+- **Librarian (Emma)** - your lorebook grows as you roleplay: writing AI flags gaps mid-generation, Emma helps you author the entries
+- **Two-stage AI retrieval** - keywords + AI selection
+- **Relationship Graph** - 200+ node vault view, clustering, gap analysis
+- **Session Scribe** - auto-summaries written back to the vault
+- **Context Cartographer** - per-message "why did this entry fire?" trace
+- **Contextual Gating** - era / location / scene / character + user-defined fields
+- **Diagnostics** - pipeline inspector, health check, activation simulation, status
 
----
+<table>
+  <tr>
+    <td align="center" width="50%"><a href="https://i.imgur.com/rqEeOVX.png"><img src="https://i.imgur.com/rqEeOVX.png" height="180"></a><br><sub>Health Check - 30+ automated audits</sub></td>
+    <td align="center" width="50%"><a href="https://i.imgur.com/MD6ILH8.png"><img src="https://i.imgur.com/MD6ILH8.png" height="180"></a><br><sub>Activation Simulation - replay chat, see entry timeline</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><a href="https://i.imgur.com/0yX5UHC.png"><img src="https://i.imgur.com/0yX5UHC.png" height="180"></a><br><sub>Custom Gating - visual rule builder for user-defined fields</sub></td>
+    <td align="center" width="50%"><a href="https://i.imgur.com/RwCNQca.png"><img src="https://i.imgur.com/RwCNQca.png" height="180"></a><br><sub>Status - connection & index info at a glance</sub></td>
+  </tr>
+</table>
 
-## What an Entry Looks Like
+Full feature docs: [**Wiki →**](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki)
 
-A lorebook entry is just an Obsidian note with YAML frontmatter:
+## Known rough edges
 
-```markdown
----
-tags:
-  - lorebook
-keys:
-  - Bloodchain
-  - blood bond
-  - feeding addiction
-priority: 35
-summary: The biological dependency created when a vampire feeds from a mortal.
-  Select when feeding, biting, addiction, venom, or chattel dynamics come up.
----
+- **Still beta.** ~350 bugs fixed going into 2.0, but the surface is big.
+- **World Info parity gaps:** no regex keys, no `sticky`/`delay`/`group` scoring, `selectiveLogic` is AND_ANY only. Import works; advanced WI features silently downgrade.
+- **Librarian auto-enables function calling** on the active connection. If you disable it elsewhere, tool invocations break.
+- **Obsidian API keys stored plaintext** in ST's extension settings JSON (platform limitation). Use a dedicated lorebook vault, not your personal one.
 
-# Bloodchains
+See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) for the complete list.
 
-A Bloodchain forms when a vampire feeds from the same mortal three or more times.
-The vampire's saliva carries a bonding compound that creates physical dependency
-in the mortal — withdrawal symptoms, heightened suggestibility, and an
-overwhelming compulsion to seek out their bonded vampire.
+## Upgrading
 
-The bond is not symmetrical. The mortal is addicted; the vampire feels nothing.
-```
+If you had **DeepLore Enhanced** (the previous name of this extension), update in place; same repo. No reindex needed; 1.0-beta vaults work as-is.
 
-When someone mentions feeding, blood bonds, or addiction in chat, DLE injects this entry behind the scenes. The AI writes as if it always knew how Bloodchains work — even if the word "Bloodchain" was never said.
-
-See [Wiki: Writing Vault Entries](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Writing-Vault-Entries) for the full frontmatter reference, priority guidelines, and copy-paste templates.
-
----
-
-## Get Started in 5 Minutes
-
-**You need:**
-- [SillyTavern](https://github.com/SillyTavern/SillyTavern) 1.12.6+
-- [Obsidian](https://obsidian.md/) with the [Local REST API](https://github.com/coddingtonbear/obsidian-local-rest-api) plugin enabled
-- For AI search (optional): a saved Connection Manager profile in SillyTavern, or [claude-code-proxy](https://github.com/horselock/claude-code-proxy) with CORS proxy enabled
-
-**Install:**
-1. Paste `https://github.com/pixelnull/sillytavern-DeepLore-Enhanced` into SillyTavern's extension installer
-2. Restart SillyTavern
-3. Run `/dle-setup` to configure your Obsidian connection and AI search
-
-**After setup:**
-1. Tag your Obsidian notes with `lorebook` in frontmatter and add `keys`
-2. Run `/dle-health` to check your entries for common issues
-3. Start chatting — your lore injects automatically
-
-See [Wiki: Installation](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Installation) and [Wiki: Quick Start](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Quick-Start) for the detailed walkthrough with screenshots.
-
----
-
-## Search Modes
-
-| Mode | How it works | Cost | Best for |
-|------|-------------|------|----------|
-| **Keyword Only** | Exact keyword + BM25 fuzzy matching against recent chat | Free | Simple setups, no API needed |
-| **Two-Stage** (default) | Keywords pre-filter, then AI selects best matches | ~1 cheap API call/message | Most users — balances cost and quality |
-| **AI Only** | Full vault manifest sent to AI, no keyword filter | More tokens per call | Maximum recall, small-medium vaults |
-
-All modes fall back gracefully: if AI search fails, keyword results are used. If AI returns nothing, only constants are injected.
-
-See [Wiki: AI Search](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/AI-Search) for configuration and connection setup.
-
----
-
-## Slash Commands
-
-Type these in the SillyTavern chat input. Run `/dle-help` for the full in-app reference.
-
-### Diagnostics
-
-| Command | Description |
-|---------|-------------|
-| `/dle-status` | Connection info, entry counts, AI stats, cache status |
-| `/dle-inspect` | Pipeline trace from the last generation |
-| `/dle-why` | Preview what would be injected right now |
-| `/dle-simulate` | Replay chat showing entry activation timeline |
-| `/dle-browse` | Searchable entry browser |
-| `/dle-graph` | Interactive entry relationship graph |
-| `/dle-health` | 30+ automated entry health checks |
-| `/dle-analytics` | Entry usage statistics |
-
-### AI Tools
-
-| Command | Description |
-|---------|-------------|
-| `/dle-scribe [focus]` | Write a session summary to Obsidian |
-| `/dle-newlore` | AI suggests new lorebook entries from chat |
-| `/dle-optimize-keys <name>` | AI suggests better keywords for an entry |
-| `/dle-summarize` | Generate AI summaries for entries missing one |
-| `/dle-notebook` | Per-chat Author's Notebook editor |
-
-### Per-Chat Overrides
-
-| Command | Description |
-|---------|-------------|
-| `/dle-pin <name>` | Force-inject this entry in the current chat |
-| `/dle-block <name>` | Suppress this entry in the current chat |
-| `/dle-set-era [era]` | Set the active era for contextual gating |
-| `/dle-set-location [loc]` | Set the active location |
-| `/dle-set-field <name> [val]` | Set any gating field (built-in or custom) |
-
-### Utility
-
-| Command | Description |
-|---------|-------------|
-| `/dle-refresh` | Force re-index vault from Obsidian |
-| `/dle-setup` | Guided first-time setup wizard |
-| `/dle-import` | Import SillyTavern World Info JSON into vault |
-
-See [Wiki: Slash Commands](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Slash-Commands) for the complete list with usage examples.
-
----
-
-## Documentation
-
-| Page | Description |
-|------|-------------|
-| [What is DeepLore?](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/What-is-DeepLore) | The problem, the approach, and who DLE is for |
-| [Installation](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Installation) | Step-by-step setup guide |
-| [Quick Start](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Quick-Start) | Get injecting lore in 5 minutes |
-| [First Steps](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/First-Steps) | Building your vault and tuning the extension |
-| [Writing Vault Entries](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Writing-Vault-Entries) | Frontmatter reference and copy-paste templates |
-| [Features](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Features) | Full feature catalog with links to detail pages |
-| [AI Search](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/AI-Search) | Semantic search modes, connection setup, and tuning |
-| [Pipeline](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Pipeline) | How the matching pipeline works under the hood |
-| [Drawer](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Drawer) | Live side panel guide |
-| [Inspection & Diagnostics](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Inspection-and-Diagnostics) | Pipeline inspector, health checks, simulation |
-| [Entry Matching & Behavior](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Entry-Matching-and-Behavior) | Cooldowns, gating, decay, conditional rules |
-| [AI-Powered Tools](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/AI-Powered-Tools) | Scribe, Auto Lorebook, Optimize Keys, AI Notepad |
-| [Setup & Import](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Setup-and-Import) | Setup wizard and World Info import |
-| [Injection & Context Control](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Injection-and-Context-Control) | Positions, roles, templates, deduplication |
-| [Infrastructure](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Infrastructure) | Caching, multi-vault, sync, circuit breaker |
-| [Settings Reference](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Settings-Reference) | Every setting documented |
-| [Slash Commands](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Slash-Commands) | All commands with usage examples |
-| [Troubleshooting](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Troubleshooting) | Common issues and fixes |
-| [FAQ](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/FAQ) | Frequently asked questions |
-| [Glossary](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Glossary) | Terminology reference |
-
----
-
-## FAQ
-
-**Do I need AI search?** No. Keyword-only mode works with no API costs. AI search is an optional second stage that improves relevance for complex worlds.
-
-**What AI providers work?** Any provider SillyTavern supports — Anthropic, OpenAI, OpenRouter, Google, local models. A cheap, fast model like Claude Haiku or GPT-4o-mini is ideal.
-
-**Does this cost money?** Only if you use AI search. Each message costs a fraction of a cent with a cheap model. The sliding window cache further reduces calls.
-
-**How big can my vault be?** Tested daily with 200+ entries. Hierarchical clustering kicks in at 40+ entries to keep AI calls efficient.
-
-**Can I import my SillyTavern lorebooks?** Yes. `/dle-import` converts World Info JSON exports into Obsidian vault notes with proper frontmatter.
-
-See the [full FAQ](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/FAQ) on the wiki.
-
----
-
-## Contributing
-
-Issues and pull requests are welcome on [GitHub](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced).
-
-**Running tests:**
-
-```bash
-npm test                 # Unit tests
-npm run test:integration # Integration tests
-npm run test:all         # Both
-npm run test:imports     # Verify import paths
-```
+If you had the older standalone `sillytavern-DeepLore` extension, uninstall it first. Running both at once corrupts prompt injection.
 
 ## License
 
-[MIT](LICENSE)
+MIT. Made by [pixelnull](https://infosec.exchange/@pixelnull).

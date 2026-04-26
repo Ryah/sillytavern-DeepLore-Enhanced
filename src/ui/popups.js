@@ -1,14 +1,9 @@
-/**
- * DeepLore Enhanced — Popup modules
- * showNotebookPopup, showBrowsePopup, runSimulation, showSimulationPopup,
- * optimizeEntryKeys, showOptimizePopup, buildCopyButton
- * (showGraphPopup moved to src/graph.js)
- */
+/** DeepLore Enhanced — Popup modules. showGraphPopup moved to src/graph.js. */
 import {
-    saveChatDebounced,
     chat_metadata,
     chat,
 } from '../../../../../../script.js';
+import { saveMetadataDebounced } from '../../../../../extensions.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { getTokenCountAsync } from '../../../../../tokenizers.js';
@@ -17,27 +12,25 @@ import { testEntryMatch } from '../../core/matching.js';
 import { getSettings, getVaultByName } from '../../settings.js';
 import { writeNote, obsidianFetch, encodeVaultPath } from '../vault/obsidian-api.js';
 import {
-    vaultIndex, trackerKey,
+    vaultIndex, trackerKey, chatEpoch,
     setVaultIndex, setIndexTimestamp,
+    notifyPinBlockChanged,
 } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { callAutoSuggest } from '../ai/auto-suggest.js';
-import { extractAiResponseClient } from '../ai/ai.js';
-import { buildObsidianURI } from './cartographer.js';
+import { extractAiResponseClient, buildObsidianURI, STAGE_COLORS, normalizePinBlock } from '../helpers.js';
 import { diagnoseEntry } from './diagnostics.js';
 import { computeEntryTemperatures } from '../drawer/drawer-state.js';
-import { STAGE_COLORS } from '../helpers.js';
 
 /**
- * Serialize a value for YAML frontmatter output.
- * Numbers and booleans are unquoted; strings are quoted only when they
- * contain YAML special characters that would cause parse ambiguity.
+ * Serialize a value for YAML frontmatter.
+ * Strings are quoted only when they contain YAML special chars or look
+ * like other YAML scalar types (would otherwise parse-ambiguously).
  */
 function yamlSerializeValue(val) {
     if (val === null || val === undefined) return '';
     if (typeof val === 'number' || typeof val === 'boolean') return String(val);
     const str = String(val);
-    // Quote strings containing YAML special chars or that look like other types
     if (/^[{[\]|>*&!%#@`'",?:~-]/.test(str) || /[:#{}[\],]/.test(str) || str === '' ||
         /^(true|false|yes|no|on|off|null|~)$/i.test(str) || !isNaN(Number(str))) {
         return `"${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
@@ -46,24 +39,16 @@ function yamlSerializeValue(val) {
 }
 
 /**
- * Build HTML for a "Copy to Clipboard" button used in diagnostic popups.
- * Uses event delegation — attach a single click listener on the popup container
- * that catches clicks on `.dle-copy-btn`.
- * @param {string} plainText - The text to copy (pre-computed, stored in data attribute)
- * @returns {string} HTML string for the button
+ * Pair with attachCopyHandler() — the latter delegates clicks on `.dle-copy-btn`.
+ * Text is base64-encoded into the data attribute to dodge HTML-escaping issues
+ * with quotes and newlines.
  */
 export function buildCopyButton(plainText) {
-    // Encode the text as a data attribute (base64 avoids HTML-escaping issues with quotes/newlines)
     const encoded = btoa(unescape(encodeURIComponent(plainText)));
     return `<button class="menu_button dle-copy-btn dle-text-sm" data-copy="${encoded}">Copy to Clipboard</button>`;
 }
 
-/**
- * Attach a delegated click handler for `.dle-copy-btn` on a container element.
- * Reads the base64-encoded data-copy attribute, copies to clipboard, and shows feedback.
- * Safe to call multiple times — uses a class guard to avoid duplicate listeners.
- * @param {HTMLElement|Document} container - The container to listen on
- */
+/** Idempotent — class-guarded to avoid duplicate listeners. */
 export function attachCopyHandler(container) {
     if (!container || container._dleCopyHandlerAttached) return;
     container._dleCopyHandlerAttached = true;
@@ -77,19 +62,31 @@ export function attachCopyHandler(container) {
             const original = btn.textContent;
             btn.textContent = 'Copied!';
             btn.disabled = true;
-            setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1500);
+            // Track timer on element + isConnected check: if popup closes before
+            // the timer fires, callback runs against a detached button (silent leak).
+            if (btn._dleCopyResetTimer) clearTimeout(btn._dleCopyResetTimer);
+            btn._dleCopyResetTimer = setTimeout(() => {
+                btn._dleCopyResetTimer = null;
+                if (!btn.isConnected) return;
+                btn.textContent = original;
+                btn.disabled = false;
+            }, 1500);
         } catch (err) {
             console.error('[DLE] Clipboard copy failed:', err);
             btn.textContent = 'Copy failed';
-            setTimeout(() => { btn.textContent = 'Copy to Clipboard'; }, 2000);
+            if (btn._dleCopyResetTimer) clearTimeout(btn._dleCopyResetTimer);
+            btn._dleCopyResetTimer = setTimeout(() => {
+                btn._dleCopyResetTimer = null;
+                if (!btn.isConnected) return;
+                btn.textContent = 'Copy to Clipboard';
+            }, 2000);
         }
     });
 }
 
-/**
- * Show the Notebook editor popup for the current chat.
- */
 export async function showNotebookPopup() {
+    // BUG-AUDIT-DP04: snapshot epoch at open — discard edits if chat changed during edit.
+    const epochAtOpen = chatEpoch;
     const currentContent = chat_metadata?.deeplore_notebook || '';
 
     const container = document.createElement('div');
@@ -101,7 +98,7 @@ export async function showNotebookPopup() {
         <span id="dle-notebook-token-count" class="dle-text-xs dle-faint"></span>
     `;
 
-    // Capture textarea value in closure so it's available after popup DOM is destroyed
+    // Capture in closure — popup DOM is destroyed before callGenericPopup resolves.
     let capturedValue = currentContent;
     const result = await callGenericPopup(container, POPUP_TYPE.CONFIRM, '', {
         wide: true,
@@ -127,22 +124,24 @@ export async function showNotebookPopup() {
     });
 
     if (result) {
+        if (epochAtOpen !== chatEpoch) {
+            toastr.warning('Chat changed while editing — changes discarded to prevent cross-chat corruption.', 'DeepLore Enhanced');
+            return;
+        }
         chat_metadata.deeplore_notebook = capturedValue;
-        saveChatDebounced();
+        saveMetadataDebounced();
     }
 }
 
-/**
- * Show the AI Notepad viewer popup for the current chat.
- * Read-only display of accumulated AI-written notes with clear option.
- */
 export async function showAiNotepadPopup() {
+    // BUG-AUDIT-DP04: snapshot epoch at open — discard edits if chat changed during edit.
+    const epochAtOpen = chatEpoch;
     const currentNotes = chat_metadata?.deeplore_ai_notepad || '';
 
     const container = document.createElement('div');
     container.classList.add('dle-popup');
     container.innerHTML = `
-        <h3>AI Notebook</h3>
+        <h3>AI Notepad</h3>
         <p class="dle-muted dle-text-sm">Session notes written by the AI using &lt;dle-notes&gt; tags. These are stripped from visible chat and reinjected into future messages.</p>
         <textarea id="dle-ai-notepad-textarea" class="text_pole dle-w-full" rows="15" placeholder="No AI notes yet for this chat.">${escapeHtml(currentNotes)}</textarea>
         <span id="dle-ai-notepad-token-count" class="dle-text-xs dle-faint"></span>
@@ -173,14 +172,15 @@ export async function showAiNotepadPopup() {
     });
 
     if (result) {
+        if (epochAtOpen !== chatEpoch) {
+            toastr.warning('Chat changed while editing — changes discarded to prevent cross-chat corruption.', 'DeepLore Enhanced');
+            return;
+        }
         chat_metadata.deeplore_ai_notepad = capturedValue;
-        saveChatDebounced();
+        saveMetadataDebounced();
     }
 }
 
-/**
- * Show a searchable, filterable popup of all indexed vault entries.
- */
 export async function showBrowsePopup() {
     if (vaultIndex.length === 0) {
         toastr.info(NO_ENTRIES_MSG, 'DeepLore Enhanced');
@@ -190,8 +190,11 @@ export async function showBrowsePopup() {
     const settings = getSettings();
     const analytics = settings.analyticsData || {};
     const allTags = [...new Set(vaultIndex.flatMap(e => e.tags))].sort();
-    const pins = new Set((chat_metadata.deeplore_pins || []).map(t => t.toLowerCase()));
-    const blocks = new Set((chat_metadata.deeplore_blocks || []).map(t => t.toLowerCase()));
+    // BUG-136: re-read pins/blocks per access so drawer changes reflect immediately.
+    const getPins = () => new Set((chat_metadata.deeplore_pins || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
+    const getBlocks = () => new Set((chat_metadata.deeplore_blocks || []).map(t => (typeof t === 'string' ? t : t.title).toLowerCase()));
+    let pins = getPins();
+    let blocks = getBlocks();
 
     const container = document.createElement('div');
     container.classList.add('dle-popup');
@@ -223,18 +226,22 @@ export async function showBrowsePopup() {
                 <option value="injected_desc">Most injected</option>
                 <option value="injected_asc">Least injected</option>
             </select>
+            <button type="button" id="dle-browse-reset" class="menu_button menu_button_icon" title="Reset all filters" aria-label="Reset all filters"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></button>
         </div>
         <div id="dle-browse-list" class="dle-scroll-region"></div>
         <span id="dle-browse-count" class="dle-text-xs dle-faint"></span>
     `;
 
-    // H8: Pre-compute search haystacks for browse popup filtering
+    // H8: pre-computed haystacks reused across re-renders.
     const haystacks = new Map();
     for (const e of vaultIndex) {
         haystacks.set(e, `${e.title} ${e.keys.join(' ')} ${e.content}`.toLowerCase());
     }
 
     function renderList() {
+        pins = getPins();
+        blocks = getBlocks();
+
         const searchEl = container.querySelector('#dle-browse-search');
         const statusEl = container.querySelector('#dle-browse-status');
         const tagEl = container.querySelector('#dle-browse-tag');
@@ -265,7 +272,6 @@ export async function showBrowsePopup() {
             return true;
         });
 
-        // Sort by selected method
         const getInjected = (e) => (analytics[trackerKey(e)]?.injected || 0);
         switch (sort) {
             case 'priority_asc': filtered.sort((a, b) => a.priority - b.priority); break;
@@ -313,8 +319,15 @@ export async function showBrowsePopup() {
 
             const temp = tempMap.get(trackerKey(entry));
             const tempAttr = temp && temp.hue !== 'neutral' ? ` data-temp="${temp.hue}"` : '';
+            const isPinned = pins.has(entry.title.toLowerCase());
+            const isBlocked = blocks.has(entry.title.toLowerCase());
+            const rowActions = `<span class="dle-browse-row-actions" data-no-toggle="1">`
+                + `<button type="button" class="dle-browse-row-pin menu_button_icon dle-text-xs" data-title="${escapeHtml(entry.title)}" data-vault="${escapeHtml(entry.vaultSource || '')}" title="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(entry.title)}" aria-label="${isPinned ? 'Unpin' : 'Pin'} ${escapeHtml(entry.title)}"><i class="fa-solid fa-thumbtack${isPinned ? '' : ''}" aria-hidden="true" style="${isPinned ? 'color:var(--dle-success,#3a3);' : 'opacity:0.5;'}"></i></button>`
+                + `<button type="button" class="dle-browse-row-block menu_button_icon dle-text-xs" data-title="${escapeHtml(entry.title)}" data-vault="${escapeHtml(entry.vaultSource || '')}" title="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(entry.title)}" aria-label="${isBlocked ? 'Unblock' : 'Block'} ${escapeHtml(entry.title)}"><i class="fa-solid fa-ban" aria-hidden="true" style="${isBlocked ? 'color:var(--dle-error,#a33);' : 'opacity:0.5;'}"></i></button>`
+                + `<button type="button" class="dle-browse-row-copy menu_button_icon dle-text-xs" data-title="${escapeHtml(entry.title)}" title="Copy title" aria-label="Copy ${escapeHtml(entry.title)}"><i class="fa-solid fa-clipboard" aria-hidden="true" style="opacity:0.6;"></i></button>`
+                + `</span>`;
             html += `<tr class="dle-entry-toggle dle-browse-table-row" data-target="dle-entry-${entryId}" aria-expanded="false"${tempAttr}>`;
-            html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')}</td>`;
+            html += `<td class="dle-browse-table-title"><strong>${escapeHtml(entry.title)}</strong> ${statusBadges.join(' ')} ${rowActions}</td>`;
             html += `<td class="dle-browse-table-keys">${keysDisplay || '<em class="dle-muted">none</em>'}</td>`;
             html += `<td class="dle-text-center">P${entry.priority}</td>`;
             html += `<td class="dle-text-right">~${entry.tokenEstimate}</td>`;
@@ -338,11 +351,32 @@ export async function showBrowsePopup() {
             html += `</td></tr>`;
         }
         html += '</tbody></table>';
-        listEl.innerHTML = html || '<p class="dle-dimmed">No entries match filters.</p>';
+        if (filtered.length === 0) {
+            const hasActiveFilters = !!search || (status !== 'all') || !!tag;
+            if (hasActiveFilters) {
+                listEl.innerHTML = '<div class="dle-empty-state"><i class="fa-solid fa-filter-circle-xmark" aria-hidden="true"></i><p>No entries match your filters.</p><button type="button" id="dle-browse-reset-empty" class="menu_button">Clear all filters</button></div>';
+            } else {
+                listEl.innerHTML = '<p class="dle-dimmed">No entries.</p>';
+            }
+        } else {
+            listEl.innerHTML = html;
+        }
     }
 
-    // Event delegation for entry detail expansion — registered once on container, not per render
+    function resetBrowseFilters() {
+        const searchEl = container.querySelector('#dle-browse-search');
+        const statusEl = container.querySelector('#dle-browse-status');
+        const tagEl = container.querySelector('#dle-browse-tag');
+        if (searchEl) searchEl.value = '';
+        if (statusEl) statusEl.value = 'all';
+        if (tagEl) tagEl.value = '';
+        renderList();
+    }
+
+    // Delegation registered once on container — not per render.
     container.addEventListener('click', (e) => {
+        // Skip the row-toggle when the click landed in the inline action group.
+        if (e.target.closest('[data-no-toggle="1"]')) return;
         const toggle = e.target.closest('.dle-entry-toggle');
         if (!toggle) return;
         const targetId = toggle.dataset.target;
@@ -353,7 +387,64 @@ export async function showBrowsePopup() {
         }
     });
 
-    // Event delegation for "Why not?" buttons — registered once on container, not per render
+    // Reset filters (header button + 0-results CTA).
+    container.addEventListener('click', (e) => {
+        if (e.target.closest('#dle-browse-reset') || e.target.closest('#dle-browse-reset-empty')) {
+            e.stopPropagation();
+            resetBrowseFilters();
+        }
+    });
+
+    // Per-row pin / block / copy actions.
+    container.addEventListener('click', (e) => {
+        const pinBtn = e.target.closest('.dle-browse-row-pin');
+        const blockBtn = e.target.closest('.dle-browse-row-block');
+        const copyBtn = e.target.closest('.dle-browse-row-copy');
+        if (!pinBtn && !blockBtn && !copyBtn) return;
+        e.stopPropagation();
+        const btn = pinBtn || blockBtn || copyBtn;
+        const title = btn.dataset.title;
+        if (!title) return;
+        if (copyBtn) {
+            navigator.clipboard?.writeText(title).then(() => {
+                toastr.success(`Copied "${title}"`, 'DeepLore Enhanced', { timeOut: 1200 });
+            }).catch(() => { /* clipboard unavailable */ });
+            return;
+        }
+        const vaultSource = btn.dataset.vault || null;
+        const tl = title.toLowerCase();
+        const matches = (p) => {
+            const n = normalizePinBlock(p);
+            return n.title.toLowerCase() === tl && (n.vaultSource || null) === (vaultSource || null);
+        };
+        if (pinBtn) {
+            if (!chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = [];
+            const idx = chat_metadata.deeplore_pins.findIndex(matches);
+            if (idx !== -1) {
+                chat_metadata.deeplore_pins.splice(idx, 1);
+                toastr.info(`Unpinned: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            } else {
+                chat_metadata.deeplore_pins.push({ title, vaultSource });
+                if (chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = chat_metadata.deeplore_blocks.filter(p => !matches(p));
+                toastr.info(`Pinned: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            }
+        } else {
+            if (!chat_metadata.deeplore_blocks) chat_metadata.deeplore_blocks = [];
+            const idx = chat_metadata.deeplore_blocks.findIndex(matches);
+            if (idx !== -1) {
+                chat_metadata.deeplore_blocks.splice(idx, 1);
+                toastr.info(`Unblocked: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            } else {
+                chat_metadata.deeplore_blocks.push({ title, vaultSource });
+                if (chat_metadata.deeplore_pins) chat_metadata.deeplore_pins = chat_metadata.deeplore_pins.filter(p => !matches(p));
+                toastr.info(`Blocked: ${title}`, 'DeepLore Enhanced', { timeOut: 1500 });
+            }
+        }
+        saveMetadataDebounced();
+        notifyPinBlockChanged();
+        renderList();
+    });
+
     container.addEventListener('click', (e) => {
         const btn = e.target.closest('.dle-whynot-btn');
         if (!btn) return;
@@ -375,7 +466,7 @@ export async function showBrowsePopup() {
         allowVerticalScrolling: true,
         onOpen: async () => {
             renderList();
-            // H8: Debounce search input to avoid re-rendering on every keystroke
+            // H8: debounce search input to avoid re-rendering on every keystroke.
             let searchTimer = null;
             container.querySelector('#dle-browse-search')?.addEventListener('input', () => {
                 clearTimeout(searchTimer);
@@ -388,11 +479,7 @@ export async function showBrowsePopup() {
     });
 }
 
-/**
- * Replay chat history step-by-step, running keyword matching at each message.
- * @param {object[]} chatMsgs
- * @returns {Array<{messageIndex: number, speaker: string, active: string[], newlyActivated: string[], deactivated: string[]}>}
- */
+/** Step-by-step replay; skips probability/warmup/cooldown for clean visualisation. */
 export function runSimulation(chatMsgs) {
     const settings = getSettings();
     const timeline = [];
@@ -403,19 +490,16 @@ export function runSimulation(chatMsgs) {
         const scanText = buildScanText(slicedChat, settings.scanDepth);
         const currentActive = new Set();
 
-        // Always include constants
         for (const entry of vaultIndex) {
             if (entry.constant) currentActive.add(entry.title);
         }
 
-        // Bootstrap
         if (i <= settings.newChatThreshold) {
             for (const entry of vaultIndex) {
                 if (entry.bootstrap) currentActive.add(entry.title);
             }
         }
 
-        // Keyword matching (skip probability/warmup/cooldown for clean simulation)
         if (settings.scanDepth > 0) {
             for (const entry of vaultIndex) {
                 if (entry.constant) continue;
@@ -445,11 +529,7 @@ export function runSimulation(chatMsgs) {
     return timeline;
 }
 
-/**
- * Show simulation results in a scrollable timeline popup.
- */
 export function showSimulationPopup(timeline) {
-    // Build plain-text version for clipboard
     const plainLines = [`Activation Simulation (${timeline.length} messages)`, ''];
     for (const step of timeline) {
         let line = `#${step.messageIndex + 1} ${step.speaker} (${step.active.length} active)`;
@@ -461,6 +541,7 @@ export function showSimulationPopup(timeline) {
 
     let html = '<div class="dle-popup">';
     html += `<h3>Activation Simulation (${timeline.length} messages)</h3>`;
+    html += '<p class="dle-text-xs dle-muted dle-mb-2">Note: This simulation uses keyword matching only. AI search, gating filters, cooldown/warmup timers, probability, and pin/block overrides are not included. Actual injection results during generation may differ.</p>';
     html += buildCopyButton(plainText);
     html += '<div class="dle-scroll-region">';
 
@@ -487,13 +568,9 @@ export function showSimulationPopup(timeline) {
     });
 }
 
-// showGraphPopup() moved to src/graph.js
+// ── Optimize Keys ──
 
-// ============================================================================
-// Optimize Keys
-// ============================================================================
-
-const DEFAULT_OPTIMIZE_KEYS_PROMPT = `You are a keyword optimization assistant for a lorebook system. Given an entry's title, content, and current keywords, suggest improved keywords that will trigger this entry when relevant topics come up in conversation.
+export const DEFAULT_OPTIMIZE_KEYS_PROMPT = `You are a keyword optimization assistant for a lorebook system. Given an entry's title, content, and current keywords, suggest improved keywords that will trigger this entry when relevant topics come up in conversation.
 
 Guidelines:
 - Include the entry title and common aliases
@@ -504,9 +581,6 @@ Guidelines:
 
 Respond with a JSON object: {"suggested": ["keyword1", "keyword2", ...], "reasoning": "Brief explanation of changes"}`;
 
-/**
- * Send an entry to AI for keyword suggestions.
- */
 export async function optimizeEntryKeys(entry) {
     const settings = getSettings();
     const mode = settings.optimizeKeysMode;
@@ -514,10 +588,10 @@ export async function optimizeEntryKeys(entry) {
         ? 'This system uses KEYWORD-ONLY matching (no AI filter). Be precise — avoid generic words.'
         : 'This system uses TWO-STAGE matching (keywords → AI filter). Be broader — the AI will refine.';
 
-    const systemPrompt = DEFAULT_OPTIMIZE_KEYS_PROMPT;
+    const systemPrompt = settings.optimizeKeysPrompt?.trim() || DEFAULT_OPTIMIZE_KEYS_PROMPT;
     const userMessage = `Mode: ${modeHint}\n\nTitle: ${entry.title}\nCurrent keywords: ${entry.keys.join(', ')}\nContent:\n${entry.content.substring(0, 1500)}\n\nSuggest optimized keywords as JSON.`;
 
-    const result = await callAutoSuggest(systemPrompt, userMessage);
+    const result = await callAutoSuggest(systemPrompt, userMessage, 'optimizeKeys');
     const parsed = extractAiResponseClient(result.text);
 
     if (parsed && parsed.suggested && Array.isArray(parsed.suggested)) {
@@ -529,9 +603,6 @@ export async function optimizeEntryKeys(entry) {
     return null;
 }
 
-/**
- * Show optimize popup comparing current vs suggested keywords.
- */
 export async function showOptimizePopup(entry, result) {
     if (!result) {
         toastr.warning('Could not get keyword suggestions.', 'DeepLore Enhanced');
@@ -565,7 +636,7 @@ export async function showOptimizePopup(entry, result) {
     if (accept) {
         try {
             const optVault = getVaultByName(settings, entry.vaultSource);
-            // Fetch current file content from Obsidian (no longer cached in _rawContent to save memory)
+            // Re-fetch from Obsidian — _rawContent caching was removed to save memory.
             let rawContent = entry.content;
             try {
                 const fetchResult = await obsidianFetch({ host: optVault.host, port: optVault.port, apiKey: optVault.apiKey, path: `/vault/${encodeVaultPath(entry.filename)}`, accept: 'text/markdown' });
@@ -580,7 +651,7 @@ export async function showOptimizePopup(entry, result) {
                 if (key === 'keys') {
                     newContent += `keys:\n${keysYaml}\n`;
                 } else if (Array.isArray(val)) {
-                    newContent += `${key}:\n${val.map(v => `  - ${v}`).join('\n')}\n`;
+                    newContent += `${key}:\n${val.map(v => `  - ${yamlSerializeValue(v)}`).join('\n')}\n`;
                 } else {
                     newContent += `${key}: ${yamlSerializeValue(val)}\n`;
                 }
@@ -590,14 +661,15 @@ export async function showOptimizePopup(entry, result) {
             }
             newContent += `---\n${body}`;
 
-            const data = await writeNote(optVault.host, optVault.port, optVault.apiKey, entry.filename, newContent);
+            const data = await writeNote(optVault.host, optVault.port, optVault.apiKey, entry.filename, newContent, !!optVault.https);
             if (data.ok) {
                 toastr.success(`Keywords updated for "${entry.title}"`, 'DeepLore Enhanced');
                 setVaultIndex([]);
                 setIndexTimestamp(0);
                 await buildIndex();
             } else {
-                toastr.error(`Failed: ${data.error}`, 'DeepLore Enhanced');
+                console.warn('[DLE] Optimize keys write failed:', data && data.error);
+                toastr.error('Couldn\'t save the new keywords to your vault.', 'DeepLore Enhanced');
             }
         } catch (err) {
             toastr.error(classifyError(err), 'DeepLore Enhanced');

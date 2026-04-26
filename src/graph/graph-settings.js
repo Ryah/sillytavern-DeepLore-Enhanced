@@ -1,24 +1,16 @@
-/**
- * DeepLore Enhanced — Graph settings panel module.
- * Normalized slider mapping, presets, settings panel wiring.
- */
 import { invalidateSettingsCache } from '../../settings.js';
 import { saveSettingsDebounced } from '../../../../../../script.js';
 
-// ============================================================================
-// Public API — call initGraphSettings(gs) after graph state is ready
-// ============================================================================
-
 /**
- * @param {object} gs  Shared graph state
- * @param {Function} dbg  Debug logger
+ * Settings panel wiring + normalized slider mapping (-100..+100 → setting-specific range).
+ * @param {object} gs
+ * @param {Function} dbg
  * @returns {{ syncSettingsPanel }}
  */
 export function initGraphSettings(gs, dbg) {
     const { settings } = gs;
     const lOpt = { signal: gs.listenerAC.signal };
 
-    // Helper: update a setting, persist, and refresh graph
     function updateSetting(key, value) {
         settings[key] = value;
         invalidateSettingsCache();
@@ -26,20 +18,19 @@ export function initGraphSettings(gs, dbg) {
         gs.needsDraw = true;
     }
 
-    // ── Normalized slider mapping ──
-    // Each slider is -100..+100. 0 = default. Negative = below default, positive = above.
+    // Slider position is -100..+100 with 0 = default; sliderToActual/actualToSlider map this
+    // to each setting's [min, def, max] using `power` for non-linear curves (steeper near extremes).
     const sliderMaps = {
-        'dle-gs-repulsion':   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 50,    round: 1, power: 1.5 },
-        'dle-gs-spring':      { key: 'graphSpringLength',    min: 30,    def: 80,   max: 600,   round: 0, power: 1 },
+        'dle-gs-repulsion':   { key: 'graphRepulsion',       min: 0.1,   def: 0.3,  max: 5.0,   round: 2, power: 1.5 },
         'dle-gs-gravity':     { key: 'graphGravity',         min: 0.1,   def: 11.0, max: 20,    round: 1, power: 1.5 },
-        'dle-gs-damping':     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1, invert: true },
-        'dle-gs-hover-dim':   { key: 'graphHoverDimDistance', min: 0,     def: 2,    max: 15,    round: 0, power: 1 },
-        'dle-gs-dim-opacity': { key: 'graphHoverDimOpacity',  min: 0,     def: 0.1,  max: 0.5,   round: 2, power: 1.5 },
+        'dle-gs-damping':     { key: 'graphDamping',         min: 0.3,   def: 0.50, max: 0.98,  round: 2, power: 1 },
+        'dle-gs-hover-dim':   { key: 'graphHoverDimDistance', min: 0,     def: 3,    max: 8,     round: 0, power: 1 },
+        'dle-gs-hover-falloff': { key: 'graphHoverFalloff',  min: 0.3,   def: 0.55, max: 0.85,  round: 2, power: 1 },
         'dle-gs-tree-depth':  { key: 'graphFocusTreeDepth',  min: 1,     def: 2,    max: 15,    round: 0, power: 1 },
         'dle-gs-edge-filter': { key: 'graphEdgeFilterAlpha', min: 0.01,  def: 0.05, max: 0.5,   round: 2, power: 1.5 },
     };
 
-    /** Convert actual setting value → normalized slider position (-100..+100) */
+    /** actual setting value → normalized slider position (-100..+100). */
     function actualToSlider(map, actual) {
         const p = map.power ?? 1;
         if (actual <= map.def) {
@@ -54,7 +45,7 @@ export function initGraphSettings(gs, dbg) {
         return Math.round(t * 100);
     }
 
-    /** Convert normalized slider position (-100..+100) → actual setting value */
+    /** normalized slider position (-100..+100) → actual setting value. */
     function sliderToActual(map, sliderVal) {
         const p = map.power ?? 1;
         let v;
@@ -70,16 +61,14 @@ export function initGraphSettings(gs, dbg) {
         return Math.round(v * factor) / factor;
     }
 
-    /** Format actual value for display */
     function formatActual(map, actual) {
         if (map.round === 0) return String(Math.round(actual));
         return actual.toFixed(map.round);
     }
 
-    // Physics sliders restart simulation on change
-    const physicsKeys = new Set(['graphRepulsion', 'graphSpringLength', 'graphGravity', 'graphDamping']);
+    // Physics-affecting sliders trigger a small reheat so the layout adapts to new force values.
+    const physicsKeys = new Set(['graphRepulsion', 'graphGravity', 'graphDamping']);
 
-    /** Update the backbone edge count display */
     function updateEdgeCount() {
         const el = document.getElementById('dle-gs-edge-count');
         if (el && gs._backboneCount != null) {
@@ -92,17 +81,20 @@ export function initGraphSettings(gs, dbg) {
     const settingsCloseBtn = document.getElementById('dle-graph-settings-panel-close');
     const colorModeEl = document.getElementById('dle-graph-color-mode');
 
-    // Sync panel controls from current settings
+    /** Mirror current settings → panel controls. Called on open and after Reset. */
     function syncSettingsPanel() {
         const gsColorMode = document.getElementById('dle-gs-color-mode');
         if (gsColorMode) gsColorMode.value = gs.colorMode;
+
+        const gsNodeSize = document.getElementById('dle-gs-node-size-mode');
+        if (gsNodeSize) gsNodeSize.value = settings.graphNodeSizeMode || 'centrality';
 
         const gsLabels = document.getElementById('dle-gs-labels');
         if (gsLabels) gsLabels.checked = gs.showLabels;
 
         for (const [id, map] of Object.entries(sliderMaps)) {
             const el = document.getElementById(id);
-            const valEl = document.getElementById(id + '_val');
+            const valEl = document.getElementById(id + '-val');
             const actual = settings[map.key] ?? map.def;
             let sliderPos = actualToSlider(map, actual);
             if (map.invert) sliderPos = -sliderPos;
@@ -114,7 +106,6 @@ export function initGraphSettings(gs, dbg) {
     }
 
     if (settingsPanel && settingsBtn) {
-        // Toggle panel visibility
         settingsBtn.addEventListener('click', () => {
             const visible = settingsPanel.style.display === 'block';
             settingsPanel.classList.remove('dle-hidden');
@@ -126,9 +117,15 @@ export function initGraphSettings(gs, dbg) {
             settingsCloseBtn.addEventListener('click', () => {
                 settingsPanel.style.display = 'none';
             }, lOpt);
+            // BUG-191: Enter/Space activation on the close icon.
+            settingsCloseBtn.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    settingsPanel.style.display = 'none';
+                }
+            }, lOpt);
         }
 
-        // Draggable titlebar
         const titlebar = document.getElementById('dle-graph-settings-titlebar');
         if (titlebar) {
             let dragPanelActive = false, dpStartX = 0, dpStartY = 0, dpOriginX = 0, dpOriginY = 0;
@@ -154,7 +151,6 @@ export function initGraphSettings(gs, dbg) {
             document.addEventListener('mouseup', () => { dragPanelActive = false; }, lOpt);
         }
 
-        // Wire color mode
         const gsColorMode = document.getElementById('dle-gs-color-mode');
         if (gsColorMode) {
             gsColorMode.addEventListener('change', () => {
@@ -165,7 +161,13 @@ export function initGraphSettings(gs, dbg) {
             }, lOpt);
         }
 
-        // Wire labels
+        const gsNodeSize = document.getElementById('dle-gs-node-size-mode');
+        if (gsNodeSize) {
+            gsNodeSize.addEventListener('change', () => {
+                updateSetting('graphNodeSizeMode', gsNodeSize.value);
+            }, lOpt);
+        }
+
         const gsLabels = document.getElementById('dle-gs-labels');
         if (gsLabels) {
             gsLabels.addEventListener('change', () => {
@@ -174,10 +176,9 @@ export function initGraphSettings(gs, dbg) {
             }, lOpt);
         }
 
-        // Wire all normalized sliders
         for (const [id, map] of Object.entries(sliderMaps)) {
             const el = document.getElementById(id);
-            const valEl = document.getElementById(id + '_val');
+            const valEl = document.getElementById(id + '-val');
             if (!el) continue;
             el.addEventListener('input', () => {
                 let rawSlider = parseInt(el.value, 10);
@@ -190,14 +191,13 @@ export function initGraphSettings(gs, dbg) {
                     gs.recomputeBackbone(actual);
                     updateEdgeCount();
                 }
-                // Recompute hover distances live when interaction settings change
-                if ((map.key === 'graphHoverDimDistance' || map.key === 'graphHoverDimOpacity') && gs.hoverNode && gs.computeHoverDistances) {
+                // Live-recompute hover BFS distances so the dim radius/falloff updates without a re-hover.
+                if ((map.key === 'graphHoverDimDistance' || map.key === 'graphHoverFalloff') && gs.hoverNode && gs.computeHoverDistances) {
                     gs.hoverDistances = gs.computeHoverDistances(gs.hoverNode.id);
                 }
-                // Live-update focus tree depth when in focus mode
+                // Focus-tree depth slider while in focus: re-enter the tree with the new depth value.
                 if (map.key === 'graphFocusTreeDepth' && gs.focusTreeRoot && gs.enterFocusTree) {
                     const root = gs.focusTreeRoot;
-                    // Clean up current focus tree
                     for (const n of gs.nodes) {
                         if (n._treePinned) { n.pinned = false; n._treePinned = false; }
                         delete n._targetX; delete n._targetY;
@@ -213,7 +213,6 @@ export function initGraphSettings(gs, dbg) {
             }, lOpt);
         }
 
-        // Redraw — clear saved layout and replay BFS rollout animation
         const redrawBtn = document.getElementById('dle-gs-redraw');
         if (redrawBtn) {
             redrawBtn.addEventListener('click', () => {
@@ -222,7 +221,6 @@ export function initGraphSettings(gs, dbg) {
             }, lOpt);
         }
 
-        // Reset to defaults
         const resetBtn = document.getElementById('dle-gs-reset');
         if (resetBtn) {
             resetBtn.addEventListener('click', () => {
@@ -241,12 +239,15 @@ export function initGraphSettings(gs, dbg) {
             }, lOpt);
         }
 
-        // Presets — set all physics params at once
+        // Preset bundles set repulsion/gravity/damping atomically.
+        // Compact: dense cluster, high damping → good for 200+ entry vaults.
+        // Balanced: prior Compact values; general-purpose.
+        // Spacious / Ginormous: progressively looser layouts for big monitors.
         const presets = {
-            compact:    { graphRepulsion: 0.2, graphSpringLength: 50,  graphGravity: 13.0, graphDamping: 0.50 },
-            balanced:   { graphRepulsion: 0.3, graphSpringLength: 80,  graphGravity: 11.0, graphDamping: 0.50 },
-            spacious:   { graphRepulsion: 0.6, graphSpringLength: 180, graphGravity: 7.0,  graphDamping: 0.50 },
-            ginormous:  { graphRepulsion: 1.2, graphSpringLength: 300, graphGravity: 3.5,  graphDamping: 0.50 },
+            compact:    { graphRepulsion: 0.15, graphGravity: 16.0, graphDamping: 0.85 },
+            balanced:   { graphRepulsion: 0.2,  graphGravity: 13.0, graphDamping: 0.50 },
+            spacious:   { graphRepulsion: 0.6,  graphGravity: 7.0,  graphDamping: 0.50 },
+            ginormous:  { graphRepulsion: 1.2,  graphGravity: 3.5,  graphDamping: 0.50 },
         };
         settingsPanel.querySelectorAll('.dle-gs-preset').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -255,7 +256,8 @@ export function initGraphSettings(gs, dbg) {
                 for (const [key, value] of Object.entries(preset)) {
                     updateSetting(key, value);
                 }
-                // G7: Full reheat + random perturbation to escape local minima
+                // G7: full reheat + small random perturbation per node lets the simulation
+                // escape the previous preset's local minimum.
                 gs.alpha = 1.0;
                 for (const n of gs.nodes) {
                     if (!n.pinned && !n.hidden) {

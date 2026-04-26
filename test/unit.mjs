@@ -15,19 +15,16 @@ import {
     truncateToSentence, simpleHash, escapeRegex, escapeXml,
     buildScanText, buildAiChatContext, validateSettings, yamlEscape,
 } from '../core/utils.js';
-import { testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, formatAndGroup } from '../core/matching.js';
+import { testEntryMatch, countKeywordOccurrences, applyGating, resolveLinks, formatAndGroup, clearScanTextCache } from '../core/matching.js';
 import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, fuzzyTitleMatch, extractAiNotes } from '../src/helpers.js';
-import { encodeVaultPath, validateVaultPath } from '../src/vault/obsidian-api.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, normalizeLoreGap, fuzzyTitleMatch, extractAiNotes, validateSessionResponse, parseSessionResponse, sanitizeFilename } from '../src/helpers.js';
+import { encodeVaultPath, validateVaultPath, pruneCircuitBreakers } from '../src/vault/obsidian-api.js';
 
 // BM25 functions (extracted to bm25.js for testability)
 import { buildBM25Index, queryBM25 } from '../src/vault/bm25.js';
-
-// Obsidian API functions for BUG-040, BUG-045 tests
-import { pruneCircuitBreakers } from '../src/vault/obsidian-api.js';
 
 // Graph analysis pure functions
 import { convexHull, COMMUNITY_PALETTE } from '../src/graph/graph-analysis.js';
@@ -40,10 +37,21 @@ import { toPastel, lightenColor, darkenColor } from '../src/graph/graph-render.j
 
 // State module imports for computeOverallStatus tests
 import {
-    computeOverallStatus,
+    computeOverallStatus, trackerKey,
     setVaultIndex, setIndexEverLoaded, setLastHealthResult,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     recordAiFailure, recordAiSuccess,
+    isAiCircuitOpen, tryAcquireHalfOpenProbe, releaseHalfOpenProbe,
+    setAiCircuitOpenedAt,
+    entityNameSet, entityShortNameRegexes,
+    setFieldDefinitions, setDecayTracker, setConsecutiveInjections,
+    decayTracker, consecutiveInjections,
+    aiSearchCache, setAiSearchCache,
+    notifyPinBlockChanged, notifyGatingChanged,
+    lastGenerationTrackerSnapshot, setLastGenerationTrackerSnapshot,
+    setCooldownTracker, injectionHistory, setInjectionHistory,
+    generationCount, setGenerationCount,
+    cooldownTracker,
 } from '../src/state.js';
 
 // normalizeResults is a test-only utility (inlined in aiSearch() in production)
@@ -84,38 +92,10 @@ const settingsConstraints = {
 };
 
 // ============================================================================
-// Test runner
+// Test runner (shared from helpers.mjs)
 // ============================================================================
 
-import { makeEntry } from './helpers.mjs';
-
-let passed = 0;
-let failed = 0;
-
-function assert(condition, message) {
-    if (condition) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-    }
-}
-
-function assertEqual(actual, expected, message) {
-    if (JSON.stringify(actual) === JSON.stringify(expected)) {
-        passed++;
-    } else {
-        failed++;
-        console.error(`  FAIL: ${message}`);
-        console.error(`    expected: ${JSON.stringify(expected)}`);
-        console.error(`    actual:   ${JSON.stringify(actual)}`);
-    }
-}
-
-function test(name, fn) {
-    console.log(`\n${name}`);
-    fn();
-}
+import { assert, assertEqual, assertNotEqual, test, summary, makeEntry, makeSettings } from './helpers.mjs';
 
 // ============================================================================
 // Tests: parseFrontmatter
@@ -649,10 +629,12 @@ test('formatAndGroup: multiple groups with different positions', () => {
 });
 
 test('formatAndGroup: budget applied globally across groups', () => {
+    // Content sized ~4 chars/token so truncation math is realistic
+    const body = 'The quick brown fox jumped over the lazy dog. '.repeat(45); // ~2100 chars ≈ 500 tokens
     const entries = [
-        makeEntry('A', { content: 'Content A', tokenEstimate: 500, injectionPosition: 2 }),
-        makeEntry('B', { content: 'Content B', tokenEstimate: 500 }),
-        makeEntry('C', { content: 'Content C', tokenEstimate: 500 }),
+        makeEntry('A', { content: body, tokenEstimate: 500, injectionPosition: 2 }),
+        makeEntry('B', { content: body, tokenEstimate: 500 }),
+        makeEntry('C', { content: body, tokenEstimate: 500 }),
     ];
     const settings = { ...defaultTestSettings, unlimitedBudget: false, maxTokensBudget: 1200 };
     const result = formatAndGroup(entries, settings, 'deeplore_');
@@ -1004,7 +986,26 @@ test('takeIndexSnapshot: creates snapshot from vault index', () => {
     ];
     const snapshot = takeIndexSnapshot(index);
     assertEqual(snapshot.contentHashes.size, 2, 'should hash both entries');
-    assertEqual(snapshot.titleMap.get('Eris.md'), 'Eris', 'should map filename to title');
+    // BUG-AUDIT (Fix 25): keys are `vaultSource:filename`, not bare filename.
+    // makeEntry defaults vaultSource: '' → key = ':Eris.md'.
+    assertEqual(snapshot.titleMap.get(':Eris.md'), 'Eris', 'should map vaultSource:filename to title');
+});
+
+test('takeIndexSnapshot: multi-vault same-filename entries do not collide', () => {
+    // Regression for Fix 25: filename-only keys would let vault-B's "Castle" overwrite vault-A's
+    const index = [
+        makeEntry('Castle', { content: 'A vault', keys: ['castle'], vaultSource: 'VaultA', filename: 'Places/Castle.md' }),
+        makeEntry('Castle', { content: 'B vault', keys: ['castle'], vaultSource: 'VaultB', filename: 'Places/Castle.md' }),
+    ];
+    const snapshot = takeIndexSnapshot(index);
+    assertEqual(snapshot.contentHashes.size, 2, 'multi-vault same-filename should produce two distinct keys');
+    assertEqual(snapshot.titleMap.get('VaultA:Places/Castle.md'), 'Castle', 'VaultA key resolves');
+    assertEqual(snapshot.titleMap.get('VaultB:Places/Castle.md'), 'Castle', 'VaultB key resolves');
+    assertNotEqual(
+        snapshot.contentHashes.get('VaultA:Places/Castle.md'),
+        snapshot.contentHashes.get('VaultB:Places/Castle.md'),
+        'distinct content → distinct hashes',
+    );
 });
 
 // ============================================================================
@@ -1585,25 +1586,26 @@ import {
 // -- buildExemptionPolicy --
 
 test('buildExemptionPolicy: constants are in forceInject', () => {
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey (`${vaultSource}:${title}`).
     const vault = [makeEntry('A', { constant: true }), makeEntry('B')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(policy.forceInject.has('a'), 'constant A should be in forceInject (lowercase)');
-    assert(!policy.forceInject.has('b'), 'non-constant B should NOT be in forceInject');
+    assert(policy.forceInject.has(':A'), 'constant A should be in forceInject by trackerKey');
+    assert(!policy.forceInject.has(':B'), 'non-constant B should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: pins are in forceInject', () => {
     const vault = [makeEntry('A'), makeEntry('B')];
     const policy = buildExemptionPolicy(vault, ['A'], []);
-    assert(policy.forceInject.has('a'), 'pinned A should be in forceInject (lowercase)');
-    assert(!policy.forceInject.has('b'), 'non-pinned B should NOT be in forceInject');
+    assert(policy.forceInject.has(':A'), 'pinned A should be in forceInject by trackerKey');
+    assert(!policy.forceInject.has(':B'), 'non-pinned B should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: bootstrap and seed entries ARE in forceInject (exempt from contextual gating)', () => {
     const vault = [makeEntry('Boot', { bootstrap: true }), makeEntry('Seed', { seed: true }), makeEntry('Normal')];
     const policy = buildExemptionPolicy(vault, [], []);
-    assert(policy.forceInject.has('boot'), 'bootstrap should be in forceInject (exempt from gating)');
-    assert(policy.forceInject.has('seed'), 'seed should be in forceInject (exempt from gating)');
-    assert(!policy.forceInject.has('normal'), 'normal should NOT be in forceInject');
+    assert(policy.forceInject.has(':Boot'), 'bootstrap should be in forceInject (exempt from gating)');
+    assert(policy.forceInject.has(':Seed'), 'seed should be in forceInject (exempt from gating)');
+    assert(!policy.forceInject.has(':Normal'), 'normal should NOT be in forceInject');
 });
 
 test('buildExemptionPolicy: blocks stored lowercase in policy', () => {
@@ -1624,7 +1626,7 @@ test('buildExemptionPolicy: pin and constant overlap is deduplicated', () => {
     const vault = [makeEntry('A', { constant: true })];
     const policy = buildExemptionPolicy(vault, ['A'], []);
     assertEqual(policy.forceInject.size, 1, 'A appears once despite being constant and pinned');
-    assert(policy.forceInject.has('a'), 'A is in forceInject (lowercase)');
+    assert(policy.forceInject.has(':A'), 'A is in forceInject by trackerKey');
 });
 
 // -- applyPinBlock --
@@ -1720,7 +1722,8 @@ test('applyContextualGating: entry with era dropped when no era active (strict)'
 
 test('applyContextualGating: forceInject entries bypass era gating', () => {
     const entries = [makeEntry('A', { customFields: { era: ['golden'] } })];
-    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set(['a']) }, false, {}, DEFAULT_FIELD_DEFINITIONS);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey (`${vaultSource}:${title}`).
+    const result = applyContextualGating(entries, { location: 'tavern' }, { forceInject: new Set([':A']) }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'forceInject entry kept despite era mismatch');
 });
 
@@ -1742,7 +1745,7 @@ test('applyContextualGating: characterPresent gating works', () => {
         makeEntry('A', { customFields: { character_present: ['Eris'] } }),
         makeEntry('B', { customFields: { character_present: ['Raven'] } }),
     ];
-    const result = applyContextualGating(entries, { characters_present: ['Eris'] }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
+    const result = applyContextualGating(entries, { character_present: ['Eris'] }, { forceInject: new Set() }, false, {}, DEFAULT_FIELD_DEFINITIONS);
     assertEqual(result.length, 1, 'only Eris entry kept');
     assertEqual(result[0].title, 'A', 'A kept for Eris');
 });
@@ -1798,7 +1801,8 @@ test('applyReinjectionCooldown: old injection passes cooldown', () => {
 test('applyReinjectionCooldown: forceInject entries always pass', () => {
     const a = makeEntry('A', { vaultSource: '' });
     const history = new Map([[':A', 5]]);
-    const result = applyReinjectionCooldown([a], { forceInject: new Set(['a']) }, history, 6, 3, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const result = applyReinjectionCooldown([a], { forceInject: new Set([':A']) }, history, 6, 3, false);
     assertEqual(result.length, 1, 'forceInject bypasses cooldown');
 });
 
@@ -1840,14 +1844,15 @@ test('applyRequiresExcludesGating: entry with triggered excludes removed', () =>
 
 test('applyRequiresExcludesGating: forceInject entry with unmet requires kept (NEW behavior)', () => {
     const entries = [makeEntry('B', { requires: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['b']) }, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set([':B']) }, false);
     assertEqual(result.length, 1, 'forceInject B kept despite unmet requires');
     assertEqual(result[0].title, 'B', 'B is in result');
 });
 
 test('applyRequiresExcludesGating: forceInject entry with triggered excludes kept', () => {
     const entries = [makeEntry('A'), makeEntry('B', { excludes: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['b']) }, false);
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set([':B']) }, false);
     assertEqual(result.length, 2, 'forceInject B kept despite excludes match');
 });
 
@@ -1880,7 +1885,8 @@ test('applyRequiresExcludesGating: cascade removal via third-party excludes', ()
 
 test('applyRequiresExcludesGating: circular requires with one forceInject breaks cycle', () => {
     const entries = [makeEntry('A', { requires: ['B'] }), makeEntry('B', { requires: ['A'] })];
-    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set(['a']) }, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const { result } = applyRequiresExcludesGating(entries, { forceInject: new Set([':A']) }, false);
     // A is forceInject so it stays. B requires A which is present → B also stays.
     assertEqual(result.length, 2, 'forceInject A breaks the cycle');
 });
@@ -1939,7 +1945,8 @@ test('applyStripDedup: recently injected entry filtered', () => {
 test('applyStripDedup: forceInject entries never stripped', () => {
     const entries = [makeEntry('A', { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 })];
     const log = [{ gen: 1, entries: [{ title: 'A', pos: 1, depth: 4, role: 0, contentHash: '' }] }];
-    const result = applyStripDedup(entries, { forceInject: new Set(['a']) }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
+    // BUG-399 (Fix 2): forceInject keyed by trackerKey.
+    const result = applyStripDedup(entries, { forceInject: new Set([':A']) }, log, 2, { injectionPosition: 1, injectionDepth: 4, injectionRole: 0 }, false);
     assertEqual(result.length, 1, 'forceInject bypasses dedup');
 });
 
@@ -2324,11 +2331,13 @@ test('integration: analytics accuracy post-gating — gated entries matched but 
 
 test('integration: full 4-stage chain with budget truncation', () => {
     // Constant + pinned + regular entries, budget forces truncation
+    // Content sized ~4 chars/token so truncation stays within budget
+    const body = (n) => 'The quick brown fox jumped over the lazy dog. '.repeat(Math.ceil(n * 4 / 46));
     const vault = [
-        makeEntry('Const', { constant: true, tokenEstimate: 300, priority: 10, content: 'Constant content' }),
-        makeEntry('Pinned', { tokenEstimate: 250, priority: 50, content: 'Pinned content' }),
-        makeEntry('Regular', { tokenEstimate: 200, priority: 30, requires: [], content: 'Regular content' }),
-        makeEntry('Overflow', { tokenEstimate: 400, priority: 60, content: 'Overflow content' }),
+        makeEntry('Const', { constant: true, tokenEstimate: 300, priority: 10, content: body(300) }),
+        makeEntry('Pinned', { tokenEstimate: 250, priority: 50, content: body(250) }),
+        makeEntry('Regular', { tokenEstimate: 200, priority: 30, requires: [], content: body(200) }),
+        makeEntry('Overflow', { tokenEstimate: 400, priority: 60, content: body(400) }),
     ];
     const policy = buildExemptionPolicy(vault, ['Pinned'], []);
     const matchedKeys = new Map();
@@ -2379,8 +2388,12 @@ function stripESMForParsing(src) {
     // Strip multi-line and single-line imports
     s = s.replace(/^import\s+\{[^}]*\}\s+from\s+['"].*?['"];?\s*$/gm, '');
     s = s.replace(/^import\s+.*$/gm, '');
-    // Strip re-exports: export { ... } from '...'
+    // Strip re-exports: export { ... } from '...' and bare export { ... };
     s = s.replace(/^export\s+\{[^}]*\}\s+from\s+.*$/gm, '');
+    s = s.replace(/^export\s+\{[^}]*\}\s*;?\s*$/gm, '');
+    // Replace import.meta expressions (ESM-only, not valid in Script/CJS mode)
+    s = s.replace(/import\.meta\.url/g, '"file:///stub"');
+    s = s.replace(/import\.meta/g, '({})');
     // Transform export declarations into plain declarations
     s = s.replace(/^export\s+async\s+function/gm, 'async function');
     s = s.replace(/^export\s+function/gm, 'function');
@@ -2902,7 +2915,7 @@ test('categorizeRejections: gatedOut entries', () => {
 });
 
 test('categorizeRejections: contextualGatingRemoved', () => {
-    const trace = { contextualGatingRemoved: ['A', 'B'] };
+    const trace = { contextualGatingRemoved: [{ title: 'A', reason: 'r' }, { title: 'B', reason: 'r' }] };
     const groups = categorizeRejections(trace, new Set());
     assertEqual(groups.length, 1);
     assertEqual(groups[0].stage, 'contextual_gating');
@@ -2910,7 +2923,7 @@ test('categorizeRejections: contextualGatingRemoved', () => {
 });
 
 test('categorizeRejections: cooldownRemoved', () => {
-    const trace = { cooldownRemoved: ['A'] };
+    const trace = { cooldownRemoved: [{ title: 'A', reason: 'Cooldown active' }] };
     const groups = categorizeRejections(trace, new Set());
     assertEqual(groups[0].stage, 'cooldown');
     assertEqual(groups[0].entries[0].reason, 'Cooldown active');
@@ -2924,7 +2937,7 @@ test('categorizeRejections: budgetCut with tokens', () => {
 });
 
 test('categorizeRejections: stripDedupRemoved', () => {
-    const trace = { stripDedupRemoved: ['A'] };
+    const trace = { stripDedupRemoved: [{ title: 'A', reason: 'Already in context' }] };
     const groups = categorizeRejections(trace, new Set());
     assertEqual(groups[0].stage, 'strip_dedup');
     assertEqual(groups[0].entries[0].reason, 'Already in context');
@@ -2945,7 +2958,7 @@ test('categorizeRejections: warmupFailed', () => {
 test('categorizeRejections: excludes injected titles from all groups', () => {
     const trace = {
         gatedOut: [{ title: 'A', requires: [], excludes: [] }],
-        cooldownRemoved: ['B'],
+        cooldownRemoved: [{ title: 'B', reason: 'Cooldown active' }],
     };
     const groups = categorizeRejections(trace, new Set(['A', 'B']));
     assertEqual(groups.length, 0);
@@ -2959,7 +2972,7 @@ test('categorizeRejections: AI rejected cross-references other stages', () => {
             { title: 'C', matchedBy: 'night' },
         ],
         aiSelected: [{ title: 'A' }],
-        cooldownRemoved: ['B'], // B is accounted for by cooldown, not AI rejection
+        cooldownRemoved: [{ title: 'B', reason: 'Cooldown active' }], // B is accounted for by cooldown, not AI rejection
     };
     const groups = categorizeRejections(trace, new Set());
     const aiGroup = groups.find(g => g.stage === 'ai_rejected');
@@ -2971,12 +2984,12 @@ test('categorizeRejections: AI rejected cross-references other stages', () => {
 test('categorizeRejections: full trace with all 8 categories', () => {
     const trace = {
         gatedOut: [{ title: 'A', requires: ['X'], excludes: [] }],
-        contextualGatingRemoved: ['B'],
+        contextualGatingRemoved: [{ title: 'B', reason: 'r' }],
         keywordMatched: [{ title: 'C', matchedBy: 'key' }, { title: 'D', matchedBy: 'key2' }],
         aiSelected: [{ title: 'D' }],
-        cooldownRemoved: ['E'],
+        cooldownRemoved: [{ title: 'E', reason: 'Cooldown active' }],
         budgetCut: [{ title: 'F', tokens: 100 }],
-        stripDedupRemoved: ['G'],
+        stripDedupRemoved: [{ title: 'G', reason: 'Already in context' }],
         probabilitySkipped: [{ title: 'H' }],
         warmupFailed: [{ title: 'I' }],
     };
@@ -3429,6 +3442,32 @@ test('isForceInjected: missing fields default to falsy', () => {
 // ============================================================================
 // Sprint 2: Pin/Block Migration (H23)
 // ============================================================================
+
+test('normalizeLoreGap: legacy acknowledged status collapses to pending', () => {
+    const out = normalizeLoreGap({ id: 'a', status: 'acknowledged', query: 'x' });
+    assertEqual(out.status, 'pending', 'acknowledged → pending');
+    assertEqual(out.query, 'x', 'other fields preserved');
+});
+
+test('normalizeLoreGap: legacy in_progress status collapses to pending', () => {
+    const out = normalizeLoreGap({ id: 'a', status: 'in_progress' });
+    assertEqual(out.status, 'pending', 'in_progress → pending');
+});
+
+test('normalizeLoreGap: legacy rejected status collapses to pending', () => {
+    const out = normalizeLoreGap({ id: 'a', status: 'rejected' });
+    assertEqual(out.status, 'pending', 'rejected → pending');
+});
+
+test('normalizeLoreGap: pending and written are preserved', () => {
+    assertEqual(normalizeLoreGap({ status: 'pending' }).status, 'pending');
+    assertEqual(normalizeLoreGap({ status: 'written' }).status, 'written');
+});
+
+test('normalizeLoreGap: missing/unknown status defaults to pending', () => {
+    assertEqual(normalizeLoreGap({}).status, 'pending');
+    assertEqual(normalizeLoreGap({ status: 'bogus' }).status, 'pending');
+});
 
 test('normalizePinBlock: bare string normalized to {title, vaultSource: null}', () => {
     const result = normalizePinBlock('Eris');
@@ -4139,11 +4178,1493 @@ test('extractAiNotes: collapses excess newlines after stripping', () => {
 });
 
 // ============================================================================
+// Librarian: validateSessionResponse
+// ============================================================================
+
+test('validateSessionResponse: valid minimal response', () => {
+    const r = validateSessionResponse({ message: 'Hello' });
+    assert(r.valid, 'should be valid');
+    assertEqual(r.errors.length, 0, 'no errors');
+});
+
+test('validateSessionResponse: valid response with draft', () => {
+    const r = validateSessionResponse({
+        message: 'Here is a draft',
+        draft: {
+            title: 'Trade Routes',
+            type: 'lore',
+            priority: 50,
+            keys: ['trade', 'routes', 'commerce'],
+            summary: 'When to select this entry.',
+            content: 'This is a longer piece of content that meets the 50 character minimum for validation.',
+        },
+        action: 'update_draft',
+    });
+    assert(r.valid, 'should be valid');
+    assertEqual(r.errors.length, 0, 'no errors');
+});
+
+test('validateSessionResponse: rejects non-object', () => {
+    const r = validateSessionResponse('not an object');
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors[0].includes('JSON object'), 'error mentions JSON object');
+});
+
+test('validateSessionResponse: rejects array', () => {
+    const r = validateSessionResponse([1, 2, 3]);
+    assert(!r.valid, 'should be invalid');
+});
+
+test('validateSessionResponse: rejects null', () => {
+    const r = validateSessionResponse(null);
+    assert(!r.valid, 'should be invalid');
+});
+
+test('validateSessionResponse: rejects missing message', () => {
+    const r = validateSessionResponse({ draft: null });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('message')), 'error about message');
+});
+
+test('validateSessionResponse: rejects invalid action', () => {
+    const r = validateSessionResponse({ message: 'Hi', action: 'invalid_action' });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('action')), 'error about action');
+});
+
+test('validateSessionResponse: rejects draft with empty title', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: '', keys: ['a'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('title')), 'error about title');
+});
+
+test('validateSessionResponse: rejects draft with invalid type', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', type: 'invalid_type', keys: ['a'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('type')), 'error about type');
+});
+
+test('validateSessionResponse: rejects draft with out-of-range priority', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', priority: 200, keys: ['a'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('priority')), 'error about priority');
+});
+
+test('validateSessionResponse: allows partial draft with empty keys array (BUG-025)', () => {
+    // BUG-025: partial drafts are legitimate during iterative update_draft turns;
+    // empty keys array is allowed — Emma may not have proposed keys yet.
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: [], content: 'x'.repeat(50) },
+    });
+    assert(r.valid, 'empty keys array should be valid in partial draft');
+});
+
+test('validateSessionResponse: rejects draft with empty string in keys', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: ['good', '', 'also good'], content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('empty strings')), 'error about empty key strings');
+});
+
+test('validateSessionResponse: allows partial draft with short content (BUG-025)', () => {
+    // BUG-025: short content is allowed during iterative drafting; only non-string
+    // types are rejected. Emma may refine content across multiple turns.
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: ['a'], content: 'too short' },
+    });
+    assert(r.valid, 'short content should be valid in partial draft');
+});
+
+test('validateSessionResponse: rejects draft with long summary', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: 'Test', keys: ['a'], summary: 'x'.repeat(601), content: 'x'.repeat(50) },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('summary')), 'error about summary');
+});
+
+test('validateSessionResponse: valid work queue', () => {
+    const r = validateSessionResponse({
+        message: 'Here is the queue',
+        queue: [
+            { title: 'Entry 1', action: 'create', reason: 'Needed for story', urgency: 'high' },
+            { title: 'Entry 2', action: 'update', reason: 'Out of date' },
+        ],
+        action: 'propose_queue',
+    });
+    assert(r.valid, 'should be valid');
+});
+
+test('validateSessionResponse: rejects queue with invalid action', () => {
+    const r = validateSessionResponse({
+        message: 'Queue',
+        queue: [{ title: 'Test', action: 'delete', reason: 'reason' }],
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('queue[0].action')), 'error about queue action');
+});
+
+test('validateSessionResponse: rejects queue with missing title', () => {
+    const r = validateSessionResponse({
+        message: 'Queue',
+        queue: [{ action: 'create', reason: 'reason' }],
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.some(e => e.includes('queue[0].title')), 'error about queue title');
+});
+
+test('validateSessionResponse: allows null draft and action', () => {
+    const r = validateSessionResponse({ message: 'Just chatting', draft: null, action: null });
+    assert(r.valid, 'should be valid');
+    assertEqual(r.errors.length, 0, 'no errors');
+});
+
+test('validateSessionResponse: collects multiple errors', () => {
+    const r = validateSessionResponse({
+        message: 'Draft',
+        draft: { title: '', type: 'invalid', priority: -5, keys: 'not an array', content: 'short' },
+    });
+    assert(!r.valid, 'should be invalid');
+    assert(r.errors.length >= 4, `should have many errors, got ${r.errors.length}`);
+});
+
+test('validateSessionResponse: rejects empty string message', () => {
+    const r = validateSessionResponse({ message: '' });
+    assert(!r.valid, 'empty string message should be invalid');
+    assert(r.errors.some(e => e.includes('message')), 'error about message');
+});
+
+test('validateSessionResponse: rejects numeric message', () => {
+    const r = validateSessionResponse({ message: 42 });
+    assert(!r.valid, 'numeric message should be invalid');
+});
+
+// ============================================================================
+// Librarian: parseSessionResponse
+// ============================================================================
+
+test('parseSessionResponse: parses raw JSON', () => {
+    const result = parseSessionResponse('{"message": "hello", "draft": null}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'hello', 'message field');
+});
+
+test('parseSessionResponse: parses code-fenced JSON', () => {
+    const result = parseSessionResponse('Here is my response:\n```json\n{"message": "hi"}\n```');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'hi', 'message field');
+});
+
+test('parseSessionResponse: parses bracket-balanced JSON with preamble', () => {
+    const result = parseSessionResponse('I will help you. {"message": "ok", "draft": null}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'ok', 'message field');
+});
+
+test('parseSessionResponse: handles braces inside strings', () => {
+    const result = parseSessionResponse('{"message": "a { b } c", "draft": null}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'a { b } c', 'message with braces');
+});
+
+test('parseSessionResponse: returns null for non-string input', () => {
+    assertEqual(parseSessionResponse(null), null, 'null');
+    assertEqual(parseSessionResponse(undefined), null, 'undefined');
+    assertEqual(parseSessionResponse(42), null, 'number');
+    assertEqual(parseSessionResponse(''), null, 'empty string');
+});
+
+test('parseSessionResponse: returns null for unparseable text', () => {
+    assertEqual(parseSessionResponse('just some random text'), null, 'no JSON');
+    assertEqual(parseSessionResponse('{broken json'), null, 'broken JSON');
+});
+
+test('parseSessionResponse: handles escaped quotes in bracket balancer', () => {
+    const result = parseSessionResponse('prefix {"message": "say \\"hello\\""}');
+    assert(result !== null, 'should parse');
+    assertEqual(result.message, 'say "hello"', 'escaped quotes');
+});
+
+// ============================================================================
+// Librarian: sanitizeFilename
+// ============================================================================
+
+test('sanitizeFilename: normal title passes through', () => {
+    assertEqual(sanitizeFilename('My Entry Title'), 'My Entry Title');
+});
+
+test('sanitizeFilename: strips reserved characters', () => {
+    assertEqual(sanitizeFilename('test<>:"/\\|?*file'), 'test_________file');
+});
+
+test('sanitizeFilename: strips leading/trailing dots', () => {
+    assertEqual(sanitizeFilename('...hidden...'), 'hidden');
+});
+
+test('sanitizeFilename: prefixes Windows reserved names', () => {
+    assertEqual(sanitizeFilename('CON'), '_CON');
+    assertEqual(sanitizeFilename('nul'), '_nul');
+    assertEqual(sanitizeFilename('COM1'), '_COM1');
+});
+
+test('sanitizeFilename: returns Untitled for empty result', () => {
+    assertEqual(sanitizeFilename(''), 'Untitled');
+});
+
+test('sanitizeFilename: replaces all special chars', () => {
+    assertEqual(sanitizeFilename('***'), '___');
+});
+
+test('sanitizeFilename: trims trailing whitespace', () => {
+    assertEqual(sanitizeFilename('test   '), 'test');
+});
+
+// ============================================================================
+// Phase 1A: fields.js Edge Cases
+// ============================================================================
+
+test('parseFieldDefinitionYaml: multiple fields in sequence', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: strict
+    values: []
+    contextKey: mood
+  - name: faction
+    label: Faction
+    type: string
+    multi: true
+    gating:
+      enabled: false
+      operator: match_all
+      tolerance: lenient
+    values:
+      - rebels
+      - empire
+    contextKey: active_faction`;
+    const { definitions, errors } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 2, 'should parse two fields');
+    assertEqual(definitions[0].name, 'mood', 'first field name');
+    assertEqual(definitions[0].gating.tolerance, 'strict', 'first field tolerance');
+    assertEqual(definitions[1].name, 'faction', 'second field name');
+    assertEqual(definitions[1].multi, true, 'second field multi');
+    assertEqual(definitions[1].gating.enabled, false, 'second field gating disabled');
+    assertEqual(definitions[1].values, ['rebels', 'empire'], 'second field values');
+    assertEqual(definitions[1].contextKey, 'active_faction', 'second field contextKey');
+});
+
+test('parseFieldDefinitionYaml: comment lines and blank lines interspersed', () => {
+    const yaml = `# Header comment
+fields:
+
+  # This is a mood field
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: moderate
+    values: []
+    contextKey: mood`;
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'should parse field despite comments/blanks');
+    assertEqual(definitions[0].name, 'mood', 'field name');
+});
+
+test('parseFieldDefinitionYaml: unknown gating operator defaults to match_any', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: bogus_op
+      tolerance: moderate
+    values: []
+    contextKey: mood`;
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions[0].gating.operator, 'match_any', 'unknown operator defaults to match_any');
+});
+
+test('parseFieldDefinitionYaml: inline empty array values: []', () => {
+    const yaml = `fields:
+  - name: mood
+    label: Mood
+    type: string
+    multi: false
+    gating:
+      enabled: true
+      operator: match_any
+      tolerance: moderate
+    values: []
+    contextKey: mood`;
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions[0].values, [], 'inline empty array should produce empty values');
+});
+
+test('parseFieldDefinitionYaml: round-trip with custom fields preserves structure', () => {
+    const original = [{
+        name: 'danger_level',
+        label: 'Danger Level',
+        type: 'number',
+        multi: false,
+        gating: { enabled: true, operator: 'gt', tolerance: 'strict' },
+        values: [],
+        contextKey: 'danger_level',
+    }];
+    const yaml = serializeFieldDefinitions(original);
+    const { definitions } = parseFieldDefinitionYaml(yaml);
+    assertEqual(definitions.length, 1, 'round-trip count');
+    assertEqual(definitions[0].name, 'danger_level', 'name preserved');
+    assertEqual(definitions[0].type, 'number', 'type preserved');
+    assertEqual(definitions[0].gating.operator, 'gt', 'operator preserved');
+});
+
+test('evaluateOperator: gt/lt with NaN returns false (BUG-L2)', () => {
+    assert(!evaluateOperator('gt', 'abc', 5), 'gt with NaN entryValue');
+    assert(!evaluateOperator('gt', 10, 'xyz'), 'gt with NaN activeValue');
+    assert(!evaluateOperator('lt', 'abc', 5), 'lt with NaN entryValue');
+    assert(!evaluateOperator('lt', 10, 'xyz'), 'lt with NaN activeValue');
+    assert(!evaluateOperator('gt', NaN, NaN), 'gt with both NaN');
+    assert(!evaluateOperator('lt', NaN, NaN), 'lt with both NaN');
+});
+
+test('evaluateOperator: gt/lt with string-encoded numbers', () => {
+    assert(evaluateOperator('gt', '10', '5'), 'gt: "10" > "5"');
+    assert(!evaluateOperator('gt', '3', '5'), 'gt: "3" > "5" = false');
+    assert(evaluateOperator('lt', '3', '5'), 'lt: "3" < "5"');
+});
+
+test('evaluateOperator: match_all with empty entry array (vacuous truth)', () => {
+    assert(evaluateOperator('match_all', [], ['medieval']), 'empty entry array = vacuous truth');
+});
+
+test('evaluateOperator: match_all with empty active array', () => {
+    assert(!evaluateOperator('match_all', ['medieval'], []), 'entry value not in empty active = false');
+});
+
+test('evaluateOperator: not_any with empty arrays', () => {
+    assert(evaluateOperator('not_any', [], ['medieval']), 'empty entry = no overlap');
+    assert(evaluateOperator('not_any', ['medieval'], []), 'empty active = no overlap');
+    assert(evaluateOperator('not_any', [], []), 'both empty = no overlap');
+});
+
+test('evaluateOperator: exists with undefined vs empty string', () => {
+    assert(!evaluateOperator('exists', undefined, null), 'undefined = not exists');
+    assert(evaluateOperator('exists', '', null), 'empty string exists (non-null)');
+    assert(evaluateOperator('exists', 0, null), 'zero exists (non-null)');
+    assert(evaluateOperator('exists', false, null), 'false exists (non-null)');
+});
+
+test('extractCustomFields: number type with string input coerces', () => {
+    const fm = { power: '42' };
+    const defs = [{ name: 'power', type: 'number', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.power, 42, 'string "42" coerces to number');
+});
+
+test('extractCustomFields: number type with non-numeric string returns null', () => {
+    const fm = { power: 'abc' };
+    const defs = [{ name: 'power', type: 'number', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.power, null, 'non-numeric string returns null');
+});
+
+test('extractCustomFields: boolean type with string "false"', () => {
+    const fm = { active: 'false' };
+    const defs = [{ name: 'active', type: 'boolean', multi: false }];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.active, false, '"false" string is not true');
+});
+
+test('extractCustomFields: boolean type with truthy non-true values', () => {
+    const fm = { a: 1, b: 'yes', c: 'true', d: true };
+    const defs = [
+        { name: 'a', type: 'boolean', multi: false },
+        { name: 'b', type: 'boolean', multi: false },
+        { name: 'c', type: 'boolean', multi: false },
+        { name: 'd', type: 'boolean', multi: false },
+    ];
+    const result = extractCustomFields(fm, defs);
+    assertEqual(result.a, false, 'number 1 is not boolean true');
+    assertEqual(result.b, false, 'string "yes" is not boolean true');
+    assertEqual(result.c, true, 'string "true" is boolean true');
+    assertEqual(result.d, true, 'boolean true is boolean true');
+});
+
+test('extractCustomFields: multi string field with mixed types in array', () => {
+    const fm = { tags: [42, true, 'text', null] };
+    const defs = [{ name: 'tags', type: 'string', multi: true }];
+    const result = extractCustomFields(fm, defs);
+    // String(null) = "null" which is truthy, so it passes the filter
+    assertEqual(result.tags, ['42', 'true', 'text', 'null'], 'non-strings coerced to string');
+});
+
+test('findDuplicateFieldNames: case-insensitive detection', () => {
+    const defs = [{ name: 'Era' }, { name: 'era' }];
+    const dupes = findDuplicateFieldNames(defs);
+    assertEqual(dupes, ['era'], 'case-insensitive duplicate detected');
+});
+
+test('findDuplicateFieldNames: multiple duplicates detected', () => {
+    const defs = [{ name: 'a' }, { name: 'b' }, { name: 'a' }, { name: 'b' }];
+    const dupes = findDuplicateFieldNames(defs);
+    assertEqual(dupes.length, 2, 'two duplicates');
+    assert(dupes.includes('a'), 'includes a');
+    assert(dupes.includes('b'), 'includes b');
+});
+
+test('findDuplicateFieldNames: no duplicates returns empty', () => {
+    const defs = [{ name: 'x' }, { name: 'y' }, { name: 'z' }];
+    assertEqual(findDuplicateFieldNames(defs), [], 'no duplicates');
+});
+
+// ============================================================================
+// Phase 2A: validateCachedEntry (extracted to cache-validate.js)
+// ============================================================================
+
+import { validateCachedEntry } from '../src/vault/cache-validate.js';
+
+test('validateCachedEntry: valid entry passes', () => {
+    const entry = { title: 'Dragon', keys: ['dragon'], content: 'A dragon.', tokenEstimate: 50 };
+    assert(validateCachedEntry(entry), 'valid entry should pass');
+});
+
+test('validateCachedEntry: null/undefined returns false', () => {
+    assert(!validateCachedEntry(null), 'null');
+    assert(!validateCachedEntry(undefined), 'undefined');
+    assert(!validateCachedEntry(42), 'number');
+});
+
+test('validateCachedEntry: missing title returns false', () => {
+    assert(!validateCachedEntry({ keys: [], content: '', tokenEstimate: 0 }), 'no title');
+});
+
+test('validateCachedEntry: empty title returns false', () => {
+    assert(!validateCachedEntry({ title: '', keys: [], content: '', tokenEstimate: 0 }), 'empty title');
+});
+
+test('validateCachedEntry: non-array keys returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: 'not-array', content: '', tokenEstimate: 0 }), 'string keys');
+});
+
+test('validateCachedEntry: non-string content returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: 42, tokenEstimate: 0 }), 'number content');
+});
+
+test('validateCachedEntry: negative tokenEstimate returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: -1 }), 'negative');
+});
+
+test('validateCachedEntry: NaN tokenEstimate returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: NaN }), 'NaN');
+});
+
+test('validateCachedEntry: non-array links returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: 0, links: 'bad' }), 'string links');
+});
+
+test('validateCachedEntry: non-array tags returns false', () => {
+    assert(!validateCachedEntry({ title: 'X', keys: [], content: '', tokenEstimate: 0, tags: 'bad' }), 'string tags');
+});
+
+test('validateCachedEntry: backfills missing priority to 50', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0 };
+    validateCachedEntry(entry);
+    assertEqual(entry.priority, 50, 'priority backfilled');
+});
+
+test('validateCachedEntry: backfills NaN priority to 50', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, priority: NaN };
+    validateCachedEntry(entry);
+    assertEqual(entry.priority, 50, 'NaN priority backfilled');
+});
+
+test('validateCachedEntry: backfills non-boolean constant to false', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, constant: 'yes' };
+    validateCachedEntry(entry);
+    assertEqual(entry.constant, false, 'constant backfilled');
+});
+
+test('validateCachedEntry: backfills non-array requires/excludes to []', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, requires: 'bad', excludes: 42 };
+    validateCachedEntry(entry);
+    assertEqual(entry.requires, [], 'requires backfilled');
+    assertEqual(entry.excludes, [], 'excludes backfilled');
+});
+
+test('validateCachedEntry: backfills invalid probability to null', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, probability: 'high' };
+    validateCachedEntry(entry);
+    assertEqual(entry.probability, null, 'probability backfilled');
+});
+
+test('validateCachedEntry: backfills missing array fields', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0 };
+    validateCachedEntry(entry);
+    assertEqual(entry.links, [], 'links backfilled');
+    assertEqual(entry.resolvedLinks, [], 'resolvedLinks backfilled');
+    assertEqual(entry.tags, [], 'tags backfilled');
+});
+
+test('validateCachedEntry: backfills missing/corrupt customFields', () => {
+    const entry = { title: 'X', keys: [], content: '', tokenEstimate: 0, customFields: 'bad' };
+    validateCachedEntry(entry);
+    assertEqual(entry.customFields, {}, 'customFields backfilled from string');
+
+    const entry2 = { title: 'X', keys: [], content: '', tokenEstimate: 0 };
+    validateCachedEntry(entry2);
+    assertEqual(entry2.customFields, {}, 'customFields backfilled from missing');
+});
+
+test('validateCachedEntry: preserves valid existing values', () => {
+    const entry = {
+        title: 'Dragon', keys: ['dragon'], content: 'Fire.',
+        tokenEstimate: 100, priority: 20, constant: true,
+        requires: ['Eris'], excludes: ['Sword'], probability: 0.5,
+        links: ['Eris'], resolvedLinks: ['Eris'], tags: ['lorebook'],
+        customFields: { era: ['medieval'] },
+    };
+    assert(validateCachedEntry(entry), 'should pass');
+    assertEqual(entry.priority, 20, 'priority preserved');
+    assertEqual(entry.constant, true, 'constant preserved');
+    assertEqual(entry.probability, 0.5, 'probability preserved');
+    assertEqual(entry.customFields.era, ['medieval'], 'customFields preserved');
+});
+
+// ============================================================================
+// Phase 2B: deduplicateMultiVault + computeEntityDerivedState (vault-pure.js)
+// ============================================================================
+
+import { deduplicateMultiVault, computeEntityDerivedState } from '../src/vault/vault-pure.js';
+
+test('deduplicateMultiVault: mode "all" returns entries unchanged', () => {
+    const entries = [makeEntry('Dragon', { vaultSource: 'v1' }), makeEntry('Dragon', { vaultSource: 'v2' })];
+    const result = deduplicateMultiVault(entries, 'all');
+    assertEqual(result.length, 2, 'all keeps both');
+});
+
+test('deduplicateMultiVault: undefined mode returns entries unchanged', () => {
+    const entries = [makeEntry('Dragon'), makeEntry('Dragon')];
+    assertEqual(deduplicateMultiVault(entries, undefined).length, 2, 'undefined mode = no dedup');
+    assertEqual(deduplicateMultiVault(entries, '').length, 2, 'empty string mode = no dedup');
+});
+
+test('deduplicateMultiVault: mode "first" keeps first, discards later', () => {
+    const entries = [
+        makeEntry('Dragon', { vaultSource: 'v1', content: 'first' }),
+        makeEntry('Dragon', { vaultSource: 'v2', content: 'second' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'first');
+    assertEqual(result.length, 1, 'one entry');
+    assertEqual(result[0].content, 'first', 'first vault kept');
+});
+
+test('deduplicateMultiVault: mode "last" keeps last, replaces earlier', () => {
+    const entries = [
+        makeEntry('Dragon', { vaultSource: 'v1', content: 'first' }),
+        makeEntry('Dragon', { vaultSource: 'v2', content: 'second' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'last');
+    assertEqual(result.length, 1, 'one entry');
+    assertEqual(result[0].content, 'second', 'last vault kept');
+});
+
+test('deduplicateMultiVault: case-insensitive title matching', () => {
+    const entries = [
+        makeEntry('Dragon', { content: 'first' }),
+        makeEntry('dragon', { content: 'second' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'first');
+    assertEqual(result.length, 1, 'case-insensitive dedup');
+});
+
+test('deduplicateMultiVault: merge unions array fields', () => {
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon', 'drake'], tags: ['lorebook'] }),
+        makeEntry('Dragon', { keys: ['drake', 'wyrm'], tags: ['lorebook', 'creature'] }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result.length, 1, 'merged to one');
+    assert(result[0].keys.includes('dragon'), 'includes dragon');
+    assert(result[0].keys.includes('drake'), 'includes drake');
+    assert(result[0].keys.includes('wyrm'), 'includes wyrm');
+    assertEqual(result[0].keys.length, 3, 'no duplicate drake');
+    assert(result[0].tags.includes('creature'), 'merged tags');
+});
+
+test('deduplicateMultiVault: merge concatenates content', () => {
+    const entries = [
+        makeEntry('Dragon', { content: 'Fire breather.' }),
+        makeEntry('Dragon', { content: 'Ice breather.' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assert(result[0].content.includes('Fire breather.'), 'first content present');
+    assert(result[0].content.includes('Ice breather.'), 'second content present');
+    assert(result[0].content.includes('---'), 'separator present');
+});
+
+test('deduplicateMultiVault: merge recalculates tokenEstimate', () => {
+    const entries = [
+        makeEntry('Dragon', { content: 'Short.', tokenEstimate: 2 }),
+        makeEntry('Dragon', { content: 'Also short.', tokenEstimate: 3 }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    const expectedLen = ('Short.' + '\n\n---\n\n' + 'Also short.').length;
+    assertEqual(result[0].tokenEstimate, Math.ceil(expectedLen / 4.0), 'token estimate recalculated');
+});
+
+test('deduplicateMultiVault: merge prefers first non-empty summary', () => {
+    const entries = [
+        makeEntry('Dragon', { summary: 'First summary' }),
+        makeEntry('Dragon', { summary: 'Second summary' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].summary, 'First summary', 'first summary kept');
+});
+
+test('deduplicateMultiVault: merge fills empty summary from second', () => {
+    const entries = [
+        makeEntry('Dragon', { summary: '' }),
+        makeEntry('Dragon', { summary: 'Second summary' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].summary, 'Second summary', 'second summary used when first empty');
+});
+
+test('deduplicateMultiVault: merge customFields unions arrays', () => {
+    const entries = [
+        makeEntry('Dragon', { customFields: { era: ['medieval'] } }),
+        makeEntry('Dragon', { customFields: { era: ['medieval', 'renaissance'] } }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].customFields.era.length, 2, 'unioned era values');
+    assert(result[0].customFields.era.includes('renaissance'), 'has renaissance');
+});
+
+test('deduplicateMultiVault: merge customFields prefers first non-empty scalar', () => {
+    const entries = [
+        makeEntry('Dragon', { customFields: { mood: 'fierce' } }),
+        makeEntry('Dragon', { customFields: { mood: 'calm' } }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result[0].customFields.mood, 'fierce', 'first scalar kept');
+});
+
+test('deduplicateMultiVault: three-way merge', () => {
+    const entries = [
+        makeEntry('Dragon', { keys: ['a'], content: 'one' }),
+        makeEntry('Dragon', { keys: ['b'], content: 'two' }),
+        makeEntry('Dragon', { keys: ['c'], content: 'three' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'merge');
+    assertEqual(result.length, 1, 'one merged entry');
+    assertEqual(result[0].keys.length, 3, 'all keys merged');
+    assert(result[0].content.includes('one'), 'first content');
+    assert(result[0].content.includes('three'), 'third content');
+});
+
+test('deduplicateMultiVault: mixed unique + duplicate entries', () => {
+    const entries = [
+        makeEntry('Dragon', { vaultSource: 'v1' }),
+        makeEntry('Elf', { vaultSource: 'v1' }),
+        makeEntry('Dragon', { vaultSource: 'v2' }),
+    ];
+    const result = deduplicateMultiVault(entries, 'first');
+    assertEqual(result.length, 2, 'Dragon deduped, Elf kept');
+    const titles = result.map(e => e.title);
+    assert(titles.includes('Dragon'), 'has Dragon');
+    assert(titles.includes('Elf'), 'has Elf');
+});
+
+test('deduplicateMultiVault: empty entries array', () => {
+    assertEqual(deduplicateMultiVault([], 'first').length, 0, 'empty');
+    assertEqual(deduplicateMultiVault([], 'merge').length, 0, 'empty merge');
+});
+
+test('computeEntityDerivedState: titles and keys added to entity name set', () => {
+    const entries = [makeEntry('Dragon', { keys: ['drake', 'wyrm'] })];
+    computeEntityDerivedState(entries);
+    assert(entityNameSet.has('dragon'), 'title lowercase in set');
+    assert(entityNameSet.has('drake'), 'key in set');
+    assert(entityNameSet.has('wyrm'), 'key in set');
+});
+
+test('computeEntityDerivedState: single-char keys excluded', () => {
+    const entries = [makeEntry('Dragon', { keys: ['x', 'fire'] })];
+    computeEntityDerivedState(entries);
+    assert(!entityNameSet.has('x'), 'single char key excluded');
+    assert(entityNameSet.has('fire'), 'multi char key included');
+});
+
+test('computeEntityDerivedState: single-char titles included', () => {
+    const entries = [makeEntry('X', {})];
+    computeEntityDerivedState(entries);
+    assert(entityNameSet.has('x'), 'single char title included (>= 1)');
+});
+
+test('computeEntityDerivedState: regexes have word boundaries', () => {
+    const entries = [makeEntry('Arch', { keys: [] })];
+    computeEntityDerivedState(entries);
+    const regex = entityShortNameRegexes.get('arch');
+    assert(regex !== undefined, 'regex exists');
+    assert(regex.test('The Arch stands'), 'matches whole word');
+    assert(!regex.test('monarch'), 'does not match substring');
+});
+
+test('computeEntityDerivedState: special regex chars escaped', () => {
+    const entries = [makeEntry('C++', { keys: [] })];
+    computeEntityDerivedState(entries);
+    const regex = entityShortNameRegexes.get('c++');
+    assert(regex !== undefined, 'regex exists for special chars');
+    // Shouldn't throw when tested
+    assert(!regex.test('cccc'), 'does not match unrelated');
+});
+
+// ============================================================================
+// Phase 1B: state.js — trackerKey, circuit breaker query/probe
+// ============================================================================
+
+test('trackerKey: entry with vaultSource', () => {
+    assertEqual(trackerKey({ title: 'Eris', vaultSource: 'main' }), 'main:Eris');
+});
+
+test('trackerKey: entry with empty vaultSource', () => {
+    assertEqual(trackerKey({ title: 'Eris', vaultSource: '' }), ':Eris');
+});
+
+test('trackerKey: entry with undefined vaultSource', () => {
+    assertEqual(trackerKey({ title: 'Eris' }), ':Eris');
+});
+
+test('trackerKey: same title different vaultSource produces different keys', () => {
+    const k1 = trackerKey({ title: 'Dragon', vaultSource: 'vault1' });
+    const k2 = trackerKey({ title: 'Dragon', vaultSource: 'vault2' });
+    assertNotEqual(k1, k2, 'different vaultSources should produce different keys');
+});
+
+test('isAiCircuitOpen: returns false when circuit is closed', () => {
+    recordAiSuccess(); // ensure closed
+    assert(!isAiCircuitOpen(), 'closed circuit should return false');
+});
+
+test('isAiCircuitOpen: returns true during cooldown', () => {
+    recordAiSuccess(); // reset
+    recordAiFailure();
+    recordAiFailure(); // trip circuit
+    assert(isAiCircuitOpen(), 'circuit should be open during cooldown');
+    recordAiSuccess(); // cleanup
+});
+
+test('tryAcquireHalfOpenProbe: returns true when circuit closed', () => {
+    recordAiSuccess(); // reset
+    assert(tryAcquireHalfOpenProbe(), 'closed circuit always allows calls');
+});
+
+test('tryAcquireHalfOpenProbe: returns false during cooldown', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure(); // trip
+    // Cooldown just started, should be blocked
+    assert(!tryAcquireHalfOpenProbe(), 'should be blocked during cooldown');
+    recordAiSuccess(); // cleanup
+});
+
+test('tryAcquireHalfOpenProbe: allows probe after cooldown expires', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure(); // trip
+    // Simulate cooldown expiry by backdating the opened-at timestamp
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+    assert(tryAcquireHalfOpenProbe(), 'should allow probe after cooldown');
+    recordAiSuccess(); // cleanup
+});
+
+test('tryAcquireHalfOpenProbe: second caller blocked after first acquires probe', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure();
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+    assert(tryAcquireHalfOpenProbe(), 'first caller gets probe');
+    assert(!tryAcquireHalfOpenProbe(), 'second caller blocked');
+    recordAiSuccess(); // cleanup
+});
+
+test('releaseHalfOpenProbe: frees probe without affecting circuit state', () => {
+    recordAiSuccess();
+    recordAiFailure();
+    recordAiFailure();
+    setAiCircuitOpenedAt(Date.now() - 31_000);
+    tryAcquireHalfOpenProbe(); // acquire
+    releaseHalfOpenProbe(); // release without success/failure
+    // Circuit should still be open (not closed by release)
+    assert(isAiCircuitOpen() === false, 'after release, cooldown expired, no probe → isAiCircuitOpen returns false for new probe');
+    // Another caller should now be able to acquire
+    assert(tryAcquireHalfOpenProbe(), 'probe should be re-acquirable after release');
+    recordAiSuccess(); // cleanup
+});
+
+test('computeOverallStatus: limited when obsidian circuit open with entries', () => {
+    setVaultIndex([makeEntry('A', {})]);
+    setIndexEverLoaded(true);
+    setLastVaultFailureCount(0);
+    setLastVaultAttemptCount(1);
+    setLastHealthResult(null);
+    recordAiSuccess();
+    const status = computeOverallStatus({ state: 'open' });
+    assertEqual(status, 'limited', 'obsidian circuit open with entries = limited');
+});
+
+test('computeOverallStatus: offline when obsidian circuit open with no entries', () => {
+    setVaultIndex([]);
+    setIndexEverLoaded(false);
+    setLastVaultFailureCount(0);
+    setLastVaultAttemptCount(0);
+    setLastHealthResult(null);
+    recordAiSuccess();
+    const status = computeOverallStatus({ state: 'open' });
+    assertEqual(status, 'offline', 'obsidian circuit open with no entries = offline');
+});
+
+// ============================================================================
+// Phase 2D: matchEntries (extracted to match.js)
+// ============================================================================
+
+import { matchEntries as matchEntriesPure } from '../src/pipeline/match.js';
+
+// Helper: create a chat array from messages
+function makeChat(...messages) {
+    return messages.map((m, i) => ({
+        name: typeof m === 'string' ? (i % 2 === 0 ? 'User' : 'Char') : m.name,
+        mes: typeof m === 'string' ? m : m.mes,
+        is_user: typeof m === 'string' ? (i % 2 === 0) : (m.is_user ?? false),
+    }));
+}
+
+test('matchEntries: constants always matched regardless of keywords', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('ConstantLore', { constant: true, keys: [] }),
+        makeEntry('Normal', { keys: ['dragon'] }),
+    ];
+    const chat = makeChat('Hello there');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'ConstantLore'), 'constant always matched');
+    assertEqual(matchedKeys.get('ConstantLore'), '(constant)', 'reason is (constant)');
+});
+
+test('matchEntries: bootstrap entries matched when chat is short', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('BootLore', { bootstrap: true, keys: [] })];
+    const chat = makeChat('Hello');
+    const settings = makeSettings({ scanDepth: 5, newChatThreshold: 3 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'BootLore'), 'bootstrap matched when chat short');
+});
+
+test('matchEntries: bootstrap not matched when chat is long', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('BootLore', { bootstrap: true, keys: [] })];
+    const chat = makeChat('msg1', 'msg2', 'msg3', 'msg4');
+    const settings = makeSettings({ scanDepth: 5, newChatThreshold: 3 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'BootLore'), 'bootstrap not matched when chat > threshold');
+});
+
+test('matchEntries: keyword match triggers entry', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'] })];
+    const chat = makeChat('I see a dragon in the distance');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'keyword match found');
+});
+
+test('matchEntries: warmup gate blocks entry with insufficient occurrences', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], warmup: 3 })];
+    const chat = makeChat('I see a dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, warmupFailed } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'Dragon'), 'warmup blocks with 1 occurrence');
+    assertEqual(warmupFailed.length, 1, 'warmup failure recorded');
+    assertEqual(warmupFailed[0].needed, 3, 'needed 3');
+});
+
+test('matchEntries: warmup gate passes when enough occurrences', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], warmup: 2 })];
+    const chat = makeChat('dragon dragon dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'warmup passes with enough occurrences');
+});
+
+test('matchEntries: probability 0 always skips', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], probability: 0 })];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, probabilitySkipped } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'Dragon'), 'probability 0 always skips');
+    assertEqual(probabilitySkipped.length, 1, 'skip recorded');
+});
+
+test('matchEntries: probability 1.0 always passes', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], probability: 1.0 })];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'probability 1.0 always passes');
+});
+
+test('matchEntries: cooldown gate blocks entry', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Dragon', { keys: ['dragon'], cooldown: 3 })];
+    cooldownTracker.set(':Dragon', 2);
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(!matched.some(e => e.title === 'Dragon'), 'cooldown blocks entry');
+    cooldownTracker.clear(); // cleanup
+});
+
+test('matchEntries: cascade links pull in linked entries', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], cascadeLinks: ['Sword'] }),
+        makeEntry('Sword', { keys: ['sword'] }),
+    ];
+    const chat = makeChat('I see a dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary match');
+    assert(matched.some(e => e.title === 'Sword'), 'cascade linked');
+    assert(matchedKeys.get('Sword').includes('cascade from'), 'reason shows cascade');
+});
+
+test('matchEntries: BUG-035 cascade links skip warmup', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], cascadeLinks: ['Sword'] }),
+        makeEntry('Sword', { keys: ['sword'], warmup: 5 }),
+    ];
+    const chat = makeChat('I see a dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    // Sword has warmup=5 but is cascade-linked — should still be pulled in
+    assert(matched.some(e => e.title === 'Sword'), 'cascade skips warmup gate');
+});
+
+test('matchEntries: cascade links respect cooldown', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], cascadeLinks: ['Sword'] }),
+        makeEntry('Sword', { keys: ['sword'], cooldown: 3 }),
+    ];
+    cooldownTracker.set(':Sword', 2);
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary matches');
+    assert(!matched.some(e => e.title === 'Sword'), 'cascade blocked by cooldown');
+    cooldownTracker.clear();
+});
+
+test('matchEntries: recursive scanning finds entries in matched content', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], content: 'The dragon guards the sword' }),
+        makeEntry('Sword', { keys: ['sword'] }),
+    ];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5, recursiveScan: true, maxRecursionSteps: 3 });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary match');
+    assert(matched.some(e => e.title === 'Sword'), 'found via recursion');
+    assert(matchedKeys.get('Sword').includes('recursion'), 'reason shows recursion');
+});
+
+test('matchEntries: excludeRecursion flag respected', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Dragon', { keys: ['dragon'], content: 'The dragon guards the sword', excludeRecursion: true }),
+        makeEntry('Sword', { keys: ['sword'] }),
+    ];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5, recursiveScan: true, maxRecursionSteps: 3 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assert(matched.some(e => e.title === 'Dragon'), 'primary match');
+    assert(!matched.some(e => e.title === 'Sword'), 'recursion skipped due to excludeRecursion');
+});
+
+test('matchEntries: character context scan', () => {
+    clearScanTextCache();
+    const entries = [makeEntry('Eris', { keys: ['eris'] })];
+    const chat = makeChat('Hello');
+    const settings = makeSettings({ scanDepth: 5, characterContextScan: true });
+    const { matched, matchedKeys } = matchEntriesPure(chat, entries, { settings, characterName: 'Eris' });
+    assert(matched.some(e => e.title === 'Eris'), 'active character matched');
+    assertEqual(matchedKeys.get('Eris'), '(active character)', 'reason shows active character');
+});
+
+test('matchEntries: sorted by priority', () => {
+    clearScanTextCache();
+    const entries = [
+        makeEntry('Low', { keys: ['dragon'], priority: 100 }),
+        makeEntry('High', { keys: ['dragon'], priority: 10 }),
+    ];
+    const chat = makeChat('dragon');
+    const settings = makeSettings({ scanDepth: 5 });
+    const { matched } = matchEntriesPure(chat, entries, { settings });
+    assertEqual(matched[0].title, 'High', 'higher priority first (lower number)');
+    assertEqual(matched[1].title, 'Low', 'lower priority second');
+});
+
+// ============================================================================
+// Phase 2C: buildCandidateManifest (extracted to manifest.js)
+// ============================================================================
+
+import { buildCandidateManifest } from '../src/ai/manifest.js';
+
+// Reset field definitions to defaults for manifest tests
+setFieldDefinitions([
+    { name: 'era', label: 'Era' },
+    { name: 'location', label: 'Location' },
+]);
+
+test('buildCandidateManifest: filters out constants', () => {
+    const candidates = [
+        makeEntry('Dragon', { keys: ['dragon'], summary: 'A dragon', tokenEstimate: 50 }),
+        makeEntry('Always', { keys: ['always'], summary: 'Constant', tokenEstimate: 30, constant: true }),
+    ];
+    const settings = makeSettings();
+    const { manifest, header } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('Dragon'), 'Dragon in manifest');
+    assert(!manifest.includes('name="Always"'), 'constant filtered from manifest');
+    assert(header.includes('1 entries are always included'), 'header mentions forced count');
+});
+
+test('buildCandidateManifest: filters bootstraps when excludeBootstrap=true', () => {
+    const candidates = [
+        makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 }),
+        makeEntry('Boot', { summary: 'Bootstrap', tokenEstimate: 30, bootstrap: true }),
+    ];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, true, settings);
+    assert(manifest.includes('Dragon'), 'Dragon in manifest');
+    assert(!manifest.includes('name="Boot"'), 'bootstrap filtered');
+});
+
+test('buildCandidateManifest: empty selectable returns empty', () => {
+    const candidates = [makeEntry('Always', { constant: true, tokenEstimate: 30 })];
+    const settings = makeSettings();
+    const { manifest, header } = buildCandidateManifest(candidates, false, settings);
+    assertEqual(manifest, '', 'empty manifest');
+    assertEqual(header, '', 'empty header');
+});
+
+test('buildCandidateManifest: prefer_summary mode uses summary when available', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'My summary', content: 'My content', tokenEstimate: 50 })];
+    const settings = makeSettings({ manifestSummaryMode: 'prefer_summary' });
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('My summary'), 'summary text used');
+});
+
+test('buildCandidateManifest: content_only mode ignores summary', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'My summary', content: 'My full content here.', tokenEstimate: 50 })];
+    const settings = makeSettings({ manifestSummaryMode: 'content_only' });
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(!manifest.includes('My summary'), 'summary not used in content_only');
+    assert(manifest.includes('My full content here.'), 'content used');
+});
+
+test('buildCandidateManifest: summary_only mode excludes entries without summary', () => {
+    const candidates = [
+        makeEntry('A', { summary: 'Has summary', tokenEstimate: 50 }),
+        makeEntry('B', { summary: '', content: 'No summary', tokenEstimate: 50 }),
+    ];
+    const settings = makeSettings({ manifestSummaryMode: 'summary_only' });
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('name="A"'), 'A with summary included');
+    assert(!manifest.includes('name="B"'), 'B without summary excluded');
+});
+
+test('buildCandidateManifest: custom field annotations', () => {
+    const candidates = [makeEntry('Dragon', {
+        summary: 'A dragon', tokenEstimate: 50,
+        customFields: { era: ['medieval'], location: 'mountain' },
+    })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('Era: medieval'), 'era annotation');
+    assert(manifest.includes('Location: mountain'), 'location annotation');
+});
+
+test('buildCandidateManifest: decay STALE hint', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ decayEnabled: true, decayBoostThreshold: 5 });
+    setDecayTracker(new Map([[':Dragon', 6]]));
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('[STALE'), 'stale hint present');
+    setDecayTracker(new Map()); // cleanup
+});
+
+test('buildCandidateManifest: consecutive FREQUENT hint', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ decayEnabled: true, decayBoostThreshold: 5, decayPenaltyThreshold: 3 });
+    // decayTracker must be non-empty for the decay block to execute
+    setDecayTracker(new Map([['other:entry', 0]]));
+    setConsecutiveInjections(new Map([[':Dragon', 4]]));
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('[FREQUENT'), 'frequent hint present');
+    setDecayTracker(new Map()); // cleanup
+    setConsecutiveInjections(new Map()); // cleanup
+});
+
+test('buildCandidateManifest: wiki-link formatting', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50, resolvedLinks: ['Eris', 'Sword'] })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('→ Eris, Sword'), 'links formatted');
+});
+
+test('buildCandidateManifest: token count in header', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 123 })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('123tok'), 'token count in manifest');
+});
+
+test('buildCandidateManifest: XML escaping in entry name', () => {
+    const candidates = [makeEntry('Dragon & Fire <Hot>', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings();
+    const { manifest } = buildCandidateManifest(candidates, false, settings);
+    assert(manifest.includes('name="Dragon &amp; Fire &lt;Hot&gt;"'), 'XML escaped');
+});
+
+test('buildCandidateManifest: budget info present when not unlimited', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ unlimitedBudget: false, maxTokensBudget: 2000 });
+    const { header } = buildCandidateManifest(candidates, false, settings);
+    assert(header.includes('Token budget: ~2000'), 'budget info present');
+});
+
+test('buildCandidateManifest: budget info absent when unlimited', () => {
+    const candidates = [makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 })];
+    const settings = makeSettings({ unlimitedBudget: true });
+    const { header } = buildCandidateManifest(candidates, false, settings);
+    assert(!header.includes('Token budget'), 'no budget info');
+});
+
+test('buildCandidateManifest: BUG-047 forcedCount uses candidates.length', () => {
+    const candidates = [
+        makeEntry('Dragon', { summary: 'A dragon', tokenEstimate: 50 }),
+        makeEntry('Const1', { constant: true, tokenEstimate: 30 }),
+        makeEntry('Const2', { constant: true, tokenEstimate: 20 }),
+    ];
+    const settings = makeSettings();
+    const { header } = buildCandidateManifest(candidates, false, settings);
+    assert(header.includes('1 (from 3 total)'), 'selectable=1 from total=3');
+    assert(header.includes('2 entries are always included'), '2 forced');
+    assert(header.includes('~50 tokens'), 'forced token sum');
+});
+
+// ============================================================================
+// v2.0-beta Coherence Pass — Item 4: AI search cache invalidation
+// ============================================================================
+
+function freshCache() {
+    return { hash: 'abc', manifestHash: 'def', chatLineCount: 5, results: [{ title: 'X' }], matchedEntrySet: new Set(['X']) };
+}
+function isClearedCache(c) {
+    return c.hash === '' && c.manifestHash === '' && c.chatLineCount === 0 &&
+        Array.isArray(c.results) && c.results.length === 0;
+}
+
+test('cache invalidation: notifyPinBlockChanged clears aiSearchCache', () => {
+    setAiSearchCache(freshCache());
+    notifyPinBlockChanged();
+    // Re-read live binding
+    const c = aiSearchCache;
+    assert(isClearedCache(c), 'pinBlockChanged clears cache');
+});
+
+test('cache invalidation: notifyGatingChanged clears aiSearchCache', () => {
+    setAiSearchCache(freshCache());
+    notifyGatingChanged();
+    const c = aiSearchCache;
+    assert(isClearedCache(c), 'gatingChanged clears cache');
+});
+
+test('cache invalidation: setFieldDefinitions clears aiSearchCache', () => {
+    setAiSearchCache(freshCache());
+    setFieldDefinitions([]);
+    const c = aiSearchCache;
+    assert(isClearedCache(c), 'fieldDefinitions update clears cache');
+});
+
+// ============================================================================
+// Item 7: Strip dangling requires/excludes/cascade_links — pure logic test
+// ============================================================================
+
+// Replicates the filterValid logic added to vault.js finalizeIndex.
+// (vault.js itself can't be imported here due to ST runtime deps.)
+function applyDanglingRefStrip(entries) {
+    const validTitles = new Set(entries.map(e => e.title.toLowerCase()));
+    const filterValid = (arr) => arr.filter(ref => validTitles.has(String(ref).toLowerCase()));
+    for (const entry of entries) {
+        if (Array.isArray(entry.requires) && entry.requires.length) {
+            const cleaned = filterValid(entry.requires);
+            if (cleaned.length !== entry.requires.length) {
+                entry._originalRequires = entry.requires.slice();
+                entry.requires = cleaned;
+            }
+        }
+        if (Array.isArray(entry.excludes) && entry.excludes.length) {
+            const cleaned = filterValid(entry.excludes);
+            if (cleaned.length !== entry.excludes.length) {
+                entry._originalExcludes = entry.excludes.slice();
+                entry.excludes = cleaned;
+            }
+        }
+        if (Array.isArray(entry.cascadeLinks) && entry.cascadeLinks.length) {
+            const cleaned = filterValid(entry.cascadeLinks);
+            if (cleaned.length !== entry.cascadeLinks.length) {
+                entry._originalCascadeLinks = entry.cascadeLinks.slice();
+                entry.cascadeLinks = cleaned;
+            }
+        }
+    }
+    return entries;
+}
+
+test('dangling-ref strip: removes nonexistent requires', () => {
+    const entries = [
+        { title: 'Real', requires: [], excludes: [], cascadeLinks: [] },
+        { title: 'Dependent', requires: ['Real', 'Ghost'], excludes: [], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[1].requires, ['Real'], 'dangling Ghost stripped');
+    assertEqual(entries[1]._originalRequires, ['Real', 'Ghost'], 'original preserved');
+});
+
+test('dangling-ref strip: case-insensitive matching', () => {
+    const entries = [
+        { title: 'Real', requires: [], excludes: [], cascadeLinks: [] },
+        { title: 'B', requires: ['REAL'], excludes: [], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[1].requires, ['REAL'], 'REAL kept (matches Real)');
+    assert(!entries[1]._originalRequires, 'no snapshot when nothing stripped');
+});
+
+test('dangling-ref strip: removes nonexistent excludes', () => {
+    const entries = [
+        { title: 'A', requires: [], excludes: ['Ghost', 'AlsoGhost'], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[0].excludes, [], 'all excludes stripped');
+    assertEqual(entries[0]._originalExcludes, ['Ghost', 'AlsoGhost'], 'originals preserved');
+});
+
+test('dangling-ref strip: removes nonexistent cascadeLinks', () => {
+    const entries = [
+        { title: 'A', requires: [], excludes: [], cascadeLinks: [] },
+        { title: 'B', requires: [], excludes: [], cascadeLinks: ['A', 'Ghost'] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[1].cascadeLinks, ['A'], 'cascade Ghost stripped');
+    assertEqual(entries[1]._originalCascadeLinks, ['A', 'Ghost'], 'cascade original preserved');
+});
+
+test('dangling-ref strip: empty arrays untouched', () => {
+    const entries = [
+        { title: 'A', requires: [], excludes: [], cascadeLinks: [] },
+    ];
+    applyDanglingRefStrip(entries);
+    assert(!entries[0]._originalRequires, 'no snapshot for empty requires');
+    assert(!entries[0]._originalExcludes, 'no snapshot for empty excludes');
+    assert(!entries[0]._originalCascadeLinks, 'no snapshot for empty cascade');
+});
+
+test('dangling-ref strip: no entries dropped, only filtered', () => {
+    const entries = [
+        { title: 'A', requires: ['Ghost1'], excludes: ['Ghost2'], cascadeLinks: ['Ghost3'] },
+    ];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries.length, 1, 'entry not dropped');
+    assertEqual(entries[0].requires, [], 'requires cleared');
+    assertEqual(entries[0].excludes, [], 'excludes cleared');
+    assertEqual(entries[0].cascadeLinks, [], 'cascade cleared');
+});
+
+test('dangling-ref strip: missing arrays do not crash', () => {
+    const entries = [{ title: 'A' }];
+    applyDanglingRefStrip(entries);
+    assertEqual(entries[0].title, 'A', 'undefined arrays handled');
+});
+
+// ============================================================================
+// Item 5: Swipe state pollution rollback — snapshot/restore logic
+// ============================================================================
+
+function takeSnapshot() {
+    return {
+        cooldown: new Map(cooldownTracker),
+        decay: new Map(decayTracker),
+        consecutive: new Map(consecutiveInjections),
+        injectionHistory: new Map(injectionHistory),
+        generationCount: generationCount,
+    };
+}
+
+function restoreSnapshot(snap) {
+    setCooldownTracker(new Map(snap.cooldown));
+    setDecayTracker(new Map(snap.decay));
+    setConsecutiveInjections(new Map(snap.consecutive));
+    setInjectionHistory(new Map(snap.injectionHistory));
+    setGenerationCount(snap.generationCount);
+}
+
+test('swipe rollback: snapshot is independent of source maps', () => {
+    setCooldownTracker(new Map([['A', 5]]));
+    const snap = takeSnapshot();
+    cooldownTracker.set('A', 99); // mutate live map
+    assertEqual(snap.cooldown.get('A'), 5, 'snapshot not affected by later mutation');
+});
+
+test('swipe rollback: restore restores cooldown values', () => {
+    setCooldownTracker(new Map([['A', 5], ['B', 3]]));
+    setDecayTracker(new Map());
+    setConsecutiveInjections(new Map());
+    setInjectionHistory(new Map());
+    setGenerationCount(10);
+    const snap = takeSnapshot();
+    // Simulate "swipe gen" mutation
+    setCooldownTracker(new Map([['A', 4], ['B', 2], ['C', 7]]));
+    setGenerationCount(11);
+    restoreSnapshot(snap);
+    const c = cooldownTracker;
+    assertEqual(c.get('A'), 5, 'A restored');
+    assertEqual(c.get('B'), 3, 'B restored');
+    assert(!c.has('C'), 'C (added on swipe) removed');
+    assertEqual(generationCount, 10, 'gen count restored');
+});
+
+test('swipe rollback: restore restores injectionHistory', () => {
+    setInjectionHistory(new Map([['A', 5]]));
+    const snap = takeSnapshot();
+    setInjectionHistory(new Map([['A', 6], ['B', 6]]));
+    restoreSnapshot(snap);
+    const h = injectionHistory;
+    assertEqual(h.get('A'), 5, 'A restored');
+    assert(!h.has('B'), 'B removed');
+});
+
+test('swipe rollback: multiple swipes do not accumulate pollution', () => {
+    setCooldownTracker(new Map([['A', 5]]));
+    setDecayTracker(new Map());
+    setConsecutiveInjections(new Map());
+    setInjectionHistory(new Map());
+    setGenerationCount(10);
+    const baseSnap = takeSnapshot();
+    // Simulate 3 swipes — each restores from baseSnap before mutating
+    for (let i = 0; i < 3; i++) {
+        restoreSnapshot(baseSnap);
+        cooldownTracker.set('A', cooldownTracker.get('A') - 1);
+    }
+    assertEqual(cooldownTracker.get('A'), 4, 'A always lands at 4 (5-1), not 2 (5-3)');
+});
+
+// ============================================================================
+// Item 6: uiCascadeState derivation — pure logic
+// ============================================================================
+
+// Replicates the derivation in src/diagnostics/state-snapshot.js.
+function deriveUiCascadeState(s) {
+    return {
+        maxEntries: { disabled: !!s.unlimitedEntries, reason: 'unlimitedEntries' },
+        maxTokensBudget: { disabled: !!s.unlimitedBudget, reason: 'unlimitedBudget' },
+        aiNotepadConnection: { hidden: s.aiNotepadMode === 'tag', reason: 'aiNotepadMode=tag' },
+        keywordMatchingSettings: { disabled: s.aiSearchEnabled && s.aiSearchMode === 'ai-only', reason: 'aiSearchMode=ai-only' },
+        scanDepth: { hidden: s.aiSearchEnabled && s.aiSearchMode === 'ai-only', reason: 'aiSearchMode=ai-only' },
+        fuzzyMinScore: { hidden: !s.fuzzySearchEnabled, reason: 'fuzzySearchEnabled' },
+        maxRecursion: { disabled: !s.recursiveScan, reason: 'recursiveScan' },
+        stripLookback: { disabled: !s.stripDuplicateInjections, reason: 'stripDuplicateInjections' },
+    };
+}
+
+test('uiCascadeState: maxEntries disabled when unlimitedEntries', () => {
+    const r = deriveUiCascadeState({ unlimitedEntries: true });
+    assertEqual(r.maxEntries.disabled, true, 'disabled');
+});
+
+test('uiCascadeState: aiNotepadConnection hidden in tag mode', () => {
+    const r = deriveUiCascadeState({ aiNotepadMode: 'tag' });
+    assertEqual(r.aiNotepadConnection.hidden, true, 'hidden in tag mode');
+    const r2 = deriveUiCascadeState({ aiNotepadMode: 'extract' });
+    assertEqual(r2.aiNotepadConnection.hidden, false, 'shown in extract mode');
+});
+
+test('uiCascadeState: keywordMatchingSettings disabled in ai-only mode', () => {
+    const r = deriveUiCascadeState({ aiSearchEnabled: true, aiSearchMode: 'ai-only' });
+    assertEqual(r.keywordMatchingSettings.disabled, true, 'disabled');
+    const r2 = deriveUiCascadeState({ aiSearchEnabled: true, aiSearchMode: 'two-stage' });
+    assertEqual(r2.keywordMatchingSettings.disabled, false, 'enabled in two-stage');
+    const r3 = deriveUiCascadeState({ aiSearchEnabled: false, aiSearchMode: 'ai-only' });
+    assertEqual(r3.keywordMatchingSettings.disabled, false, 'enabled when AI off');
+});
+
+test('uiCascadeState: fuzzyMinScore hidden when fuzzy disabled', () => {
+    assertEqual(deriveUiCascadeState({ fuzzySearchEnabled: false }).fuzzyMinScore.hidden, true, 'hidden');
+    assertEqual(deriveUiCascadeState({ fuzzySearchEnabled: true }).fuzzyMinScore.hidden, false, 'shown');
+});
+
+test('uiCascadeState: maxRecursion disabled when recursive off', () => {
+    assertEqual(deriveUiCascadeState({ recursiveScan: false }).maxRecursion.disabled, true, 'disabled');
+    assertEqual(deriveUiCascadeState({ recursiveScan: true }).maxRecursion.disabled, false, 'enabled');
+});
+
+test('uiCascadeState: stripLookback disabled when strip-dedup off', () => {
+    assertEqual(deriveUiCascadeState({ stripDuplicateInjections: false }).stripLookback.disabled, true, 'disabled');
+    assertEqual(deriveUiCascadeState({ stripDuplicateInjections: true }).stripLookback.disabled, false, 'enabled');
+});
+
+test('uiCascadeState: every entry has a reason field', () => {
+    const r = deriveUiCascadeState({});
+    for (const [key, val] of Object.entries(r)) {
+        assert(typeof val.reason === 'string' && val.reason.length > 0, `${key} has reason`);
+    }
+});
+
+// ============================================================================
 // Results
 // ============================================================================
 
-console.log(`\n${'='.repeat(40)}`);
-console.log(`Results: ${passed} passed, ${failed} failed`);
-if (failed > 0) {
-    process.exit(1);
-}
+summary();

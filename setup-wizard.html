@@ -30,11 +30,21 @@
         <div class="dle-wizard-step-line"></div>
         <button class="dle-wizard-step" data-step="6">
             <span class="dle-wizard-step-dot">6</span>
-            <span class="dle-wizard-step-label">Vault</span>
+            <span class="dle-wizard-step-label">Librarian</span>
         </button>
         <div class="dle-wizard-step-line"></div>
         <button class="dle-wizard-step" data-step="7">
             <span class="dle-wizard-step-dot">7</span>
+            <span class="dle-wizard-step-label">Vault</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="8">
+            <span class="dle-wizard-step-dot">8</span>
+            <span class="dle-wizard-step-label">Import</span>
+        </button>
+        <div class="dle-wizard-step-line"></div>
+        <button class="dle-wizard-step" data-step="9">
+            <span class="dle-wizard-step-dot">9</span>
             <span class="dle-wizard-step-label">Done</span>
         </button>
     </nav>
@@ -44,12 +54,12 @@
 
         <!-- ═══ Page 1: Welcome ═══ -->
         <div class="dle-wizard-page active" data-wizard-page="1">
-            <h2>Welcome to DeepLore Enhanced</h2>
-            <p class="dle-wizard-subtitle">Your Obsidian vault, wired into SillyTavern.</p>
+            <h2>Welcome to DeepLore</h2>
+            <p class="dle-wizard-subtitle">Your Obsidian vault, connected to SillyTavern.</p>
 
             <div class="dle-wizard-card">
                 <h3><i class="fa-solid fa-book-open"></i> What is this?</h3>
-                <p>DeepLore Enhanced connects your Obsidian lore vault to SillyTavern, automatically injecting relevant worldbuilding entries into your roleplay context. Your characters, locations, lore, and rules — pulled in when they matter.</p>
+                <p>DeepLore connects your Obsidian lore vault to SillyTavern, automatically injecting relevant worldbuilding entries into your roleplay context. Your characters, locations, lore, and rules — pulled in when they matter.</p>
             </div>
 
             <div class="dle-wizard-card">
@@ -57,7 +67,7 @@
                 <ol>
                     <li><strong>Keywords</strong> in chat text match against your vault entries</li>
                     <li><strong>AI refinement</strong> (optional) picks the most relevant matches</li>
-                    <li><strong>Entries are injected</strong> into the AI's context window automatically</li>
+                    <li>Matched entries <strong>are injected</strong> into the AI's context window</li>
                 </ol>
             </div>
 
@@ -87,6 +97,20 @@
                     <input id="dle-wiz-api-key" class="text_pole" type="password" placeholder="From Obsidian REST API plugin settings" />
                 </div>
             </div>
+            <div class="dle-wizard-field">
+                <label class="checkbox_label">
+                    <input id="dle-wiz-https" type="checkbox" />
+                    <span>Use HTTPS</span>
+                    <small class="dle-wizard-muted">(port 27124 — see note below)</small>
+                </label>
+                <a id="dle-wiz-trust-cert" href="#" class="dle-wizard-muted" style="font-size: 0.85em; display: none;">
+                    <i class="fa-solid fa-shield-halved"></i> Trust Certificate (open in new tab)
+                </a>
+                <p class="dle-wizard-muted" style="font-size: 0.85em; margin-top: 4px;">
+                    <i class="fa-solid fa-circle-info"></i> <strong>HTTP is recommended.</strong> HTTPS requires trusting a self-signed certificate, which DLE does not provide support for. If you need HTTPS, see the
+                    <a href="https://github.com/coddingtonbear/obsidian-web/wiki/How-do-I-get-my-browser-trust-my-Obsidian-Local-REST-API-certificate%3F" target="_blank" rel="noopener">Local REST API author's guide</a>.
+                </p>
+            </div>
 
             <button id="dle-wiz-test-conn" class="menu_button dle-wizard-action-btn">
                 <i class="fa-solid fa-plug"></i> Test Connection
@@ -94,6 +118,37 @@
 
             <!-- Connection result banner -->
             <div id="dle-wiz-conn-result" class="dle-wizard-result-banner" style="display: none;"></div>
+
+            <p class="dle-wizard-muted dle-wizard-wiki-link">
+                <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Installation" target="_blank" rel="noopener"><i class="fa-solid fa-book"></i> Installation guide</a>
+            </p>
+
+            <!-- Demo vault callout -->
+            <div class="dle-wizard-card dle-wizard-demo-callout">
+                <h3><i class="fa-solid fa-flask"></i> New to DeepLore? Try the demo vault</h3>
+                <p>257 pre-built entries — the fantasy city of <strong>Duskfrost</strong>. Characters, locations, lore, factions, species, and more. Perfect for exploring DLE before building your own vault.</p>
+                <button id="dle-wiz-demo-toggle" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-folder-open"></i> Show me how
+                </button>
+                <div id="dle-wiz-demo-instructions" style="display: none;">
+                    <ol>
+                        <li>In Obsidian, click the vault icon (bottom-left) → <strong>Open folder as vault</strong></li>
+                        <li>Navigate to the <code>test-vault</code> folder inside the DLE extension directory:
+                            <div class="dle-wizard-demo-path-row">
+                                <code id="dle-wiz-demo-path" class="dle-wizard-demo-path"></code>
+                                <button id="dle-wiz-demo-copy" class="menu_button menu_button_icon dle-wizard-demo-copy" title="Copy path">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                        </li>
+                        <li>Install &amp; enable the <strong>Local REST API</strong> community plugin in the demo vault</li>
+                        <li>Set an API key in the plugin settings, then come back here</li>
+                    </ol>
+                    <button id="dle-wiz-demo-autofill" class="menu_button dle-wizard-action-btn">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Auto-fill connection for demo vault
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- ═══ Page 3: Tags & Search Mode ═══ -->
@@ -134,7 +189,7 @@
                         <input type="radio" name="dle-wiz-search-mode" value="keywords" checked />
                         <div>
                             <strong>Keywords Only</strong>
-                            <span class="dle-wizard-field-hint">Fast, no AI cost. Matches by keyword triggers in your entries.</span>
+                            <span class="dle-wizard-field-hint">Fast and free — matches by keyword triggers in your entries.</span>
                         </div>
                     </label>
                     <label class="dle-wizard-radio">
@@ -153,6 +208,10 @@
                     </label>
                 </div>
             </div>
+
+            <p class="dle-wizard-muted dle-wizard-wiki-link">
+                <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki/Writing-Vault-Entries" target="_blank" rel="noopener"><i class="fa-solid fa-book"></i> How to write vault entries</a>
+            </p>
         </div>
 
         <!-- ═══ Page 4: Matching Configuration ═══ -->
@@ -212,7 +271,7 @@
 
             <label class="checkbox_label dle-wizard-checkbox">
                 <input id="dle-wiz-fuzzy" type="checkbox" class="checkbox" />
-                <span>Enable fuzzy search (BM25/TF-IDF)</span>
+                <span>Enable fuzzy search</span>
             </label>
             <span class="dle-wizard-field-hint" style="margin-left: 24px;">Supplements keyword matching with ranked relevance scoring. Catches partial matches.</span>
         </div>
@@ -228,7 +287,7 @@
                     <label class="dle-wizard-radio">
                         <input type="radio" name="dle-wiz-ai-mode" value="profile" checked />
                         <div>
-                            <strong>ST Connection Profile</strong>
+                            <strong>SillyTavern Connection Profile</strong>
                             <span class="dle-wizard-field-hint">Use an existing SillyTavern connection profile (recommended)</span>
                         </div>
                     </label>
@@ -256,7 +315,7 @@
             <div id="dle-wiz-ai-proxy-fields" style="display: none;">
                 <div class="dle-wizard-field">
                     <label for="dle-wiz-ai-proxy-url">Proxy URL</label>
-                    <input id="dle-wiz-ai-proxy-url" class="text_pole" type="text" value="http://localhost:42069" />
+                    <input id="dle-wiz-ai-proxy-url" class="text_pole" type="text" value="http://127.0.0.1:42069" />
                 </div>
                 <div class="dle-wizard-field">
                     <label for="dle-wiz-ai-model">Model</label>
@@ -271,34 +330,203 @@
             <div id="dle-wiz-ai-result" class="dle-wizard-result-banner" style="display: none;"></div>
         </div>
 
-        <!-- ═══ Page 6: Vault Structure ═══ -->
+        <!-- ═══ Page 6: Librarian ═══ -->
         <div class="dle-wizard-page" data-wizard-page="6">
-            <h2>Vault Structure</h2>
-            <p class="dle-wizard-subtitle">Create helper files in your Obsidian vault.</p>
+            <h2>Librarian</h2>
+            <p class="dle-wizard-subtitle">Let the AI search for and flag missing lore during generation.</p>
 
-            <div class="dle-wizard-card">
-                <h3><i class="fa-solid fa-file-lines"></i> Field Definitions</h3>
-                <p>Contextual gating fields let you filter entries by era, location, scene type, and characters present. This creates a YAML configuration file in your vault.</p>
-                <label class="checkbox_label dle-wizard-checkbox">
-                    <input id="dle-wiz-create-fields" type="checkbox" class="checkbox" checked />
-                    <span>Create <code>DeepLore/field-definitions.yaml</code></span>
-                </label>
-                <div id="dle-wiz-fields-status" class="dle-wizard-file-status" style="display: none;"></div>
+            <div class="dle-wizard-card dle-wizard-card-info">
+                <h3><i class="fa-solid fa-book-bookmark"></i> What is the Librarian?</h3>
+                <p>The Librarian gives your writing AI two optional tools during generation: <strong>search</strong> (look up vault entries the pipeline missed) and <strong>flag</strong> (note a gap in your lore for later). Flagged gaps appear in the drawer's Librarian tab, where you can review them and use an AI-assisted editor to create new entries.</p>
+                <p>This is completely optional and off by default. Most generations should have zero tool calls if your vault is well-maintained.</p>
+            </div>
+
+            <div class="dle-wizard-card dle-wizard-card-warning">
+                <h3><i class="fa-solid fa-coins"></i> Token Cost</h3>
+                <p>Enabling the Librarian increases token usage. Tool definitions add ~300-500 tokens to every generation's system prompt. Each search call adds a round-trip to the generation (the model pauses, searches, then continues). Flag calls are cheaper (no round-trip results). Start with just the flag tool if you want to minimize cost and see what your AI reaches for before enabling search.</p>
             </div>
 
             <div class="dle-wizard-card">
-                <h3><i class="fa-solid fa-scroll"></i> Sessions Folder</h3>
-                <p>Session Scribe writes AI-generated summaries of your roleplay sessions to Obsidian. This creates the folder for those notes.</p>
                 <label class="checkbox_label dle-wizard-checkbox">
-                    <input id="dle-wiz-create-sessions" type="checkbox" class="checkbox" checked />
-                    <span>Create <code>Sessions/</code> folder</span>
+                    <input id="dle-wiz-librarian-enabled" type="checkbox" class="checkbox" />
+                    <span>Enable Librarian</span>
                 </label>
-                <div id="dle-wiz-sessions-status" class="dle-wizard-file-status" style="display: none;"></div>
+
+                <div id="dle-wiz-librarian-sub" style="display: none; margin-top: 8px; padding-left: 20px;">
+                    <label class="checkbox_label dle-wizard-checkbox">
+                        <input id="dle-wiz-librarian-search" type="checkbox" class="checkbox" checked />
+                        <span>Search tool (AI can look up vault entries)</span>
+                    </label>
+                    <label class="checkbox_label dle-wizard-checkbox">
+                        <input id="dle-wiz-librarian-flag" type="checkbox" class="checkbox" checked />
+                        <span>Flag tool (AI can flag missing lore)</span>
+                    </label>
+                </div>
+
+                <p class="dle-wizard-note"><i class="fa-solid fa-circle-info"></i> Requires a model that supports function calling (tool use).</p>
             </div>
         </div>
 
-        <!-- ═══ Page 7: All Done ═══ -->
+        <!-- ═══ Page 7: Prepare Your Vault ═══ -->
         <div class="dle-wizard-page" data-wizard-page="7">
+            <h2>Prepare Your Vault</h2>
+            <p class="dle-wizard-subtitle">Optional scaffolding for advanced features.</p>
+
+            <div class="dle-wizard-card dle-wizard-card-info">
+                <p><i class="fa-solid fa-circle-info"></i> DeepLore scans your whole vault by tag, not by folder &mdash; so there's nothing to point at here. These files are just scaffolding for optional features. You can skip this entirely and add them later from Settings.</p>
+            </div>
+
+            <div id="dle-wiz-vault-conn-warning" class="dle-wizard-card" style="display: none;">
+                <h3><i class="fa-solid fa-triangle-exclamation"></i> Connection Not Verified</h3>
+                <p>You haven't successfully connected to Obsidian yet. Go back and verify your connection before creating helper files.</p>
+                <div class="dle-wizard-action-row">
+                    <button id="dle-wiz-vault-back-conn" class="menu_button">
+                        <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Back to Connection
+                    </button>
+                </div>
+            </div>
+
+            <div id="dle-wiz-vault-helpers-wrap">
+                <div class="dle-wizard-card">
+                    <h3><i class="fa-solid fa-file-lines"></i> Field Definitions</h3>
+                    <p>Contextual gating fields let you filter entries by era, location, scene type, and characters present.</p>
+                    <label class="checkbox_label dle-wizard-checkbox">
+                        <input id="dle-wiz-create-fields" type="checkbox" class="checkbox" checked />
+                        <span>Create a field definitions file</span>
+                    </label>
+                    <div class="dle-wizard-field">
+                        <label>Path in vault</label>
+                        <input id="dle-wiz-fields-path" type="text" class="text_pole" placeholder="DeepLore/field-definitions.yaml" />
+                    </div>
+                    <details class="dle-wizard-template-details">
+                        <summary>Show template</summary>
+                        <pre id="dle-wiz-fields-yaml" class="dle-wizard-yaml-preview"></pre>
+                    </details>
+                    <div id="dle-wiz-fields-status" class="dle-wizard-file-status" style="display: none;"></div>
+                </div>
+
+                <details id="dle-wiz-optional-helpers">
+                    <summary>Optional: Session Scribe folder</summary>
+                    <div class="dle-wizard-card">
+                        <h3><i class="fa-solid fa-scroll"></i> Sessions Folder</h3>
+                        <p>Session Scribe writes AI-generated summaries of your roleplay sessions to Obsidian. This creates the folder for those notes.</p>
+                        <label class="checkbox_label dle-wizard-checkbox">
+                            <input id="dle-wiz-create-sessions" type="checkbox" class="checkbox" />
+                            <span>Create sessions folder</span>
+                        </label>
+                        <div class="dle-wizard-field">
+                            <label>Folder path in vault</label>
+                            <input id="dle-wiz-sessions-path" type="text" class="text_pole" placeholder="Sessions" />
+                        </div>
+                        <div id="dle-wiz-sessions-status" class="dle-wizard-file-status" style="display: none;"></div>
+                    </div>
+                </details>
+
+                <div class="dle-wizard-action-row">
+                    <button id="dle-wiz-create-files" class="menu_button dle-wizard-btn-primary">
+                        <i class="fa-solid fa-folder-plus" aria-hidden="true"></i> Create Helpers
+                    </button>
+                    <button id="dle-wiz-vault-skip" class="menu_button">
+                        <i class="fa-solid fa-forward" aria-hidden="true"></i> Skip this step
+                    </button>
+                </div>
+
+                <div id="dle-wiz-vault-result" class="dle-wizard-result-banner" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- ═══ Page 8: Import ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="8">
+            <h2>Import Existing Lorebook</h2>
+            <p class="dle-wizard-subtitle">Already have a SillyTavern lorebook? Import entries into your Obsidian vault.</p>
+
+            <div class="dle-wizard-card dle-wizard-card-info">
+                <p><i class="fa-solid fa-circle-info"></i> This step is optional. You can always import later with <code>/dle-import</code>.</p>
+            </div>
+
+            <div class="dle-wizard-field">
+                <label>Import Method</label>
+                <div class="dle-wizard-radio-group">
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="skip" checked />
+                        <div>
+                            <strong>Skip Import</strong>
+                            <span class="dle-wizard-field-hint">I'll set up entries in Obsidian manually or import later.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="lorebook" />
+                        <div>
+                            <strong>From SillyTavern Lorebook</strong>
+                            <span class="dle-wizard-field-hint">Import from an existing ST World Info book.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="file" />
+                        <div>
+                            <strong>From JSON File</strong>
+                            <span class="dle-wizard-field-hint">Upload a World Info export JSON or V2 character card.</span>
+                        </div>
+                    </label>
+                    <label class="dle-wizard-radio">
+                        <input type="radio" name="dle-wiz-import-method" value="paste" />
+                        <div>
+                            <strong>Paste JSON</strong>
+                            <span class="dle-wizard-field-hint">Paste World Info JSON directly.</span>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Lorebook dropdown (shown when lorebook method selected) -->
+            <div id="dle-wiz-import-lb-fields" style="display: none;">
+                <div class="dle-wizard-field">
+                    <label for="dle-wiz-import-lorebook">Select Lorebook</label>
+                    <select id="dle-wiz-import-lorebook" class="text_pole">
+                        <option value="">— Select a lorebook —</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- File upload (shown when file method selected) -->
+            <div id="dle-wiz-import-file-fields" style="display: none;">
+                <input type="file" id="dle-wiz-import-file" accept=".json" class="dle-hidden" />
+                <button id="dle-wiz-import-browse" class="menu_button menu_button_icon" style="display: inline-flex;">
+                    <i class="fa-solid fa-file-import"></i>
+                    <span>Browse local JSON file...</span>
+                </button>
+                <span id="dle-wiz-import-file-name" class="dle-wizard-field-hint" style="margin-left: 8px;"></span>
+            </div>
+
+            <!-- JSON paste (shown when paste method selected) -->
+            <div id="dle-wiz-import-paste-fields" style="display: none;">
+                <div class="dle-wizard-field">
+                    <label for="dle-wiz-import-json">Paste JSON</label>
+                    <textarea id="dle-wiz-import-json" class="text_pole dle-import-textarea" placeholder="Paste World Info JSON here..." rows="6"></textarea>
+                </div>
+            </div>
+
+            <!-- Target folder -->
+            <div id="dle-wiz-import-folder-row" style="display: none;">
+                <div class="dle-wizard-field">
+                    <label for="dle-wiz-import-folder">Target Folder (optional)</label>
+                    <span class="dle-wizard-field-hint">Entries will be created in this folder in your vault. Leave blank for vault root.</span>
+                    <input id="dle-wiz-import-folder" class="text_pole" type="text" placeholder="e.g. Imported" />
+                </div>
+            </div>
+
+            <!-- Import button + results -->
+            <div id="dle-wiz-import-action" style="display: none;">
+                <button id="dle-wiz-import-btn" class="menu_button dle-wizard-action-btn">
+                    <i class="fa-solid fa-file-import"></i> Import Entries
+                </button>
+            </div>
+
+            <div id="dle-wiz-import-result" class="dle-wizard-result-banner" style="display: none;"></div>
+        </div>
+
+        <!-- ═══ Page 9: All Done ═══ -->
+        <div class="dle-wizard-page" data-wizard-page="9">
             <div class="dle-wizard-done-header">
                 <div class="dle-wizard-done-check"><i class="fa-solid fa-circle-check"></i></div>
                 <h2>Setup Complete!</h2>
@@ -319,7 +547,13 @@
                 <button class="menu_button dle-wizard-done-btn" data-action="settings">
                     <i class="fa-solid fa-gear"></i> Open Settings
                 </button>
+                <button class="menu_button dle-wizard-done-btn" data-action="meet-emma" title="Open Emma the Librarian to write your first style/meta guide. Guides are read by Emma only — never by the writing AI.">
+                    <i class="fa-solid fa-book-open-reader"></i> Meet Emma
+                </button>
             </div>
+            <p style="text-align:center; opacity:0.75; margin-top:8px; font-size:0.9em;">
+                <strong>Meet Emma</strong> is the recommended next step — she'll walk you through writing your first style guide.
+            </p>
 
             <p class="dle-wizard-wiki-link">
                 <a href="https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/wiki" target="_blank">

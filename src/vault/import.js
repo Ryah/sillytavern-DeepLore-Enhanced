@@ -4,17 +4,7 @@
  */
 import { writeNote, obsidianFetch, encodeVaultPath } from './obsidian-api.js';
 import { getSettings, getPrimaryVault } from '../../settings.js';
-// Re-export from helpers.js (moved there for testability in Node.js)
-export { convertWiEntry } from '../helpers.js';
 import { convertWiEntry } from '../helpers.js';
-
-/**
- * Map a SillyTavern World Info entry to Obsidian frontmatter + content.
- * @param {object} wiEntry - ST World Info entry object
- * @param {string} lorebookTag - The lorebook tag to add
- * @returns {{ filename: string, content: string }}
- */
-// convertWiEntry — re-exported from ./helpers.js above
 
 /**
  * Import an array of ST World Info entries into the Obsidian vault.
@@ -38,23 +28,23 @@ export async function importEntries(entries, folder, onProgress) {
             const { filename, content } = convertWiEntry(wiEntry, lorebookTag);
             let fullPath = folder ? `${folder}/${filename}` : filename;
 
-            // Check if file already exists to avoid silent overwrites
+            // Check existence to avoid silent overwrites.
             try {
                 const checkResult = await obsidianFetch({
                     host: vault.host,
                     port: vault.port,
                     apiKey: vault.apiKey,
+                    https: !!vault.https,
                     path: `/vault/${encodeVaultPath(fullPath)}`,
                     accept: 'text/markdown',
                 });
                 if (checkResult.status === 200) {
-                    // File exists — find a unique suffix (_imported, _imported_2, _imported_3, ...)
+                    // Find a unique suffix (_imported, _imported_2, _imported_3, ...).
                     const base = filename.replace(/\.md$/, '');
                     let suffix = '_imported';
                     let attempt = 1;
                     let candidatePath;
                     const MAX_DEDUP_ATTEMPTS = 20;
-                    // eslint-disable-next-line no-constant-condition
                     while (attempt <= MAX_DEDUP_ATTEMPTS) {
                         const candidateFilename = `${base}${suffix}.md`;
                         candidatePath = folder ? `${folder}/${candidateFilename}` : candidateFilename;
@@ -63,19 +53,19 @@ export async function importEntries(entries, folder, onProgress) {
                                 host: vault.host,
                                 port: vault.port,
                                 apiKey: vault.apiKey,
+                                https: !!vault.https,
                                 path: `/vault/${encodeVaultPath(candidatePath)}`,
                                 accept: 'text/markdown',
                             });
                             if (dupCheck.status === 200) {
-                                // This suffix is also taken — try next
                                 attempt++;
                                 suffix = `_imported_${attempt}`;
                                 continue;
                             }
                         } catch (dupErr) {
-                            // FIX-M6: Timeout (AbortError) should skip this entry, not use a possibly-undefined path.
+                            // FIX-M6: skip on timeout, don't fall through with an undefined path.
                             if (dupErr.name === 'AbortError') {
-                                candidatePath = undefined; // force skip below
+                                candidatePath = undefined;
                             }
                             break;
                         }
@@ -84,26 +74,26 @@ export async function importEntries(entries, folder, onProgress) {
                     if (!candidatePath) {
                         errors.push(`${filename}: skipped — dedup check timed out`);
                         failed++;
-                        continue; // continues the outer for-of loop
+                        continue;
                     }
                     if (attempt > MAX_DEDUP_ATTEMPTS) {
                         errors.push(`${filename}: exceeded ${MAX_DEDUP_ATTEMPTS} dedup attempts, skipping`);
                         failed++;
-                        continue; // continues the outer for-of loop
+                        continue;
                     }
                     fullPath = candidatePath;
                     renamed++;
                 }
             } catch (existErr) {
                 // obsidianFetch returns {status, data} for all HTTP responses including 404,
-                // so a thrown error is always a network/timeout problem
+                // so a thrown error is always a network/timeout problem.
                 console.warn(`[DLE Import] Network error checking existence of "${fullPath}":`, existErr.message);
                 errors.push(`${filename}: skipped — could not verify existence (${existErr.message})`);
                 failed++;
                 continue;
             }
 
-            const result = await writeNote(vault.host, vault.port, vault.apiKey, fullPath, content);
+            const result = await writeNote(vault.host, vault.port, vault.apiKey, fullPath, content, !!vault.https);
             if (result.ok) {
                 imported++;
             } else {
@@ -133,21 +123,19 @@ export function parseWorldInfoJson(jsonText) {
         throw new Error('Invalid World Info JSON: ' + e.message);
     }
 
-    // Validate that entries are non-null objects
     const filterValid = (arr) => arr.filter(e => e && typeof e === 'object' && !Array.isArray(e));
 
-    // Format 1: Direct WI export { entries: { 0: {...}, 1: {...} } }
+    // Direct WI export { entries: { 0: {...}, 1: {...} } }
     if (data.entries && typeof data.entries === 'object' && !Array.isArray(data.entries)) {
         const entries = filterValid(Object.values(data.entries));
         return { entries, source: data.originalData?.name || 'World Info' };
     }
 
-    // Format 2: Array of entries
     if (Array.isArray(data)) {
         return { entries: filterValid(data), source: 'World Info Array' };
     }
 
-    // Format 3: V2 character card with embedded WI
+    // V2 character card with embedded WI
     if (data.data?.character_book?.entries) {
         const raw = Array.isArray(data.data.character_book.entries)
             ? data.data.character_book.entries

@@ -1,26 +1,30 @@
-# Quick Start
+# Quick start
 
-Get DeepLore Enhanced injecting lore in 5 minutes.
+Get DeepLore injecting lore in five minutes. This page covers the shortest path: connect a vault, write one entry, verify the injection trace.
 
 ## Prerequisites
 
 1. **Obsidian** with the [Local REST API plugin](https://github.com/coddingtonbear/obsidian-local-rest-api) installed and enabled
-2. **SillyTavern** with DeepLore Enhanced installed (see [Installation](Installation))
+2. **SillyTavern** with DeepLore installed (see [[Installation]])
 
-## Step 1: Connect Your Vault
+## Step 1: connect your vault
 
-![Setup Wizard welcome screen explaining what DeepLore Enhanced is, how the two-stage pipeline works, and a Next button to begin configuration](images/dle-setup-wizard.png)
+![Setup wizard welcome screen explaining what DeepLore does, how the two-stage pipeline works, and a Next button to begin configuration](images/dle-setup-wizard.png)
 
-> **Tip:** Run `/dle-setup` to launch the guided setup wizard shown above.
+> [!TIP]
+> Run `/dle-setup` to launch the guided wizard shown above. It walks vault connection, tags, matching, AI search, the Librarian, vault structure, and lorebook import in nine pages. See [[Setup Wizard]].
 
-1. Open SillyTavern → Extensions → DeepLore Enhanced
-2. Under **Vault Connections**, your default vault should already be there
-3. Enter the **Port** (default: `27123`) and **API Key** from the Obsidian REST API plugin settings
-4. Click **Test All** — you should see a green checkmark
+To configure manually instead:
 
-> **Where's my API key?** In Obsidian, go to Settings → Community Plugins → Local REST API → copy the "API Key" field.
+1. Open SillyTavern → Extensions → DeepLore
+2. Under **Vault Connections**, your default vault is preconfigured
+3. Enter the **Port** (default `27123` for HTTP) and **API Key** from the Local REST API plugin settings
+4. Click **Test All**. You should see a green checkmark
 
-## Step 2: Create a Test Entry
+> [!NOTE]
+> The API key lives in Obsidian Settings → Community Plugins → Local REST API → "API Key".
+
+## Step 2: create a test entry
 
 In Obsidian, create a new note with this content:
 
@@ -35,35 +39,36 @@ summary: "The magic system of this world. Select when magic, spells, or supernat
 priority: 50
 ---
 
-# Magic System
+# Magic system
 
 Magic in this world is powered by willpower and channeled through spoken incantations.
 Novice practitioners can only manage simple cantrips, while masters can reshape reality itself.
 ```
 
-The key parts:
-- `tags: [lorebook]` — marks this note for DeepLore to index
-- `keys: [magic, spellcasting]` — keywords that trigger this entry
-- `summary` — helps AI search decide when to select this entry
+The load-bearing pieces:
 
-## Step 3: Enable and Index
+- `tags: [lorebook]` marks this note as a vault entry for DLE to index
+- `keys: [magic, spellcasting]` are the keywords that trigger this entry
+- `summary` is what AI search reads when deciding whether to select this entry
 
-1. Check **Enable DeepLore Enhanced** in settings
-2. Click **Refresh** (or type `/dle-refresh` in chat)
-3. You should see "1 entries" in the header badge
+## Step 3: enable and index
 
-## Step 4: Verify It Works
+1. Check **Enable DeepLore** in settings
+2. Click **Refresh Index** (or run `/dle-refresh`)
+3. The header badge should show "1 entries"
+
+## Step 4: verify it works
 
 1. Start or continue a chat
 2. Send a message mentioning "magic" or "spellcasting"
-3. Type `/dle-inspect` in chat — you should see your entry in the pipeline trace
-4. Click the **book icon** on the AI message to see which entries were injected (Context Cartographer)
+3. Run `/dle-inspect`. Your entry should appear in the pipeline trace
+4. Click the **book icon** on the AI message to open the Context Cartographer and see which entries were injected
 
-![DLE Status output showing vault connection details, 234 indexed entries with tag breakdown, unlimited budget, AI Search enabled, and session statistics](images/dle-status.png)
+![DLE status output showing vault connection details, 234 indexed entries with tag breakdown, unlimited budget, AI Search enabled, and session statistics](images/dle-status.png)
 
-## What's Next?
+## What's next
 
-- Read **[First Steps](First-Steps)** to learn how to build out your vault
-- Check the **[Writing Vault Entries](Writing-Vault-Entries)** guide for frontmatter reference
-- Run `/dle-health` to check your entry quality
-- Explore `/dle-help` for all available commands
+- Read [[First Steps]] to build out a usable vault
+- Check [[Writing Vault Entries]] for the full frontmatter reference
+- Run `/dle-health` to audit your entries
+- Run `/help slash` to list every DLE slash command (SillyTavern auto-discovers them)

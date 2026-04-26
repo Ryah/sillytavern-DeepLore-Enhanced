@@ -1,23 +1,12 @@
-/**
- * DeepLore Enhanced — Graph rendering module.
- * Canvas drawing: edges, nodes, labels, tooltip, color legend.
- */
-import { vaultIndex, lastHealthResult } from '../state.js';
+import { lastHealthResult } from '../state.js';
 import { COMMUNITY_PALETTE, convexHull } from './graph-analysis.js';
 
-// Local escapeHtml — avoids ST import so this module remains Node.js-testable
+// Local escapeHtml — avoids the ST import so this module stays Node.js-testable.
 const escapeHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-// ============================================================================
-// Pure helpers (no state dependency)
-// ============================================================================
+// ─── Pure helpers ───
 
-/**
- * Convert a hex color to a lighter pastel version if it's dark (luminance < 0.65).
- * @param {string} hex  Hex color string (e.g. '#4e79a7')
- * @param {number} [mix=0.25]  Blend amount toward white (0 = unchanged, 1 = white)
- * @returns {string} Hex color string
- */
+/** Lighten dark colors (luminance < 0.65) toward pastel white; pass-through if already light. */
 export function toPastel(hex, mix = 0.25) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -30,7 +19,7 @@ export function toPastel(hex, mix = 0.25) {
     return `#${pr.toString(16).padStart(2, '0')}${pg.toString(16).padStart(2, '0')}${pb.toString(16).padStart(2, '0')}`;
 }
 
-/** Priority-based color (lower priority = warmer). */
+/** Priority bucket → hex. Low priority value = high importance = warmer color. */
 function priorityColor(priority) {
     const p = Math.max(0, Math.min(100, priority || 50));
     if (p <= 25) return '#e53935';
@@ -40,7 +29,7 @@ function priorityColor(priority) {
     return '#42a5f5';
 }
 
-/** Centrality-based color (more connections = warmer). */
+/** edgeCount/max → bucket. More connections = warmer. */
 function centralityColor(edgeCount, maxEdgeCount) {
     const ratio = maxEdgeCount > 0 ? edgeCount / maxEdgeCount : 0;
     if (ratio > 0.7) return '#e53935';
@@ -50,7 +39,7 @@ function centralityColor(edgeCount, maxEdgeCount) {
     return '#42a5f5';
 }
 
-/** Injection frequency color (hot red → cold blue). */
+/** Injection frequency → hex (hot red → cold blue). */
 function frequencyColor(count, maxCount) {
     if (!maxCount) return '#4a6fa5';
     const ratio = count / maxCount;
@@ -61,12 +50,7 @@ function frequencyColor(count, maxCount) {
     return '#4a6fa5';
 }
 
-/**
- * Lighten a hex color by blending toward white.
- * @param {string} hex  Hex color string
- * @param {number} amount  Blend amount (0 = unchanged, 1 = white)
- * @returns {string} CSS rgb() color string
- */
+/** Blend hex toward white. Returns CSS `rgb()` string. */
 export function lightenColor(hex, amount) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -74,12 +58,7 @@ export function lightenColor(hex, amount) {
     return `rgb(${Math.min(255, Math.round(r + (255 - r) * amount))}, ${Math.min(255, Math.round(g + (255 - g) * amount))}, ${Math.min(255, Math.round(b + (255 - b) * amount))})`;
 }
 
-/**
- * Darken a hex color by blending toward black.
- * @param {string} hex  Hex color string
- * @param {number} amount  Blend amount (0 = unchanged, 1 = black)
- * @returns {string} CSS rgb() color string
- */
+/** Blend hex toward black. Returns CSS `rgb()` string. */
 export function darkenColor(hex, amount) {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -87,12 +66,8 @@ export function darkenColor(hex, amount) {
     return `rgb(${Math.round(r * (1 - amount))}, ${Math.round(g * (1 - amount))}, ${Math.round(b * (1 - amount))})`;
 }
 
-// ============================================================================
-// Public API — call initRender(gs) after graph state is ready
-// ============================================================================
-
 /**
- * @param {object} gs  Shared graph state
+ * @param {object} gs
  * @returns {{ draw, getNodeColor, getNodeRadius, toScreen, toWorld, updateTooltip, buildColorLegend }}
  */
 export function initRender(gs) {
@@ -100,7 +75,7 @@ export function initRender(gs) {
     function toScreen(x, y) { return { x: x * gs.zoom + gs.panX, y: y * gs.zoom + gs.panY }; }
     function toWorld(sx, sy) { return { x: (sx - gs.panX) / gs.zoom, y: (sy - gs.panY) / gs.zoom }; }
 
-    // Custom field color palette (deterministic hash-based assignment)
+    // Deterministic palette → field-value lookup so the same value always picks the same color across renders.
     const FIELD_COLOR_PALETTE = [
         '#e53935', '#43a047', '#1e88e5', '#fb8c00', '#8e24aa',
         '#00acc1', '#d81b60', '#7cb342', '#5e35b1', '#f4511e',
@@ -135,12 +110,12 @@ export function initRender(gs) {
     function getNodeColor(n) {
         if (n === gs.hoverNode) return '#ffffff';
         let color;
-        // Custom field coloring: "field:era", "field:location", etc.
+        // colorMode "field:<name>" colors by custom-field value (era, location, etc.).
         if (gs.colorMode?.startsWith('field:')) {
             const fieldName = gs.colorMode.slice(6);
             const val = gs._vaultIndex?.[n.id]?.customFields?.[fieldName];
             if (val == null || (Array.isArray(val) && val.length === 0)) {
-                color = '#555555'; // no value → grey
+                color = '#555555';
             } else {
                 const displayVal = Array.isArray(val) ? val[0] : String(val);
                 color = fieldValueColor(fieldName, displayVal);
@@ -162,15 +137,14 @@ export function initRender(gs) {
         return Math.max(7, Math.min(22, 7 + Math.sqrt(connections / gs.maxEdgeCount) * 15));
     }
 
-    /** Wrap legend HTML with adaptive font scaling for many items */
+    /** Adaptive legend font: ≤8 inherits; 9-15 → 0.6em; 16-25 → 0.55em; 26+ → 0.5em floor. */
     function wrapLegendScaled(html, count) {
-        // ≤8: inherit, 9-15: 0.6em, 16-25: 0.55em, 26+: 0.5em (floor)
         if (count <= 8) return html;
         const em = count <= 15 ? '0.6em' : count <= 25 ? '0.55em' : '0.5em';
         return `<span style="font-size:${em}">${html}</span>`;
     }
 
-    /** Safety cap + expand toggle for overflowing legends */
+    /** Hard cap on visible legend items; surplus collapses to "+N more". */
     const LEGEND_SAFETY_CAP = 50;
     function capLegendItems(items, cap = LEGEND_SAFETY_CAP) {
         if (items.length <= cap) return items.join('');
@@ -219,21 +193,19 @@ export function initRender(gs) {
                 return wrapLegendScaled(html, items.length);
             }
             default: {
-                // Custom field color mode: "field:era", "field:mood", etc.
+                // "field:<name>" — value-coloring legend.
                 if (gs.colorMode?.startsWith('field:')) {
                     const fieldName = gs.colorMode.slice(6);
                     ensureFieldIndex(fieldName);
                     const idx = fieldColorCache.get(`__idx__${fieldName}`);
                     if (!idx || idx.size === 0) return `<span>No "${escapeHtml(fieldName)}" values found in vault</span>`;
                     const items = [];
-                    // Field name header
                     items.push(`<span class="dle-graph-field-label">${escapeHtml(fieldName)}</span>`);
                     for (const [val, c] of idx) {
                         items.push(`<span class="dle-graph-legend-swatch"><span class="dle-graph-swatch-dot" style="background:${toPastel(c)};"></span>${escapeHtml(val)}</span>`);
                     }
-                    // "No value" indicator for grey nodes
                     items.push(`<span class="dle-graph-legend-swatch dle-graph-legend-swatch--empty"><span class="dle-graph-swatch-dot" style="background:#555555;"></span>No value</span>`);
-                    const count = items.length - 1; // exclude field-label header from count
+                    const count = items.length - 1; // exclude field-label header from count.
                     const html = capLegendItems(items);
                     return wrapLegendScaled(html, count);
                 }
@@ -242,7 +214,7 @@ export function initRender(gs) {
         }
     }
 
-    /** Append layout status notice (Calculating / Layout saved) to legend HTML */
+    /** Suffix the legend with a transient "Calculating…" / "Layout saved" notice. */
     function withLayoutNotice(legendHtml) {
         if (!gs.layoutNotice) return legendHtml;
         return `${legendHtml}<span class="dle-graph-layout-notice">${gs.layoutNotice}</span>`;
@@ -255,7 +227,7 @@ export function initRender(gs) {
             tooltipEl.classList.add('dle-graph-tooltip--legend');
             tooltipEl.classList.remove('dle-graph-tooltip--expanded');
             const legendHtml = withLayoutNotice(buildColorLegend()) || '&nbsp;';
-            // Add expand toggle if legend content will likely overflow
+            // Show expand chevron once the swatch count is likely to overflow vertically (>8).
             const swatchCount = (legendHtml.match(/dle-graph-legend-swatch/g) || []).length;
             const expandToggle = swatchCount > 8
                 ? `<span class="dle-graph-legend-toggle" title="Click to expand/collapse legend">&#x25BC;</span>`
@@ -287,7 +259,7 @@ export function initRender(gs) {
             for (const [key, val] of Object.entries(entry.customFields)) {
                 if (val != null && val !== '' && (!Array.isArray(val) || val.length > 0)) {
                     let display = Array.isArray(val) ? val.join(', ') : String(val);
-                    // Note when multi-value field is colored by first value only
+                    // Field-coloring uses only the first multi-value entry — surface the truncation.
                     if (key === activeColorField && Array.isArray(val) && val.length > 1) {
                         display = `${val[0]} (+${val.length - 1} more)`;
                     }
@@ -295,7 +267,7 @@ export function initRender(gs) {
                 }
             }
         }
-        // Use line breaks for 3+ fields, dot separator for fewer
+        // 3+ fields wrap to multiple lines; fewer fit inline with dot separator.
         const fieldsSeparator = gatingFields.length >= 3 ? '<br>' : ' · ';
         tooltipEl.innerHTML = `
             <strong>${escapeHtml(n.title)}</strong> ${vaultLabel}
@@ -311,11 +283,10 @@ export function initRender(gs) {
                 zoom, settings, injectionCounts, maxInjectionCount, computedStyle } = gs;
         ctx.clearRect(0, 0, W, gs.H);
 
-        // Draw community hulls (behind everything)
+        // Community hulls render first (behind nodes/edges).
         if (colorMode === 'community' && gs.communities && gs.communities.size > 0) {
             for (const [, cm] of gs.communities) {
                 if (cm.members.length < 3) continue;
-                // Collect screen positions of visible members
                 const pts = [];
                 for (const n of cm.members) {
                     if (n.hidden || n._revealScale < 0.3) continue;
@@ -326,7 +297,7 @@ export function initRender(gs) {
                 const hull = convexHull(pts);
                 if (hull.length < 3) continue;
 
-                // Expand hull by padding for visual breathing room
+                // Outward-radial padding so hull breathes around its members.
                 const pad = 20 * zoom;
                 let hcx = 0, hcy = 0;
                 for (const p of hull) { hcx += p.x; hcy += p.y; }
@@ -337,7 +308,7 @@ export function initRender(gs) {
                     return { x: p.x + (dx / dist) * pad, y: p.y + (dy / dist) * pad };
                 });
 
-                // Draw with quadratic Bezier smoothing
+                // Quadratic-Bezier smoothing across hull midpoints rounds the outline organically.
                 ctx.globalAlpha = 0.12;
                 ctx.fillStyle = cm.color;
                 ctx.beginPath();
@@ -352,7 +323,7 @@ export function initRender(gs) {
                 ctx.closePath();
                 ctx.fill();
 
-                // Community label at centroid — scales with zoom for readability
+                // Community label at centroid; font scales with zoom (8-24px) for readability.
                 const cs = toScreen(cm.cx, cm.cy);
                 const communityFontSize = Math.max(8, Math.min(24, 14 * zoom));
                 ctx.globalAlpha = Math.min(0.6, 0.2 + zoom * 0.4);
@@ -364,28 +335,41 @@ export function initRender(gs) {
             ctx.globalAlpha = 1;
         }
 
-        // Batch edges by type
+        // Batch edges by type so dash style + stroke color are set once per type.
         const edgesByType = { link: [], requires: [], excludes: [], cascade: [] };
         for (const edge of edges) {
             if (!edgeVisibility[edge.type]) continue;
             if (nodes[edge.from].hidden || nodes[edge.to].hidden) continue;
-            if (edge._revealAlpha < 0.01) continue; // entrance animation: skip unrevealed edges
+            if (edge._revealAlpha < 0.01) continue;
             (edgesByType[edge.type] || (edgesByType[edge.type] = [])).push(edge);
         }
 
-        // Track drawn dim pairs to avoid multi-edge alpha stacking on hover
+        // Multi-edge pairs (link + requires + excludes between same nodes) would otherwise
+        // stack alpha on hover. drawnDimPairs ensures the second pass through the same pair short-circuits.
         const drawnDimPairs = hoverDistances ? new Set() : null;
+
+        // Hub damping (deg > 8): n+2+ edges of the hovered hub get compoundingly damped to keep the
+        // lit subgraph readable. n1Tilt gives a separate gentle slope for the n+1 ring centered at deg=5
+        // — sparse hover gets a tiny boost, dense hover gets a tiny cut.
+        let hubDamp = 1;
+        let n1Tilt = 1;
+        if (hoverDistances && gs.hoverNode) {
+            const deg = gs.edgeCountByNode.get(gs.hoverNode.id) || 0;
+            if (deg > 8) hubDamp = 1 / (1 + (deg - 8) * 0.05);
+            n1Tilt = Math.max(0.75, Math.min(1.70, 1 + (5 - deg) * 0.13));
+        }
+
 
         for (const [type, edgeList] of Object.entries(edgesByType)) {
             if (edgeList.length === 0) continue;
             ctx.strokeStyle = edgeColors[type] || '#555';
-            if (type === 'excludes') { ctx.setLineDash([7, 5]); } else if (type === 'cascade') { ctx.setLineDash([2, 4]); } else { ctx.setLineDash([]); }
+            if (type === 'excludes') { ctx.setLineDash([7, 5]); } else if (type === 'cascade') { ctx.setLineDash([2, 4]); } else if (type === 'requires') { ctx.setLineDash([12, 4]); } else { ctx.setLineDash([]); }
 
             for (const edge of edgeList) {
                 const fromFiltered = nodes[edge.from].filtered;
                 const toFiltered = nodes[edge.to].filtered;
 
-                // Frequency mode: thicker edges for high-frequency nodes
+                // Frequency-mode line width = base + freq factor so often-injected pairs read thicker.
                 let freqAvg = 0;
                 if (colorMode === 'frequency') {
                     const fromFreq = (injectionCounts.get(edge.from) || 0) / (maxInjectionCount || 1);
@@ -396,7 +380,7 @@ export function initRender(gs) {
                     ctx.lineWidth = 2;
                 }
 
-                // Alpha priority: hover dim > focus tree depth > filtered > frequency/standard
+                // Alpha priority cascade: hover-dim → focus-tree-depth → filtered → frequency/standard.
                 if (hoverDistances && focusTreeRoot && focusTreeRoot._treeEdgeIdx) {
                     if (!focusTreeRoot._treeEdgeIdx.has(edge._idx)) continue;
                     const dm = focusTreeRoot._depthMap;
@@ -406,54 +390,63 @@ export function initRender(gs) {
                     const hoverDepth = dm.get(hid) ?? 0;
                     const isDownward = touchesHover && otherDepth > hoverDepth;
                     const isUpward = touchesHover && otherDepth < hoverDepth;
-                    const isLeaf = !edges.some(e => {
-                        if (!focusTreeRoot._treeEdgeIdx.has(e._idx)) return false;
-                        const oId = e.from === hid ? e.to : e.to === hid ? e.from : -1;
-                        return oId !== -1 && (dm.get(oId) ?? 0) > hoverDepth;
-                    });
+                    // Cache "node has a downward child" once per focus session.
+                    // Replaces an O(E) edges.some() per edge — was O(E²) overall.
+                    if (!focusTreeRoot._hasDownwardChildSet) {
+                        const downSet = new Set();
+                        for (const eIdx of focusTreeRoot._treeEdgeIdx) {
+                            const e = edges[eIdx];
+                            const dF = dm.get(e.from) ?? 0;
+                            const dT = dm.get(e.to) ?? 0;
+                            if (dF < dT) downSet.add(e.from);
+                            else if (dT < dF) downSet.add(e.to);
+                        }
+                        focusTreeRoot._hasDownwardChildSet = downSet;
+                    }
+                    const isLeaf = !focusTreeRoot._hasDownwardChildSet.has(hid);
                     const highlight = isDownward || (isLeaf && isUpward);
                     ctx.globalAlpha = highlight ? 0.35 : 0.03;
                     ctx.lineWidth = highlight ? 3 : 1;
                 } else if (hoverDistances) {
-                    const hid = hoverNode ? hoverNode.id : -1;
-                    const touchesHover = (edge.from === hid || edge.to === hid);
-                    // Both endpoints within hover reach? Show connecting edges between neighbors
-                    const fromInReach = hoverDistances.has(edge.from);
-                    const toInReach = hoverDistances.has(edge.to);
-                    const neighborEdge = fromInReach && toInReach && !touchesHover;
-                    if (touchesHover) {
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        // Attenuate brightness when many edges fan out from hovered node
-                        const hoverEdgeCount = gs.edgeCountByNode.get(hid) || 1;
-                        const attenuation = hoverEdgeCount > 20 ? Math.max(0.35, 1.0 - (hoverEdgeCount - 20) * 0.015) : 1.0;
-                        ctx.globalAlpha = 0.85 * attenuation;
-                        ctx.lineWidth = hoverEdgeCount > 20 ? 2 : 3;
-                        ctx.shadowColor = edgeColors[type] || '#aac8ff';
-                        ctx.shadowBlur = 3;
-                    } else if (neighborEdge) {
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        ctx.globalAlpha = 0.35;
-                        ctx.lineWidth = 1.5;
-                        ctx.shadowBlur = 0;
-                    } else if (fromInReach || toInReach) {
-                        // One endpoint in reach, one outside — fringe edge
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        ctx.globalAlpha = 0.15;
+                    // ST quirk / model: "mirrors and lasers" — each hop transmits fraction `t` of the energy.
+                    // Edge brightness uses min endpoint energy; off-branch edges duck below ambient so the
+                    // hover branch visually pops. graphHoverFalloff is transmission-per-hop (E[d] = t^d), NOT
+                    // a linear factor — see CLAUDE.md "non-obvious settings semantics".
+                    const t = settings.graphHoverFalloff ?? 0.55;
+                    const ambient = settings.graphHoverAmbient ?? 0.06;
+                    const du = hoverDistances.get(edge.from);
+                    const dv = hoverDistances.get(edge.to);
+                    const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
+                    if (drawnDimPairs.has(pairKey)) continue;
+                    drawnDimPairs.add(pairKey);
+
+                    if (du === undefined || dv === undefined) {
+                        // Off-branch — ducked below ambient so the hover branch pops.
+                        ctx.globalAlpha = ambient * 0.55;
                         ctx.lineWidth = 1;
                         ctx.shadowBlur = 0;
                     } else {
-                        const pairKey = `${Math.min(edge.from, edge.to)},${Math.max(edge.from, edge.to)}`;
-                        if (drawnDimPairs.has(pairKey)) continue;
-                        drawnDimPairs.add(pairKey);
-                        ctx.globalAlpha = settings.graphHoverDimOpacity || 0.03;
-                        ctx.lineWidth = 1;
-                        ctx.shadowBlur = 0;
+                        const eF = Math.pow(t, du);
+                        const eT = Math.pow(t, dv);
+                        // n+1 is the alpha cap; each additional ring compounds 0.6× on top of t-falloff.
+                        // Hub damping only applies from n+2 outward — n+1 of a hovered hub stays at full cap;
+                        // damping kicks in deeper in the branch where the additive lighting effect compounds.
+                        const dEdge = Math.max(du, dv);
+                        const HOVER_MAX = 0.40;
+                        const damp = dEdge <= 1 ? n1Tilt : hubDamp;
+                        const minE = damp * HOVER_MAX * Math.pow(0.6, Math.max(0, dEdge - 1));
+                        const maxE = Math.max(eF, eT);
+                        let alpha = minE * 0.95;
+                        if (du === dv && du > 0) alpha *= 0.7; // same-ring sibling damp
+                        if (alpha < ambient) alpha = ambient;
+                        ctx.globalAlpha = alpha;
+                        ctx.lineWidth = 1 + 2.5 * minE;
+                        if (minE > 0.3) {
+                            ctx.shadowColor = edgeColors[type] || '#aac8ff';
+                            ctx.shadowBlur = Math.min(6, 6 * maxE);
+                        } else {
+                            ctx.shadowBlur = 0;
+                        }
                     }
                 } else if (focusTreeRoot && focusTreeRoot._treeEdgeIdx) {
                     if (!focusTreeRoot._treeEdgeIdx.has(edge._idx)) continue;
@@ -469,14 +462,13 @@ export function initRender(gs) {
                 } else if (colorMode === 'frequency') {
                     ctx.globalAlpha = 0.2 + freqAvg * 0.6;
                 } else if (edge._backbone === false) {
-                    // Disparity-filtered: barely visible, revealed on hover
+                    // Disparity-filtered: barely visible, surfaced on hover.
                     ctx.globalAlpha = 0.03;
                 } else {
-                    // Default-dim: backbone edges at low visibility, revealed on hover
+                    // Default-dim backbone — revealed on hover by the cascade above.
                     ctx.globalAlpha = 0.08;
                 }
 
-                // Entrance animation: fade edges in with reveal progress
                 if (edge._revealAlpha < 1) ctx.globalAlpha *= edge._revealAlpha;
 
                 const a = toScreen(nodes[edge.from].x, nodes[edge.from].y);
@@ -486,9 +478,8 @@ export function initRender(gs) {
         }
         ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1; ctx.shadowBlur = 0;
 
-        // Draw nodes — flat circles, rendered AFTER edges
+        // Two-pass node render: bg-color mask first (covers underlying edge alpha) then colored disc on top.
         const bgColor = computedStyle.getPropertyValue('--dle-bg-surface').trim() || '#1a1a2e';
-        // Background mask pass
         for (const n of nodes) {
             if (n.hidden || n._revealScale < 0.01) continue;
             const s = toScreen(n.x, n.y);
@@ -497,17 +488,17 @@ export function initRender(gs) {
             ctx.fillStyle = bgColor;
             ctx.beginPath(); ctx.arc(s.x, s.y, (r + 1) * zoom, 0, Math.PI * 2); ctx.fill();
         }
-        // Colored node pass
         for (const n of nodes) {
             if (n.hidden || n._revealScale < 0.01) continue;
             if (hoverDistances && focusTreeRoot && focusTreeRoot._depthMap) {
                 const nd = focusTreeRoot._depthMap.get(n.id) ?? 99;
                 ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.6;
             } else if (hoverDistances) {
+                const t = settings.graphHoverFalloff ?? 0.55;
+                const ambient = settings.graphHoverAmbient ?? 0.06;
                 const hopDist = hoverDistances.get(n.id);
-                if (hopDist === 0 || hopDist === 1) ctx.globalAlpha = 1.0;       // hovered + 1-hop: full
-                else if (hopDist === 2)              ctx.globalAlpha = 0.6;       // 2-hop: visible but faded
-                else                                 ctx.globalAlpha = 0.15;      // beyond: dim
+                const energy = hopDist === undefined ? 0 : Math.pow(t, hopDist);
+                ctx.globalAlpha = Math.max(energy, ambient);
             } else if (focusTreeRoot && focusTreeRoot._depthMap) {
                 const nd = focusTreeRoot._depthMap.get(n.id) ?? 99;
                 ctx.globalAlpha = nd === 0 ? 1.0 : nd === 1 ? 1.0 : 0.5;
@@ -532,12 +523,11 @@ export function initRender(gs) {
         }
         ctx.globalAlpha = 1;
 
-        // Gap analysis overlay
+        // ─── Gap analysis overlay ───
         if (gs.gapAnalysisActive && gs.gapAnalysis) {
             const ga = gs.gapAnalysis;
             const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 600); // calm breathing pulse
 
-            // Orphan nodes: pulsing red ring
             ctx.strokeStyle = '#e53935';
             ctx.lineWidth = 2.5;
             for (const id of ga.orphans) {
@@ -549,7 +539,6 @@ export function initRender(gs) {
                 ctx.beginPath(); ctx.arc(s.x, s.y, (r + 6) * zoom, 0, Math.PI * 2); ctx.stroke();
             }
 
-            // Weak bridges: dashed yellow highlight
             ctx.strokeStyle = '#ffd600';
             ctx.lineWidth = 3;
             ctx.setLineDash([6, 4]);
@@ -562,13 +551,12 @@ export function initRender(gs) {
                 ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
             }
 
-            // Missing connections: faint dashed cyan lines
+            // Missing connections: cap render at 50 so dense vaults don't flood the canvas with cyan dashes.
             if (ga.missingConnections.length > 0) {
                 ctx.strokeStyle = '#00bcd4';
                 ctx.lineWidth = 1;
                 ctx.setLineDash([3, 6]);
                 ctx.globalAlpha = 0.25;
-                // Limit to 50 to avoid clutter
                 const shown = ga.missingConnections.slice(0, 50);
                 for (const mc of shown) {
                     const na = nodes[mc.a], nb = nodes[mc.b];
@@ -581,23 +569,29 @@ export function initRender(gs) {
 
             ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1;
 
-            // If pulsing, request redraw for animation
+            // Keep ticking — the pulse animation needs continuous redraws.
             gs.needsDraw = true;
         }
 
-        // Draw labels
         if (showLabels) {
             ctx.font = `500 ${Math.max(9, 11 * zoom)}px system-ui, -apple-system, sans-serif`; ctx.textAlign = 'center';
             ctx.lineJoin = 'round';
             for (const n of nodes) {
                 if (n.hidden || n._revealScale < 0.5) continue;
                 if (n.filtered && !focusTreeRoot) continue;
-                if (hoverDistances && !focusTreeRoot && !hoverDistances.has(n.id)) continue;
+                const inHoverSet = hoverDistances && hoverDistances.has(n.id);
+                if (hoverDistances && !focusTreeRoot && !inHoverSet) continue;
                 const s = toScreen(n.x, n.y);
                 const isHub = (gs.edgeCountByNode.get(n.id) || 0) >= 5;
                 const matchesFilter = (searchQuery || typeFilter || tagFilter) && !n.filtered;
-                if (focusTreeRoot || zoom > 0.7 || (zoom > 0.4 && (isHub || matchesFilter))) {
-                    if (focusTreeRoot) {
+                const hoverDist = inHoverSet ? hoverDistances.get(n.id) : null;
+                const inHoverLabelSet = inHoverSet && hoverDist !== null && hoverDist <= 1;
+                if (focusTreeRoot || inHoverLabelSet || zoom > 0.7 || (zoom > 0.4 && (isHub || matchesFilter))) {
+                    if (inHoverLabelSet && !focusTreeRoot) {
+                        const isHovered = n === hoverNode;
+                        ctx.fillStyle = isHovered ? '#fff' : '#ddd';
+                        ctx.globalAlpha = isHovered ? 1.0 : 0.85;
+                    } else if (focusTreeRoot) {
                         const isHovered = n === hoverNode;
                         const treeEdgeSet = focusTreeRoot._depthMap?._treeEdges;
                         const isTreeNeighbor = isHovered ? false : (hoverNode && treeEdgeSet &&
@@ -611,16 +605,20 @@ export function initRender(gs) {
                         ctx.globalAlpha = 1;
                     }
                     const labelOffset = (getNodeRadius(n) + 4) * zoom;
-                    // Dark outline for readability over any background
+                    // [+N] hop tag on hover-branch nodes (skip the hovered node at distance 0).
+                    const labelText = (inHoverSet && hoverDist && hoverDist > 0)
+                        ? `${n.title} [+${hoverDist}]`
+                        : n.title;
+                    // Dark stroke around label provides contrast on any theme background.
                     ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
                     ctx.lineWidth = 3;
-                    ctx.strokeText(n.title, s.x, s.y - labelOffset);
-                    ctx.fillText(n.title, s.x, s.y - labelOffset);
+                    ctx.strokeText(labelText, s.x, s.y - labelOffset);
+                    ctx.fillText(labelText, s.x, s.y - labelOffset);
                 }
             }
 
-            // Zoomed hover label — only in focus tree mode
-            if (hoverNode && zoom < 0.8 && focusTreeRoot) {
+            // At low zoom (<0.8), render the hovered node's title in a bold pill so it stays legible.
+            if (hoverNode && zoom < 0.8) {
                 const hs = toScreen(hoverNode.x, hoverNode.y);
                 const fontSize = Math.max(13, 14);
                 ctx.save();
@@ -640,16 +638,20 @@ export function initRender(gs) {
         }
     }
 
-    // Legend expand/collapse toggle click handler
-    if (gs.tooltipEl) {
+    // Legend expand/collapse — signal-scoped to gs.listenerAC so graph teardown releases it,
+    // and guarded by _dleLegendClickWired so render re-runs don't stack duplicate handlers.
+    if (gs.tooltipEl && !gs.tooltipEl._dleLegendClickWired) {
         gs.tooltipEl.addEventListener('click', (e) => {
             if (e.target.closest('.dle-graph-legend-toggle')) {
                 gs.tooltipEl.classList.toggle('dle-graph-tooltip--expanded');
             }
+        }, { signal: gs.listenerAC?.signal });
+        gs.tooltipEl._dleLegendClickWired = true;
+        gs.listenerAC?.signal.addEventListener('abort', () => {
+            if (gs.tooltipEl) gs.tooltipEl._dleLegendClickWired = false;
         });
     }
 
-    // Attach to gs for cross-module access
     gs.toScreen = toScreen;
     gs.toWorld = toWorld;
     gs.getNodeColor = getNodeColor;

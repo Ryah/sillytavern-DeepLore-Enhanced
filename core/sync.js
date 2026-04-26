@@ -5,7 +5,20 @@
 import { simpleHash } from './utils.js';
 
 /**
+ * Compose the canonical sync-snapshot key for an entry.
+ * Keyed by `vaultSource:filename` — multi-vault setups can have the same relative
+ * path in two vaults, and a filename-only key would misclassify edits/removals.
+ * Exported so callers (e.g. vault.js BUG-368 carry-forward) can reproduce the format.
+ * @param {{ vaultSource?: string, filename: string }} entry
+ * @returns {string}
+ */
+export function snapshotKey(entry) {
+    return `${entry.vaultSource || ''}:${entry.filename}`;
+}
+
+/**
  * Take a snapshot of the current vault index for change detection.
+ * Keys are vaultSource:filename — see snapshotKey().
  * @param {import('./pipeline.js').VaultEntry[]} vaultIndex
  * @returns {{ contentHashes: Map<string, string>, titleMap: Map<string, string>, keyMap: Map<string, string>, timestamp: number }}
  */
@@ -18,9 +31,10 @@ export function takeIndexSnapshot(vaultIndex) {
     };
 
     for (const entry of vaultIndex) {
-        snapshot.contentHashes.set(entry.filename, simpleHash(entry.content));
-        snapshot.titleMap.set(entry.filename, entry.title);
-        snapshot.keyMap.set(entry.filename, JSON.stringify(entry.keys));
+        const key = snapshotKey(entry);
+        snapshot.contentHashes.set(key, simpleHash(entry.content));
+        snapshot.titleMap.set(key, entry.title);
+        snapshot.keyMap.set(key, JSON.stringify(entry.keys));
     }
 
     return snapshot;
@@ -40,27 +54,25 @@ export function detectChanges(oldSnapshot, newSnapshot) {
     const oldFiles = new Set(oldSnapshot.contentHashes.keys());
     const newFiles = new Set(newSnapshot.contentHashes.keys());
 
-    // New entries
     for (const file of newFiles) {
         if (!oldFiles.has(file)) {
             changes.added.push(newSnapshot.titleMap.get(file) || file);
         }
     }
 
-    // Removed entries
     for (const file of oldFiles) {
         if (!newFiles.has(file)) {
             changes.removed.push(oldSnapshot.titleMap.get(file) || file);
         }
     }
 
-    // Modified entries (exist in both, content hash differs)
+    // Modified: exists in both, content hash differs.
     for (const file of newFiles) {
         if (oldFiles.has(file)) {
             if (oldSnapshot.contentHashes.get(file) !== newSnapshot.contentHashes.get(file)) {
                 changes.modified.push(newSnapshot.titleMap.get(file) || file);
             }
-            // Keyword changes (separate from content)
+            // Keyword changes tracked separately from content.
             if (oldSnapshot.keyMap.get(file) !== newSnapshot.keyMap.get(file)) {
                 const title = newSnapshot.titleMap.get(file) || file;
                 if (!changes.modified.includes(title)) {

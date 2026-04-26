@@ -1,18 +1,16 @@
-/**
- * DeepLore Enhanced — Slash Commands: Pipeline Inspection
- * /dle-simulate, /dle-why, /dle-inspect
- */
+/** DeepLore Enhanced — Slash Commands: Pipeline Inspection */
 import { chat, chat_metadata } from '../../../../../../script.js';
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
-import { NO_ENTRIES_MSG } from '../../core/utils.js';
+import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
+import { NO_ENTRIES_MSG, classifyError } from '../../core/utils.js';
 import { formatAndGroup } from '../../core/matching.js';
 import { buildExemptionPolicy, applyRequiresExcludesGating, applyContextualGating } from '../stages.js';
 import { getSettings, PROMPT_TAG_PREFIX } from '../../settings.js';
 import {
-    vaultIndex, lastPipelineTrace, injectionHistory, generationCount,
+    vaultIndex, getWriterVisibleEntries, lastPipelineTrace, injectionHistory, generationCount,
     generationLock, trackerKey, buildPromise, fieldDefinitions,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
@@ -30,7 +28,7 @@ export function registerPipelineCommands() {
                 return '';
             }
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-simulate:', err);
                 return '';
             }
@@ -44,7 +42,7 @@ export function registerPipelineCommands() {
             return '';
         },
         helpString: 'Replay chat history step-by-step, showing which entries activate and deactivate at each message.',
-        returns: 'Simulation timeline popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -59,10 +57,10 @@ export function registerPipelineCommands() {
                 toastr.warning('A generation is in progress — wait for it to finish.', 'DeepLore Enhanced');
                 return '';
             }
-            // Await any in-progress index build to prevent concurrent pipeline execution
+            // Wait for any in-progress index build to prevent concurrent pipeline execution.
             if (buildPromise) await buildPromise;
             try { await ensureIndexFresh(); } catch (err) {
-                toastr.error('Could not refresh vault index.', 'DeepLore Enhanced');
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
                 console.error('[DLE] ensureIndexFresh failed in /dle-why:', err);
                 return '';
             }
@@ -72,18 +70,26 @@ export function registerPipelineCommands() {
             }
 
             const settings = getSettings();
-            // Confirm if AI search is enabled — this command makes real API calls
+            // Confirm before making a real API call.
             if (settings.aiSearchEnabled) {
                 const proceed = await callGenericPopup('This will make a live AI search call and use API tokens. Continue?', POPUP_TYPE.CONFIRM);
                 if (!proceed) return '';
             }
-            // BUG-F2: Pass context/pins/blocks to runPipeline so AI pre-filter respects gating
+            // BUG-F2: pass context/pins/blocks so AI pre-filter respects gating.
             const gatingContext = chat_metadata?.deeplore_context || {};
             const cmdPins = chat_metadata.deeplore_pins || [];
             const cmdBlocks = chat_metadata.deeplore_blocks || [];
-            const { finalEntries, matchedKeys } = await runPipeline(chat, [...vaultIndex], gatingContext, { pins: cmdPins, blocks: cmdBlocks });
+            const folderFilter = chat_metadata?.deeplore_folder_filter || null;
+            let finalEntries, matchedKeys;
+            try {
+                ({ finalEntries, matchedKeys } = await runPipeline(chat, getWriterVisibleEntries(), gatingContext, { pins: cmdPins, blocks: cmdBlocks, folderFilter }));
+            } catch (err) {
+                console.warn('[DLE] /dle-why pipeline failed:', err);
+                toastr.error(classifyError(err), 'DeepLore Enhanced');
+                return '';
+            }
 
-            // Apply re-injection cooldown (matches onGenerate order)
+            // Mirror onGenerate order: cooldown → contextual gating → requires/excludes → format.
             let filtered = finalEntries;
             if (settings.reinjectionCooldown > 0) {
                 filtered = finalEntries.filter(e => {
@@ -93,7 +99,6 @@ export function registerPipelineCommands() {
                 });
             }
 
-            // Post-filter contextual gating (matches onGenerate's post-pipeline gating)
             if (gatingContext && Object.keys(gatingContext).length > 0) {
                 const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
                 const cmdPolicy = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
@@ -102,7 +107,7 @@ export function registerPipelineCommands() {
 
             const cmdPolicy2 = buildExemptionPolicy(vaultIndex, cmdPins, cmdBlocks);
             const { result: gated } = applyRequiresExcludesGating(filtered, cmdPolicy2, settings.debugMode);
-            const { count: injectedCount, totalTokens, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
+            const { count: injectedCount, acceptedEntries } = formatAndGroup(gated, settings, PROMPT_TAG_PREFIX);
             const injected = acceptedEntries || gated.slice(0, injectedCount);
 
             if (injected.length === 0) {
@@ -121,7 +126,7 @@ export function registerPipelineCommands() {
             return '';
         },
         helpString: 'Preview which entries would be included in the next message, and why. Alias: /dle-context',
-        returns: 'Context map popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -136,14 +141,33 @@ export function registerPipelineCommands() {
             const settings = getSettings();
             const statusIcon = (ok) => ok ? '✓' : '✗';
 
-            // Helper: build a set of keyword-matched titles for cross-referencing gated entries
             const keywordMatchedTitles = new Set(t.keywordMatched.map(m => m.title.toLowerCase()));
 
-            // Build plain-text version for clipboard
+            const timingFields = [
+                ['Index Refresh', t.ensureIndexFreshMs],
+                ['Pin/Block', t.pinBlockMs],
+                ['Contextual Gating', t.contextualGatingMs],
+                ['Reinjection Cooldown', t.reinjectionCooldownMs],
+                ['Requires/Excludes', t.requiresExcludesMs],
+                ['Strip Dedup', t.stripDedupMs],
+                ['Format & Group', t.formatGroupMs],
+                ['Track Generation', t.trackGenerationMs],
+                ['Record Analytics', t.recordAnalyticsMs],
+                ['Per-Chat Counts', t.perChatCountsMs],
+            ];
+            const hasTimingData = timingFields.some(([, v]) => v != null);
+
             const plainLines = [
                 'Entry Inspector',
                 `Mode: ${t.mode} | Indexed: ${t.indexed} | Bootstrap active: ${t.bootstrapActive ? 'yes' : 'no'} | AI fallback: ${t.aiFallback ? 'yes' : 'no'}`,
+                ...(t.genId ? [`Generation ID: ${t.genId}`] : []),
                 ...(t.aiPreFilter?.removed > 0 ? [`AI pre-filter: ${t.aiPreFilter.removed} entries hidden from AI by contextual gating (${t.aiPreFilter.before} → ${t.aiPreFilter.after})`] : []),
+                ...(hasTimingData ? [
+                    '',
+                    'Stage Timing:',
+                    ...timingFields.filter(([, v]) => v != null).map(([name, ms]) => `  ${name}: ${ms}ms`),
+                    `  Total: ${timingFields.reduce((sum, [, v]) => sum + (v || 0), 0)}ms`,
+                ] : []),
                 '',
             ];
             if (t.keywordMatched.length > 0) {
@@ -174,7 +198,8 @@ export function registerPipelineCommands() {
                 plainLines.push(`Contextual Gating Removed (${t.contextualGatingRemoved.length}):`);
                 const gatingCtx = chat_metadata?.deeplore_context || {};
                 const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
-                for (const title of t.contextualGatingRemoved) {
+                for (const item of t.contextualGatingRemoved) {
+                    const title = item.title;
                     const entry = vaultIndex.find(e => e.title === title);
                     const reasons = [];
                     if (entry?.customFields) {
@@ -192,9 +217,13 @@ export function registerPipelineCommands() {
                 }
                 plainLines.push('');
             }
+            if (t.folderFilter) {
+                plainLines.push(`Folder Filter: ${t.folderFilter.folders.join(', ')} — ${t.folderFilter.removed} entries removed (${t.folderFilter.before} → ${t.folderFilter.after})`);
+                plainLines.push('');
+            }
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
                 plainLines.push(`Re-injection Cooldown Removed (${t.cooldownRemoved.length}):`);
-                for (const title of t.cooldownRemoved) plainLines.push(`  ${title}`);
+                for (const item of t.cooldownRemoved) plainLines.push(`  ${item.title}`);
                 plainLines.push('');
             }
             if (t.gatedOut && t.gatedOut.length > 0) {
@@ -208,8 +237,8 @@ export function registerPipelineCommands() {
                 plainLines.push('');
             }
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
-                plainLines.push(`Strip Dedup Removed (${t.stripDedupRemoved.length}):`);
-                for (const title of t.stripDedupRemoved) plainLines.push(`  ${title}`);
+                plainLines.push(`Already Injected (${t.stripDedupRemoved.length}):`);
+                for (const item of t.stripDedupRemoved) plainLines.push(`  ${item.title}`);
                 plainLines.push('');
             }
             if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
@@ -238,11 +267,22 @@ export function registerPipelineCommands() {
             html += `<h3>Entry Inspector</h3>`;
             html += buildCopyButton(plainText);
             html += `<p><b>Mode:</b> ${escapeHtml(t.mode)} | <b>Indexed:</b> ${t.indexed} | <b>Bootstrap active:</b> ${t.bootstrapActive ? 'yes' : 'no'} | <b>AI fallback:</b> ${t.aiFallback ? 'yes' : 'no'}</p>`;
+            if (t.genId) html += `<p class="dle-text-xs dle-dimmed"><b>Generation ID:</b> ${escapeHtml(t.genId)}</p>`;
+            if (hasTimingData) {
+                const totalMs = timingFields.reduce((sum, [, v]) => sum + (v || 0), 0);
+                html += `<details><summary class="dle-health-summary"><b>Stage Timing</b> (${totalMs}ms total)</summary>`;
+                html += `<table class="dle-table" style="font-size:13px;"><tr><th>Stage</th><th>Time</th></tr>`;
+                for (const [name, ms] of timingFields) {
+                    if (ms == null) continue;
+                    html += `<tr><td>${escapeHtml(name)}</td><td class="dle-text-center">${ms}ms</td></tr>`;
+                }
+                html += `<tr style="font-weight:bold;"><td>Total</td><td class="dle-text-center">${totalMs}ms</td></tr>`;
+                html += `</table></details>`;
+            }
             if (t.aiPreFilter?.removed > 0) {
                 html += `<p class="dle-text-xs dle-dimmed">AI pre-filter: ${t.aiPreFilter.removed} entries hidden from AI by contextual gating (${t.aiPreFilter.before} → ${t.aiPreFilter.after})</p>`;
             }
 
-            // Check for completely empty pipeline
             const nothingMatched = t.keywordMatched.length === 0 && t.aiSelected.length === 0
                 && (!t.injected || t.injected.length === 0);
 
@@ -264,21 +304,19 @@ export function registerPipelineCommands() {
                     html += `<li>${escapeHtml(m.title)} [${escapeHtml(m.confidence)}] — ${escapeHtml(m.reason)}</li>`;
                 }
                 html += '</ul>';
-                html += `<p class="dle-text-xs dle-dimmed dle-mt-1"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = tangential or speculative</p>`;
+                html += `<p class="dle-text-xs dle-dimmed dle-mt-1"><b>Confidence:</b> HIGH = strong match, MEDIUM = likely relevant, LOW = loosely related or speculative</p>`;
             }
 
             if (t.aiFallback) {
                 html += `<p class="dle-text-warning">⚠ AI search failed — keyword results used as fallback</p>`;
             }
 
-            // Fuzzy search stats
             if (t.fuzzyStats?.active) {
                 const fIcon = t.fuzzyStats.matched > 0 ? statusIcon(true) : 'ℹ';
                 html += `<h4>${fIcon} Fuzzy Search (BM25)</h4>`;
                 html += `<p>${t.fuzzyStats.matched} entries matched from ${t.fuzzyStats.candidates} candidates (min score threshold: ${t.fuzzyStats.threshold})</p>`;
             }
 
-            // Injected entries (post-budget)
             if (t.injected && t.injected.length > 0) {
                 const budgetLabel = t.budgetLimit ? ` / ${t.budgetLimit} budget` : '';
                 html += `<h4>${statusIcon(true)} Injected (${t.injected.length}, ~${t.totalTokens || '?'} tokens${budgetLabel})</h4><ul>`;
@@ -289,12 +327,12 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Contextual gating removals (with per-field mismatch details)
             if (t.contextualGatingRemoved && t.contextualGatingRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Contextual Gating Removed (${t.contextualGatingRemoved.length})</h4><ul>`;
                 const gatingCtx = chat_metadata?.deeplore_context || {};
                 const allDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
-                for (const title of t.contextualGatingRemoved) {
+                for (const item of t.contextualGatingRemoved) {
+                    const title = item.title;
                     const entry = vaultIndex.find(e => e.title === title);
                     const reasons = [];
                     if (entry?.customFields) {
@@ -314,16 +352,14 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Re-injection cooldown removals
             if (t.cooldownRemoved && t.cooldownRemoved.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Re-injection Cooldown (${t.cooldownRemoved.length})</h4><ul>`;
-                for (const title of t.cooldownRemoved) {
-                    html += `<li>${escapeHtml(title)} — recently injected, on cooldown</li>`;
+                for (const item of t.cooldownRemoved) {
+                    html += `<li>${escapeHtml(item.title)} — recently injected, on cooldown</li>`;
                 }
                 html += '</ul>';
             }
 
-            // Gated out entries (requires/excludes) with cross-referencing
             if (t.gatedOut && t.gatedOut.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Gated Out (${t.gatedOut.length})</h4><ul>`;
                 for (const e of t.gatedOut) {
@@ -349,16 +385,14 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Strip dedup removals
             if (t.stripDedupRemoved && t.stripDedupRemoved.length > 0) {
-                html += `<h4 class="dle-text-warning">${statusIcon(false)} Strip Dedup Removed (${t.stripDedupRemoved.length})</h4><ul>`;
-                for (const title of t.stripDedupRemoved) {
-                    html += `<li>${escapeHtml(title)} — already injected in recent generation(s)</li>`;
+                html += `<h4 class="dle-text-warning">${statusIcon(false)} Already Injected (${t.stripDedupRemoved.length})</h4><ul>`;
+                for (const item of t.stripDedupRemoved) {
+                    html += `<li>${escapeHtml(item.title)} — already injected in recent generation(s)</li>`;
                 }
                 html += '</ul>';
             }
 
-            // Probability skips
             if (t.probabilitySkipped && t.probabilitySkipped.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Probability Skipped (${t.probabilitySkipped.length})</h4><ul>`;
                 for (const e of t.probabilitySkipped) {
@@ -368,7 +402,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Warmup failures
             if (t.warmupFailed && t.warmupFailed.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Warmup Not Met (${t.warmupFailed.length})</h4><ul>`;
                 for (const e of t.warmupFailed) {
@@ -377,7 +410,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Budget/max cut entries
             if (t.budgetCut && t.budgetCut.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Budget/Max Cut (${t.budgetCut.length})</h4><ul>`;
                 for (const e of t.budgetCut) {
@@ -386,7 +418,6 @@ export function registerPipelineCommands() {
                 html += '</ul>';
             }
 
-            // Refine key blocked entries
             if (t.refineKeyBlocked && t.refineKeyBlocked.length > 0) {
                 html += `<h4 class="dle-text-warning">${statusIcon(false)} Refine Key Blocked (${t.refineKeyBlocked.length})</h4><ul>`;
                 for (const e of t.refineKeyBlocked) {
@@ -404,6 +435,6 @@ export function registerPipelineCommands() {
             return '';
         },
         helpString: 'Show which entries matched, why, and what the AI selected in the last message.',
-        returns: 'Entry inspector popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 }

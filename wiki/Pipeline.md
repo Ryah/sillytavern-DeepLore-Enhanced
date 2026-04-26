@@ -1,16 +1,19 @@
 # Pipeline
 
-DeepLore Enhanced uses a sequential pipeline to determine which vault entries get injected into each generation. This page explains every stage.
+DeepLore's retrieval pipeline runs on every generation. It picks which vault entries get injected into the prompt, in what order, at what depth, with what role. This page covers every stage in execution order, the three pipeline modes, and the gotchas worth knowing if you're debugging a missing or unwanted injection.
 
-## Pipeline Flow
+> [!NOTE]
+> Default mode is two-stage: keywords narrow a candidate set, then an AI ranks the candidates against compact summaries. This adds roughly one extra provider call per turn. Switch to keywords-only if you want zero AI cost; switch to AI-only if you want the AI to see the whole vault.
+
+## Pipeline flow
 
 ```
 init()
-  └─ hydrateFromCache()               On first load: instant hydration from IndexedDB
+  └─ hydrateFromCache()               First load: hydrate from IndexedDB
 
 onGenerate(chat)
   │
-  ├─ Acquire generation lock           Prevents concurrent pipelines (90s stale timeout)
+  ├─ Acquire generation lock           One pipeline at a time (30s stale timeout)
   ├─ Capture epoch guards              chatEpoch + generationLockEpoch for race detection
   │
   ├─ ensureIndexFresh()               Refresh from Obsidian if cache expired
@@ -24,17 +27,20 @@ onGenerate(chat)
   │    │    ├─ per-entry scanDepth        Override scan depth for specific entries
   │    │    ├─ warmup/probability/        Per-entry behavior checks
   │    │    │  cooldown checks
-  │    │    ├─ cascade links              Pull in unconditionally linked entries
+  │    │    ├─ cascade links              Pull in linked entries (respects cooldown + probability, not warmup)
   │    │    ├─ recursive scanning         Scan matched entry content for more triggers
-  │    │    └─ Active Character Boost     Auto-match active character's entry
+  │    │    ├─ Active Character Boost     Auto-match active character's entry
+  │    │    └─ keyword occurrence          Re-sort within priority group by hit count (if enabled)
+  │    │       weighting
   │    │
   │    ├─ wikilink expansion            Add resolved-link targets as AI candidates
   │    ├─ contextual pre-gating         Gate entries before AI to avoid wasting selections
-  │    ├─ hierarchicalPreFilter()      For 40+ entries: cluster by category, AI picks categories
+  │    ├─ folder pre-filter             Drop entries outside the active folder filter
+  │    ├─ hierarchicalPreFilter()      For 40+ entries with 4+ categories: cluster, AI picks categories (opt-in)
   │    ├─ buildCandidateManifest()     Build compact manifest from candidates
   │    │
   │    └─ aiSearch(chat, manifest)     AI selects best from candidates
-  │         ├─ throttle check            2s minimum between API calls
+  │         ├─ throttle check            500ms minimum between API calls
   │         ├─ circuit breaker check     Skip if AI circuit is open (2 failures, 30s cooldown)
   │         ├─ sliding window cache      Reuse if manifest unchanged + no new entity mentions
   │         ├─ build AI context          Recent chat + manifest + header (+ scribe summary)
@@ -45,6 +51,7 @@ onGenerate(chat)
   ├─ [epoch check]                     Bail if chat changed or pipeline superseded
   │
   ├─ Apply pin/block overrides        Per-chat pins force-inject, blocks remove
+  ├─ Folder filtering                 Filter by per-chat folder filter (if active)
   ├─ Contextual gating                Filter by era/location/scene/character + custom fields
   ├─ Re-injection cooldown            Skip entries injected within N generations
   ├─ applyRequiresExcludesGating()    Apply requires/excludes rules (iterative cascade)
@@ -59,6 +66,7 @@ onGenerate(chat)
   │
   ├─ setExtensionPrompt()            Inject each group into SillyTavern context
   ├─ Author's Notebook injection       Inject per-chat notebook (if enabled)
+  ├─ AI Notepad injection              Inject AI-written session notes (if enabled)
   │
   └─ Post-processing
        ├─ trackGeneration()             Update cooldowns, warmup, decay trackers
@@ -68,142 +76,185 @@ onGenerate(chat)
        └─ Context usage warning         Warn if lore exceeds 20% of context window
 ```
 
-## Three Pipeline Modes
+## Three pipeline modes
 
-### Two-Stage (keywords → AI)
-The default and recommended mode. Keywords run first to narrow down candidates, then the AI picks the best from those candidates.
+### Two-stage (keywords then AI)
+
+The default. Keywords narrow the field; the AI picks the best from what survives.
 
 ```
 Keywords match 20 entries  →  AI selects 8 most relevant  →  Inject 8 + constants
 ```
 
-**Error fallback:** Configurable via the AI Error Fallback setting (default: fall back to keyword results). Options: keyword results, constants only, constants + bootstrap, or nothing.
-**Empty fallback:** Configurable via the AI Empty Result Fallback setting (default: constants only). Options: constants, constants + bootstrap, keyword results, or nothing.
+**Error fallback:** configurable via the AI Error Fallback setting (default: fall back to keyword results). Options: keyword results, constants only, constants + bootstrap, or nothing.
 
-### AI Only (full vault)
-Skips keyword matching entirely. The entire vault manifest is sent to the AI.
+**Empty fallback:** configurable via the AI Empty Result Fallback setting (default: constants only). Options: constants, constants + bootstrap, keyword results, or nothing.
+
+### AI-only (full vault)
+
+Skips keyword matching. The entire vault manifest is sent to the AI.
 
 ```
 Full vault (100 entries)  →  AI selects 10 most relevant  →  Inject 10 + constants
 ```
 
-More thorough but uses more tokens per call. Best for vaults where keywords are sparse or unreliable.
+More thorough, more tokens per call. Best for vaults where keywords are sparse or unreliable.
 
-**Error fallback:** Same configurable options as Two-Stage mode.
-**Empty fallback:** Same configurable options as Two-Stage mode.
+**Error and empty fallback:** same options as two-stage mode.
 
-### Keywords Only (AI disabled)
-When AI Search is disabled. Pure keyword matching.
+### Keywords-only (AI disabled)
+
+Pure keyword matching. No AI search.
 
 ```
 Keywords match 12 entries  →  Inject 12 + constants
 ```
 
-No API calls, no latency. Good for simple setups or when you want full control via keywords.
+Zero API calls, zero added latency. Good for simple setups or when you want full control via keywords.
 
-## Stage Details
+## Stage details
 
-### Generation Lock
-The pipeline acquires an exclusive lock before starting. Only one pipeline can run at a time. The lock has a 90-second stale timeout — if a previous pipeline crashed or hung, the lock auto-releases so the next generation isn't blocked forever. The lock is epoch-tagged: if a new generation force-acquires a stale lock, the old pipeline detects it and bails.
+### Generation lock
 
-### Epoch Guards
+The pipeline acquires an exclusive lock before starting. One pipeline at a time. The lock has a 30-second stale timeout: if a previous pipeline crashed or hung, the lock auto-releases so the next generation isn't blocked forever. The lock is epoch-tagged: if a new generation force-acquires a stale lock, the old pipeline detects the epoch mismatch and bails at every commit point.
+
+### Epoch guards
+
 Two epoch counters prevent race conditions:
-- **chatEpoch**: Increments when the user switches chats. If the epoch changes mid-pipeline, results are discarded (they belong to the wrong chat).
-- **generationLockEpoch**: Increments when the lock is acquired (including force-releases). If a newer pipeline takes over, the old one detects it and stops.
 
-### IndexedDB Hydration
-On first page load, the extension attempts to load the vault index from IndexedDB (browser-side persistent cache). If found, the index is available immediately — no Obsidian call needed. A background validation against Obsidian runs to ensure the cache is still fresh.
+- **chatEpoch**: increments on chat switch. Pipeline results from the prior chat are discarded.
+- **generationLockEpoch**: increments when the lock is acquired (including force-releases). A stale pipeline that wakes up after a force-release sees the mismatch and stops.
 
-### Index Refresh
-Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL, or generation count if using generation-based rebuild). If expired, it first tries **reuse sync** (fetch all files, but skip re-parsing/tokenizing entries whose content hash is unchanged). If reuse sync fails, it falls back to a full rebuild of all `#lorebook` entries from Obsidian's Local REST API. The Obsidian connection uses a **per-vault circuit breaker** (closed/open/half-open with 2s-15s exponential backoff, keyed by host:port) to avoid hammering a down server. After a successful build, the index is saved to IndexedDB.
+Every `await` in the pipeline is followed by an epoch re-check.
 
-### Keyword Matching
-1. **Build scan text**: Concatenate the last N messages (Scan Depth setting, default 4)
-2. **Check each entry's keys**: For each entry with `keys`, test if any keyword appears in the scan text
-   - Respects Case Sensitive and Match Whole Words settings
-   - Entries with per-entry `scanDepth` use their own message window
-   - If `refine_keys` is set, at least one refine key must also match (AND filter)
-3. **Warmup check**: If entry has `warmup: N`, count keyword occurrences; skip if below threshold
-4. **Probability check**: If entry has `probability: N` (0.0-1.0), roll a random number; skip if roll exceeds probability
-5. **Cooldown check**: If entry has per-entry `cooldown` and is in cooldown, skip it
-6. **Cascade links**: If matched entries have `cascade_links`, the listed entries are unconditionally pulled in (no keyword check)
-7. **Recursive scanning**: If enabled, scan matched entries' content for keywords that trigger more entries. Repeats up to Max Recursion Steps. Entries with `excludeRecursion: true` are skipped.
-8. **BM25 fuzzy search**: If Fuzzy Search is enabled, supplement keyword matches with BM25/TF-IDF scored results. Entries scoring above the Fuzzy Min Score threshold are added to the match set. Respects the same cooldown and probability gates as exact matches.
-9. **Active Character Boost**: If enabled, auto-match the active character's entry by name/keyword even if not mentioned in chat
-10. **Constants**: Entries tagged `#lorebook-always` or with `constant: true` are always included regardless of keywords
-11. **Bootstrap**: If chat is below New Chat Threshold, `#lorebook-bootstrap` entries are force-included
+### IndexedDB hydration
 
-### Hierarchical Pre-Filter
-For large vaults (40+ selectable entries with 4+ distinct categories), the pipeline uses a two-call AI approach before regular AI search:
-1. Group entries by category (from tags/type fields)
-2. First AI call selects relevant categories
-3. Only entries in selected categories proceed to the main AI search
-Safety valve: if filtering removes more than 80% of entries, the pre-filter is skipped.
+On first page load, the extension loads the vault index from IndexedDB (browser-side persistent cache). If found, the index is available immediately, no Obsidian call needed. A background validation against Obsidian runs to confirm the cache is still fresh.
 
-### AI Search
-See [[AI Search]] for full details. In brief:
-1. Build a compact manifest from keyword-matched candidates (or full vault in AI-only mode)
-2. Check the **sliding window cache** — reuses results if manifest unchanged and new chat messages don't mention vault entities
-3. Send manifest + recent chat to the AI (with Scribe summary if scribe-informed retrieval is enabled)
-4. AI returns a JSON array of selected entries with confidence and reasons
-5. **Confidence-gated budget**: AI over-requests (2x max entries), results sorted by confidence tier (high → medium → low) before budget cap
-6. Selections replace keyword results (not merged)
+### Index refresh
 
-### Pin/Block Overrides
+Before matching, the pipeline checks if the cached vault index is stale (based on Cache TTL or generation count if generation-based rebuild is configured). If expired, it tries **reuse sync** first: fetch all files, skip re-parsing entries whose content hash is unchanged. If reuse sync fails, it falls back to a full rebuild of all `#lorebook` entries from Obsidian's Local REST API.
+
+The Obsidian connection uses a **per-vault circuit breaker**, keyed by `host:port`, with closed/open/half-open states and 2s-15s exponential backoff. After a successful build, the index is saved to IndexedDB.
+
+### Keyword matching
+
+1. **Build scan text:** concatenate the last N messages (Scan Depth setting, default 4).
+2. **Check each entry's keys:** for every entry with `keys`, test if any keyword appears in the scan text.
+   - Respects Case Sensitive and Match Whole Words settings.
+   - Entries with per-entry `scanDepth` use their own message window.
+   - If `refine_keys` is set, at least one refine key must also match (AND filter).
+3. **Warmup check:** if entry has `warmup: N`, count keyword occurrences; skip if below threshold.
+4. **Probability check:** if entry has `probability: N` (0.0-1.0), roll a random number; skip if roll exceeds probability.
+5. **Cooldown check:** if entry has per-entry `cooldown` and is currently in cooldown, skip it.
+6. **Cascade links:** if matched entries have `cascade_links`, the listed entries are pulled in without keyword matching. Cascade-linked entries still respect cooldown and probability gates, but not warmup.
+7. **Recursive scanning:** if enabled, scan matched entry content for keywords that trigger more entries. Repeats up to Max Recursion Steps. Entries with `excludeRecursion: true` are skipped.
+8. **BM25 fuzzy search:** if Fuzzy Search is enabled, supplement keyword matches with BM25/TF-IDF scored results. Entries scoring above the Fuzzy Min Score threshold (default 0.5) are added to the match set, top 20 per generation. Respects the same warmup, cooldown, and probability gates as exact matches.
+9. **Active Character Boost:** if enabled, auto-match the active character's entry by name or keyword even if not mentioned in chat.
+10. **Constants:** entries tagged `#lorebook-always` or with `constant: true` are always included regardless of keywords.
+11. **Bootstrap:** if chat length is below New Chat Threshold (default 3 messages), `#lorebook-bootstrap` entries are force-included.
+
+### Hierarchical pre-filter
+
+Off by default. Enable via the Hierarchical Manifest Clustering setting. When on, large candidate sets get pre-filtered by category before main AI search:
+
+1. Group candidate entries by category (first non-infrastructure tag).
+2. A lightweight AI call selects relevant categories.
+3. Only entries in selected categories proceed to the main AI search.
+
+Activates only when there are at least 40 selectable candidates and at least 4 distinct categories. After category filtering, entries whose primary keywords are explicitly mentioned in the chat are re-added (BUG-396 rescue), so high-relevance entries can't be silently dropped. If the pre-filter would remove more than 80% of candidates, it bails and uses the full manifest. The 80% threshold is tunable via the Hierarchical Aggressiveness setting.
+
+The pre-filter has its own circuit-breaker probe slot, independent of the main AI search probe.
+
+### AI search
+
+See [[AI Search]] for the full mechanism. In brief:
+
+1. Build a compact manifest from keyword-matched candidates (or full vault in AI-only mode).
+2. Check the **sliding window cache:** reuse results if the manifest is unchanged and new chat messages don't mention any vault entities.
+3. Send manifest plus recent chat to the AI (with Scribe summary if scribe-informed retrieval is enabled).
+4. AI returns a JSON array of selected entries with confidence and reasons.
+5. **Confidence-gated budget:** AI is asked for 2x your max entries. Results are sorted by confidence tier (high then medium then low) before the budget cap is applied.
+6. Selections replace keyword results (not merged).
+
+### Pin/block overrides
+
 After the main pipeline, per-chat pins and blocks are applied:
-- **Pinned entries** are force-injected like constants (from `chat_metadata.deeplore_pins`)
-- **Blocked entries** are removed regardless of matches (from `chat_metadata.deeplore_blocks`)
 
-### Contextual Gating
-Entries with gating frontmatter fields (`era`, `location`, `scene_type`, `character_present`, or any user-defined custom field) are filtered against the active context state (stored in `chat_metadata.deeplore_context`). Custom gating fields are defined in `DeepLore/field-definitions.yaml` and support configurable types and operators. Entries without contextual fields pass through unaffected.
+- **Pinned entries** are force-injected like constants (sourced from `chat_metadata.deeplore_pins`). Pinned entries get `priority=10` to give them the best shot at surviving budget truncation.
+- **Blocked entries** are removed regardless of matches (sourced from `chat_metadata.deeplore_blocks`). Blocks override constants: a blocked constant is removed.
 
-### Gating
+### Folder filtering
+
+If a per-chat folder filter is active (set via `/dle-set-folder`), entries whose vault folder path falls outside the filter are removed. Folder filtering runs twice: as a pre-filter inside `runPipeline` (so AI search doesn't waste selections on filtered entries), and again post-pipeline as the authoritative gate. Constants, seeds, bootstrap entries, and pinned entries are exempt.
+
+### Contextual gating
+
+Entries with gating frontmatter fields (`era`, `location`, `scene_type`, `character_present`, or any user-defined custom field) are filtered against the active context state stored in `chat_metadata.deeplore_context`. Custom gating fields are defined in `DeepLore/field-definitions.yaml` and support configurable types and operators. Entries without contextual fields pass through unaffected.
+
+### Re-injection cooldown
+
+If the global Re-injection Cooldown setting is non-zero, entries injected within the last N generations are skipped. This is distinct from per-entry `cooldown` (which is checked during keyword matching). Re-injection cooldown is a global post-selection filter. Constants and other force-injected entries are exempt.
+
+### Requires/excludes gating
+
 After selection, entries with `requires` and `excludes` fields are evaluated:
-- **requires:** ALL listed entry titles must be in the matched set, or this entry is removed
-- **excludes:** If ANY listed entry title is in the matched set, this entry is removed
-- Resolution is **iterative**. Removing one entry can cascade to remove others that require it.
 
-### Re-injection Cooldown
-If the global Re-injection Cooldown setting is non-zero, entries that were injected within the last N generations are skipped. This is different from per-entry `cooldown` (which is checked during keyword matching) — re-injection cooldown is a global post-selection filter. Constants are exempt.
+- **requires:** every listed entry title must be in the matched set, or this entry is removed.
+- **excludes:** if any listed entry title is in the matched set, this entry is removed.
+- Resolution is **iterative** (max 10 passes). Removing one entry can cascade to remove others that require it.
+- **Force-injected entries** (constants, seeds, bootstraps, pins) are exempt from requires/excludes. They are never removed by these rules. They do remain in the active set, so other entries' `excludes` rules still see them.
 
-### Injection Deduplication
-If "Strip Duplicate Injections" is enabled, entries that were injected in recent generations (within the lookback depth) are stripped before formatting. Constants are exempt. Injection history is tracked per-chat in `chat_metadata.deeplore_injection_log`.
+### Strip duplicate injections
 
-### Budget & Formatting
-1. Sort remaining entries by priority (lower number first)
-2. Apply Max Entries cap (if Unlimited Entries is off)
-3. Apply Token Budget cap (if Unlimited Token Budget is off). Entries are added in priority order until budget is reached. If an entry partially fits, it is truncated to the nearest sentence boundary. If the highest-priority entry exceeds the entire budget and cannot be meaningfully truncated, it is skipped with a debug warning.
-4. Format each entry using the Injection Template (`{{title}}` and `{{content}}` macros)
-5. Group entries by their effective injection position (global default or per-entry override)
+If "Strip Duplicate Injections" is enabled, entries injected in recent generations (within the lookback depth) are stripped before formatting. The dedup key is `title|position|depth|role|contentHash` so the same entry at a different depth is not considered a duplicate. Constants and other force-injected entries are exempt. Injection history is tracked per-chat in `chat_metadata.deeplore_injection_log`.
+
+### Budget and formatting
+
+1. Sort remaining entries by priority (lower number first).
+2. Apply Max Entries cap (if Unlimited Entries is off).
+3. Apply Token Budget cap (if Unlimited Token Budget is off). Entries are added in priority order until the budget is reached. The last entry to enter is truncated to the nearest sentence boundary if it doesn't fit whole. If the highest-priority entry exceeds the entire budget and cannot be meaningfully truncated, it is skipped with a debug warning.
+4. Format each entry using the Injection Template (`{{title}}` and `{{content}}` macros).
+5. Group entries by their effective injection position (global default or per-entry override).
 
 ### Injection
-Each group is injected separately into SillyTavern via `setExtensionPrompt()`:
-- **Before Main Prompt**: Injected before the system prompt / story string
-- **After Main Prompt**: Injected after the system prompt / story string
-- **In-chat**: Injected as a message at the specified depth and role
 
-If **Allow World Info Scan** is enabled, SillyTavern's built-in World Info system can scan the injected lore for additional WI keyword matches.
+Each group is injected separately into SillyTavern via `setExtensionPrompt()`:
+
+- **Before Main Prompt:** injected before the system prompt / story string.
+- **After Main Prompt:** injected after the system prompt / story string.
+- **In-chat:** injected as a message at the specified depth and role.
+
+If **Allow World Info Scan** is enabled, ST's built-in World Info system can scan the injected lore for additional WI keyword matches.
 
 ### Author's Notebook
-After lorebook entries are injected, the Author's Notebook is injected separately (if enabled). The notebook has its own injection position, depth, and role settings. It is independent of the lorebook pipeline — it always injects when enabled, regardless of entry matching.
 
-### Post-Processing
+After lorebook entries are injected, the Author's Notebook is injected separately (if enabled). The notebook has its own injection position, depth, and role settings. It is independent of the lorebook pipeline: it always injects when enabled, regardless of entry matching.
+
+### AI Notepad
+
+After the Author's Notebook, the AI Notepad is injected (if enabled). This contains AI-written session notes accumulated across the chat. It has its own injection position, depth, and role settings. See [[AI Notepad]] for tag mode vs extract mode.
+
+### Post-processing
+
 After injection, the pipeline updates internal state:
-- **Track generation**: Update per-entry cooldown timers, warmup counters, and decay trackers (staleness/frequency)
-- **Injection dedup log**: Record which entries were injected for the Strip Duplicate Injections feature
-- **Per-chat injection counts**: Increment each injected entry's per-chat count. If a **swipe** is detected (chat length unchanged from last generation), the previous round's counts are undone first — only the final accepted response's injections count.
-- **Analytics**: Persist match/injection statistics to settings. To reduce disk I/O, analytics are only written to persistent storage every 5 generations. Stale analytics entries (>30 days) are pruned automatically.
-- **Context usage warning**: If injected lore exceeds 20% of the context window, a warning toast appears. The warning throttles to avoid spam — it only re-fires when the ratio increases by more than 5%.
 
-## Inspecting the Pipeline
+- **Track generation:** updates per-entry cooldown timers, warmup counters, and decay trackers (staleness and frequency).
+- **Injection dedup log:** records which entries were injected for the Strip Duplicate Injections feature.
+- **Per-chat injection counts:** increments each injected entry's per-chat count. If a **swipe** is detected (chat length unchanged from last generation), the previous round's counts are undone first. Only the final accepted response's injections count.
+- **Analytics:** persists match and injection statistics to settings. Writes are batched every 5 generations to reduce disk I/O. Stale analytics entries (older than 30 days) are pruned automatically.
+- **Context usage warning:** if injected lore exceeds 20% of the context window, a warning toast appears. Throttled to avoid spam: it only re-fires when the ratio increases by more than 5%.
+
+## Inspecting the pipeline
 
 Use the `/dle-inspect` slash command to see a detailed trace of the last generation:
+
 - Which entries matched by keywords (and which keywords triggered them)
 - Which entries were selected by AI (with confidence and reasons)
 - Which entries were injected (with token counts and truncation markers)
 - Which entries were gated out by requires/excludes rules (with reasons)
 - Which entries were removed by contextual gating, cooldown, strip-dedup, probability, or warmup
-- Which entries were cut by budget/max-entries limits
+- Which entries were cut by budget or max-entries limits
 - Whether AI fallback was used, and the pipeline mode that was active
 
 The trace is also available as a copyable plain-text block. See [[Slash Commands]] for more details.

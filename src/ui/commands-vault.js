@@ -1,19 +1,18 @@
-/**
- * DeepLore Enhanced — Slash Commands: Vault Management
- * /dle-graph, /dle-browse, /dle-refresh, /dle-import
- */
+/** DeepLore Enhanced — Slash Commands: Vault Management */
 import { escapeHtml } from '../../../../../utils.js';
 import { callGenericPopup, POPUP_TYPE } from '../../../../../popup.js';
 import { SlashCommandParser } from '../../../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../../../slash-commands/SlashCommand.js';
-import { classifyError, NO_ENTRIES_MSG } from '../../core/utils.js';
-import { getSettings, getPrimaryVault } from '../../settings.js';
+import { ARGUMENT_TYPE } from '../../../../../slash-commands/SlashCommandArgument.js';
+import { classifyError } from '../../core/utils.js';
+import { getSettings } from '../../settings.js';
 import { vaultIndex, setIndexTimestamp } from '../state.js';
-import { buildIndex, ensureIndexFresh } from '../vault/vault.js';
-// R5: Lazy-loaded — graph.js (~3140 LOC) only imported when /dle-graph runs
+import { buildIndex } from '../vault/vault.js';
+// graph.js (~3140 LOC) is lazy-loaded inline below — only paid for when /dle-graph runs.
 import { showBrowsePopup } from './popups.js';
 import { parseWorldInfoJson, importEntries } from '../vault/import.js';
 import { world_names, loadWorldInfo } from '../../../../../world-info.js';
+import { dedupWarning } from '../toast-dedup.js';
 
 export function registerVaultCommands() {
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -25,7 +24,7 @@ export function registerVaultCommands() {
             return '';
         },
         helpString: 'Visualize entry relationships as an interactive force-directed graph.',
-        returns: 'Graph popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
@@ -36,42 +35,44 @@ export function registerVaultCommands() {
             return '';
         },
         helpString: 'Open the entry browser — searchable, filterable popup of all indexed entries.',
-        returns: 'Entry browser popup',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-refresh',
         aliases: ['dle-r'],
         callback: async () => {
-            // Don't pre-clear vaultIndex — buildIndex replaces it atomically.
-            // Pre-clearing would give zero entries to any generation during rebuild.
-            setIndexTimestamp(0);
-            await buildIndex();
-            const msg = `Indexed ${vaultIndex.length} entries.`;
-            toastr.success(msg, 'DeepLore Enhanced');
-            return msg;
+            // Don't pre-clear vaultIndex — buildIndex replaces it atomically. Pre-clearing
+            // would give any concurrent generation zero entries during rebuild.
+            try {
+                setIndexTimestamp(0);
+                await buildIndex();
+                const msg = `Indexed ${vaultIndex.length} entries.`;
+                toastr.success(msg, 'DeepLore Enhanced');
+                return msg;
+            } catch (err) {
+                console.warn('[DLE] /dle-refresh failed:', err);
+                toastr.error(`Could not refresh vault: ${classifyError(err)}`, 'DeepLore Enhanced');
+                return '';
+            }
         },
         helpString: 'Rebuild the vault index by re-fetching all entries from Obsidian.',
-        returns: 'Status message',
+        returns: ARGUMENT_TYPE.STRING,
     }));
-
-    // ── Lorebook Import ──
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'dle-import',
         callback: async (_args, folderArg) => {
             const folder = (folderArg || '').trim();
 
-            // Build lorebook dropdown options
             const hasLorebooks = Array.isArray(world_names) && world_names.length > 0;
             const lbOptions = hasLorebooks
                 ? world_names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('')
                 : '';
 
-            // Capture JSON in closure — popup DOM is removed before callGenericPopup resolves
+            // Capture in closure — popup DOM is removed before callGenericPopup resolves.
             let capturedJson = '';
 
-            // Show popup with three input methods
             const jsonInput = await callGenericPopup(
                 `<div class="dle-popup">
                     <h3>Import SillyTavern World Info</h3>
@@ -104,12 +105,10 @@ export function registerVaultCommands() {
                     const lbSelect = document.getElementById('dle-import-lorebook');
                     const textarea = document.getElementById('dle-import-json');
 
-                    // Capture manual paste/typing
                     if (textarea) {
                         textarea.addEventListener('input', () => { capturedJson = textarea.value; });
                     }
 
-                    // Wire lorebook dropdown → load and fill textarea
                     if (lbSelect) {
                         lbSelect.addEventListener('change', async () => {
                             const name = lbSelect.value;
@@ -130,7 +129,6 @@ export function registerVaultCommands() {
                         });
                     }
 
-                    // Wire browse button → hidden file input
                     const browseBtn = document.getElementById('dle-import-browse');
                     const fileInput = document.getElementById('dle-import-file');
                     if (browseBtn && fileInput) {
@@ -155,14 +153,12 @@ export function registerVaultCommands() {
 
             if (!jsonInput) return '';
 
-            // ── Validation ──
             const jsonText = capturedJson.trim();
             if (!jsonText) {
                 toastr.warning('No JSON provided.', 'DeepLore Enhanced');
                 return '';
             }
 
-            // File size check (> 10 MB)
             if (jsonText.length > 10 * 1024 * 1024) {
                 const proceed = await callGenericPopup(
                     '<p>The input is larger than 10 MB. This may take a while to process. Continue?</p>',
@@ -171,11 +167,11 @@ export function registerVaultCommands() {
                 if (!proceed) return '';
             }
 
-            // JSON parse validation
             try {
                 JSON.parse(jsonText);
             } catch (parseErr) {
-                toastr.error(`Invalid JSON: ${parseErr.message}`, 'DeepLore Enhanced');
+                console.warn('[DLE] /dle-import JSON parse failed:', parseErr);
+                toastr.error('Invalid JSON format. Paste a lorebook export and try again.', 'DeepLore Enhanced');
                 return '';
             }
 
@@ -186,7 +182,6 @@ export function registerVaultCommands() {
                     return '';
                 }
 
-                // Warn about empty entries (no content AND no keys)
                 const emptyCount = entries.filter(e =>
                     (!e.content || !e.content.trim()) && (!e.key || !e.key.length || e.key.every(k => !k.trim())),
                 ).length;
@@ -194,7 +189,6 @@ export function registerVaultCommands() {
                     toastr.warning(`${emptyCount} entries have no content and no keys — they will be imported but may be empty.`, 'DeepLore Enhanced');
                 }
 
-                // Confirm
                 const confirmed = await callGenericPopup(
                     `<p>Found <b>${entries.length}</b> entries from "${escapeHtml(source)}".</p>
                     <p>Import to ${folder ? `folder <b>${escapeHtml(folder)}/</b>` : 'vault root'}?</p>`,
@@ -216,14 +210,29 @@ export function registerVaultCommands() {
                     toastr.success(`Imported ${result.imported} entries${renamedNote}.`, 'DeepLore Enhanced');
                 }
 
-                // Refresh index to pick up new entries
-                setIndexTimestamp(0);
-                await buildIndex();
+                // C.2: WI 'Order' → DLE 'priority' inverts semantically — WI sorts
+                // high-first, DLE sorts low-first. Priorities round-trip as raw numbers
+                // but user-visible behaviour differs. One-shot warning per import.
+                if (result.imported > 0) {
+                    dedupWarning(
+                        "WI 'Order' is inverted in DLE Priority (lower = higher priority). Verify your entries sort as expected.",
+                        'wi_import_priority_flip',
+                        { timeOut: 15000 },
+                    );
+                }
 
-                // Offer to generate AI summaries for imported entries
+                // BUG-108: single buildIndex at the end avoids a window where generation
+                // sees a partially-summarized index between two sequential rebuilds.
+                let needsRebuild = true;
+
                 if (result.imported > 0) {
                     const settings = getSettings();
                     if (settings.aiSearchEnabled) {
+                        // Rebuild first so we can filter for unsummarized entries.
+                        setIndexTimestamp(0);
+                        await buildIndex();
+                        needsRebuild = false;
+
                         const offerSummaries = await callGenericPopup(
                             `<p>Generate AI summaries for the ${result.imported} imported entries?</p>
                             <p class="dle-text-sm dle-muted">This uses your AI search connection to create meaningful summaries, replacing the default placeholder. Each summary is presented for review before writing.</p>`,
@@ -235,13 +244,15 @@ export function registerVaultCommands() {
                                 const { summarizeEntries } = await import('./commands-ai.js');
                                 const sumResult = await summarizeEntries(imported);
                                 toastr.success(`Summaries: ${sumResult.generated} written, ${sumResult.skipped} skipped, ${sumResult.failed} failed.`, 'DeepLore Enhanced');
-                                if (sumResult.generated > 0) {
-                                    setIndexTimestamp(0);
-                                    await buildIndex();
-                                }
+                                if (sumResult.generated > 0) needsRebuild = true;
                             }
                         }
                     }
+                }
+
+                if (needsRebuild) {
+                    setIndexTimestamp(0);
+                    await buildIndex();
                 }
             } catch (err) {
                 console.error('[DLE] Import error:', err);
@@ -250,6 +261,6 @@ export function registerVaultCommands() {
             return '';
         },
         helpString: 'Import SillyTavern World Info JSON into the Obsidian vault. Usage: /dle-import <folder>. Example: /dle-import Imported.',
-        returns: 'Import status',
+        returns: ARGUMENT_TYPE.STRING,
     }));
 }

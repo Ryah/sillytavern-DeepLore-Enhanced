@@ -1,13 +1,14 @@
 {
-    "display_name": "DeepLore Enhanced",
-    "loading_order": 101,
+    "display_name": "DeepLore Enhanced (Obsidian required)",
+    "description": "Requires Obsidian with the Local REST API plugin. AI-powered lorebook for SillyTavern that reads Markdown notes from an Obsidian vault.",
+    "loading_order": 1,
     "requires": [],
     "optional": [],
     "generate_interceptor": "deepLoreEnhanced_onGenerate",
     "js": "index.js",
     "css": "style.css",
     "author": "pixelnull",
-    "version": "1.0.0-beta",
+    "version": "2.0.0-beta",
     "homePage": "https://github.com/pixelnull/sillytavern-DeepLore-Enhanced",
-    "minimum_client_version": "1.12.6"
+    "minimum_client_version": "1.12.14"
 }

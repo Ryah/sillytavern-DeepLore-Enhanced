@@ -6,218 +6,188 @@ import { oai_settings } from '../../../../../openai.js';
 import { main_api, amount_gen } from '../../../../../../script.js';
 import { getSettings } from '../../settings.js';
 import { simpleHash } from '../../core/utils.js';
-import { fetchAllMdFiles, fetchFieldDefinitions } from './obsidian-api.js';
+import { fetchAllMdFiles, fetchFieldDefinitions, diagnoseFetchFailure } from './obsidian-api.js';
 import {
-    vaultIndex, indexTimestamp, indexing, buildPromise, indexEverLoaded,
+    vaultIndex, indexTimestamp, indexing, buildPromise,
     aiSearchCache, previousIndexSnapshot, trackerKey,
     setVaultIndex, setIndexTimestamp, setIndexing, setBuildPromise,
-    setIndexEverLoaded, setAiSearchCache, setPreviousIndexSnapshot,
-    setEntityNameSet, setEntityShortNameRegexes, setVaultAvgTokens,
-    setFuzzySearchIndex, setMentionWeights,
+    setIndexEverLoaded, resetAiSearchCache, setPreviousIndexSnapshot,
+    setVaultAvgTokens,
+    setFuzzySearchIndex, setMentionWeights, setFolderList,
     setLastVaultFailureCount, setLastVaultAttemptCount,
     notifyIndexUpdated,
     generationCount, lastIndexGenerationCount, setLastIndexGenerationCount,
-    chatEpoch,
+    chatEpoch, buildEpoch,
     fieldDefinitions, setFieldDefinitions,
+    setIndexBuildReport,
+    entityRegexVersion,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS, parseFieldDefinitionYaml } from '../fields.js';
 import { resolveLinks } from '../../core/matching.js';
 import { parseVaultFile } from '../../core/pipeline.js';
-import { takeIndexSnapshot, detectChanges } from '../../core/sync.js';
+import { takeIndexSnapshot, detectChanges, snapshotKey } from '../../core/sync.js';
 import { showChangesToast } from './sync.js';
 import { saveIndexToCache, loadIndexFromCache, pruneOrphanedCacheKeys } from './cache.js';
 import { dedupError, dedupWarning } from '../toast-dedup.js';
-// BM25 pure functions extracted to bm25.js for testability
-import { buildBM25Index } from './bm25.js';
-export { buildBM25Index, queryBM25 } from './bm25.js';
+import { pushEvent } from '../diagnostics/interceptors.js';
+import { buildBM25Index, setDebugMode as setBm25DebugMode } from './bm25.js';
 
-/**
- * Compute entity name Set and pre-compiled short-name regexes from vault entries.
- * Used by both finalizeIndex (after full rebuild) and hydrateFromCache (instant startup).
- * @param {Array} entries - VaultEntry array
- */
-function computeEntityDerivedState(entries) {
-    const names = new Set();
-    for (const entry of entries) {
-        if (entry.title.length >= 1) names.add(entry.title.toLowerCase());
-        for (const key of entry.keys) {
-            if (key.length >= 2) names.add(key.toLowerCase());
-        }
-    }
-    setEntityNameSet(names);
+import { computeEntityDerivedState, deduplicateMultiVault, detectCrossVaultDuplicates } from './vault-pure.js';
+export { computeEntityDerivedState, deduplicateMultiVault, detectCrossVaultDuplicates };
 
-    // Pre-compile word-boundary regexes for ALL entity names
-    // Short names (≤3 chars): always use regex to avoid false positives ("an" in "want")
-    // Longer names: regex prevents substring false positives ("Arch" in "monarch")
-    const nameRegexes = new Map();
-    for (const name of names) {
-        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        nameRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'i'));
-    }
-    setEntityShortNameRegexes(nameRegexes);
+// BUG-381: this is a toastr display duration, not a fetch/abort timeout.
+const OBSIDIAN_TOAST_TIMEOUT = 15000;
+const CACHE_FALLBACK_TOAST_TIMEOUT = 10000;
+
+// Both the warning toast and the cache-skip flag must share this threshold —
+// drift re-introduces the bug where a partial vault gets cached as a deletion.
+const PARTIAL_FETCH_FAILURE_THRESHOLD = { absolute: 5, rate: 0.1 };
+function isPartialFetchFailure(failed, total) {
+    const rate = total > 0 ? failed / total : 0;
+    return failed >= PARTIAL_FETCH_FAILURE_THRESHOLD.absolute || rate >= PARTIAL_FETCH_FAILURE_THRESHOLD.rate;
 }
 
-/**
- * Multi-vault conflict resolution dedup pass (BUG-007).
- * When entries with the same title exist in different vaults, this resolves them:
- *   'all'   — Keep every copy (no dedup). Entries from each vault appear independently.
- *   'first' — Keep the first vault's copy, discard later duplicates.
- *   'last'  — Keep the last vault's copy, replacing earlier ones.
- *   'merge' — Combine into a single entry:
- *             Arrays (keys, tags, links, etc.) are unioned (no duplicates).
- *             Content is concatenated with a separator.
- *             Summary and scalar fields prefer the first non-empty value.
- *             Token estimate is recalculated from merged content.
- *
- * Shared between buildIndex and buildIndexWithReuse so dedup is consistent
- * regardless of whether the build is full or incremental.
- *
- * @param {Array} entries - VaultEntry array (mutated: may be replaced)
- * @param {string} mode - Conflict resolution mode ('all'|'first'|'last'|'merge')
- * @returns {Array} Deduplicated entries
- */
-function deduplicateMultiVault(entries, mode) {
-    if (!mode || mode === 'all') return entries;
-    const titleMap = new Map();
-    for (const entry of entries) {
-        const key = entry.title.toLowerCase();
-        if (titleMap.has(key)) {
-            if (mode === 'first') continue;
-            if (mode === 'last') {
-                titleMap.set(key, entry);
-            } else if (mode === 'merge') {
-                const existing = titleMap.get(key);
-                // H18: Merge all relevant fields, not just keys
-                // Arrays: union (deduplicate)
-                for (const field of ['keys', 'tags', 'links', 'resolvedLinks', 'requires', 'excludes']) {
-                    if (Array.isArray(entry[field]) && entry[field].length > 0) {
-                        existing[field] = [...new Set([...(existing[field] || []), ...entry[field]])];
-                    }
-                }
-                // content: concatenate with separator
-                if (entry.content && entry.content.trim()) {
-                    existing.content = (existing.content || '') + '\n\n---\n\n' + entry.content;
-                    // Recalculate token estimate from merged content
-                    existing.tokenEstimate = Math.ceil(existing.content.length / 4.0); // BUG-H9: standardize on 4.0 chars/token
-                }
-                // summary: prefer first non-empty
-                if (!existing.summary && entry.summary) existing.summary = entry.summary;
-                // customFields: merge — union arrays, prefer first non-empty for scalars
-                if (entry.customFields) {
-                    if (!existing.customFields) existing.customFields = {};
-                    for (const [key, val] of Object.entries(entry.customFields)) {
-                        if (Array.isArray(val) && val.length > 0) {
-                            existing.customFields[key] = [...new Set([...(existing.customFields[key] || []), ...val])];
-                        } else if (!existing.customFields[key] && val != null) {
-                            existing.customFields[key] = val;
-                        }
-                    }
-                }
-            }
-        } else {
-            titleMap.set(key, entry);
-        }
-    }
-    return [...titleMap.values()];
-}
+// Module-scoped: resets only on page refresh, so periodic rebuilds stay silent.
+let _parserLedgerToastShown = false;
 
 /**
- * Shared post-processing after entries are parsed (used by both buildIndex and buildIndexWithReuse).
- * Computes derived state, invalidates caches, prunes analytics, persists to IndexedDB,
- * and notifies the UI layer (stats, health checks) via registered callbacks.
- *
- * @param {object} options
- * @param {Array} options.entries - The parsed VaultEntry array (already set into vaultIndex)
- * @param {object} options.settings - Current extension settings
- * @param {boolean} [options.skipCacheSave=false] - If true, skip persisting to IndexedDB (e.g. when a vault fetch failed)
+ * BUG-370: Compute derived fields (mentionWeights, folderList, vaultAvgTokens).
+ * Shared with hydrateFromCache so cold-start sessions don't run with degraded
+ * scoring until a full rebuild completes.
  */
-async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
-    // Compute vault average token count for Context Map coloring
+function computeDerivedIndexFields(entries, settings) {
+    setBm25DebugMode(settings?.debugMode);
+
     const totalTokens = entries.reduce((sum, e) => sum + (e.tokenEstimate || 0), 0);
     setVaultAvgTokens(entries.length > 0 ? totalTokens / entries.length : 0);
 
-    // Resolve wiki-links to confirmed entry titles
-    resolveLinks(vaultIndex);
-
-    // Build cross-entry mention weight table
-    // Counts how many times each entry's content mentions another entry's title/keys.
-    // Piggybacks on the existing pass — content is already in memory.
+    // BUG-374: One combined regex per target entry + pre-lowercased content once
+    // → O(N × total_content) instead of O(N × M_names × content).
     {
         const weights = new Map();
-        // Build lookup: lowercase name → entry title (for all titles + keys)
-        const nameToTitle = new Map();
+        const targetNames = new Map(); // targetTitle → string[]
         for (const entry of entries) {
-            const titleLc = entry.title.toLowerCase();
-            nameToTitle.set(titleLc, entry.title);
+            const names = [entry.title.toLowerCase()];
             for (const key of entry.keys) {
                 const keyLc = key.toLowerCase();
-                if (keyLc.length >= 2) nameToTitle.set(keyLc, entry.title); // skip single-char keys
+                if (keyLc.length >= 2) names.push(keyLc);
             }
+            targetNames.set(entry.title, names);
         }
-        const allNames = [...nameToTitle.keys()].sort((a, b) => b.length - a.length); // longest first to avoid substring matches
-
-        // BUG-043: Pre-compile word-boundary regexes for short names (≤3 chars)
-        // to avoid false positives like "an" matching inside "want"
-        const shortNameRegexes = new Map();
-        for (const name of allNames) {
-            if (name.length <= 3) {
+        const targetRegexes = new Map();
+        for (const [title, names] of targetNames) {
+            const parts = names.map(name => {
                 const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                shortNameRegexes.set(name, new RegExp(`\\b${escaped}\\b`, 'gi'));
-            }
+                return name.length <= 3 ? `\\b${escaped}\\b` : escaped;
+            });
+            parts.sort((a, b) => b.length - a.length);
+            targetRegexes.set(title, new RegExp(parts.join('|'), 'gi'));
         }
-
+        const contentLower = new Map();
         for (const source of entries) {
-            const content = source.content.toLowerCase();
+            contentLower.set(source.title, source.content.toLowerCase());
+        }
+        for (const source of entries) {
+            const content = contentLower.get(source.title);
             const sourceName = source.title;
-            // Count mentions of each OTHER entry's names in this entry's content
-            const counted = new Map(); // targetTitle → count
-            for (const name of allNames) {
-                const targetTitle = nameToTitle.get(name);
-                if (targetTitle === sourceName) continue; // skip self-mentions
+            for (const [targetTitle, regex] of targetRegexes) {
+                if (targetTitle === sourceName) continue;
+                regex.lastIndex = 0;
                 let count = 0;
-                // BUG-043: Use word-boundary regex for short names to avoid substring false positives
-                const shortRegex = shortNameRegexes.get(name);
-                if (shortRegex) {
-                    shortRegex.lastIndex = 0;
-                    let m;
-                    while ((m = shortRegex.exec(content)) !== null) count++;
-                } else {
-                    let pos = 0;
-                    while ((pos = content.indexOf(name, pos)) !== -1) {
-                        count++;
-                        pos += name.length;
-                    }
-                }
+                while (regex.exec(content) !== null) count++;
                 if (count > 0) {
-                    // Accumulate — multiple keys for same target entry sum up
-                    const existing = counted.get(targetTitle) || 0;
-                    counted.set(targetTitle, existing + count);
+                    weights.set(`${sourceName}\0${targetTitle}`, count);
                 }
-            }
-            for (const [targetTitle, count] of counted) {
-                weights.set(`${sourceName}\0${targetTitle}`, count);
             }
         }
         setMentionWeights(weights);
-        if (settings.debugMode) {
+        if (settings?.debugMode) {
             console.debug(`[DLE] Built mention weights: ${weights.size} pairs`);
         }
     }
 
-    // Pre-compute entity names and short-name regexes for AI cache sliding window
+    {
+        const folderCounts = new Map();
+        for (const entry of entries) {
+            if (entry.folderPath) {
+                const parts = entry.folderPath.split('/');
+                for (let i = 1; i <= parts.length; i++) {
+                    const ancestor = parts.slice(0, i).join('/');
+                    folderCounts.set(ancestor, (folderCounts.get(ancestor) || 0) + 1);
+                }
+            }
+        }
+        const list = [...folderCounts.entries()]
+            .map(([path, entryCount]) => ({ path, entryCount }))
+            .sort((a, b) => b.entryCount - a.entryCount);
+        setFolderList(list);
+    }
+}
+
+async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
+    resolveLinks(vaultIndex);
+
+    // Strip dangling requires/excludes/cascade_links so the pipeline doesn't trip on them
+    // every generation. Originals preserved on `_original*` fields so the health check
+    // can still surface broken refs.
+    {
+        const validTitles = new Set(entries.map(e => e.title.toLowerCase()));
+        const filterValid = (arr) => arr.filter(ref => validTitles.has(String(ref).toLowerCase()));
+        for (const entry of entries) {
+            if (Array.isArray(entry.requires) && entry.requires.length) {
+                const cleaned = filterValid(entry.requires);
+                if (cleaned.length !== entry.requires.length) {
+                    entry._originalRequires = entry.requires.slice();
+                    entry.requires = cleaned;
+                }
+            }
+            if (Array.isArray(entry.excludes) && entry.excludes.length) {
+                const cleaned = filterValid(entry.excludes);
+                if (cleaned.length !== entry.excludes.length) {
+                    entry._originalExcludes = entry.excludes.slice();
+                    entry.excludes = cleaned;
+                }
+            }
+            if (Array.isArray(entry.cascadeLinks) && entry.cascadeLinks.length) {
+                const cleaned = filterValid(entry.cascadeLinks);
+                if (cleaned.length !== entry.cascadeLinks.length) {
+                    entry._originalCascadeLinks = entry.cascadeLinks.slice();
+                    entry.cascadeLinks = cleaned;
+                }
+            }
+        }
+    }
+
+    computeDerivedIndexFields(entries, settings);
+
+    // Capture pre-rebuild state for cache-invalidation diagnostic.
+    const _preRegexVersion = entityRegexVersion;
+    const _preCacheResultCount = aiSearchCache?.results?.length ?? 0;
+    const _preCacheHadHash = !!aiSearchCache?.hash;
+
     computeEntityDerivedState(entries);
 
-    // Build BM25 fuzzy search index if enabled
-    if (settings.fuzzySearchEnabled) {
+    if (settings.fuzzySearchEnabled || settings.librarianSearchEnabled) {
         setFuzzySearchIndex(buildBM25Index(entries));
     } else {
         setFuzzySearchIndex(null);
     }
 
-    // Invalidate AI search cache on re-index
-    setAiSearchCache({ hash: '', manifestHash: '', chatLineCount: 0, results: [] });
+    // Log the invalidation reason so "why did my cache go stale mid-session" is
+    // diagnosable post-facto without repro.
+    if (_preCacheHadHash || _preCacheResultCount > 0) {
+        pushEvent('cache_invalidate', {
+            trigger: 'index_rebuild',
+            regexVersionBefore: _preRegexVersion,
+            regexVersionAfter: entityRegexVersion,
+            cachedResultsCleared: _preCacheResultCount,
+            entriesAfter: entries.length,
+        });
+        console.debug('[DLE][DIAG] aiSearchCache cleared: trigger=index_rebuild regex v%d→v%d cachedResults=%d entriesAfter=%d',
+            _preRegexVersion, entityRegexVersion, _preCacheResultCount, entries.length);
+    }
+    resetAiSearchCache();
 
-    // Vault change detection
     const newSnapshot = takeIndexSnapshot(vaultIndex);
     if (previousIndexSnapshot) {
         const changes = detectChanges(previousIndexSnapshot, newSnapshot);
@@ -234,28 +204,38 @@ async function finalizeIndex({ entries, settings, skipCacheSave = false }) {
 
     setIndexEverLoaded(true);
 
-    // BUG-026: Prune analytics data for entries no longer in the vault.
-    // This intentionally mutates the live settings.analyticsData object — the pruned data
-    // is persisted by saveSettingsDebounced() later in the pipeline. Removing stale entries
-    // here prevents unbounded growth when vault entries are renamed or deleted.
+    if (entries.length >= 500 && !finalizeIndex._largeVaultWarned) {
+        finalizeIndex._largeVaultWarned = true;
+        toastr.info(
+            `Large vault detected (${entries.length} entries). Consider using folder filtering or reducing scan depth for better performance.`,
+            'DeepLore Enhanced',
+            { timeOut: 8000 },
+        );
+    }
+
+    // BUG-026: Mutates the live settings.analyticsData; persisted later by
+    // saveSettingsDebounced(). Without this, renamed/deleted entries grow unboundedly.
     const analytics = settings.analyticsData;
     if (analytics) {
         const activeKeys = new Set(vaultIndex.map(e => trackerKey(e)));
         for (const key of Object.keys(analytics)) {
+            // BUG-AUDIT-DP01: `_`-prefixed keys (e.g. `_librarian`) are sub-objects, not
+            // tracker keys — were being silently wiped on every rebuild.
+            if (key.startsWith('_')) continue;
             if (!activeKeys.has(key)) delete analytics[key];
         }
     }
 
-    // Persist to IndexedDB for instant hydration on next page load
+    // Prune sequenced AFTER save success: a failed save racing concurrent prune used to
+    // delete the prior good cache key and leave nothing for the next hydration.
     if (!skipCacheSave) {
-        saveIndexToCache(entries).catch(() => {});
-        // H20: Clean up orphaned cache keys from previous vault configurations
-        pruneOrphanedCacheKeys().catch(() => {});
+        saveIndexToCache(entries)
+            .then(() => pruneOrphanedCacheKeys())
+            .catch(err => console.warn('[DLE] Cache save/prune failed:', err?.message));
     }
 
-    // Notify UI layer (stats display, health check badge, etc.)
-    // Callbacks are registered by settings-ui.js during init — this avoids
-    // the data layer (vault.js) importing from the UI layer (settings-ui.js).
+    pushEvent('index_build', { entryCount: entries.length, skipCacheSave });
+
     notifyIndexUpdated();
 }
 
@@ -268,23 +248,32 @@ export async function buildIndex() {
         return buildPromise;
     }
 
+    // BUG-010: Install buildPromise BEFORE setIndexing(true) so any sync observer
+    // that sees indexing===true always finds a populated promise. Deferred-promise
+    // pattern: install outer promise synchronously, IIFE settles it.
+    let _buildResolve, _buildReject;
+    const promise = new Promise((res, rej) => { _buildResolve = res; _buildReject = rej; });
+    setBuildPromise(promise);
     setIndexing(true);
-    const promise = (async () => {
+    let capturedEpoch = buildEpoch;
+    (async () => {
+    const _buildStart = performance.now();
+    const settings = getSettings();
+    const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     try {
-        const settings = getSettings();
-        const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
+        capturedEpoch = buildEpoch;
+        const isZombie = () => buildEpoch !== capturedEpoch;
         if (enabledVaults.length === 0) {
             throw new Error('No enabled vaults configured');
         }
 
-        // ── Load custom field definitions ──
-        // BUG-F4: Resolve into a local variable first, then set state ONCE before parsing.
-        // This prevents entries from being parsed with inconsistent definitions if fallback logic triggers.
+        // BUG-F4: Resolve to local first; commit to state once before parsing so
+        // entries can't be parsed under inconsistent defs if fallback logic triggers.
         const primaryVault = enabledVaults[0];
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
         let loadedFieldDefs = [...DEFAULT_FIELD_DEFINITIONS];
         try {
-            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath);
+            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath, !!primaryVault.https);
             if (fdResult.ok && fdResult.content) {
                 const { definitions, errors } = parseFieldDefinitionYaml(fdResult.content);
                 if (definitions.length > 0) {
@@ -304,8 +293,11 @@ export async function buildIndex() {
         } catch (err) {
             console.warn('[DLE] Error loading field definitions:', err.message, '— using defaults');
         }
-        // Set state once, before any parsing begins
-        setFieldDefinitions(loadedFieldDefs);
+        // BUG-305: Don't publish loadedFieldDefs to state until we commit a new
+        // vaultIndex. If all vaults fail in multi-vault mode (early-return below),
+        // publishing here would leave new defs running against the OLD preserved
+        // index — gating runs under defs the entries weren't parsed with.
+        if (isZombie()) return;
 
         let entries = [];
         const tagConfig = {
@@ -314,38 +306,103 @@ export async function buildIndex() {
             neverInsertTag: settings.neverInsertTag,
             seedTag: settings.seedTag,
             bootstrapTag: settings.bootstrapTag,
+            guideTag: settings.librarianGuideTag,
         };
+
+        // Per-build parser ledger. Populated by parseVaultFile's onSkip + per-entry
+        // `_parserWarnings`. Published before finalizeIndex so observers see it.
+        const buildReport = {
+            okCount: 0,
+            warnCount: 0,
+            skipCount: 0,
+            skipped: [],
+            entriesWithWarnings: [],
+        };
+        const lenientAuthoring = settings.lenientAuthoring !== false;
 
         let totalFiles = 0;
         let vaultFetchFailed = false;
         let vaultFailCount = 0;
+        // BUG-366/367: Snapshot live index BEFORE fetching so we can carry forward
+        // per-vault slices if a vault comes back partial or successful-but-empty.
+        const priorIndexSnapshot = [...vaultIndex];
         setLastVaultAttemptCount(enabledVaults.length);
         for (const vault of enabledVaults) {
             try {
-                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey, !!vault.https);
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Vault "${vault.name}" returned invalid data`);
                     continue;
                 }
 
-                totalFiles += data.total || data.files.length;
+                // BUG-366: Partial listing — don't commit a truncated view over a
+                // known-good index. Carry forward this vault's previous entries.
+                if (data.partial) {
+                    console.warn(`[DLE] Vault "${vault.name}" returned a partial directory listing — preserving previous entries for this vault`);
+                    vaultFetchFailed = true;
+                    vaultFailCount++;
+                    dedupWarning(
+                        `Some folders in "${vault.name}" couldn't be listed — keeping the previously indexed entries for this vault.`,
+                        'vault_fetch_partial',
+                    );
+                    for (const entry of priorIndexSnapshot) {
+                        if (entry.vaultSource === vault.name) entries.push(entry);
+                    }
+                    continue;
+                }
 
-                // Warn if a significant portion of files failed to fetch
-                if (data.failed > 0) {
-                    const failRate = data.total > 0 ? data.failed / data.total : 0;
-                    if (data.failed >= 5 || failRate >= 0.1) {
+                // BUG-367: Successful-but-empty preserve guard. Treat zero-files-but-
+                // we-had-entries as transient instead of silently wiping a valid index.
+                if (data.files.length === 0) {
+                    const priorForThisVault = priorIndexSnapshot.filter(e => e.vaultSource === vault.name);
+                    if (priorForThisVault.length > 0) {
+                        console.warn(`[DLE] Vault "${vault.name}" returned 0 files but prior index had ${priorForThisVault.length} entries — preserving`);
+                        vaultFetchFailed = true;
+                        vaultFailCount++;
                         dedupWarning(
-                            `Some entries in "${vault.name}" couldn't be loaded (${data.failed} of ${data.total}). They'll be included on the next refresh.`,
-                            'vault_fetch_partial',
+                            `"${vault.name}" returned no files — keeping the ${priorForThisVault.length} previously indexed entries.`,
+                            'vault_empty_preserve',
                         );
+                        for (const entry of priorForThisVault) entries.push(entry);
+                        continue;
                     }
                 }
 
+                totalFiles += data.total || data.files.length;
+
+                // Skip cache (not just warn) when many files failed. Otherwise the
+                // cache writes the truncated vault, missing entries look like deletions
+                // on next hydration, and trackers/dedup-logs/lore evaporate.
+                if (data.failed > 0 && isPartialFetchFailure(data.failed, data.total)) {
+                    vaultFetchFailed = true;
+                    dedupWarning(
+                        `Some entries in "${vault.name}" couldn't be loaded (${data.failed} of ${data.total}). They'll be included on the next refresh — cache not updated.`,
+                        'vault_fetch_partial',
+                    );
+                }
+
                 for (const file of data.files) {
-                    const entry = parseVaultFile(file, tagConfig, fieldDefinitions);
+                    // BUG-305: parse with locally-loaded defs, not the (possibly stale) global.
+                    const entry = parseVaultFile(file, tagConfig, loadedFieldDefs, {
+                        lenientAuthoring,
+                        onSkip: (reason) => {
+                            buildReport.skipped.push({ filename: file.filename, reason });
+                            buildReport.skipCount++;
+                        },
+                    });
                     if (entry) {
                         entry.vaultSource = vault.name;
                         entry._contentHash = simpleHash(file.content);
+                        if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                            buildReport.warnCount++;
+                            buildReport.entriesWithWarnings.push({
+                                filename: file.filename,
+                                title: entry.title,
+                                warnings: entry._parserWarnings,
+                            });
+                        } else {
+                            buildReport.okCount++;
+                        }
                         entries.push(entry);
                     }
                 }
@@ -353,24 +410,25 @@ export async function buildIndex() {
                 console.warn(`[DLE] Failed to index vault "${vault.name}":`, vaultErr.message);
                 vaultFetchFailed = true;
                 vaultFailCount++;
-                // Surface auth errors as user-facing toasts even in multi-vault mode
-                // (otherwise a misconfigured API key silently produces zero entries)
+                // Surface auth errors as toasts even in multi-vault mode — otherwise a
+                // misconfigured API key silently produces zero entries.
                 if (/401|403/.test(String(vaultErr.message))) {
-                    dedupWarning(`Vault "${vault.name}" authentication failed — check its API key.`, 'vault_auth');
+                    dedupWarning(`Vault "${vault.name}" rejected the API key.`, 'vault_auth', { hint: 'Check the API key in Connection → Obsidian.' });
                 }
                 if (enabledVaults.length === 1) throw vaultErr;
             }
         }
         setLastVaultFailureCount(vaultFailCount);
 
-        // BUG-001: If ALL enabled vaults failed in multi-vault mode, preserve existing index
-        // instead of replacing it with an empty array (which would destroy valid cached data)
+        // BUG-001: If ALL enabled vaults failed in multi-vault mode, preserve existing
+        // index — replacing with [] would destroy valid cached data.
         if (vaultFailCount > 0 && vaultFailCount === enabledVaults.length && enabledVaults.length > 1) {
+            if (isZombie()) return;
             dedupError(
-                `All ${enabledVaults.length} vaults failed to connect. Preserving existing index (${vaultIndex.length} entries). Check vault connections.`,
+                'Couldn\'t reach any of your vaults — keeping the lore you already had.',
                 'obsidian_connect',
+                { hint: `${enabledVaults.length} vaults failed; existing ${vaultIndex.length} entries preserved.` },
             );
-            // Set short-lived timestamp so ensureIndexFresh retries soon
             const ttl = settings.cacheTTL * 1000;
             setIndexTimestamp(Date.now() - ttl + 30_000); // retry in ~30s
             setIndexing(false);
@@ -378,45 +436,119 @@ export async function buildIndex() {
             return;
         }
 
-        // Compute accurate token counts using SillyTavern's tokenizer
+        let _tokenizerFailCount = 0;
         await Promise.all(entries.map(async (entry) => {
             try {
                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
             } catch {
-                // Fallback to rough estimate if tokenizer unavailable
                 entry.tokenEstimate = Math.ceil(entry.content.length / 4.0);
+                _tokenizerFailCount++;
             }
         }));
+        if (_tokenizerFailCount > 0) {
+            console.warn(`[DLE] Tokenizer failed for ${_tokenizerFailCount}/${entries.length} entries — using character-based estimates (budget accuracy degraded)`);
+        }
 
-        // E6: Multi-vault conflict resolution dedup pass (BUG-007: shared with buildIndexWithReuse)
+        // Cross-vault title duplicates cause Map key collisions.
+        if (enabledVaults.length > 1) {
+            const dupes = detectCrossVaultDuplicates(entries);
+            if (dupes.length > 0) {
+                const listing = dupes.slice(0, 5).map(d => `"${d.title}" (${d.vaults.join(', ')})`).join('; ');
+                const more = dupes.length > 5 ? ` …and ${dupes.length - 5} more` : '';
+                const mode = settings.multiVaultConflictResolution || 'all';
+                const modeMsg = ({
+                    all: 'Keeping all copies (resolution mode: all). Rename one copy if you want a single canonical entry.',
+                    first: 'Keeping the first vault\'s copy. Rename one copy to avoid the conflict.',
+                    last: 'Keeping the last vault\'s copy. Rename one copy to avoid the conflict.',
+                    merge: 'Merging fields and content from all copies. Rename one copy if you don\'t want them merged.',
+                }[mode]) || 'Resolving via configured conflict mode.';
+                dedupWarning(
+                    `Duplicate entry titles across vaults: ${listing}${more}. ${modeMsg}`,
+                    'cross_vault_dupes',
+                    { timeOut: OBSIDIAN_TOAST_TIMEOUT },
+                );
+            }
+        }
+
+        // BUG-007: dedup pass shared with buildIndexWithReuse.
         entries = deduplicateMultiVault(entries, settings.multiVaultConflictResolution);
 
+        if (isZombie()) return;
+        // BUG-305: publish fieldDefinitions and vaultIndex together so no observer
+        // sees new defs against old entries (or vice versa).
+        setFieldDefinitions(loadedFieldDefs);
         setVaultIndex(entries);
         setIndexTimestamp(Date.now());
 
         if (settings.debugMode) console.log(`[DLE] Indexed ${entries.length} entries from ${totalFiles} vault files across ${enabledVaults.length} vault(s)`);
+        console.log('[DLE] Index built: %d entries in %dms (mode: fresh)', entries.length, Math.round(performance.now() - _buildStart));
 
+        if (isZombie()) return;
+        // Publish ledger BEFORE finalizeIndex so observers (stats, health) see it.
+        setIndexBuildReport(buildReport);
         await finalizeIndex({ entries, settings, skipCacheSave: vaultFetchFailed });
+
+        // Once-per-page-load: subsequent rebuilds stay silent.
+        if (!_parserLedgerToastShown && (buildReport.warnCount > 0 || buildReport.skipCount > 0)) {
+            const parts = [`DLE indexed ${entries.length} entries.`];
+            if (buildReport.warnCount > 0) parts.push(`${buildReport.warnCount} warning${buildReport.warnCount === 1 ? '' : 's'}`);
+            if (buildReport.skipCount > 0) parts.push(`${buildReport.skipCount} skipped`);
+            dedupWarning(
+                `${parts.join(', ').replace(/,([^,]*)$/, ';$1')}. Run /dle-lint for details.`,
+                'parser_ledger_summary',
+                { timeOut: OBSIDIAN_TOAST_TIMEOUT },
+            );
+            _parserLedgerToastShown = true;
+        }
+
+        if (entries.length === 0 && !vaultFetchFailed) {
+            const tag = settings.lorebookTag || 'lorebook';
+            dedupWarning(
+                `Connected to Obsidian but found 0 entries with the '${tag}' tag. Add \`tags: [${tag}]\` to your note frontmatter to make entries visible to DeepLore.`,
+                'zero_entries',
+                { timeOut: OBSIDIAN_TOAST_TIMEOUT },
+            );
+        }
     } catch (err) {
         console.error('[DLE] Failed to build index:', err);
         const raw = String(err.message || err);
         let userMsg = raw;
-        if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
-            userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin is enabled, (3) port is correct. (${raw})`;
-        } else if (/No enabled vaults/i.test(raw)) {
-            userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
-        } else if (/401|403|auth/i.test(raw)) {
-            userMsg = `Authentication failed. Check your vault API key in settings. (${raw})`;
-        } else if (/timeout|timed out/i.test(raw)) {
-            userMsg = `Obsidian connection timed out. Check that the REST API plugin is running. (${raw})`;
+
+        const httpsVaults = enabledVaults.filter(v => v.https);
+        if (httpsVaults.length > 0 && /Failed to fetch|TypeError|NetworkError/i.test(raw)) {
+            try {
+                const v = httpsVaults[0];
+                const probe = await diagnoseFetchFailure(v.host, v.port, v.apiKey);
+                if (probe.diagnosis === 'cert') {
+                    userMsg = `HTTPS certificate not trusted. Switch to HTTP in vault settings (uncheck HTTPS, port ${probe.httpPort}), or trust the certificate. Run /dle-health for help.`;
+                } else if (probe.diagnosis === 'auth') {
+                    userMsg = `Connected via HTTP but authentication failed. Check your vault API key. Run /dle-health for help.`;
+                } else {
+                    userMsg = `Cannot reach Obsidian on either HTTPS or HTTP. Check that Obsidian is running with the Local REST API plugin enabled. Run /dle-health for diagnostics.`;
+                }
+            } catch { /* probe failed, fall through to generic classification */ }
         }
-        dedupError(userMsg, 'obsidian_connect');
+
+        if (userMsg === raw) {
+            if (/ECONNREFUSED|Failed to fetch|NetworkError|fetch/i.test(raw)) {
+                userMsg = `Connection failed. Check: (1) Obsidian is running, (2) Local REST API plugin is enabled, (3) port is correct. Run /dle-health for diagnostics. (${raw})`;
+            } else if (/No enabled vaults/i.test(raw)) {
+                userMsg = 'No enabled vaults configured. Go to DeepLore Enhanced settings → Vault Connections and add a vault.';
+            } else if (/401|403|auth/i.test(raw)) {
+                userMsg = `Authentication failed. Check your vault API key in settings. Run /dle-health for diagnostics. (${raw})`;
+            } else if (/timeout|timed out/i.test(raw)) {
+                userMsg = `Obsidian connection timed out. Check that the REST API plugin is running. Run /dle-health for diagnostics. (${raw})`;
+            }
+        }
+        dedupError(userMsg, 'obsidian_build_fail');
     } finally {
-        setIndexing(false);
-        setBuildPromise(null); // BUG-044: Clear stale buildPromise
+        if (buildEpoch === capturedEpoch) {
+            setIndexing(false);
+            setBuildPromise(null); // BUG-044: clear stale buildPromise
+        }
+        _buildResolve();
     }
-    })();
-    setBuildPromise(promise);
+    })().catch(err => { _buildReject(err); });
     return promise;
 }
 
@@ -439,30 +571,38 @@ export async function hydrateFromCache() {
         if (!cached || cached.entries.length === 0) return false;
 
         setVaultIndex(cached.entries);
-        // Set timestamp to 0 so ensureIndexFresh() always triggers a rebuild
-        // (the cache is a fast approximation — Obsidian is the source of truth)
+        // Timestamp 0 → ensureIndexFresh() always rebuilds. Cache is a fast
+        // approximation; Obsidian is source of truth.
         setIndexTimestamp(0);
         resolveLinks(vaultIndex);
-        // Compute entity name set for AI cache sliding window validation on cold start
         computeEntityDerivedState(cached.entries);
-        // Note: indexEverLoaded is NOT set here — it's set in buildIndex() after
-        // a successful Obsidian fetch confirms the vault is reachable.
+        // BUG-370: cold-start generations would otherwise run with degraded scoring
+        // until a full rebuild completes.
+        const hydrateSettings = getSettings();
+        computeDerivedIndexFields(cached.entries, hydrateSettings);
+        if (hydrateSettings.fuzzySearchEnabled || hydrateSettings.librarianSearchEnabled) {
+            setFuzzySearchIndex(buildBM25Index(cached.entries));
+        }
+        // indexEverLoaded is set by buildIndex() after a successful Obsidian fetch
+        // confirms the vault is reachable — not here.
         notifyIndexUpdated();
 
         if (getSettings().debugMode) console.log(`[DLE] Hydrated ${cached.entries.length} entries from IndexedDB cache`);
 
-        // Background: rebuild from Obsidian to validate cache freshness
-        // H3: Capture epoch so stale background rebuilds don't apply to a different chat
+        // H3: Capture epoch so a stale background rebuild can't apply to a different chat.
         const hydrateEpoch = chatEpoch;
-        buildIndex().catch(err => {
+        buildIndex().then(() => {
+            // BUG-377: same chat-epoch guard as the catch branch — if chat changed
+            // mid-flight, skip any post-rebuild continuation for the stale chat.
+            if (chatEpoch !== hydrateEpoch) return;
+        }).catch(err => {
             console.warn('[DLE] Background rebuild after cache hydration failed:', err.message);
-            if (chatEpoch !== hydrateEpoch) return; // Chat changed — skip stale retry logic
+            if (chatEpoch !== hydrateEpoch) return;
             if (vaultIndex.length > 0) {
-                // Cached data exists — set a short-lived timestamp so ensureIndexFresh() retries after a cooldown
-                // (not Date.now() which would prevent retries until TTL expires)
+                // Short-lived timestamp so retries happen on cooldown, not after TTL.
                 const s = getSettings();
                 setIndexTimestamp(Date.now() - (s.cacheTTL * 1000) + 30_000); // retry in ~30s
-                dedupWarning('Obsidian is not responding — using previously cached entries. Check that Obsidian is running, then use /dle-refresh to reconnect.', 'obsidian_connect', { timeOut: 10000 });
+                dedupWarning('Couldn\'t reach your vault — using your saved cache for now.', 'obsidian_cache_fallback', { timeOut: CACHE_FALLBACK_TOAST_TIMEOUT, hint: 'Check that Obsidian is running, then /dle-refresh.' });
             }
         });
 
@@ -483,8 +623,9 @@ export async function hydrateFromCache() {
  */
 export async function buildIndexWithReuse() {
     if (indexing || vaultIndex.length === 0) {
-        // If a build is in progress, await it and report that delta didn't run
-        if (buildPromise) await buildPromise;
+        // BUG-AUDIT-CNEW03: Previously returned false → callers triggered redundant
+        // full rebuilds. Awaiting the in-flight build is sufficient.
+        if (buildPromise) { await buildPromise; return true; }
         return false;
     }
 
@@ -492,8 +633,17 @@ export async function buildIndexWithReuse() {
     const enabledVaults = (settings.vaults || []).filter(v => v.enabled);
     if (enabledVaults.length === 0) return false;
 
-    // Set indexing flag BEFORE any async work to prevent concurrent reuse sync calls
+    // BUG-010: install buildPromise before setIndexing(true) so sync observers always
+    // find a populated promise.
+    let _reuseResolve, _reuseReject;
+    const promise = new Promise((res, rej) => { _reuseResolve = res; _reuseReject = rej; });
+    setBuildPromise(promise);
     setIndexing(true);
+
+    // BUG-AUDIT-C05: capture buildEpoch so force-release can signal this build to bail
+    // before committing stale results. Same pattern as buildIndex().
+    const capturedBuildEpoch = buildEpoch;
+    const isZombie = () => buildEpoch !== capturedBuildEpoch;
 
     const tagConfig = {
         lorebookTag: settings.lorebookTag,
@@ -501,58 +651,102 @@ export async function buildIndexWithReuse() {
         neverInsertTag: settings.neverInsertTag,
         seedTag: settings.seedTag,
         bootstrapTag: settings.bootstrapTag,
+        guideTag: settings.librarianGuideTag,
     };
 
-    // Snapshot vaultIndex to avoid races with concurrent builds
     const indexSnapshot = [...vaultIndex];
 
-    const promise = (async () => {
+    (async () => {
+    const _buildStart = performance.now();
+    let _reuseResult = false;
     try {
-        // BUG-F3: Reload field definitions during incremental sync (was only loaded in full buildIndex)
+        // BUG-F3: also reload field definitions on incremental sync (was full-build only).
+        // BUG-008: resolve to local first; don't mutate shared `fieldDefinitions` mid-parse
+        // — that creates a half-stale window where reused entries carry customFields parsed
+        // under the old schema while newly-parsed entries use the new schema, and concurrent
+        // readers see inconsistent definitions. Commit once after parsing.
+        //
+        // BUG-375: capture `oldFieldDefsHash` HERE before any setter call — the setter lives
+        // below the parse loop, so this is unambiguously the pre-sync hash. Moving it below
+        // the setter would make `fieldDefsChanged` always false.
+        const oldFieldDefsHash = simpleHash(JSON.stringify(fieldDefinitions.map(f => f.name + f.type + (f.multi || ''))));
+        // BUG-368: capture prior snapshot so we can restore per-vault slices for failed
+        // vaults below — finalizeIndex overwrites previousIndexSnapshot wholesale, which
+        // would permanently mask edits made while a vault was unreachable.
+        const priorPrevSnapshot = previousIndexSnapshot;
+        const failedVaultNames = new Set();
+        let newFieldDefs = fieldDefinitions; // default: keep existing (for non-404 fetch errors)
         const primaryVault = enabledVaults[0];
         const fieldDefPath = settings.fieldDefinitionsPath || 'DeepLore/field-definitions.yaml';
         try {
-            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath);
+            const fdResult = await fetchFieldDefinitions(primaryVault.host, primaryVault.port, primaryVault.apiKey, fieldDefPath, !!primaryVault.https);
             if (fdResult.ok && fdResult.content) {
                 const { definitions } = parseFieldDefinitionYaml(fdResult.content);
                 if (definitions.length > 0) {
-                    setFieldDefinitions(definitions);
+                    newFieldDefs = definitions;
                 } else {
-                    setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+                    newFieldDefs = [...DEFAULT_FIELD_DEFINITIONS];
                 }
-            } else {
-                setFieldDefinitions([...DEFAULT_FIELD_DEFINITIONS]);
+            } else if (fdResult.error === 'not_found') {
+                newFieldDefs = [...DEFAULT_FIELD_DEFINITIONS];
             }
-        } catch {
-            // Keep existing field definitions on error
+            // Other errors (5xx, network): keep existing defs — don't clobber user schema.
+        } catch (err) {
+            if (settings.debugMode) console.warn('[DLE] Failed to load field definitions during reuse-sync:', err?.message);
         }
 
-        // Build lookup of existing entries by vault:filename → entry (with content hash)
         const existingMap = new Map();
         for (const entry of indexSnapshot) {
             existingMap.set(`${entry.vaultSource}\0${entry.filename}`, entry);
         }
 
-        let hasChanges = false;
+        // Field defs changed → force all entries to re-parse so customFields update.
+        const newFieldDefsHash = simpleHash(JSON.stringify(newFieldDefs.map(f => f.name + f.type + (f.multi || ''))));
+        const fieldDefsChanged = oldFieldDefsHash !== newFieldDefsHash;
+        let hasChanges = fieldDefsChanged;
         let anyVaultFailed = false;
         let vaultFailCount = 0;
         let newCount = 0, modifiedCount = 0, removedCount = 0;
+        let _reuseTokenizerFailCount = 0;
         const allEntries = [];
+        // Reuse-path parser ledger. Only re-parsed files contribute new warnings/skips;
+        // unchanged reused entries roll forward their existing `_parserWarnings`.
+        const buildReport = {
+            okCount: 0,
+            warnCount: 0,
+            skipCount: 0,
+            skipped: [],
+            entriesWithWarnings: [],
+        };
+        const lenientAuthoring = settings.lenientAuthoring !== false;
         setLastVaultAttemptCount(enabledVaults.length);
 
         for (const vault of enabledVaults) {
+            // BUG-AUDIT-C05: bail if force-release bumped epoch mid-loop.
+            if (isZombie()) { _reuseResult = false; return; }
             try {
-                // Fetch ALL file contents to detect content changes via hash comparison.
-                // Local Obsidian fetch is fast; the savings are from skipping re-parse/tokenize for unchanged files.
-                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey);
+                // Fetch all contents — savings come from skipping re-parse/tokenize for
+                // unchanged files (detected via hash), not from skipping the network call.
+                const data = await fetchAllMdFiles(vault.host, vault.port, vault.apiKey, !!vault.https);
+                if (isZombie()) { _reuseResult = false; return; }
                 if (!data.files || !Array.isArray(data.files)) {
                     console.warn(`[DLE] Reuse sync: vault "${vault.name}" returned invalid data — carrying forward existing entries`);
                     anyVaultFailed = true;
                     vaultFailCount++;
-                    // Carry forward existing entries for this vault (same as catch block)
+                    failedVaultNames.add(vault.name);
                     for (const entry of indexSnapshot) {
                         if (entry.vaultSource === vault.name) {
                             allEntries.push(entry);
+                            if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                                buildReport.warnCount++;
+                                buildReport.entriesWithWarnings.push({
+                                    filename: entry.filename,
+                                    title: entry.title,
+                                    warnings: entry._parserWarnings,
+                                });
+                            } else {
+                                buildReport.okCount++;
+                            }
                         }
                     }
                     continue;
@@ -560,7 +754,6 @@ export async function buildIndexWithReuse() {
 
                 const fetchedFilenames = new Set(data.files.map(f => f.filename));
 
-                // Detect removals: entries in index but not in current vault
                 for (const entry of indexSnapshot) {
                     if (entry.vaultSource === vault.name && !fetchedFilenames.has(entry.filename)) {
                         hasChanges = true;
@@ -573,13 +766,29 @@ export async function buildIndexWithReuse() {
                     const existing = existingMap.get(key);
                     const fileHash = simpleHash(file.content);
 
-                    if (existing && existing._contentHash === fileHash) {
-                        // Unchanged — reuse existing parsed entry
+                    if (existing && existing._contentHash === fileHash && !fieldDefsChanged) {
+                        // Unchanged — reuse existing entry. Roll forward its
+                        // `_parserWarnings` so /dle-lint still surfaces them.
                         allEntries.push(existing);
+                        if (existing._parserWarnings && existing._parserWarnings.length > 0) {
+                            buildReport.warnCount++;
+                            buildReport.entriesWithWarnings.push({
+                                filename: existing.filename,
+                                title: existing.title,
+                                warnings: existing._parserWarnings,
+                            });
+                        } else {
+                            buildReport.okCount++;
+                        }
                     } else {
-                        // New or modified — re-parse
                         hasChanges = true;
-                        const entry = parseVaultFile(file, tagConfig, fieldDefinitions);
+                        const entry = parseVaultFile(file, tagConfig, newFieldDefs, {
+                            lenientAuthoring,
+                            onSkip: (reason) => {
+                                buildReport.skipped.push({ filename: file.filename, reason });
+                                buildReport.skipCount++;
+                            },
+                        });
                         if (entry) {
                             entry.vaultSource = vault.name;
                             entry._contentHash = fileHash;
@@ -587,6 +796,17 @@ export async function buildIndexWithReuse() {
                                 entry.tokenEstimate = await getTokenCountAsync(entry.content);
                             } catch {
                                 entry.tokenEstimate = Math.ceil(entry.content.length / 4.0);
+                                _reuseTokenizerFailCount++;
+                            }
+                            if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                                buildReport.warnCount++;
+                                buildReport.entriesWithWarnings.push({
+                                    filename: file.filename,
+                                    title: entry.title,
+                                    warnings: entry._parserWarnings,
+                                });
+                            } else {
+                                buildReport.okCount++;
                             }
                             allEntries.push(entry);
                             if (existing) modifiedCount++;
@@ -598,10 +818,21 @@ export async function buildIndexWithReuse() {
                 console.warn(`[DLE] Reuse sync failed for vault "${vault.name}":`, vaultErr.message);
                 anyVaultFailed = true;
                 vaultFailCount++;
-                // Carry forward all existing entries for this vault to avoid silent data loss
+                failedVaultNames.add(vault.name);
+                // Carry forward existing entries — silent data loss otherwise.
                 for (const entry of indexSnapshot) {
                     if (entry.vaultSource === vault.name) {
                         allEntries.push(entry);
+                        if (entry._parserWarnings && entry._parserWarnings.length > 0) {
+                            buildReport.warnCount++;
+                            buildReport.entriesWithWarnings.push({
+                                filename: entry.filename,
+                                title: entry.title,
+                                warnings: entry._parserWarnings,
+                            });
+                        } else {
+                            buildReport.okCount++;
+                        }
                     }
                 }
                 continue;
@@ -609,50 +840,137 @@ export async function buildIndexWithReuse() {
         }
 
         setLastVaultFailureCount(vaultFailCount);
+        if (_reuseTokenizerFailCount > 0) {
+            console.warn(`[DLE] Tokenizer failed for ${_reuseTokenizerFailCount} re-parsed entries — using character-based estimates (budget accuracy degraded)`);
+        }
 
         if (!hasChanges) {
-            // If a vault failed, use a short-lived timestamp so retries happen sooner
             if (anyVaultFailed) {
                 setIndexTimestamp(Date.now() - (settings.cacheTTL * 1000) + 30_000); // retry in ~30s
             } else {
                 setIndexTimestamp(Date.now());
-                // Only mark as ever-loaded when all vaults confirmed reachable —
-                // finalizeIndex() already sets it after a successful full build.
+                // Only mark ever-loaded when all vaults confirmed reachable.
                 setIndexEverLoaded(true);
             }
+            // Publish ledger even on no-change early-return so /dle-lint reflects
+            // the live index's warning state after a reuse-sync tick.
+            setIndexBuildReport(buildReport);
             if (settings.debugMode) {
                 console.debug(`[DLE] Reuse sync: no changes detected${anyVaultFailed ? ' (some vaults failed)' : ''}`);
             }
-            return true;
+            _reuseResult = true;
+            return;
         }
 
         if (settings.debugMode) {
             console.log(`[DLE] Reuse sync: +${newCount} new, ~${modifiedCount} modified, -${removedCount} removed`);
         }
 
-        // BUG-007: Apply multi-vault dedup (was missing from reuse path)
+        // Cross-vault title duplicates cause Map key collisions.
+        {
+            const enabledCount = (getSettings().vaults || []).filter(v => v.enabled).length;
+            if (enabledCount > 1) {
+                const dupes = detectCrossVaultDuplicates(allEntries);
+                if (dupes.length > 0) {
+                    const listing = dupes.slice(0, 5).map(d => `"${d.title}" (${d.vaults.join(', ')})`).join('; ');
+                    const more = dupes.length > 5 ? ` …and ${dupes.length - 5} more` : '';
+                    dedupWarning(
+                        `Duplicate entry titles across vaults: ${listing}${more}. Keeping the first vault's copy. Rename one copy to avoid issues.`,
+                        'cross_vault_dupes',
+                        { timeOut: 15000 },
+                    );
+                }
+            }
+        }
+
+        // BUG-007: dedup was missing from this path.
         const dedupedEntries = deduplicateMultiVault(allEntries, settings.multiVaultConflictResolution);
 
-        // Apply changes
+        // BUG-008: commit new defs ONCE, after parsing — closes the half-stale window.
+        if (fieldDefsChanged) {
+            setFieldDefinitions(newFieldDefs);
+        }
+
+        // BUG-AUDIT-C05: final zombie check before committing.
+        if (isZombie()) { _reuseResult = false; return; }
+
         setVaultIndex(dedupedEntries);
         setIndexTimestamp(Date.now());
 
+        setIndexBuildReport(buildReport);
+        // Intentional asymmetry with buildIndex: no skipCacheSave. The reuse path
+        // carries forward last-known entries for failed vaults, so dedupedEntries
+        // is the best known state and safe to persist. (buildIndex must skip on
+        // failure because a full rebuild could write an empty/partial cache.)
         await finalizeIndex({ entries: dedupedEntries, settings });
+
+        if (!_parserLedgerToastShown && (buildReport.warnCount > 0 || buildReport.skipCount > 0)) {
+            const parts = [`DLE indexed ${dedupedEntries.length} entries.`];
+            if (buildReport.warnCount > 0) parts.push(`${buildReport.warnCount} warning${buildReport.warnCount === 1 ? '' : 's'}`);
+            if (buildReport.skipCount > 0) parts.push(`${buildReport.skipCount} skipped`);
+            dedupWarning(
+                `${parts.join(', ').replace(/,([^,]*)$/, ';$1')}. Run /dle-lint for details.`,
+                'parser_ledger_summary',
+                { timeOut: OBSIDIAN_TOAST_TIMEOUT },
+            );
+            _parserLedgerToastShown = true;
+        }
+
+        // BUG-368: For vaults that FAILED this cycle we must NOT advance the snapshot —
+        // when the vault recovers, edits made during the outage would be permanently
+        // masked because the comparison baseline already contains the carried-forward
+        // (post-edit) state. Patch failed vaults' entries back from priorPrevSnapshot.
+        if (failedVaultNames.size > 0 && priorPrevSnapshot) {
+            const newSnap = previousIndexSnapshot;
+            if (newSnap) {
+                // Keys are `vaultSource:filename` (core/sync.js snapshotKey). Filename-only
+                // keys would silently no-op against multi-vault snapshots.
+                const failedKeys = new Set(
+                    dedupedEntries
+                        .filter(e => failedVaultNames.has(e.vaultSource))
+                        .map(e => snapshotKey(e)),
+                );
+                for (const key of failedKeys) {
+                    if (priorPrevSnapshot.contentHashes.has(key)) {
+                        newSnap.contentHashes.set(key, priorPrevSnapshot.contentHashes.get(key));
+                    } else {
+                        newSnap.contentHashes.delete(key);
+                    }
+                    if (priorPrevSnapshot.titleMap.has(key)) {
+                        newSnap.titleMap.set(key, priorPrevSnapshot.titleMap.get(key));
+                    } else {
+                        newSnap.titleMap.delete(key);
+                    }
+                    if (priorPrevSnapshot.keyMap.has(key)) {
+                        newSnap.keyMap.set(key, priorPrevSnapshot.keyMap.get(key));
+                    } else {
+                        newSnap.keyMap.delete(key);
+                    }
+                }
+            }
+        }
 
         if (settings.debugMode) {
             console.log(`[DLE] Reuse sync: ${allEntries.length} entries after reuse rebuild`);
         }
+        console.log('[DLE] Index built: %d entries in %dms (mode: reuse)', dedupedEntries.length, Math.round(performance.now() - _buildStart));
 
-        return true;
+        _reuseResult = true;
     } catch (err) {
         console.warn('[DLE] Reuse sync error:', err.message);
-        return false;
+        _reuseResult = false;
     } finally {
-        setIndexing(false);
-        setBuildPromise(null); // BUG-044: Clear stale buildPromise
+        // Epoch-gated cleanup: if force-release bumped buildEpoch mid-coroutine and
+        // a fresh build started, this zombie's finally must NOT clear the new build's
+        // lock/promise. Rule (gotchas.md): every finally touching indexing/buildPromise
+        // must epoch-gate.
+        if (!isZombie()) {
+            setIndexing(false);
+            setBuildPromise(null); // BUG-044: clear stale buildPromise
+        }
+        _reuseResolve(_reuseResult);
     }
-    })();
-    setBuildPromise(promise);
+    })().catch(err => { _reuseReject(err); });
     return promise;
 }
 
@@ -664,7 +982,6 @@ export async function ensureIndexFresh() {
     const now = Date.now();
     const rebuildTrigger = settings.indexRebuildTrigger || 'ttl';
 
-    // E9: Index rebuild trigger logic
     if (rebuildTrigger === 'manual') {
         // Only rebuild if index is empty — never auto-rebuild
         if (vaultIndex.length === 0) {
@@ -688,17 +1005,16 @@ export async function ensureIndexFresh() {
         return;
     }
 
-    // Default: 'ttl' — current behavior
     const ttlMs = settings.cacheTTL * 1000;
 
-    // TTL=0 means "always fetch fresh" (rebuild every generation)
+    // TTL=0: always fetch fresh.
     if (vaultIndex.length === 0 || ttlMs === 0 || (ttlMs > 0 && now - indexTimestamp > ttlMs)) {
-        // Use reuse path when index already exists (faster: skips re-parse/tokenize for unchanged entries)
         if (vaultIndex.length > 0) {
             const usedReuse = await buildIndexWithReuse();
             if (usedReuse) { setLastIndexGenerationCount(generationCount); return; }
-            // BUG-003: Re-check TTL after reuse — buildIndexWithReuse may have updated the timestamp
-            // (e.g. no-changes path sets indexTimestamp = Date.now()), preventing a redundant full rebuild
+            // BUG-003: re-check TTL after reuse — buildIndexWithReuse may have set
+            // indexTimestamp = Date.now() on the no-changes path, making a full rebuild
+            // redundant.
             if (ttlMs > 0 && Date.now() - indexTimestamp <= ttlMs) {
                 setLastIndexGenerationCount(generationCount);
                 return;

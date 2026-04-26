@@ -164,6 +164,9 @@ Diagnostics exports for bug reports are pseudonymized before they leave your mac
 > *"I figured [how to import SillyTavern lore] out! This seems really cool! I have imported my lorebooks into an Obsidian vault and my brain is exploding a bit because I have a HUGE chat with naturally HUGE lorebooks and there are so many things floating around my graphs. It was very easy to set up once I got past the newness of Obsidian. The wizard was easy to follow and clear. I can easily see myself spending hours curating my vaults this weekend."*
 > - /u/morty_morty ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1sayvas/announcing_deeplore_enhanced_10beta_your_obsidian/oe4edb8/))
 
+> *"While SillyTavern's built-in Lorebook system is fine at what it does, I found that sometimes... keywords weren't either enough or fired too often. After trying to wrap my slimy meat around the spider web of keywords, cases, whole-words, ect, I found that I work better within Obsidian and the [DLE] extension using Two-Stage retrieval."*
+> - /u/SnowingDandruff ([reddit](https://www.reddit.com/r/SillyTavernAI/comments/1svwvd7/best_memory_management_extensions/oiciipy/))
+
 ## Prerequisites
 
 - **SillyTavern 1.12.14+**

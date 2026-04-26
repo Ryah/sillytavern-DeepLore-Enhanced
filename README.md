@@ -46,7 +46,11 @@ Chat → matchEntries (keywords + BM25 fuzzy)
      → inject → generate
 ```
 
-<video src="assets/pipeline-action.mp4" controls width="720"></video>
+<p align="center">
+  <a href="https://youtu.be/tiq0dfD6-RU?si=pTBw4r-RNCkHsoYZ">
+    <img src="https://img.youtube.com/vi/tiq0dfD6-RU/maxresdefault.jpg" alt="Watch: Drawer, Search, and Flagging" width="720">
+  </a>
+</p>
 
 ## New in v2: Emma, your librarian
 
@@ -65,7 +69,11 @@ Your story fills in your world. Your world fires back into your story.
   <img src="https://i.imgur.com/V8RnLdy.png" alt="Librarian tab with a flagged worldbuilding gap opened" width="640">
 </p>
 
-<video src="assets/emma-action.mp4" controls width="720"></video>
+<p align="center">
+  <a href="https://youtu.be/jsPE9vkA8ck?si=6r-czyn5TvjdRf7M">
+    <img src="https://img.youtube.com/vi/jsPE9vkA8ck/maxresdefault.jpg" alt="Watch: Librarian (Emma)" width="720">
+  </a>
+</p>
 
 ## What an entry looks like
 
@@ -109,7 +117,11 @@ The Local REST API plugin ships with a self-signed HTTPS cert. Browsers block it
 
 ## Relationship Graph
 
-<video src="assets/graph-action.mp4" controls width="720"></video>
+<p align="center">
+  <a href="https://youtu.be/5oU1nFPh_m8?si=DcHkV0XeQJj3bk50">
+    <img src="https://img.youtube.com/vi/5oU1nFPh_m8/maxresdefault.jpg" alt="Watch: Relationship Graph" width="720">
+  </a>
+</p>
 
 Force-directed layout, 200+ nodes, Louvain clustering, gap analysis, focus mode. See which entries cluster together, where orphans live, what chains hang off `requires` and `cascade_links`.
 

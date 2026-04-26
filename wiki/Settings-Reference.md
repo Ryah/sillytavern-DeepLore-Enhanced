@@ -134,7 +134,7 @@ Visible when Search Mode is `two-stage` or `ai-only`.
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy mode. URL of the claude-code-proxy or compatible endpoint. Must expose `/v1/messages`. Routed through ST's CORS proxy; requires `enableCorsProxy: true` in `config.yaml`. |
 | **Model Override** | (none) | Text | Optional model override. In profile mode, leave empty to use the profile's model. In proxy mode, specify the model name. |
 | **Max Response Tokens** | `1024` | 64-4096 | Token limit for the AI response. Keep low; only a small JSON array is needed. |
-| **Timeout (ms)** | `20000` | 1000-120000 | Maximum wait before falling back to keyword-only results. Local models may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms. |
+| **Timeout (ms)** | `20000` | 1000-999999 | Maximum wait before falling back to keyword-only results. Local models may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms. Cap is intentionally permissive — set this past 120000ms only if you know your provider routinely runs longer. |
 | **AI Confidence Threshold** | `low` | Dropdown | Minimum confidence level for AI selections. `low`: accept all (high+medium+low). `medium`: accept medium and high. `high`: high only. |
 | **AI Error Fallback** | `keyword` | Dropdown | What to inject when AI search errors out. `keyword`: fall back to keyword-matched results. `constants_only`: constants only. `bootstrap_only`: constants and bootstrap entries. `none`: nothing. |
 | **AI Empty Result Fallback** | `constants` | Dropdown | What to inject when the AI intentionally returns `[]`. `constants`: constants only. `constants_bootstrap`: constants and bootstrap entries. `keyword`: keyword results. `none`: nothing. |
@@ -173,7 +173,7 @@ Settings for the `/dle-optimize-keys` command, which refines entry keywords usin
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy mode only. |
 | **Model Override** | (none) | Text | Override the model used for keyword optimization. |
 | **Max Tokens** | `1024` | 256-8192 | Maximum tokens for the optimization response. |
-| **Timeout (ms)** | `30000` | 5000-120000 | Request timeout for optimization calls. |
+| **Timeout (ms)** | `30000` | 5000-999999 | Request timeout for optimization calls. |
 
 ## Author's Notebook (Features tab → Author Notebook)
 
@@ -198,7 +198,7 @@ AI-managed session notes that accumulate context across a conversation. The AI e
 | **Proxy URL** | `http://localhost:42069` | Text | Extract mode, proxy only. |
 | **Model Override** | (none) | Text | Extract mode. Override the extraction model. |
 | **Max Response Tokens** | `1024` | 256-8192 | Extract mode. Maximum tokens for the extraction response. |
-| **Timeout (ms)** | `30000` | 5000-120000 | Extract mode. Request timeout. |
+| **Timeout (ms)** | `30000` | 5000-999999 | Extract mode. Request timeout. |
 
 Position, depth, and role for the AI Notepad live on the Injection tab.
 
@@ -216,7 +216,7 @@ Position, depth, and role for the AI Notepad live on the Injection tab.
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy mode only. |
 | **Model Override** | (none) | Text | Override the model used for summaries. |
 | **Max Response Tokens** | `1024` | 256-4096 | Maximum tokens for the summary response. |
-| **Timeout (ms)** | `60000` | 5000-120000 | Request timeout for summary generation. |
+| **Timeout (ms)** | `60000` | 5000-999999 | Request timeout for summary generation. |
 
 ## Auto Lorebook (Features tab → Auto Lorebook)
 
@@ -232,7 +232,7 @@ Position, depth, and role for the AI Notepad live on the Injection tab.
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy mode only. |
 | **Model Override** | (none) | Text | Override the model used for suggestions. |
 | **Max Tokens** | `2048` | 256-4096 | Maximum tokens for the suggestion response. |
-| **Timeout (ms)** | `30000` | 5000-120000 | Request timeout for auto-suggest generation. |
+| **Timeout (ms)** | `30000` | 5000-999999 | Request timeout for auto-suggest generation. |
 
 Use `/dle-newlore` to trigger on-demand at any time.
 
@@ -264,7 +264,7 @@ Tool-assisted lore retrieval and gap detection. When enabled, the writing AI can
 | **Proxy URL** | `http://localhost:42069` | Text | Proxy mode only. |
 | **Model Override** | (none) | Text | Override the model. Empty inherits from AI Search (when in `inherit` mode). |
 | **Session Max Tokens** | `4096` | 1024-16384 | Maximum tokens for Librarian session responses. |
-| **Session Timeout (ms)** | `120000` | 10000-120000 | Request timeout for Librarian session AI calls. The 120s default leaves headroom for forced-final-response loops on large contexts and reasoning models. |
+| **Session Timeout (ms)** | `120000` | 10000-999999 | Request timeout for Librarian session AI calls. The 120s default leaves headroom for forced-final-response loops on large contexts and reasoning models. |
 
 ### Writing sessions advanced
 

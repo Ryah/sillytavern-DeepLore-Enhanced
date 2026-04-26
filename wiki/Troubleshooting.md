@@ -95,7 +95,7 @@ If you are using HTTPS (port 27124) and seeing "Failed to fetch" or "Certificate
 ### AI search timing out with local LLMs
 - Local models (e.g. Magistry 24B, Qwen, Mistral) are often much slower than cloud APIs and may need 60-120 seconds to respond, especially on longer chats.
 - The default AI search timeout is 10,000ms (10 seconds), tuned for fast cloud APIs.
-- **Fix:** Increase the timeout in Settings → AI Search → Show Advanced → Timeout. Values of 60000-120000ms (60-120 seconds) are common for local models. The same applies to Scribe and Auto-Suggest timeouts in their respective tabs.
+- **Fix:** Increase the timeout in Settings → AI Search → Show Advanced → Timeout. Values of 60000-120000ms (60-120 seconds) are common for local models. The cap is 999999ms (~16 minutes) for cases where a slow provider routinely runs longer. The same applies to Scribe and Auto-Suggest timeouts in their respective tabs.
 
 ### AI circuit breaker tripped
 - After 2 consecutive AI failures (timeouts, errors), the circuit breaker trips and AI search is disabled for 30 seconds.

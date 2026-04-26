@@ -180,7 +180,7 @@ See [[Writing Vault Entries]] for how to tag entries as seed or bootstrap.
 | No chat context | Skip AI search entirely | Skip AI search entirely |
 | AI search disabled | Keywords only (base DeepLore behavior) | N/A |
 
-The timeout is configurable (default 10000ms, range 1000-120000ms). Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms.
+The timeout is configurable (default 10000ms, range 1000-999999ms). Local LLMs may need 60000-120000ms; cloud APIs typically respond in 5000-15000ms. The cap is intentionally permissive — set past 120000ms only if your provider routinely runs longer.
 
 **Circuit breaker:** AI search trips after 2 consecutive failures and stays open for 30 seconds. A successful half-open probe resets it.
 

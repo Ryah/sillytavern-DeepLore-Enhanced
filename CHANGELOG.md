@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.1 (2026-04-26)
+
+> First post-release patch from open-issue triage on v2.0-beta.
+
+### Bug Fixes
+
+- **Vault entry content no longer XML-escaped on injection** ([#16](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/16)) — vault content was passing through `escapeXml` in `formatAndGroup`, so any `<tag>`, `&`, or `"` reached the LLM as `&lt;tag&gt;` etc. Title escape stays (load-bearing for the `<{{title}}>` wrapper tag name). Content now passes through raw — vault authors intentionally embed XML, markdown, code samples, and ampersands. Reverts the content-side half of BUG-090. Adds gotcha #45 documenting title-only escape policy.
+
+### Settings
+
+- **Timeout caps raised to 999999ms (~16 min)** ([#19](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/19)) — six per-feature timeout settings (`aiSearchTimeout`, `scribeTimeout`, `autoSuggestTimeout`, `aiNotepadTimeout`, `optimizeKeysTimeout`, `librarianSessionTimeout`) had their max clamp bumped from 120000ms to 999999ms. Defaults unchanged. Slow local LLMs and reasoning models on backed-up providers can now configure higher per-feature timeouts. Wiki + Roadmap updated with footgun guidance.
+
+---
+
 ## 2.0-beta (2026-04-11)
 
 > The Librarian update. Your lorebook grows with your story — the writing AI flags what's missing, Emma helps you write it.

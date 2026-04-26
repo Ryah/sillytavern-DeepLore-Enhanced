@@ -9,7 +9,7 @@
 
 **World Info keyword matching breaks at scale. DeepLore reads your Obsidian vault instead: keywords plus AI retrieval, so the right lore fires even when the word wasn't typed.**
 
-![Version](https://img.shields.io/badge/version-2.0.0--beta-blue)
+![Version](https://img.shields.io/badge/version-2.0.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![SillyTavern](https://img.shields.io/badge/SillyTavern-1.12.14+-orange)
 

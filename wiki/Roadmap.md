@@ -131,7 +131,7 @@ Size estimates: **[S]** small, **[M]** medium, **[L]** large.
 | Feature | Size | Description |
 |---------|------|-------------|
 | **Phone/Mobile Support** | M | Use DLE when SillyTavern runs on a PC but the user accesses from a phone. Remote Obsidian support shipped; this is the remaining UX work. |
-| ~~**Higher/Unlimited AI Timeout**~~ | ~~S~~ | Shipped. All timeouts raised to 120,000ms max. Local LLM guidance added to tooltips, wiki, and troubleshooting. |
+| ~~**Higher/Unlimited AI Timeout**~~ | ~~S~~ | Shipped. All timeouts raised to 999,999ms max (~16 min) to accommodate slow local LLMs and reasoning models. Defaults unchanged. Local LLM guidance in tooltips, wiki, and troubleshooting. |
 | **Web Worker for Keyword Matching** | M | Offload regex matching off the main thread for vaults with 500+ entries. |
 | **Pipeline Telemetry Dashboard** | M | Timing data, performance counters, and user-facing metrics for pipeline runs. |
 | **Observer Unsubscribe Pattern** | M | Refactor `state.js` callback arrays to return unsubscribe functions, enabling proper cleanup if modules are ever reloaded. |

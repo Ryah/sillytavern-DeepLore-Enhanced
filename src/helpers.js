@@ -42,6 +42,31 @@ export function stripObsidianSyntax(text) {
 }
 
 /**
+ * Normalize a CMRS sendRequest result into the AI-call shape DLE consumers expect.
+ * ST's custom-request.js replaces `result.content` with `JSON.parse(...)` when
+ * `data.json_schema` is present (chat-completions + extractData), so callers that
+ * pass a schema get back an Object/Array instead of the raw string. Without this
+ * normalization, downstream string ops (extractAiResponseClient, debug-preview
+ * `.slice`) blow up. Issue #24.
+ * @param {{content?: any, usage?: object}|null|undefined} result
+ * @returns {{text: string, usage: {input_tokens: number, output_tokens: number}}}
+ */
+export function cmrsResultToText(result) {
+    const rawContent = result?.content;
+    const text = typeof rawContent === 'string'
+        ? rawContent
+        : (rawContent == null ? '' : JSON.stringify(rawContent));
+    const usage = result?.usage || {};
+    return {
+        text,
+        usage: {
+            input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
+            output_tokens: usage.output_tokens || usage.completion_tokens || 0,
+        },
+    };
+}
+
+/**
  * Extract a JSON array from AI response text. Handles direct JSON, code-fenced
  * JSON, and raw arrays via bracket-balancing.
  * @param {string} text

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.2 (2026-04-27)
+
+> Hotfix for AI search regression on non-Claude models.
+
+### Bug Fixes
+
+- **AI search no longer throws `slice is not a function` on non-Claude models** ([#24](https://github.com/pixelnull/sillytavern-DeepLore-Enhanced/issues/24)) — ST's `custom-request.js` replaces `result.content` with a parsed object when `data.json_schema` is set on the chat-completions route. `callViaProfile` was assigning that object straight to `text`, breaking `extractAiResponseClient` and the debug-preview `.slice` for every non-Claude provider. Fix re-stringifies through a new `cmrsResultToText` helper so the string contract holds across all callers. Claude path was already skipping `json_schema` (forced tool_choice + extended thinking conflict) and is unaffected. Regression test added.
+
+---
+
 ## 2.0.1 (2026-04-26)
 
 > First post-release patch from open-issue triage on v2.0-beta.

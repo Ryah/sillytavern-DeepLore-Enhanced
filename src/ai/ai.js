@@ -15,7 +15,7 @@ import {
 } from '../state.js';
 import { dedupWarning, dedupError } from '../toast-dedup.js';
 import { aiCallBuffer, aiPromptBuffer, abortWith } from '../diagnostics/interceptors.js';
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch, LOREBOOK_INFRA_TAGS } from '../helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, normalizeResults, isForceInjected, fuzzyTitleMatch, LOREBOOK_INFRA_TAGS, cmrsResultToText } from '../helpers.js';
 import { buildCandidateManifest as _buildCandidateManifest } from './manifest.js';
 
 // Throttle floor between API calls. Cache hits / breaker-skips bypass.
@@ -159,13 +159,11 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         ]);
         settled = true;
 
-        return {
-            text: result.content || '',
-            usage: {
-                input_tokens: result.usage?.input_tokens || result.usage?.prompt_tokens || 0,
-                output_tokens: result.usage?.output_tokens || result.usage?.completion_tokens || 0,
-            },
-        };
+        // ST's custom-request.js replaces result.content with JSON.parse(...) when
+        // data.json_schema is set (chat-completions + extractData). cmrsResultToText
+        // re-stringifies so the string-based contract holds for extractAiResponseClient
+        // and the debug-preview slice downstream. Issue #24.
+        return cmrsResultToText(result);
     } catch (err) {
         const profileLabel = resolvedProfileId ? ` [profile: ${resolvedProfileId}]` : '';
         const modelLabel = resolvedModel ? ` [model: ${resolvedModel}]` : '';

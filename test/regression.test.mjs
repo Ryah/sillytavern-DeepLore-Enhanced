@@ -45,7 +45,7 @@ import { validateCachedEntry } from '../src/vault/cache-validate.js';
 import { simpleHash, validateSettings, parseFrontmatter, buildScanText } from '../core/utils.js';
 import { testEntryMatch, formatAndGroup, applyGating, clearScanTextCache } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
-import { normalizePinBlock, matchesPinBlock } from '../src/helpers.js';
+import { normalizePinBlock, matchesPinBlock, cmrsResultToText } from '../src/helpers.js';
 
 console.log('DeepLore Enhanced — Regression Tests');
 console.log('Each test guards a specific BUG fix or gotcha.\n');
@@ -1552,6 +1552,69 @@ test('A2: vault-scoped pin upgrades existing match without overwriting other vau
     assertNotNull(bRes, 'Vault B Hero present (must not be overwritten)');
     assertEqual(aRes.priority, 10, 'Vault A pinned: priority upgraded to 10');
     assertEqual(bRes.priority, 200, 'Vault B unpinned: priority unchanged');
+});
+
+// ============================================================================
+// Issue #24: cmrsResultToText must always return a string
+// ============================================================================
+
+section('Issue #24: cmrsResultToText json_schema response normalization');
+
+test('Issue #24: string content passes through unchanged', () => {
+    const result = { content: '[{"title":"Eris"}]', usage: { prompt_tokens: 10, completion_tokens: 5 } };
+    const out = cmrsResultToText(result);
+    assertEqual(out.text, '[{"title":"Eris"}]', 'string content preserved');
+    assertEqual(out.usage.input_tokens, 10, 'prompt_tokens mapped to input_tokens');
+    assertEqual(out.usage.output_tokens, 5, 'completion_tokens mapped to output_tokens');
+});
+
+test('Issue #24: object content (json_schema parsed by ST) is stringified', () => {
+    // Reproduces the exact failure: ST replaces result.content with JSON.parse(...)
+    // when data.json_schema is set; downstream .slice(0, 300) on debug preview
+    // crashed because the value was an Object, not a string.
+    const result = {
+        content: { selected: [{ title: 'Eris', confidence: 'high', reason: 'AI search' }] },
+        usage: { input_tokens: 100, output_tokens: 20 },
+    };
+    const out = cmrsResultToText(result);
+    assertEqual(typeof out.text, 'string', 'text must be a string');
+    // Round-trip must be parseable so extractAiResponseClient + .slice work.
+    const reparsed = JSON.parse(out.text);
+    assertEqual(reparsed.selected[0].title, 'Eris', 'round-trip preserves data');
+    // No-throw smoke for the original crash site:
+    assertEqual(out.text.slice(0, 10).length, 10, '.slice works on text');
+});
+
+test('Issue #24: array content is stringified', () => {
+    const result = { content: [{ title: 'Foo' }, { title: 'Bar' }] };
+    const out = cmrsResultToText(result);
+    assertEqual(typeof out.text, 'string', 'array stringified to JSON string');
+    const reparsed = JSON.parse(out.text);
+    assert(Array.isArray(reparsed), 'round-trip yields array');
+    assertEqual(reparsed.length, 2, 'array length preserved');
+});
+
+test('Issue #24: null/undefined content yields empty string', () => {
+    assertEqual(cmrsResultToText({ content: null }).text, '', 'null content → ""');
+    assertEqual(cmrsResultToText({ content: undefined }).text, '', 'undefined content → ""');
+    assertEqual(cmrsResultToText({}).text, '', 'missing content → ""');
+    assertEqual(cmrsResultToText(null).text, '', 'null result → ""');
+    assertEqual(cmrsResultToText(undefined).text, '', 'undefined result → ""');
+});
+
+test('Issue #24: usage falls back through OpenAI/Anthropic field names', () => {
+    // Anthropic-style
+    const a = cmrsResultToText({ content: '', usage: { input_tokens: 7, output_tokens: 3 } });
+    assertEqual(a.usage.input_tokens, 7);
+    assertEqual(a.usage.output_tokens, 3);
+    // OpenAI-style
+    const b = cmrsResultToText({ content: '', usage: { prompt_tokens: 11, completion_tokens: 4 } });
+    assertEqual(b.usage.input_tokens, 11);
+    assertEqual(b.usage.output_tokens, 4);
+    // Missing usage
+    const c = cmrsResultToText({ content: '' });
+    assertEqual(c.usage.input_tokens, 0);
+    assertEqual(c.usage.output_tokens, 0);
 });
 
 // ============================================================================

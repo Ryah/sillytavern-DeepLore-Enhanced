@@ -67,13 +67,19 @@ export function cmrsResultToText(result) {
 }
 
 /**
- * Extract a JSON array from AI response text. Handles direct JSON, code-fenced
- * JSON, and raw arrays via bracket-balancing.
+ * Extract JSON from AI response text. Handles direct JSON, code-fenced
+ * JSON, stray fence lines, and raw arrays/objects via balanced scanning.
  * @param {string} text
- * @returns {Array|null}
+ * @returns {Array|Object|null}
  */
 export function extractAiResponseClient(text) {
     if (!text || typeof text !== 'string') return null;
+
+    // Providers occasionally append a dangling code-fence line after valid JSON.
+    // Remove fence-only lines before attempting direct parse.
+    const sanitizedText = text
+        .replace(/^\s*`{3,}(?:\w+)?\s*$/gm, '')
+        .trim();
 
     /** BUG-046: usable result arrays have at least one usable element (or are empty). */
     function isValidResultArray(val) {
@@ -85,34 +91,81 @@ export function extractAiResponseClient(text) {
         );
     }
 
+    function isValidResultObject(val) {
+        return !!val && typeof val === 'object' && !Array.isArray(val);
+    }
+
+    function extractNestedModelTextEnvelope(val) {
+        if (!val || typeof val !== 'object') return null;
+
+        // Gemini/Google AI Studio envelope: { candidates: [{ content: { parts: [{ text }] } }] }
+        if (Array.isArray(val.candidates)) {
+            const parts = val.candidates
+                .flatMap(c => (Array.isArray(c?.content?.parts) ? c.content.parts : []))
+                .map(p => (typeof p?.text === 'string' ? p.text : ''))
+                .filter(Boolean);
+            if (parts.length > 0) return parts.join('\n').trim();
+        }
+
+        // Alternate wrappers seen in some adapters.
+        if (typeof val.text === 'string' && val.text.trim()) return val.text.trim();
+        if (typeof val.output_text === 'string' && val.output_text.trim()) return val.output_text.trim();
+        if (Array.isArray(val.content)) {
+            const parts = val.content
+                .map(p => (typeof p?.text === 'string' ? p.text : ''))
+                .filter(Boolean);
+            if (parts.length > 0) return parts.join('\n').trim();
+        }
+
+        return null;
+    }
+
     try {
-        const parsed = JSON.parse(text);
+        const parsed = JSON.parse(sanitizedText);
+
+        // Some providers return an outer API envelope instead of raw model text.
+        // Unwrap and recurse so downstream handling sees the intended JSON payload.
+        const nestedText = extractNestedModelTextEnvelope(parsed);
+        if (nestedText && nestedText !== sanitizedText) {
+            const nestedParsed = extractAiResponseClient(nestedText);
+            if (nestedParsed) return nestedParsed;
+        }
+
+        if (isValidResultObject(parsed)) return parsed;
         if (isValidResultArray(parsed)) return parsed;
     } catch { /* noop */ }
-    const fenceMatch = text.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/);
+
+    const fenceMatch = sanitizedText.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/i);
     if (fenceMatch) {
         try {
             const parsed = JSON.parse(fenceMatch[1]);
+            if (isValidResultObject(parsed)) return parsed;
             if (isValidResultArray(parsed)) return parsed;
         } catch { /* noop */ }
     }
-    // Bracket-balanced extraction — non-greedy regex fails on nested arrays
-    // like ["a", ["b"]]. Prefer largest (outer) match.
+
+    // Balanced extraction — non-greedy regex fails on nested arrays/objects.
+    // Prefer largest (outer) match.
     const candidates = [];
-    for (let i = 0; i < text.length; i++) {
-        if (text[i] === '[') {
-            let depth = 1, inStr = false, inSingleStr = false, escape = false;
-            for (let j = i + 1; j < text.length && depth > 0; j++) {
-                const c = text[j];
+    for (let i = 0; i < sanitizedText.length; i++) {
+        if (sanitizedText[i] === '[' || sanitizedText[i] === '{') {
+            const open = sanitizedText[i];
+            const close = open === '[' ? ']' : '}';
+            let depth = 1;
+            let inStr = false;
+            let inSingleStr = false;
+            let escape = false;
+            for (let j = i + 1; j < sanitizedText.length && depth > 0; j++) {
+                const c = sanitizedText[j];
                 if (escape) { escape = false; continue; }
                 if (c === '\\') { escape = true; continue; }
                 if (c === '"' && !inSingleStr) { inStr = !inStr; continue; }
                 if (c === "'" && !inStr) { inSingleStr = !inSingleStr; continue; }
                 if (inStr || inSingleStr) continue;
-                if (c === '[') depth++;
-                else if (c === ']') depth--;
+                if (c === open) depth++;
+                else if (c === close) depth--;
                 if (depth === 0) {
-                    candidates.push(text.substring(i, j + 1));
+                    candidates.push(sanitizedText.substring(i, j + 1));
                     break;
                 }
             }
@@ -122,6 +175,7 @@ export function extractAiResponseClient(text) {
     for (const candidate of candidates) {
         try {
             const parsed = JSON.parse(candidate);
+            if (isValidResultObject(parsed)) return parsed;
             if (isValidResultArray(parsed)) return parsed;
         } catch { /* noop */ }
     }

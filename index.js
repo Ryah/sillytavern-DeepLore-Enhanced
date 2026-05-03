@@ -661,7 +661,7 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
                 const aiUsed = trace.aiSelected?.length > 0;
                 const modeLabel = trace.mode === 'keywords-only' ? 'Keywords'
                     : aiUsed ? (trace.aiFallback ? 'Fallback' : 'AI')
-                    : 'Keywords';
+                        : 'Keywords';
                 pushActivity({
                     ts: Date.now(),
                     injected: trace.injected?.length || 0,
@@ -1189,11 +1189,119 @@ async function onGenerate(chatMessages, contextSize, abort, type) {
     }
 }
 
+function mapEntriesToInjectionSources(entries, matchedKeys) {
+    return entries.map(entry => ({
+        title: entry.title,
+        filename: entry.filename,
+        matchedBy: matchedKeys.get(entry.title) || '?',
+        priority: entry.priority,
+        tokens: entry.tokenEstimate,
+        vaultSource: entry.vaultSource || '',
+    }));
+}
+
+function publishPolycephTrace(traceData = null) {
+    const normalized = {
+        entries: Array.isArray(traceData?.entries) ? traceData.entries : [],
+        trace: traceData?.trace || null,
+        text: traceData?.text || '',
+        count: traceData?.count || 0,
+        tokens: traceData?.tokens || 0,
+    };
+
+    if (normalized.trace) {
+        setLastPipelineTrace(normalized.trace);
+    }
+
+    setLastInjectionSources(normalized.entries.length > 0 ? normalized.entries : null);
+    setLastInjectionEpoch(chatEpoch);
+    notifyInjectionSourcesReady();
+    globalThis.deepLoreEnhanced_lastPolycephTrace = normalized;
+    return normalized.entries.length;
+}
+
+async function retrieveLoreForPolyceph() {
+    const settings = getSettings();
+    if (!settings.enabled) {
+        publishPolycephTrace({ entries: [], trace: null, text: '', count: 0, tokens: 0 });
+        return '';
+    }
+
+    await ensureIndexFresh();
+
+    const vaultSnapshot = getWriterVisibleEntries();
+    if (vaultSnapshot.length === 0) {
+        publishPolycephTrace({ entries: [], trace: null, text: '', count: 0, tokens: 0 });
+        return '';
+    }
+
+    const scanChat = chat.filter(message => message && !message.extra?.polyceph_typing);
+    const ctx = chat_metadata.deeplore_context || {};
+    const pins = chat_metadata.deeplore_pins || [];
+    const blocks = chat_metadata.deeplore_blocks || [];
+    const folderFilter = chat_metadata.deeplore_folder_filter || null;
+
+    const { finalEntries: pipelineEntries, matchedKeys, trace } = await runPipeline(scanChat, vaultSnapshot, ctx, {
+        pins,
+        blocks,
+        folderFilter,
+    });
+
+    const policy = buildExemptionPolicy(vaultSnapshot, pins, blocks);
+    let finalEntries = applyPinBlock(pipelineEntries, vaultSnapshot, policy, matchedKeys);
+
+    const fieldDefs = fieldDefinitions.length > 0 ? fieldDefinitions : DEFAULT_FIELD_DEFINITIONS;
+    finalEntries = applyContextualGating(finalEntries, ctx, policy, settings.debugMode, settings, fieldDefs);
+    finalEntries = applyReinjectionCooldown(finalEntries, policy, injectionHistory, generationCount, settings.reinjectionCooldown, settings.debugMode);
+
+    const { result: gated, removed: gatingRemoved } = applyRequiresExcludesGating(finalEntries, policy, settings.debugMode);
+    let postDedup = gated;
+    if (settings.stripDuplicateInjections) {
+        postDedup = applyStripDedup(gated, policy, chat_metadata.deeplore_injection_log, settings.stripLookbackDepth, settings, settings.debugMode);
+    }
+
+    const { groups, count, totalTokens, acceptedEntries } = formatAndGroup(postDedup, settings, PROMPT_TAG_PREFIX);
+
+    if (trace) {
+        trace.gatedOut = gatingRemoved.map(entry => ({
+            title: entry.title,
+            requires: entry.requires,
+            excludes: entry.excludes,
+        }));
+        trace.injected = acceptedEntries.map(entry => ({
+            title: entry.title,
+            tokens: entry.tokenEstimate,
+            truncated: !!entry._truncated,
+            originalTokens: entry._originalTokens || entry.tokenEstimate,
+        }));
+        trace.totalTokens = totalTokens;
+        trace.budgetLimit = settings.maxTokensBudget;
+    }
+
+    const sources = mapEntriesToInjectionSources(acceptedEntries, matchedKeys);
+
+    const text = groups.map(group => group.text).join('\n\n');
+    publishPolycephTrace({
+        entries: sources,
+        trace,
+        text,
+        count,
+        tokens: totalTokens,
+    });
+
+    return text;
+}
+
 // ST discovers the interceptor via globalThis.<extension_id>_onGenerate.
 globalThis.deepLoreEnhanced_onGenerate = onGenerate;
 
 // External API for other extensions / scripts to match vault entries against arbitrary text.
 globalThis.deepLoreEnhanced_matchText = matchTextForExternal;
+
+// Polyceph compatibility: run the standard retrieval pipeline without taking over ST generation,
+// while still publishing the same injection state the drawer/sidebar expects.
+globalThis.deepLoreEnhanced_polycephRetrieve = retrieveLoreForPolyceph;
+globalThis.deepLoreEnhanced_polycephPublish = publishPolycephTrace;
 
 // ============================================================================
 // Initialization
@@ -2041,107 +2149,108 @@ jQuery(async function () {
                     setTimeout(() => injectAllChatLoadUI(attempt + 1), 200 * (attempt + 1));
                     return;
                 }
-                requestAnimationFrame(async () => { if (injectEpoch !== chatEpoch) return; try {
-                    const settings = getSettings();
-                    const start = Math.max(0, chat.length - 50);
-                    let needsSave = false;
+                requestAnimationFrame(async () => {
+                    if (injectEpoch !== chatEpoch) return; try {
+                        const settings = getSettings();
+                        const start = Math.max(0, chat.length - 50);
+                        let needsSave = false;
 
-                    // BUG-126: deeplore_migration_v2 sentinel skips re-running migrations on every chat load.
-                    const migrationDone = chat_metadata?.deeplore_migration_v2;
+                        // BUG-126: deeplore_migration_v2 sentinel skips re-running migrations on every chat load.
+                        const migrationDone = chat_metadata?.deeplore_migration_v2;
 
-                    // ── Pass 1: tool_invocations → deeplore_tool_calls ──
-                    if (settings.librarianEnabled && !migrationDone) {
-                        const pendingMigration = [];
-                        for (let i = start; i < chat.length; i++) {
+                        // ── Pass 1: tool_invocations → deeplore_tool_calls ──
+                        if (settings.librarianEnabled && !migrationDone) {
+                            const pendingMigration = [];
+                            for (let i = start; i < chat.length; i++) {
+                                const m = chat[i];
+                                if (m?.extra?.tool_invocations) {
+                                    for (const inv of m.extra.tool_invocations) {
+                                        if (inv.name === 'dle_search_lore' || inv.name === 'dle_flag_lore') {
+                                            try {
+                                                const params = JSON.parse(inv.parameters || '{}');
+                                                const isSearch = inv.name === 'dle_search_lore';
+                                                let resultTitles = [];
+                                                let resultCount = 0;
+                                                if (isSearch && inv.result && !inv.result.startsWith('No entries')) {
+                                                    const titleMatches = inv.result.match(/^## (.+)$/gm);
+                                                    resultTitles = titleMatches ? titleMatches.map(t => t.replace('## ', '')) : [];
+                                                    resultCount = resultTitles.length;
+                                                }
+                                                pendingMigration.push({
+                                                    type: isSearch ? 'search' : 'flag',
+                                                    query: isSearch ? params.query : params.title,
+                                                    resultCount,
+                                                    resultTitles,
+                                                    urgency: params.urgency || 'medium',
+                                                    tokens: 0,
+                                                    timestamp: 0,
+                                                });
+                                            } catch { /* skip malformed */ }
+                                        }
+                                    }
+                                    continue;
+                                }
+                                if (pendingMigration.length > 0 && !m.is_user && !m.is_system && m.mes?.trim()) {
+                                    if (!m.extra?.deeplore_tool_calls?.length) {
+                                        m.extra = m.extra || {};
+                                        m.extra.deeplore_tool_calls = [...pendingMigration];
+                                        needsSave = true;
+                                    }
+                                    pendingMigration.length = 0;
+                                }
+                            }
+                        }
+
+                        // ── Pass 2: move deeplore_sources from empty intermediate messages → correct reply ──
+                        for (let i = migrationDone ? chat.length : start; i < chat.length; i++) {
                             const m = chat[i];
-                            if (m?.extra?.tool_invocations) {
-                                for (const inv of m.extra.tool_invocations) {
-                                    if (inv.name === 'dle_search_lore' || inv.name === 'dle_flag_lore') {
-                                        try {
-                                            const params = JSON.parse(inv.parameters || '{}');
-                                            const isSearch = inv.name === 'dle_search_lore';
-                                            let resultTitles = [];
-                                            let resultCount = 0;
-                                            if (isSearch && inv.result && !inv.result.startsWith('No entries')) {
-                                                const titleMatches = inv.result.match(/^## (.+)$/gm);
-                                                resultTitles = titleMatches ? titleMatches.map(t => t.replace('## ', '')) : [];
-                                                resultCount = resultTitles.length;
-                                            }
-                                            pendingMigration.push({
-                                                type: isSearch ? 'search' : 'flag',
-                                                query: isSearch ? params.query : params.title,
-                                                resultCount,
-                                                resultTitles,
-                                                urgency: params.urgency || 'medium',
-                                                tokens: 0,
-                                                timestamp: 0,
-                                            });
-                                        } catch { /* skip malformed */ }
+                            if (!m.is_user && !m.is_system && !m.mes?.trim() && m.extra?.deeplore_sources) {
+                                for (let j = i + 1; j < chat.length; j++) {
+                                    const target = chat[j];
+                                    if (target && !target.is_user && !target.is_system && target.mes?.trim()) {
+                                        if (!target.extra?.deeplore_sources) {
+                                            target.extra = target.extra || {};
+                                            target.extra.deeplore_sources = m.extra.deeplore_sources;
+                                        }
+                                        break;
                                     }
                                 }
-                                continue;
-                            }
-                            if (pendingMigration.length > 0 && !m.is_user && !m.is_system && m.mes?.trim()) {
-                                if (!m.extra?.deeplore_tool_calls?.length) {
-                                    m.extra = m.extra || {};
-                                    m.extra.deeplore_tool_calls = [...pendingMigration];
-                                    needsSave = true;
-                                }
-                                pendingMigration.length = 0;
+                                delete m.extra.deeplore_sources;
+                                needsSave = true;
                             }
                         }
-                    }
 
-                    // ── Pass 2: move deeplore_sources from empty intermediate messages → correct reply ──
-                    for (let i = migrationDone ? chat.length : start; i < chat.length; i++) {
-                        const m = chat[i];
-                        if (!m.is_user && !m.is_system && !m.mes?.trim() && m.extra?.deeplore_sources) {
-                            for (let j = i + 1; j < chat.length; j++) {
-                                const target = chat[j];
-                                if (target && !target.is_user && !target.is_system && target.mes?.trim()) {
-                                    if (!target.extra?.deeplore_sources) {
-                                        target.extra = target.extra || {};
-                                        target.extra.deeplore_sources = m.extra.deeplore_sources;
-                                    }
-                                    break;
+                        if (settings.showLoreSources) {
+                            for (let i = start; i < chat.length; i++) {
+                                if (chat[i]?.extra?.deeplore_sources) {
+                                    injectSourcesButton(i);
                                 }
                             }
-                            delete m.extra.deeplore_sources;
-                            needsSave = true;
                         }
-                    }
 
-                    if (settings.showLoreSources) {
-                        for (let i = start; i < chat.length; i++) {
-                            if (chat[i]?.extra?.deeplore_sources) {
-                                injectSourcesButton(i);
+                        if (settings.librarianEnabled && settings.librarianShowToolCalls) {
+                            for (let i = start; i < chat.length; i++) {
+                                if (chat[i]?.extra?.deeplore_tool_calls?.length) {
+                                    injectLibrarianDropdown(i, chat[i].extra.deeplore_tool_calls);
+                                }
                             }
                         }
-                    }
 
-                    if (settings.librarianEnabled && settings.librarianShowToolCalls) {
-                        for (let i = start; i < chat.length; i++) {
-                            if (chat[i]?.extra?.deeplore_tool_calls?.length) {
-                                injectLibrarianDropdown(i, chat[i].extra.deeplore_tool_calls);
-                            }
+                        // BUG-126: stamp completion sentinel so future CHAT_CHANGED skips both passes.
+                        if (needsSave && !migrationDone) {
+                            chat_metadata.deeplore_migration_v2 = true;
                         }
-                    }
-
-                    // BUG-126: stamp completion sentinel so future CHAT_CHANGED skips both passes.
-                    if (needsSave && !migrationDone) {
-                        chat_metadata.deeplore_migration_v2 = true;
-                    }
-                    if (needsSave) {
-                        // Persist message extras + sentinel atomically. saveMetadataDebounced
-                        // is debounced (~1s) — a chat switch before the timer fires drops the
-                        // save AND the sentinel, so we'd lose tool_calls migration on every
-                        // reload until a non-debounced save happens. saveChatConditional is
-                        // immediate; a re-check of injectEpoch guards against stale writes.
-                        if (injectEpoch !== chatEpoch) return;
-                        try { await saveChatConditional(); }
-                        catch (saveErr) { console.warn('[DLE] Chat load migration save failed:', saveErr?.message); }
-                    }
-                } catch (err) { console.error('[DLE] Chat load UI injection error:', err); }
+                        if (needsSave) {
+                            // Persist message extras + sentinel atomically. saveMetadataDebounced
+                            // is debounced (~1s) — a chat switch before the timer fires drops the
+                            // save AND the sentinel, so we'd lose tool_calls migration on every
+                            // reload until a non-debounced save happens. saveChatConditional is
+                            // immediate; a re-check of injectEpoch guards against stale writes.
+                            if (injectEpoch !== chatEpoch) return;
+                            try { await saveChatConditional(); }
+                            catch (saveErr) { console.warn('[DLE] Chat load migration save failed:', saveErr?.message); }
+                        }
+                    } catch (err) { console.error('[DLE] Chat load UI injection error:', err); }
                 });
             };
             setTimeout(() => { if (injectEpoch === chatEpoch) injectAllChatLoadUI(); }, 100);

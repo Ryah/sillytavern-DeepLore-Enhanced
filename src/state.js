@@ -356,6 +356,24 @@ export function recordAiSuccess() {
         notifyCircuitStateChanged();
     }
 }
+
+/** Manually clear AI circuit breaker state (drawer action). */
+export function resetAiCircuitBreaker(reason = 'manual') {
+    const hadState = aiCircuitOpen || aiCircuitFailures > 0 || aiCircuitHalfOpenProbe || aiCircuitProbeTimestamp > 0 || aiCircuitOpenedAt > 0;
+    const from = aiCircuitOpen ? 'open' : 'closed';
+
+    aiCircuitHalfOpenProbe = false;
+    aiCircuitProbeTimestamp = 0;
+    aiCircuitFailures = 0;
+    aiCircuitOpen = false;
+    aiCircuitOpenedAt = 0;
+
+    if (hadState) {
+        pushEventSafe('ai_circuit', { from, to: 'closed', reason });
+    }
+    notifyCircuitStateChanged();
+}
+
 /** Release the half-open probe without recording success or failure.
  *  Used by hierarchicalPreFilter: its outcome shouldn't affect the circuit breaker
  *  since the main aiSearch() call handles its own probing independently. */
@@ -401,6 +419,14 @@ export function isAiCircuitOpen() {
         return false; // no probe dispatched — caller should use tryAcquireHalfOpenProbe
     }
     return true; // still in cooldown
+}
+
+/** Remaining cooldown before breaker allows a half-open probe (0 when not blocked). */
+export function getAiCircuitCooldownRemainingMs() {
+    if (!aiCircuitOpen) return 0;
+    const elapsed = Date.now() - aiCircuitOpenedAt;
+    const remaining = AI_CIRCUIT_COOLDOWN - elapsed;
+    return remaining > 0 ? remaining : 0;
 }
 
 /** Attempt to acquire the half-open probe slot. Returns true if this caller

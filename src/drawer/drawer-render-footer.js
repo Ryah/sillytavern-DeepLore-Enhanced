@@ -2,10 +2,12 @@ import { amount_gen } from '../../../../../../script.js';
 import { getSettings } from '../../settings.js';
 import {
     vaultIndex, lastPipelineTrace, librarianChatStats,
-    aiSearchStats, isAiCircuitOpen, indexEverLoaded, indexTimestamp, lastHealthResult,
+    aiSearchStats, isAiCircuitOpen, getAiCircuitCooldownRemainingMs, indexEverLoaded, indexTimestamp, lastHealthResult,
 } from '../state.js';
 import { getCircuitState } from '../vault/obsidian-api.js';
-import { ds, formatTokensCompact, activityLog, announceToScreenReader } from './drawer-state.js';
+import { ds, formatTokensCompact, activityLog, announceToScreenReader, scheduleRender } from './drawer-state.js';
+
+let aiBreakerCountdownTimer = null;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Footer Zone — Health Icons + AI Stats + Context Bar
@@ -16,6 +18,11 @@ export function renderFooter() {
     if (!$drawer) return;
     const $footer = $drawer.find('#dle-drawer-footer');
     if (!$footer.length) return;
+
+    if (aiBreakerCountdownTimer) {
+        clearTimeout(aiBreakerCountdownTimer);
+        aiBreakerCountdownTimer = null;
+    }
 
     // ── Context window bar ──
     const $barContainer = $footer.find('.dle-context-bar-container');
@@ -160,19 +167,36 @@ export function renderFooter() {
     }
 
     const $ai = $footer.find('[data-health="ai"]');
-    if (isAiCircuitOpen()) {
+    const aiCircuitBlocked = isAiCircuitOpen();
+    const $aiCountdown = $footer.find('.dle-ai-breaker-countdown');
+    const remainingMs = getAiCircuitCooldownRemainingMs();
+    if (aiCircuitBlocked) {
+        const seconds = Math.max(1, Math.ceil(remainingMs / 1000));
         $ai.removeClass('dle-health-ok dle-health-warn').addClass('dle-health-error');
-        $ai.attr('aria-label', 'AI search: temporarily paused after repeated failures').attr('title', 'AI search: temporarily paused after repeated failures — will retry automatically');
+        $ai.attr('aria-label', `AI search: temporarily paused after repeated failures, retry in ${seconds} seconds`)
+            .attr('title', `AI search: temporarily paused after repeated failures — retry in ${seconds}s or use Reset AI Breaker`);
+        $aiCountdown.prop('hidden', false).text(`retry in ${seconds}s`);
+
+        aiBreakerCountdownTimer = setTimeout(() => {
+            if (!ds.$drawer) return;
+            scheduleRender(renderFooter);
+        }, 1000);
     } else if (aiSearchStats.calls > 0) {
         $ai.removeClass('dle-health-warn dle-health-error').addClass('dle-health-ok');
         $ai.attr('aria-label', `AI search: OK (${aiSearchStats.calls} calls this session) — click for details`).attr('title', `AI search: OK (${aiSearchStats.calls} calls this session) — click for details`);
+        $aiCountdown.prop('hidden', true).text('');
     } else if (settings.aiSearchEnabled !== false) {
         $ai.removeClass('dle-health-ok dle-health-error').addClass('dle-health-warn');
         $ai.attr('aria-label', 'AI search: enabled but no calls yet').attr('title', 'AI search: enabled but no calls yet — will activate on first generation');
+        $aiCountdown.prop('hidden', true).text('');
     } else {
         $ai.removeClass('dle-health-ok dle-health-warn dle-health-error');
         $ai.attr('aria-label', 'AI search: disabled').attr('title', 'AI search: disabled — enable in DeepLore settings');
+        $aiCountdown.prop('hidden', true).text('');
     }
+
+    const $breakerRow = $footer.find('.dle-footer-breaker-row');
+    $breakerRow.prop('hidden', !aiCircuitBlocked);
 
     // ── AI stats ──
     $footer.find('[data-ai-stat="calls"]').text(`${aiSearchStats.calls} calls`);

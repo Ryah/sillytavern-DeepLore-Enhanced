@@ -11,6 +11,7 @@ import {
     fieldDefinitions, folderList,
     loreGaps,
     resetAiSearchCache, setLastInjectionSources,
+    resetAiCircuitBreaker,
     aiSearchCache, lastGenerationTrackerSnapshot,
     generationCount, chatEpoch,
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
@@ -287,6 +288,11 @@ export function wireStatusActions($drawer) {
                 setSuppressNextAgenticLoop(newVal);
                 $(this).toggleClass('dle-toggle-active', newVal);
                 toastr.info(newVal ? 'Librarian tools will be skipped for the next generation.' : 'Librarian tools re-enabled.', 'DeepLore');
+                break;
+            }
+            case 'reset-ai-breaker': {
+                resetAiCircuitBreaker('drawer_manual_reset');
+                toastr.success('AI circuit breaker reset. AI features are re-enabled.', 'DeepLore');
                 break;
             }
         }

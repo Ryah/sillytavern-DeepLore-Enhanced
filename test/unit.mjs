@@ -20,7 +20,7 @@ import { parseVaultFile, clearPrompts } from '../core/pipeline.js';
 import { takeIndexSnapshot, detectChanges } from '../core/sync.js';
 
 // Enhanced-only pure functions (imported from production code, not reimplemented)
-import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, normalizeLoreGap, fuzzyTitleMatch, extractAiNotes, validateSessionResponse, parseSessionResponse, sanitizeFilename } from '../src/helpers.js';
+import { extractAiResponseClient, clusterEntries, buildCategoryManifest, buildObsidianURI, convertWiEntry, stripObsidianSyntax, normalizeResults as normalizeResultsProd, checkHealthPure, parseMatchReason, computeSourcesDiff, categorizeRejections, resolveEntryVault, tokenBarColor, formatRelativeTime, isForceInjected, normalizePinBlock, matchesPinBlock, normalizeLoreGap, fuzzyTitleMatch, extractAiNotes, validateSessionResponse, parseSessionResponse, sanitizeFilename, cmrsResultToText } from '../src/helpers.js';
 import { encodeVaultPath, validateVaultPath, pruneCircuitBreakers } from '../src/vault/obsidian-api.js';
 
 // BM25 functions (extracted to bm25.js for testability)
@@ -2250,8 +2250,10 @@ test('integration: budget interaction with gating — gated entry frees budget f
     // B should be removed (requires Missing)
     assert(!gated.some(e => e.title === 'B'), 'B gated out by requires');
     // Format with 900 budget — A+C+D = 900, should all fit
-    const settings = { maxTokensBudget: 900, unlimitedBudget: false, unlimitedEntries: false, maxEntries: 10,
-        injectionPosition: 0, injectionDepth: 0, injectionRole: 'system', injectionTemplate: '' };
+    const settings = {
+        maxTokensBudget: 900, unlimitedBudget: false, unlimitedEntries: false, maxEntries: 10,
+        injectionPosition: 0, injectionDepth: 0, injectionRole: 'system', injectionTemplate: ''
+    };
     const { acceptedEntries } = formatAndGroup(gated, settings, 'dle_');
     assert(acceptedEntries.some(e => e.title === 'D'), 'D now fits after B is gated');
     assertEqual(acceptedEntries.length, 3, 'A+C+D all fit in budget');
@@ -2355,8 +2357,10 @@ test('integration: full 4-stage chain with budget truncation', () => {
     assertEqual(gated.length, 4, 'all pass requires/excludes');
 
     // Stage 4: Format with budget — 700 tokens budget
-    const settings = { maxTokensBudget: 700, unlimitedBudget: false, unlimitedEntries: false, maxEntries: 10,
-        injectionPosition: 0, injectionDepth: 0, injectionRole: 'system', injectionTemplate: '' };
+    const settings = {
+        maxTokensBudget: 700, unlimitedBudget: false, unlimitedEntries: false, maxEntries: 10,
+        injectionPosition: 0, injectionDepth: 0, injectionRole: 'system', injectionTemplate: ''
+    };
     // Sort by priority first (like the real pipeline)
     gated.sort((a, b) => a.priority - b.priority || a.title.localeCompare(b.title));
     const { acceptedEntries, totalTokens } = formatAndGroup(gated, settings, 'dle_');
@@ -3340,6 +3344,143 @@ test('BUG-046: normalizeResults filters items with null/undefined/empty titles',
     assert(!result.some(r => r.title === 'null'), 'null item should be filtered');
     assert(!result.some(r => r.title === 'undefined'), 'undefined item should be filtered');
     assert(result.length === 1, 'only valid item should remain');
+});
+
+test('BUG-048: extractAiResponseClient unwraps Google AI Studio candidates envelope', () => {
+    const response = {
+        candidates: [
+            {
+                content: {
+                    parts: [
+                        {
+                            text: '{"selected":[{"title":"The Dreamscape Labyrinth","confidence":"high","reason":"scene context"}]}',
+                        },
+                    ],
+                    role: 'model',
+                },
+                finishReason: 'STOP',
+                index: 0,
+            },
+        ],
+    };
+    const result = extractAiResponseClient(JSON.stringify(response));
+    assert(Array.isArray(result), 'should unwrap candidates envelope to selected array');
+    assertEqual(result.length, 1, 'should parse one selected entry');
+    assertEqual(result[0].title, 'The Dreamscape Labyrinth', 'should preserve selected entry title');
+});
+
+test('BUG-048: extractAiResponseClient handles AI Studio text with dangling closing fence', () => {
+    const response = {
+        candidates: [
+            {
+                content: {
+                    parts: [
+                        {
+                            text: '{\n  "selected": [{"title":"Charlotte","confidence":"high","reason":"active NPC"}]\n}\n```',
+                        },
+                    ],
+                    role: 'model',
+                },
+            },
+        ],
+    };
+    const result = extractAiResponseClient(JSON.stringify(response));
+    assert(Array.isArray(result), 'should parse selected array despite dangling fence line');
+    assertEqual(result[0].title, 'Charlotte', 'should parse selected title from wrapped text');
+});
+
+test('BUG-048: extractAiResponseClient accepts direct AI Studio object input', () => {
+    const response = {
+        candidates: [
+            {
+                content: {
+                    parts: [
+                        {
+                            text: '{"selected":[{"title":"Direct Object Path","confidence":"high","reason":"parsed object input"}]}',
+                        },
+                    ],
+                },
+            },
+        ],
+    };
+    const result = extractAiResponseClient(response);
+    assert(Array.isArray(result), 'should unwrap object input directly');
+    assertEqual(result[0].title, 'Direct Object Path', 'should parse selected title from direct object');
+});
+
+test('BUG-048: extractAiResponseClient accepts direct selected-wrapper object input', () => {
+    const response = {
+        selected: [
+            { title: 'Wrapper Direct', confidence: 'high', reason: 'wrapper object path' },
+        ],
+    };
+    const result = extractAiResponseClient(response);
+    assert(Array.isArray(result), 'should accept direct wrapper object');
+    assertEqual(result[0].title, 'Wrapper Direct', 'should return selected array from wrapper object');
+});
+
+test('BUG-048: extractAiResponseClient parses AI Studio inspect-style string envelope', () => {
+    const inspectLike = `Google AI Studio response: {
+    candidates: [
+        {
+            content: {
+                parts: [
+                    {
+                        text: ' {\\n' +
+                            '  "selected": [\\n' +
+                            '    {"title":"Inspect Path","confidence":"high","reason":"inspect-like payload"}\\n' +
+                            '  ]\\n' +
+                            '} \\n' +
+                            '\`\`\`'
+                    }
+                ]
+            }
+        }
+    ]
+}`;
+    const result = extractAiResponseClient(inspectLike);
+    assert(Array.isArray(result), 'should parse inspect-style candidates envelope');
+    assertEqual(result[0].title, 'Inspect Path', 'should parse selected title from inspect-style payload');
+});
+
+test('BUG-049: cmrsResultToText extracts text from Google candidates envelope when content is empty object', () => {
+    const result = {
+        content: {},
+        candidates: [
+            {
+                content: {
+                    parts: [
+                        {
+                            text: '{"selected":[{"title":"Candidates Path","confidence":"high","reason":"google envelope"}]}',
+                        },
+                    ],
+                },
+            },
+        ],
+        usageMetadata: {
+            promptTokenCount: 12,
+            candidatesTokenCount: 3,
+        },
+    };
+    const normalized = cmrsResultToText(result);
+    assertEqual(typeof normalized.text, 'string', 'normalized text should be a string');
+    assert(normalized.text.includes('Candidates Path'), 'should extract text from candidates envelope');
+    assertEqual(normalized.usage.input_tokens, 12, 'should map usageMetadata prompt tokens');
+    assertEqual(normalized.usage.output_tokens, 3, 'should map usageMetadata candidate tokens');
+});
+
+test('BUG-049: cmrsResultToText extracts text from responseContent.parts', () => {
+    const result = {
+        content: {},
+        responseContent: {
+            parts: [
+                { thought: true, text: 'ignore reasoning' },
+                { text: '{"selected":[{"title":"ResponseContent Path","confidence":"high","reason":"google converted shape"}]}' },
+            ],
+        },
+    };
+    const normalized = cmrsResultToText(result);
+    assert(normalized.text.includes('ResponseContent Path'), 'should extract non-thought text from responseContent.parts');
 });
 
 // ============================================================================

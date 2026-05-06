@@ -694,27 +694,27 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-sliding-window MISS — prefix content changed (edit detected)');
             // Fall through to full AI call.
         } else {
-        const newLines = getChatLines().slice(aiSearchCache.chatLineCount);
-        const newText = newLines.join(' ').toLowerCase();
+            const newLines = getChatLines().slice(aiSearchCache.chatLineCount);
+            const newText = newLines.join(' ').toLowerCase();
 
-        // Pre-compiled word-boundary regexes for ALL names — bare substring match
-        // false-positives ("an" in "want", "Arch" in "monarch", "Eris" in "characteristics").
-        let hasNewEntityMention = false;
-        for (const name of entityNameSet) {
-            const regex = entityShortNameRegexes.get(name);
-            if (regex && regex.test(newText)) {
-                hasNewEntityMention = true;
-                break;
+            // Pre-compiled word-boundary regexes for ALL names — bare substring match
+            // false-positives ("an" in "want", "Arch" in "monarch", "Eris" in "characteristics").
+            let hasNewEntityMention = false;
+            for (const name of entityNameSet) {
+                const regex = entityShortNameRegexes.get(name);
+                if (regex && regex.test(newText)) {
+                    hasNewEntityMention = true;
+                    break;
+                }
             }
-        }
 
-        if (!hasNewEntityMention) {
-            aiSearchStats.cachedHits++;
-            notifyAiStatsUpdated();
-            if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-sliding-window HIT (${newLines.length} new lines, no entity mentions)`);
-            return { results: resolveCachedResults(aiSearchCache.results), error: false, cached: true };
-        }
-        if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-sliding-window MISS — new entity mention found in new lines');
+            if (!hasNewEntityMention) {
+                aiSearchStats.cachedHits++;
+                notifyAiStatsUpdated();
+                if (settings.debugMode) console.debug(`[DLE][DIAG] ai-cache-sliding-window HIT (${newLines.length} new lines, no entity mentions)`);
+                return { results: resolveCachedResults(aiSearchCache.results), error: false, cached: true };
+            }
+            if (settings.debugMode) console.debug('[DLE][DIAG] ai-cache-sliding-window MISS — new entity mention found in new lines');
         } // end prefix-intact else
     }
 
@@ -839,6 +839,15 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
         }
         notifyAiStatsUpdated();
 
+        if (settings.debugMode) {
+            console.log('[DLE][TRACE] aiSearch_call_result', {
+                usage: aiResult.usage,
+                debug: aiResult.debug || null,
+                textType: typeof aiResult.text,
+                textPreview: String(aiResult.text || '').slice(0, 300),
+            });
+        }
+
         let parsed = extractAiResponseClient(aiResult.text);
         // BUG-383: Object-shaped AI responses (e.g. {"results": [...]}) — and trip the
         // breaker on persistent format drift so it opens after 2 failures.
@@ -858,6 +867,11 @@ export async function aiSearch(chat, candidateManifest, candidateHeader, snapsho
             if (settings.debugMode) {
                 const preview = (aiResult.text || '').slice(0, 300);
                 console.warn(`[DLE] AI search: could not parse response as JSON array. Response preview: ${preview}`);
+                console.warn('[DLE][TRACE] aiSearch_parse_failure_context', {
+                    aiResultDebug: aiResult.debug || null,
+                    textType: typeof aiResult.text,
+                    textLength: typeof aiResult.text === 'string' ? aiResult.text.length : -1,
+                });
             }
             recordAiFailure(); // BUG-010: parse failures must trip the breaker.
             dedupWarning('AI search returned an unparseable response — falling back to keywords.', 'aiSearch_parse_failure', { hint: 'extractAiResponseClient returned null; see debug log for response preview.' });

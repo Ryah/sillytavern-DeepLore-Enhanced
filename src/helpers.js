@@ -52,34 +52,73 @@ export function stripObsidianSyntax(text) {
  * @returns {{text: string, usage: {input_tokens: number, output_tokens: number}}}
  */
 export function cmrsResultToText(result) {
+    function extractStructuredText(source) {
+        if (!source || typeof source !== 'object') return '';
+
+        if (Array.isArray(source.candidates)) {
+            const parts = source.candidates
+                .flatMap(c => (Array.isArray(c?.content?.parts) ? c.content.parts : []))
+                .map(p => (typeof p?.text === 'string' ? p.text : ''))
+                .filter(Boolean);
+            if (parts.length > 0) return parts.join('\n');
+        }
+
+        if (Array.isArray(source.responseContent?.parts)) {
+            const parts = source.responseContent.parts
+                .filter(p => p?.thought !== true)
+                .map(p => (typeof p?.text === 'string' ? p.text : ''))
+                .filter(Boolean);
+            if (parts.length > 0) return parts.join('\n');
+        }
+
+        if (Array.isArray(source.content?.parts)) {
+            const parts = source.content.parts
+                .filter(p => p?.thought !== true)
+                .map(p => (typeof p?.text === 'string' ? p.text : ''))
+                .filter(Boolean);
+            if (parts.length > 0) return parts.join('\n');
+        }
+
+        return '';
+    }
+
     const rawContent = result?.content;
+    const extractedText = extractStructuredText(result);
     const text = typeof rawContent === 'string'
         ? rawContent
-        : (rawContent == null ? '' : JSON.stringify(rawContent));
-    const usage = result?.usage || {};
+        : (extractedText || (rawContent == null ? '' : JSON.stringify(rawContent)));
+    const usage = result?.usage || result?.usageMetadata || {};
+    const debug = {
+        rawKeys: result && typeof result === 'object' ? Object.keys(result) : [],
+        contentType: rawContent === null ? 'null' : Array.isArray(rawContent) ? 'array' : typeof rawContent,
+        contentKeys: rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent) ? Object.keys(rawContent) : [],
+        extractedTextSource: typeof rawContent === 'string'
+            ? 'content-string'
+            : (extractedText ? 'structured-envelope' : (rawContent == null ? 'empty' : 'json-stringify-content')),
+        candidateCount: Array.isArray(result?.candidates) ? result.candidates.length : 0,
+        responseContentPartCount: Array.isArray(result?.responseContent?.parts) ? result.responseContent.parts.length : 0,
+        contentPartCount: Array.isArray(result?.content?.parts) ? result.content.parts.length : 0,
+        usageKeys: usage && typeof usage === 'object' ? Object.keys(usage) : [],
+        textPreview: String(text || '').slice(0, 200),
+    };
     return {
         text,
         usage: {
-            input_tokens: usage.input_tokens || usage.prompt_tokens || 0,
-            output_tokens: usage.output_tokens || usage.completion_tokens || 0,
+            input_tokens: usage.input_tokens || usage.prompt_tokens || usage.promptTokenCount || 0,
+            output_tokens: usage.output_tokens || usage.completion_tokens || usage.candidatesTokenCount || 0,
         },
+        debug,
     };
 }
 
 /**
  * Extract JSON from AI response text. Handles direct JSON, code-fenced
  * JSON, stray fence lines, and raw arrays/objects via balanced scanning.
- * @param {string} text
+ * @param {string|object} text
  * @returns {Array|Object|null}
  */
 export function extractAiResponseClient(text) {
-    if (!text || typeof text !== 'string') return null;
-
-    // Providers occasionally append a dangling code-fence line after valid JSON.
-    // Remove fence-only lines before attempting direct parse.
-    const sanitizedText = text
-        .replace(/^\s*`{3,}(?:\w+)?\s*$/gm, '')
-        .trim();
+    if (!text) return null;
 
     /** BUG-046: usable result arrays have at least one usable element (or are empty). */
     function isValidResultArray(val) {
@@ -89,10 +128,6 @@ export function extractAiResponseClient(text) {
             typeof item === 'string'
             || (typeof item === 'object' && item !== null && (item.title || item.name)),
         );
-    }
-
-    function isValidResultObject(val) {
-        return !!val && typeof val === 'object' && !Array.isArray(val);
     }
 
     function extractNestedModelTextEnvelope(val) {
@@ -120,66 +155,127 @@ export function extractAiResponseClient(text) {
         return null;
     }
 
-    try {
-        const parsed = JSON.parse(sanitizedText);
-
-        // Some providers return an outer API envelope instead of raw model text.
-        // Unwrap and recurse so downstream handling sees the intended JSON payload.
-        const nestedText = extractNestedModelTextEnvelope(parsed);
-        if (nestedText && nestedText !== sanitizedText) {
-            const nestedParsed = extractAiResponseClient(nestedText);
-            if (nestedParsed) return nestedParsed;
+    function extractInspectStyleEnvelopeText(value) {
+        if (typeof value !== 'string' || !value.includes('candidates:') || !value.includes('text:')) {
+            return null;
         }
 
-        if (isValidResultObject(parsed)) return parsed;
-        if (isValidResultArray(parsed)) return parsed;
-    } catch { /* noop */ }
+        const textExprMatch = value.match(/text:\s*((?:'(?:\\.|[^'])*'\s*\+\s*)*'(?:\\.|[^'])*')/);
+        if (!textExprMatch) return null;
 
-    const fenceMatch = sanitizedText.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/i);
-    if (fenceMatch) {
+        const fragments = [...textExprMatch[1].matchAll(/'((?:\\.|[^'])*)'/g)].map((match) => match[1]);
+        if (fragments.length === 0) return null;
+
         try {
-            const parsed = JSON.parse(fenceMatch[1]);
-            if (isValidResultObject(parsed)) return parsed;
-            if (isValidResultArray(parsed)) return parsed;
-        } catch { /* noop */ }
+            return fragments.map((fragment) => {
+                const normalized = fragment
+                    .replace(/\\`/g, '`')
+                    .replace(/"/g, '\\"');
+                return JSON.parse(`"${normalized}"`);
+            }).join('');
+        } catch {
+            return null;
+        }
     }
 
-    // Balanced extraction — non-greedy regex fails on nested arrays/objects.
-    // Prefer largest (outer) match.
-    const candidates = [];
-    for (let i = 0; i < sanitizedText.length; i++) {
-        if (sanitizedText[i] === '[' || sanitizedText[i] === '{') {
-            const open = sanitizedText[i];
-            const close = open === '[' ? ']' : '}';
-            let depth = 1;
-            let inStr = false;
-            let inSingleStr = false;
-            let escape = false;
-            for (let j = i + 1; j < sanitizedText.length && depth > 0; j++) {
-                const c = sanitizedText[j];
-                if (escape) { escape = false; continue; }
-                if (c === '\\') { escape = true; continue; }
-                if (c === '"' && !inSingleStr) { inStr = !inStr; continue; }
-                if (c === "'" && !inStr) { inSingleStr = !inSingleStr; continue; }
-                if (inStr || inSingleStr) continue;
-                if (c === open) depth++;
-                else if (c === close) depth--;
-                if (depth === 0) {
-                    candidates.push(sanitizedText.substring(i, j + 1));
-                    break;
+    function unwrapResultArray(val) {
+        if (!val || typeof val !== 'object' || Array.isArray(val)) return null;
+
+        const wrapperKeys = ['results', 'entries', 'titles', 'selected'];
+        for (const key of wrapperKeys) {
+            if (isValidResultArray(val[key])) return val[key];
+        }
+
+        const firstArrayValue = Object.values(val).find(isValidResultArray);
+        return firstArrayValue || null;
+    }
+
+    function parseCandidateValue(value) {
+        if (!value) return null;
+
+        if (typeof value === 'object') {
+            if (isValidResultArray(value)) return value;
+
+            const nestedText = extractNestedModelTextEnvelope(value);
+            if (nestedText) {
+                const nestedParsed = extractAiResponseClient(nestedText);
+                if (nestedParsed) return nestedParsed;
+            }
+
+            return unwrapResultArray(value);
+        }
+
+        if (typeof value !== 'string') return null;
+
+        // Providers occasionally append a dangling code-fence line after valid JSON.
+        // Remove fence-only lines before attempting direct parse.
+        const sanitizedText = value
+            .replace(/^\s*`{3,}(?:\w+)?\s*$/gm, '')
+            .trim();
+
+        if (!sanitizedText) return null;
+
+        try {
+            const parsed = JSON.parse(sanitizedText);
+            const normalized = parseCandidateValue(parsed);
+            if (normalized) return normalized;
+        } catch { /* noop */ }
+
+        const fenceMatch = sanitizedText.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/i);
+        if (fenceMatch) {
+            try {
+                const parsed = JSON.parse(fenceMatch[1]);
+                const normalized = parseCandidateValue(parsed);
+                if (normalized) return normalized;
+            } catch { /* noop */ }
+        }
+
+        const inspectEnvelopeText = extractInspectStyleEnvelopeText(sanitizedText);
+        if (inspectEnvelopeText) {
+            const normalized = extractAiResponseClient(inspectEnvelopeText);
+            if (normalized) return normalized;
+        }
+
+        // Balanced extraction — non-greedy regex fails on nested arrays/objects.
+        // Prefer largest (outer) match.
+        const candidates = [];
+        for (let i = 0; i < sanitizedText.length; i++) {
+            if (sanitizedText[i] === '[' || sanitizedText[i] === '{') {
+                const open = sanitizedText[i];
+                const close = open === '[' ? ']' : '}';
+                let depth = 1;
+                let inStr = false;
+                let inSingleStr = false;
+                let escape = false;
+                for (let j = i + 1; j < sanitizedText.length && depth > 0; j++) {
+                    const c = sanitizedText[j];
+                    if (escape) { escape = false; continue; }
+                    if (c === '\\') { escape = true; continue; }
+                    if (c === '"' && !inSingleStr) { inStr = !inStr; continue; }
+                    if (c === "'" && !inStr) { inSingleStr = !inSingleStr; continue; }
+                    if (inStr || inSingleStr) continue;
+                    if (c === open) depth++;
+                    else if (c === close) depth--;
+                    if (depth === 0) {
+                        candidates.push(sanitizedText.substring(i, j + 1));
+                        break;
+                    }
                 }
             }
         }
+        candidates.sort((a, b) => b.length - a.length);
+        for (const candidate of candidates) {
+            try {
+                const parsed = JSON.parse(candidate);
+                const normalized = parseCandidateValue(parsed);
+                if (normalized) return normalized;
+            } catch { /* noop */ }
+        }
+
+        return null;
     }
-    candidates.sort((a, b) => b.length - a.length);
-    for (const candidate of candidates) {
-        try {
-            const parsed = JSON.parse(candidate);
-            if (isValidResultObject(parsed)) return parsed;
-            if (isValidResultArray(parsed)) return parsed;
-        } catch { /* noop */ }
-    }
-    return null;
+
+    return parseCandidateValue(text);
 }
 
 /**

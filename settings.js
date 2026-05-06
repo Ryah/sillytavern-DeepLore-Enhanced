@@ -245,11 +245,11 @@ export const defaultSettings = {
 
 /** Per-tool settings-key map for resolveConnectionConfig(). */
 const TOOL_SETTINGS_KEYS = {
-    aiSearch:    { mode: 'aiSearchConnectionMode', profileId: 'aiSearchProfileId', proxyUrl: 'aiSearchProxyUrl', model: 'aiSearchModel', maxTokens: 'aiSearchMaxTokens', timeout: 'aiSearchTimeout' },
-    scribe:     { mode: 'scribeConnectionMode', profileId: 'scribeProfileId', proxyUrl: 'scribeProxyUrl', model: 'scribeModel', maxTokens: 'scribeMaxTokens', timeout: 'scribeTimeout' },
+    aiSearch: { mode: 'aiSearchConnectionMode', profileId: 'aiSearchProfileId', proxyUrl: 'aiSearchProxyUrl', model: 'aiSearchModel', maxTokens: 'aiSearchMaxTokens', timeout: 'aiSearchTimeout' },
+    scribe: { mode: 'scribeConnectionMode', profileId: 'scribeProfileId', proxyUrl: 'scribeProxyUrl', model: 'scribeModel', maxTokens: 'scribeMaxTokens', timeout: 'scribeTimeout' },
     autoSuggest: { mode: 'autoSuggestConnectionMode', profileId: 'autoSuggestProfileId', proxyUrl: 'autoSuggestProxyUrl', model: 'autoSuggestModel', maxTokens: 'autoSuggestMaxTokens', timeout: 'autoSuggestTimeout' },
-    aiNotepad:  { mode: 'aiNotepadConnectionMode', profileId: 'aiNotepadProfileId', proxyUrl: 'aiNotepadProxyUrl', model: 'aiNotepadModel', maxTokens: 'aiNotepadMaxTokens', timeout: 'aiNotepadTimeout' },
-    librarian:  { mode: 'librarianConnectionMode', profileId: 'librarianProfileId', proxyUrl: 'librarianProxyUrl', model: 'librarianModel', maxTokens: 'librarianSessionMaxTokens', timeout: 'librarianSessionTimeout' },
+    aiNotepad: { mode: 'aiNotepadConnectionMode', profileId: 'aiNotepadProfileId', proxyUrl: 'aiNotepadProxyUrl', model: 'aiNotepadModel', maxTokens: 'aiNotepadMaxTokens', timeout: 'aiNotepadTimeout' },
+    librarian: { mode: 'librarianConnectionMode', profileId: 'librarianProfileId', proxyUrl: 'librarianProxyUrl', model: 'librarianModel', maxTokens: 'librarianSessionMaxTokens', timeout: 'librarianSessionTimeout' },
     optimizeKeys: { mode: 'optimizeKeysConnectionMode', profileId: 'optimizeKeysProfileId', proxyUrl: 'optimizeKeysProxyUrl', model: 'optimizeKeysModel', maxTokens: 'optimizeKeysMaxTokens', timeout: 'optimizeKeysTimeout' },
 };
 

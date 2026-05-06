@@ -201,7 +201,7 @@ function bindVaultListEvents(settings, $scope = null, $addBtn = null) {
             } else if (data.diagnosis) {
                 const shortMsg = data.diagnosis === 'cert' ? 'Certificate not trusted'
                     : data.diagnosis === 'auth' ? 'Authentication failed'
-                    : 'Cannot reach Obsidian';
+                        : 'Cannot reach Obsidian';
                 statusEl.html(`${escapeHtml(shortMsg)} — <a href="#" class="dle-vault-show-guidance" style="text-decoration: underline;">see how to fix</a>`).addClass('failure').removeClass('success');
                 row.find('.dle-vault-show-guidance').off('click').on('click', (e) => {
                     e.preventDefault();
@@ -261,10 +261,10 @@ function announceToSR(message) {
 }
 
 const STATUS_DISPLAY = {
-    ok:       { dot: '\u{1F7E2}', label: 'OK',       title: 'All systems operational' },
-    degraded: { dot: '\u{1F7E1}', label: 'Degraded',  title: 'Some vaults unreachable or health issues detected' },
-    limited:  { dot: '\u{1F7E0}', label: 'Limited',   title: 'AI search temporarily paused or using stale cache' },
-    offline:  { dot: '\u{1F534}', label: 'Offline',    title: 'No vaults reachable and no cached data' },
+    ok: { dot: '\u{1F7E2}', label: 'OK', title: 'All systems operational' },
+    degraded: { dot: '\u{1F7E1}', label: 'Degraded', title: 'Some vaults unreachable or health issues detected' },
+    limited: { dot: '\u{1F7E0}', label: 'Limited', title: 'AI search temporarily paused or using stale cache' },
+    offline: { dot: '\u{1F534}', label: 'Offline', title: 'No vaults reachable and no cached data' },
 };
 
 function updateHeaderBadge() {
@@ -346,12 +346,12 @@ function updatePopupModeVisibility($container, settings) {
 
 /** Each tool with a configurable prompt gets an entry. */
 const PROMPT_PRESET_TOOLS = {
-    aiSearch:     { settingsKey: 'aiSearchSystemPrompt', textareaId: 'dle-sp-ai-system-prompt' },
-    scribe:       { settingsKey: 'scribePrompt', textareaId: 'dle-sp-scribe-prompt' },
-    autoSuggest:  { settingsKey: 'autoSuggestPrompt', textareaId: 'dle-sp-autosuggest-prompt' },
+    aiSearch: { settingsKey: 'aiSearchSystemPrompt', textareaId: 'dle-sp-ai-system-prompt' },
+    scribe: { settingsKey: 'scribePrompt', textareaId: 'dle-sp-scribe-prompt' },
+    autoSuggest: { settingsKey: 'autoSuggestPrompt', textareaId: 'dle-sp-autosuggest-prompt' },
     optimizeKeys: { settingsKey: 'optimizeKeysPrompt', textareaId: 'dle-sp-optimize-keys-prompt' },
-    librarian:    { settingsKey: 'librarianCustomSystemPrompt', textareaId: 'dle-sp-librarian-custom-prompt' },
-    aiNotepad:    { settingsKey: 'aiNotepadPrompt', textareaId: 'dle-sp-ai-notepad-prompt' },
+    librarian: { settingsKey: 'librarianCustomSystemPrompt', textareaId: 'dle-sp-librarian-custom-prompt' },
+    aiNotepad: { settingsKey: 'aiNotepadPrompt', textareaId: 'dle-sp-ai-notepad-prompt' },
     // BUG-128: Extract mode supports save/reuse of named presets.
     aiNotepadExtract: { settingsKey: 'aiNotepadExtractPrompt', textareaId: 'dle-sp-ai-notepad-extract-prompt' },
 };
@@ -422,15 +422,15 @@ async function saveCurrentAsPreset($container, $select, toolKey, settings) {
     const name = await callGenericPopup(
         '<p>Enter a name for this preset:</p><input id="dle-preset-name-input" class="text_pole" type="text" placeholder="My preset" autofocus />',
         POPUP_TYPE.CONFIRM, '', {
-            okButton: 'Save', cancelButton: 'Cancel',
-            onOpen: (popup) => {
-                const root = popup?.dlg || document;
-                nameInputRef = root.querySelector('#dle-preset-name-input');
-            },
-            onClose: () => {
-                if (nameInputRef) nameInputRef._snapshotValue = nameInputRef.value;
-            },
+        okButton: 'Save', cancelButton: 'Cancel',
+        onOpen: (popup) => {
+            const root = popup?.dlg || document;
+            nameInputRef = root.querySelector('#dle-preset-name-input');
         },
+        onClose: () => {
+            if (nameInputRef) nameInputRef._snapshotValue = nameInputRef.value;
+        },
+    },
     );
     if (!name) { $select.val(''); return; }
 
@@ -1330,12 +1330,12 @@ function numVal(raw, fallback) {
  * mini-corpus so users can see how the threshold controls which entries pass.
  */
 const FUZZY_TOY_CORPUS = [
-    { title: 'Velmira the Blade',    content: 'A retired assassin who once served the shadow court. Now sells guild secrets to the highest bidder from a hidden safehouse.' },
-    { title: 'The Hollow Fang',      content: 'A secretive assassin guild operating from the sewers beneath the capital. Members use shadow magic to vanish after completing a contract.' },
-    { title: 'Nightveil District',   content: 'The shadow quarter of the capital where thieves and smugglers gather. Home to several guild halls and black market dealers.' },
+    { title: 'Velmira the Blade', content: 'A retired assassin who once served the shadow court. Now sells guild secrets to the highest bidder from a hidden safehouse.' },
+    { title: 'The Hollow Fang', content: 'A secretive assassin guild operating from the sewers beneath the capital. Members use shadow magic to vanish after completing a contract.' },
+    { title: 'Nightveil District', content: 'The shadow quarter of the capital where thieves and smugglers gather. Home to several guild halls and black market dealers.' },
     { title: 'Merchant Guild Prices', content: 'The official guild price list for trade across the realm. Establishes taxation and merchant protections for all five kingdoms.' },
-    { title: 'Sunforge Cathedral',   content: 'A grand cathedral of golden spires dedicated to the sun goddess. Priests perform healing rituals. A shadow falls across the altar each equinox.' },
-    { title: 'Starfall Academy',     content: 'A prestigious school for young mages perched on a cliffside. Students study elemental magic and arcane theory in ancient towers.' },
+    { title: 'Sunforge Cathedral', content: 'A grand cathedral of golden spires dedicated to the sun goddess. Priests perform healing rituals. A shadow falls across the altar each equinox.' },
+    { title: 'Starfall Academy', content: 'A prestigious school for young mages perched on a cliffside. Students study elemental magic and arcane theory in ancient towers.' },
 ];
 const FUZZY_TOY_QUERY = 'shadow assassin guild';
 let _fuzzyToyScores = null;
@@ -1491,11 +1491,11 @@ function bindPopupEvents($container) {
                 : msg.includes('SecurityError') || msg.includes('NotAllowed')
                     ? 'Browser blocked the file download. Check pop-up blocker or security settings.'
                     : 'Try /dle-diagnostics in chat instead, or check browser console (F12) for details.';
-            try { toastr.error(`Diagnostic export failed. ${hint}`, 'DeepLore Enhanced', { timeOut: 10000 }); } catch {}
+            try { toastr.error(`Diagnostic export failed. ${hint}`, 'DeepLore Enhanced', { timeOut: 10000 }); } catch { }
         } finally {
             $btn.prop('disabled', false).removeClass('disabled');
             // Restore label after a beat so the user sees "Done" briefly.
-            setTimeout(() => { try { $label.text(origLabel); } catch {} }, 4000);
+            setTimeout(() => { try { $label.text(origLabel); } catch { } }, 4000);
         }
     });
 
@@ -1503,7 +1503,7 @@ function bindPopupEvents($container) {
     fetch(new URL('../../icon.svg', import.meta.url).href)
         .then(r => r.ok ? r.text() : '')
         .then(svg => { const el = $c('#dle-sp-mascot')[0]; if (el && svg) el.innerHTML = svg; })
-        .catch(() => {});
+        .catch(() => { });
 
     // Easter egg — companion character cards.
     $c('#dle-sp-mascot').on('click', async function () {

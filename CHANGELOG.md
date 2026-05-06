@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased (2026-05-05)
+
+### Bug Fixes
+
+- Fixed the drawer footer `Reset AI Breaker` button not firing: the delegated handler in `src/drawer/drawer-events.js` listens for `.dle-action-btn[data-action]`, and the footer button in `drawer.html` was missing the `.dle-action-btn` class.
+
 ## 2.0.2 (2026-04-27)
 
 > Hotfix for AI search regression on non-Claude models.

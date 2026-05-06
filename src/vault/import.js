@@ -111,6 +111,62 @@ export async function importEntries(entries, folder, onProgress) {
 }
 
 /**
+ * Convert and upsert a single ST World Info entry into Obsidian.
+ * This is intentionally generic so extensions can add custom
+ * metadata/content without duplicating DLE connection logic.
+ *
+ * @param {object} wiEntry
+ * @param {{
+ *   folder?: string,
+ *   filename?: string,
+ *   transformContent?: ((markdown: string, entry: object) => string) | null,
+ *   lorebookTag?: string,
+ * }} [options]
+ * @returns {Promise<{ok: boolean, path: string, error?: string}>}
+ */
+export async function upsertConvertedEntry(wiEntry, options = {}) {
+    const settings = getSettings();
+    const vault = getPrimaryVault(settings);
+
+    if (!vault?.enabled) {
+        return { ok: false, path: '', error: 'No enabled DeepLore vault is configured.' };
+    }
+    if (!vault.apiKey) {
+        return { ok: false, path: '', error: 'DeepLore vault API key is missing.' };
+    }
+
+    const lorebookTag = options.lorebookTag || settings.lorebookTag;
+    const converted = convertWiEntry(wiEntry, lorebookTag);
+    const normalizedFolder = String(options.folder || '').trim().replace(/^\/+/g, '').replace(/\/+$/g, '');
+    const filename = String(options.filename || converted.filename || '').trim();
+
+    if (!filename) {
+        return { ok: false, path: '', error: 'Missing filename for converted World Info entry.' };
+    }
+
+    let markdown = converted.content;
+    if (typeof options.transformContent === 'function') {
+        markdown = options.transformContent(markdown, wiEntry);
+    }
+
+    const fullPath = normalizedFolder ? `${normalizedFolder}/${filename}` : filename;
+    const writeResult = await writeNote(
+        vault.host,
+        vault.port,
+        vault.apiKey,
+        fullPath,
+        markdown,
+        !!vault.https,
+    );
+
+    if (!writeResult.ok) {
+        return { ok: false, path: fullPath, error: writeResult.error || 'Unknown write error' };
+    }
+
+    return { ok: true, path: fullPath };
+}
+
+/**
  * Parse ST World Info JSON (handles both export format and embedded character card format).
  * @param {string} jsonText - Raw JSON text
  * @returns {{ entries: object[], source: string }}

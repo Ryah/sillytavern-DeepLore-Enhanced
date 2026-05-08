@@ -16,7 +16,7 @@ import {
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
-import { normalizePinBlock, buildObsidianURI } from '../helpers.js';
+import { normalizePinBlock, buildObsidianURI, buildObsidianAnchorHtml } from '../helpers.js';
 import { buildIndex } from '../vault/vault.js';
 import { openRuleBuilder } from '../ui/rule-builder.js';
 import {
@@ -588,7 +588,7 @@ export function wireBrowseTab($drawer) {
             ? settings.vaults.find(v => v.name === entry.vaultSource) : null;
         const vaultName = srcVault ? srcVault.name : (settings.vaults?.[0]?.name || '');
         const uri = entry.filename ? buildObsidianURI(vaultName, entry.filename) : null;
-        const linkHtml = uri ? ` <a href="${escapeHtml(uri)}" class="dle-obsidian-link" aria-label="Open in Obsidian">Open in Obsidian</a>` : '';
+        const linkHtml = uri ? ` ${buildObsidianAnchorHtml(uri)}` : '';
 
         let fieldsHtml = '';
         if (entry.customFields && Object.keys(entry.customFields).length > 0) {

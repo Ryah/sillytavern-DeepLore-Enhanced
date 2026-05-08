@@ -45,7 +45,7 @@ import { validateCachedEntry } from '../src/vault/cache-validate.js';
 import { simpleHash, validateSettings, parseFrontmatter, buildScanText } from '../core/utils.js';
 import { testEntryMatch, formatAndGroup, applyGating, clearScanTextCache } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
-import { normalizePinBlock, matchesPinBlock, cmrsResultToText } from '../src/helpers.js';
+import { normalizePinBlock, matchesPinBlock, cmrsResultToText, buildObsidianAnchorHtml } from '../src/helpers.js';
 import { mountDrawerInHolder } from '../src/drawer/drawer-dom.js';
 
 console.log('DeepLore Enhanced — Regression Tests');
@@ -1661,6 +1661,32 @@ test('Drawer icon remount: missing drawer or holder is safe', () => {
     assert(!mountDrawerInHolder(null, holder), 'missing drawer should be a no-op');
     assert(!mountDrawerInHolder({}, null), 'missing holder should be a no-op');
     assertEqual(holder.appendCount, 0, 'no append should happen for missing inputs');
+});
+
+// ============================================================================
+// Obsidian deep-link safety
+// ============================================================================
+
+section('Obsidian deep-link safety');
+
+test('Obsidian links open outside the SillyTavern tab', () => {
+    const link = buildObsidianAnchorHtml('obsidian://open?vault=First%20Vault&file=Cosplay%20Mode');
+
+    assert(link.includes('target="_blank"'), 'obsidian:// link should not navigate the ST tab');
+    assert(link.includes('rel="noopener noreferrer"'), 'external protocol link should isolate opener');
+    assert(link.includes('href="obsidian://open?vault=First%20Vault&amp;file=Cosplay%20Mode"'), 'href should be escaped');
+});
+
+test('Obsidian links escape labels and attributes', () => {
+    const link = buildObsidianAnchorHtml('obsidian://open?vault=A&B&file=<bad>', {
+        text: 'Open <Mode>',
+        className: 'dle-obsidian-link custom',
+        ariaLabel: 'Open "Mode"',
+    });
+
+    assert(link.includes('Open &lt;Mode&gt;'), 'link text should be escaped');
+    assert(link.includes('class="dle-obsidian-link custom"'), 'class name should be preserved');
+    assert(link.includes('aria-label="Open &quot;Mode&quot;"'), 'aria label should be escaped');
 });
 
 // ============================================================================

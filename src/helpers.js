@@ -219,6 +219,25 @@ export function buildObsidianURI(vaultName, filename) {
     return `obsidian://open?vault=${encodedVault}&file=${encodedFile}`;
 }
 
+function escapeHtmlValue(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+    }[ch]));
+}
+
+export function buildObsidianAnchorHtml(uri, {
+    text = 'Open in Obsidian',
+    className = 'dle-obsidian-link',
+    ariaLabel = 'Open in Obsidian',
+} = {}) {
+    if (!uri) return '';
+    return `<a href="${escapeHtmlValue(uri)}" target="_blank" rel="noopener noreferrer" class="${escapeHtmlValue(className)}" aria-label="${escapeHtmlValue(ariaLabel)}">${escapeHtmlValue(text)}</a>`;
+}
+
 /**
  * Convert a SillyTavern World Info entry into an Obsidian note with frontmatter.
  * @param {object} wiEntry

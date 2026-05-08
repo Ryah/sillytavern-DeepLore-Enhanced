@@ -18,7 +18,7 @@ import {
 } from '../state.js';
 import { buildIndex } from '../vault/vault.js';
 import { callAutoSuggest } from '../ai/auto-suggest.js';
-import { extractAiResponseClient, buildObsidianURI, STAGE_COLORS, normalizePinBlock } from '../helpers.js';
+import { extractAiResponseClient, buildObsidianURI, buildObsidianAnchorHtml, STAGE_COLORS, normalizePinBlock } from '../helpers.js';
 import { diagnoseEntry } from './diagnostics.js';
 import { computeEntryTemperatures } from '../drawer/drawer-state.js';
 
@@ -314,7 +314,7 @@ export async function showBrowsePopup() {
                 : (settings.vaults?.[0]?.name || '');
             const obsidianUri = buildObsidianURI(entryVaultName, entry.filename);
             const obsidianLink = obsidianUri
-                ? ` <a href="${escapeHtml(obsidianUri)}" class="dle-text-xs dle-muted">Open in Obsidian</a>`
+                ? ` ${buildObsidianAnchorHtml(obsidianUri, { className: 'dle-text-xs dle-muted' })}`
                 : '';
 
             const temp = tempMap.get(trackerKey(entry));

@@ -27,6 +27,7 @@ import {
     wireToolsTab, wireTabExpand, wireStatusActions, wireInjectionTab, wireBrowseTab, wireGatingTab, wireHealthIcons,
     wireLibrarianTab, wireGlobalShortcuts,
 } from './drawer-events.js';
+import { mountDrawerInHolder } from './drawer-dom.js';
 import { pushEvent } from '../diagnostics/interceptors.js';
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -34,6 +35,8 @@ import { pushEvent } from '../diagnostics/interceptors.js';
 // ════════════════════════════════════════════════════════════════════════════
 let drawerDestroyed = false;
 let drawerListeners = { eventSource: [], timers: [], stateObservers: [], windowEvents: [] };
+let drawerMountObserver = null;
+let drawerMountRaf = null;
 // BUG-119: gap-announce debouncer state must be module-scoped. A drawer re-init
 // (HMR / destroyDrawerPanel + createDrawerPanel) would otherwise leave the old
 // subscriber's closure alive with a stale `_lastGapCount`, producing duplicate
@@ -41,6 +44,60 @@ let drawerListeners = { eventSource: [], timers: [], stateObservers: [], windowE
 let _gapAnnounceTimer = null;
 let _lastGapCount = 0;
 const GAP_ANNOUNCE_DEBOUNCE_MS = 500;
+
+function getTopSettingsHolder() {
+    return document.getElementById('top-settings-holder');
+}
+
+function ensureDrawerMounted() {
+    if (drawerDestroyed) return false;
+    const drawerRoot = ds.$drawer?.[0];
+    const remounted = mountDrawerInHolder(drawerRoot, getTopSettingsHolder());
+    if (remounted) {
+        try { pushEvent('drawer', { action: 'remount' }); } catch { /* noop */ }
+    }
+    return remounted;
+}
+
+function scheduleDrawerMountCheck() {
+    if (drawerMountRaf) return;
+    drawerMountRaf = requestAnimationFrame(() => {
+        drawerMountRaf = null;
+        ensureDrawerMounted();
+    });
+}
+
+function mutationTouchesDrawerMount(mutations) {
+    for (const mutation of mutations) {
+        if (mutation.target?.id === 'top-settings-holder') return true;
+        for (const node of [...mutation.addedNodes, ...mutation.removedNodes]) {
+            if (node?.nodeType !== 1) continue;
+            if (node.id === DRAWER_ID || node.id === 'top-settings-holder') return true;
+            if (node.querySelector?.(`#${DRAWER_ID}, #top-settings-holder`)) return true;
+        }
+    }
+    return false;
+}
+
+function startDrawerMountGuard() {
+    if (drawerMountObserver || typeof MutationObserver === 'undefined' || !document.body) return;
+    drawerMountObserver = new MutationObserver((mutations) => {
+        if (drawerDestroyed || !mutationTouchesDrawerMount(mutations)) return;
+        scheduleDrawerMountCheck();
+    });
+    drawerMountObserver.observe(document.body, { childList: true, subtree: true });
+}
+
+function stopDrawerMountGuard() {
+    if (drawerMountRaf) {
+        try { cancelAnimationFrame(drawerMountRaf); } catch { /* noop */ }
+        drawerMountRaf = null;
+    }
+    if (drawerMountObserver) {
+        try { drawerMountObserver.disconnect(); } catch { /* noop */ }
+        drawerMountObserver = null;
+    }
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Public API (consumed by index.js)
@@ -115,7 +172,14 @@ function rebuildTagCache() {
  * #rightNavHolder pattern exactly so doNavbarIconClick semantics match.
  */
 export async function createDrawerPanel() {
-    if ($(`#${DRAWER_ID}`).length) return;
+    const existingDrawer = document.getElementById(DRAWER_ID);
+    if (existingDrawer) {
+        ds.$drawer = $(existingDrawer);
+        drawerDestroyed = false;
+        ensureDrawerMounted();
+        startDrawerMountGuard();
+        return;
+    }
 
     drawerDestroyed = false;
     drawerListeners.eventSource = [];
@@ -173,6 +237,7 @@ export async function createDrawerPanel() {
     if ($footerZone.length) $footerZone.insertAfter($drawer.find('.dle-drawer-inner'));
 
     $('#top-settings-holder').append($drawer);
+    startDrawerMountGuard();
 
     // Custom SVG icon — async/non-blocking; FA icon serves as fallback if fetch fails.
     fetch('/scripts/extensions/third-party/sillytavern-DeepLore-Enhanced/icon.svg')
@@ -645,6 +710,7 @@ export function navigateToBrowseEntry(title) {
 /** Tear down all listeners + DOM. Called from extension cleanup. */
 export function destroyDrawerPanel() {
     drawerDestroyed = true;
+    stopDrawerMountGuard();
     $(document).off('click.dle-drawer-dismiss');
     const stCtxCleanup = typeof SillyTavern !== 'undefined' && SillyTavern.getContext ? SillyTavern.getContext() : null;
     const esCleanup = stCtxCleanup?.eventSource;

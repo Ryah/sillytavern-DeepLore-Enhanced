@@ -16,7 +16,7 @@ import {
     suppressNextAgenticLoop, setSuppressNextAgenticLoop,
 } from '../state.js';
 import { DEFAULT_FIELD_DEFINITIONS } from '../fields.js';
-import { normalizePinBlock, buildObsidianURI, buildObsidianAnchorHtml } from '../helpers.js';
+import { normalizePinBlock, buildObsidianURI, buildObsidianAnchorHtml, openExternalProtocol } from '../helpers.js';
 import { buildIndex } from '../vault/vault.js';
 import { openRuleBuilder } from '../ui/rule-builder.js';
 import {
@@ -378,6 +378,16 @@ export function wireBrowseTab($drawer) {
             ds.browseScrollRAF = null;
             renderBrowseWindow();
         });
+    });
+
+    $drawer.on('click keydown', '.dle-obsidian-link', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        const uri = this.dataset?.obsidianUri;
+        if (!openExternalProtocol(uri)) {
+            toastr.warning('Could not open Obsidian link from this browser context.', 'DeepLore Enhanced', { timeOut: 2500 });
+        }
     });
 
     $drawer.find('.dle-browse-input').on('input', function () {

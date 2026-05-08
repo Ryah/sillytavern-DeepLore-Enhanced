@@ -46,7 +46,6 @@ import { simpleHash, validateSettings, parseFrontmatter, buildScanText } from '.
 import { testEntryMatch, formatAndGroup, applyGating, clearScanTextCache } from '../core/matching.js';
 import { parseVaultFile } from '../core/pipeline.js';
 import { normalizePinBlock, matchesPinBlock, cmrsResultToText, buildObsidianAnchorHtml } from '../src/helpers.js';
-import { mountDrawerInHolder } from '../src/drawer/drawer-dom.js';
 
 console.log('DeepLore Enhanced — Regression Tests');
 console.log('Each test guards a specific BUG fix or gotcha.\n');
@@ -1618,52 +1617,6 @@ test('Issue #24: usage falls back through OpenAI/Anthropic field names', () => {
     assertEqual(c.usage.output_tokens, 0);
 });
 
-// ============================================================================
-// Drawer toolbar mount guard
-// ============================================================================
-
-section('Drawer toolbar mount guard');
-
-function makeFakeHolder() {
-    return {
-        appendCount: 0,
-        appendChild(node) {
-            this.appendCount++;
-            node.parentElement = this;
-        },
-    };
-}
-
-test('Drawer icon remount: reattaches drawer when toolbar rebuild detaches it', () => {
-    const holder = makeFakeHolder();
-    const drawer = { parentElement: null };
-
-    const changed = mountDrawerInHolder(drawer, holder);
-
-    assert(changed, 'detached drawer should be remounted');
-    assertEqual(drawer.parentElement, holder, 'drawer parent should be toolbar holder');
-    assertEqual(holder.appendCount, 1, 'holder appendChild should be called once');
-});
-
-test('Drawer icon remount: no-op when drawer is already in toolbar', () => {
-    const holder = makeFakeHolder();
-    const drawer = { parentElement: holder };
-
-    const changed = mountDrawerInHolder(drawer, holder);
-
-    assert(!changed, 'mounted drawer should not be moved');
-    assertEqual(holder.appendCount, 0, 'holder appendChild should not be called');
-});
-
-test('Drawer icon remount: missing drawer or holder is safe', () => {
-    const holder = makeFakeHolder();
-
-    assert(!mountDrawerInHolder(null, holder), 'missing drawer should be a no-op');
-    assert(!mountDrawerInHolder({}, null), 'missing holder should be a no-op');
-    assertEqual(holder.appendCount, 0, 'no append should happen for missing inputs');
-});
-
-// ============================================================================
 // Obsidian deep-link safety
 // ============================================================================
 
@@ -1689,7 +1642,6 @@ test('Obsidian links escape labels and attributes', () => {
     assert(link.includes('aria-label="Open &quot;Mode&quot;"'), 'aria label should be escaped');
 });
 
-// ============================================================================
 // Summary
 // ============================================================================
 

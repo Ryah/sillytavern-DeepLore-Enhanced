@@ -91,6 +91,7 @@ import { buildChatMessages } from './src/librarian/agentic-messages.js';
 const _dleListeners = { eventSource: [] };
 let _dleInitialized = false;
 let _dleBeforeUnloadHandler = null;
+let _manualNotepadExtractHandler = null;
 // Stage 8 sets true on each analytics record; the modulo-5 save clears it.
 // CHAT_CHANGED + beforeunload flush so in-flight batches aren't lost.
 let _analyticsPendingSave = false;
@@ -144,6 +145,10 @@ function _teardownDleExtension() {
     if (_dleBeforeUnloadHandler) {
         try { window.removeEventListener('beforeunload', _dleBeforeUnloadHandler); } catch { /* ignore */ }
         _dleBeforeUnloadHandler = null;
+    }
+    if (_manualNotepadExtractHandler) {
+        try { window.removeEventListener('dle:notepad-extract-last-message', _manualNotepadExtractHandler); } catch { /* ignore */ }
+        _manualNotepadExtractHandler = null;
     }
     // Drop __DLE_DEBUG — its frozen getter closures retain vaultIndex + ring buffers
     // across re-init, GC-pinning the old module's state graph (~1-5 MB) for the page lifetime.
@@ -383,6 +388,88 @@ function applyAiNotepadAppend(incomingText) {
     chat_metadata.deeplore_ai_notepad = text;
     chat_metadata.deeplore_ai_notepad_pins = collectPinnedKeysForText(text, pinSet);
     chat_metadata.deeplore_ai_notepad_last_added = latestGenerated.slice(-20);
+}
+
+async function runAiNotepadExtractForMessage({ message, msgIndex, extractEpoch, swipeIdAtStart, trigger = 'auto' }) {
+    setNotepadExtractInProgress(true);
+    pushEvent('ai_notepad', { action: 'extract_start', trigger });
+    try {
+        const settings = getSettings();
+        const extractPrompt = settings.aiNotepadExtractPrompt?.trim() || DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT;
+        const existingNotes = chat_metadata?.deeplore_ai_notepad?.trim();
+        let userMsg = `[Latest AI response]\n${message.mes}`;
+        if (existingNotes) {
+            userMsg = `[Previous session notes]\n${existingNotes}\n\n${userMsg}`;
+        }
+        if (settings.debugMode) {
+            console.debug('[DLE][TRACE] Notepad extract payload', {
+                trigger,
+                promptLength: extractPrompt.length,
+                userLength: userMsg.length,
+                hasExistingNotes: !!existingNotes,
+            });
+        }
+
+        const connectionConfig = { ...resolveConnectionConfig('aiNotepad'), skipThrottle: true };
+        const result = await callAI(extractPrompt, userMsg, connectionConfig);
+
+        const modelText = typeof result?.text === 'string'
+            ? result.text
+            : (typeof result === 'string' ? result : '');
+        const fallbackSerialized = (!modelText && result && typeof result === 'object')
+            ? JSON.stringify(result)
+            : '';
+        const rawResponseText = (modelText || fallbackSerialized || '').trim();
+
+        if (settings.debugMode) {
+            console.debug('[DLE][TRACE] Notepad extract raw result', {
+                trigger,
+                resultType: Array.isArray(result) ? 'array' : typeof result,
+                hasTextField: typeof result?.text === 'string',
+                usage: result?.usage || null,
+                debug: result?.debug || null,
+                preview: rawResponseText.slice(0, 400),
+            });
+        }
+
+        if (extractEpoch !== chatEpoch) {
+            if (getSettings().debugMode) console.debug('[DLE] Notepad: extraction skipped (epoch changed)');
+            return;
+        }
+
+        const currentMsg = chat[msgIndex];
+        if (!currentMsg || currentMsg.swipe_id !== swipeIdAtStart) {
+            if (getSettings().debugMode) console.debug('[DLE] Notepad: extraction skipped (epoch changed)');
+            return;
+        }
+
+        const responseText = rawResponseText.replace(/\n{3,}/g, '\n\n').trim();
+        const isNothingToNote = responseText === 'NOTHING_TO_NOTE';
+        if (getSettings().debugMode) {
+            console.debug('[DLE][TRACE] Notepad extract normalized result', {
+                trigger,
+                isNothingToNote,
+                finalLength: responseText.length,
+                finalPreview: responseText.slice(0, 260),
+            });
+        }
+
+        if (responseText && !isNothingToNote) {
+            currentMsg.extra = currentMsg.extra || {};
+            currentMsg.extra.deeplore_ai_notes = responseText;
+            applyAiNotepadAppend(responseText);
+            saveMetadataDebounced();
+            pushEvent('ai_notepad', { action: 'extract_completed', trigger, noteLength: responseText?.length || 0 });
+            if (getSettings().debugMode) console.debug('[DLE] Notepad: AI extracted %d chars', responseText.length);
+        } else {
+            pushEvent('ai_notepad', { action: 'extract_empty', trigger });
+        }
+    } catch (err) {
+        console.warn('[DLE] AI Notebook extract error:', err.message);
+        pushEvent('ai_notepad', { action: 'extract_error', trigger, error: err?.message?.slice(0, 200) });
+    } finally {
+        setNotepadExtractInProgress(false);
+    }
 }
 
 // ============================================================================
@@ -1815,52 +1902,62 @@ jQuery(async function () {
                 const msgIndex = chat.length - 1;
                 const swipeIdAtStart = lastMessage.swipe_id;
                 if (settings.debugMode) console.debug('[DLE] Notepad: starting AI extraction');
-                (async () => {
-                    setNotepadExtractInProgress(true);
-                    pushEvent('ai_notepad', { action: 'extract_start' });
-                    try {
-                        const extractPrompt = settings.aiNotepadExtractPrompt?.trim() || DEFAULT_AI_NOTEPAD_EXTRACT_PROMPT;
-                        const existingNotes = chat_metadata?.deeplore_ai_notepad?.trim();
-                        let userMsg = `[Latest AI response]\n${lastMessage.mes}`;
-                        if (existingNotes) {
-                            userMsg = `[Previous session notes]\n${existingNotes}\n\n${userMsg}`;
-                        }
-
-                        const connectionConfig = { ...resolveConnectionConfig('aiNotepad'), skipThrottle: true };
-
-                        const result = await callAI(extractPrompt, userMsg, connectionConfig);
-                        const responseText = (result?.text || result || '').trim();
-
-                        // BUG-AUDIT-7: chat-changed guard.
-                        if (extractEpoch !== chatEpoch) {
-                            if (getSettings().debugMode) console.debug('[DLE] Notepad: extraction skipped (epoch changed)');
-                            return;
-                        }
-                        // BUG-AUDIT-CNEW01: swipe/delete guard for the same message slot.
-                        const currentMsg = chat[msgIndex];
-                        if (!currentMsg || currentMsg.swipe_id !== swipeIdAtStart) {
-                            if (getSettings().debugMode) console.debug('[DLE] Notepad: extraction skipped (epoch changed)');
-                            return;
-                        }
-                        if (responseText && responseText !== 'NOTHING_TO_NOTE') {
-                            currentMsg.extra = currentMsg.extra || {};
-                            currentMsg.extra.deeplore_ai_notes = responseText;
-                            applyAiNotepadAppend(responseText);
-                            saveMetadataDebounced();
-                            pushEvent('ai_notepad', { action: 'extract_completed', noteLength: responseText?.length || 0 });
-                            if (getSettings().debugMode) console.debug('[DLE] Notepad: AI extracted %d chars', responseText.length);
-                        } else if (responseText === 'NOTHING_TO_NOTE') {
-                            pushEvent('ai_notepad', { action: 'extract_empty' });
-                        }
-                    } catch (err) {
-                        console.warn('[DLE] AI Notebook extract error:', err.message);
-                        pushEvent('ai_notepad', { action: 'extract_error', error: err?.message?.slice(0, 200) });
-                    } finally {
-                        setNotepadExtractInProgress(false);
-                    }
-                })();
+                if (settings.debugMode) {
+                    console.debug('[DLE][TRACE] Notepad extract trigger', {
+                        epoch: extractEpoch,
+                        msgIndex,
+                        swipeId: swipeIdAtStart,
+                        mode,
+                        messageLength: lastMessage.mes?.length || 0,
+                    });
+                }
+                runAiNotepadExtractForMessage({
+                    message: lastMessage,
+                    msgIndex,
+                    extractEpoch,
+                    swipeIdAtStart,
+                    trigger: 'auto_generation',
+                });
             }
         });
+
+        _manualNotepadExtractHandler = () => {
+            const settings = getSettings();
+            if (!settings.aiNotepadEnabled) {
+                toastr.warning('Enable AI Notepad to run extraction.', 'DeepLore Enhanced');
+                return;
+            }
+            const lastMessage = chat[chat.length - 1];
+            if (!lastMessage || lastMessage.is_user || !lastMessage.mes) {
+                toastr.warning('No assistant message found to extract.', 'DeepLore Enhanced');
+                return;
+            }
+            if (notepadExtractInProgress) {
+                toastr.info('AI Notepad extraction already in progress.', 'DeepLore Enhanced');
+                return;
+            }
+            const extractEpoch = chatEpoch;
+            const msgIndex = chat.length - 1;
+            const swipeIdAtStart = lastMessage.swipe_id;
+            if (settings.debugMode) {
+                console.debug('[DLE][TRACE] Notepad extract trigger', {
+                    trigger: 'manual_debug_button',
+                    epoch: extractEpoch,
+                    msgIndex,
+                    swipeId: swipeIdAtStart,
+                    mode: settings.aiNotepadMode || 'tag',
+                    messageLength: lastMessage.mes?.length || 0,
+                });
+            }
+            runAiNotepadExtractForMessage({
+                message: lastMessage,
+                msgIndex,
+                extractEpoch,
+                swipeIdAtStart,
+                trigger: 'manual_debug_button',
+            });
+        };
+        window.addEventListener('dle:notepad-extract-last-message', _manualNotepadExtractHandler);
 
         // CHARACTER_MESSAGE_RENDERED is the central post-render handler — Cartographer button
         // injection, AI Notepad fallback extraction, Session Scribe trigger, Auto Lorebook trigger.

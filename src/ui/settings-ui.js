@@ -1929,6 +1929,14 @@ function bindPopupEvents($container) {
         $c('.dle-conn-accordion[data-tool="aiNotepad"]').toggle(!isTag);
     });
     $c('#dle-sp-open-ai-notepad').on('click', function () { if (!settings.aiNotepadEnabled) { toastr.warning('Enable the AI Notepad checkbox above to use this feature.', 'DeepLore Enhanced'); return; } showAiNotepadPopup(); });
+    $c('#dle-sp-ai-notepad-extract-last-debug').on('click', function () {
+        if (!settings.aiNotepadEnabled) {
+            toastr.warning('Enable the AI Notepad checkbox above to use this feature.', 'DeepLore Enhanced');
+            return;
+        }
+        window.dispatchEvent(new CustomEvent('dle:notepad-extract-last-message'));
+        toastr.info('Manual AI Notepad extraction triggered for the latest assistant message.', 'DeepLore Enhanced');
+    });
 
     // ── Features — Scribe ──
     $c('#dle-sp-scribe-enabled').on('change', function () {

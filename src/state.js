@@ -159,6 +159,20 @@ export function setScribeInProgress(v) { scribeInProgress = v; }
 export let notepadExtractInProgress = false;
 export function setNotepadExtractInProgress(v) { notepadExtractInProgress = v; }
 
+/** Background status task shown in the drawer status row. */
+export let activeStatusTask = null;
+const activeStatusTaskObservers = new Set();
+export function setActiveStatusTask(task) {
+    activeStatusTask = task || null;
+    for (const cb of [...activeStatusTaskObservers]) {
+        try { cb(); } catch (err) { console.warn('[DLE] Active status task callback error:', err?.message); }
+    }
+}
+export function onActiveStatusTaskChanged(cb) {
+    activeStatusTaskObservers.add(cb);
+    return () => activeStatusTaskObservers.delete(cb);
+}
+
 /** Claude adaptive-thinking misconfiguration flag (any feature in bad combo) */
 export let claudeAutoEffortBad = false;
 export let claudeAutoEffortDetail = null;

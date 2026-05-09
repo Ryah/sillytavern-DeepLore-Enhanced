@@ -1001,6 +1001,18 @@ dle-notes {
     font-weight: 700;
 }
 
+.dle-pipeline-label.dle-task-notepad {
+    color: var(--dle-info);
+}
+
+.dle-pipeline-label.dle-task-scribe {
+    color: var(--dle-librarian-accent);
+}
+
+.dle-pipeline-label.dle-task-autolorebook {
+    color: var(--dle-warning);
+}
+
 .dle-stat-divider {
     color: var(--dle-text-muted);
     opacity: var(--dle-opacity-disabled);
@@ -1061,6 +1073,18 @@ dle-notes {
 
 .dle-status-offline {
     color: var(--dle-error);
+}
+
+.dle-status-task-notepad {
+    color: var(--dle-info);
+}
+
+.dle-status-task-scribe {
+    color: var(--dle-librarian-accent);
+}
+
+.dle-status-task-autolorebook {
+    color: var(--dle-warning);
 }
 
 /* --- Zone 2: Tabs --- */

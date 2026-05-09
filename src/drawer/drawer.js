@@ -8,7 +8,7 @@ import {
     lastInjectionSources, loreGaps,
     onIndexUpdated, onAiStatsUpdated, onCircuitStateChanged,
     onPipelineComplete, onInjectionSourcesReady, onGatingChanged, onPinBlockChanged, onGenerationLockChanged,
-    onIndexingChanged, onLoreGapsChanged, onClaudeAutoEffortChanged, onPipelinePhaseChanged,
+    onIndexingChanged, onLoreGapsChanged, onClaudeAutoEffortChanged, onPipelinePhaseChanged, onActiveStatusTaskChanged,
     onChatInjectionCountsUpdated, onPipelineTraceUpdated, onFieldDefinitionsUpdated,
 } from '../state.js';
 
@@ -506,6 +506,11 @@ export async function createDrawerPanel() {
     }));
 
     drawerListeners.stateObservers.push(onPipelinePhaseChanged(() => {
+        if (drawerDestroyed) return;
+        scheduleRender(renderStatusZone);
+    }));
+
+    drawerListeners.stateObservers.push(onActiveStatusTaskChanged(() => {
         if (drawerDestroyed) return;
         scheduleRender(renderStatusZone);
     }));

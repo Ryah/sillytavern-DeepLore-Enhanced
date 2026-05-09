@@ -47,6 +47,7 @@ import {
     aiSearchCache, resetAiSearchCache, setAutoSuggestMessageCount, autoSuggestMessageCount, setLastPipelineTrace,
     setPreviousSources, lastPipelineTrace,
     notepadExtractInProgress, setNotepadExtractInProgress,
+    setActiveStatusTask,
     notifyPipelineComplete, notifyInjectionSourcesReady, notifyGatingChanged,
     notifyChatInjectionCountsUpdated,
     fieldDefinitions,
@@ -92,6 +93,7 @@ const _dleListeners = { eventSource: [] };
 let _dleInitialized = false;
 let _dleBeforeUnloadHandler = null;
 let _manualNotepadExtractHandler = null;
+let _lastAiNotepadExtractKey = '';
 // Stage 8 sets true on each analytics record; the modulo-5 save clears it.
 // CHAT_CHANGED + beforeunload flush so in-flight batches aren't lost.
 let _analyticsPendingSave = false;
@@ -390,7 +392,16 @@ function applyAiNotepadAppend(incomingText) {
     chat_metadata.deeplore_ai_notepad_last_added = latestGenerated.slice(-20);
 }
 
-async function runAiNotepadExtractForMessage({ message, msgIndex, extractEpoch, swipeIdAtStart, trigger = 'auto' }) {
+async function runAiNotepadExtractForMessage({ message, msgIndex, extractEpoch, swipeIdAtStart, trigger = 'auto', force = false }) {
+    const extractKey = `${extractEpoch}:${msgIndex}:${swipeIdAtStart ?? ''}`;
+    if (!force && _lastAiNotepadExtractKey === extractKey) {
+        if (getSettings().debugMode) {
+            console.debug('[DLE][TRACE] Notepad extract skipped (already processed)', { trigger, extractKey });
+        }
+        return;
+    }
+    if (getSettings().debugMode) console.debug('[DLE] AI Notepad: extraction fired');
+    setActiveStatusTask({ kind: 'aiNotepad', label: 'AI Notepad: extracting notes' });
     setNotepadExtractInProgress(true);
     pushEvent('ai_notepad', { action: 'extract_start', trigger });
     try {
@@ -464,11 +475,14 @@ async function runAiNotepadExtractForMessage({ message, msgIndex, extractEpoch, 
         } else {
             pushEvent('ai_notepad', { action: 'extract_empty', trigger });
         }
+        _lastAiNotepadExtractKey = extractKey;
+        if (getSettings().debugMode) console.debug('[DLE] AI Notepad: extraction finished');
     } catch (err) {
         console.warn('[DLE] AI Notebook extract error:', err.message);
         pushEvent('ai_notepad', { action: 'extract_error', trigger, error: err?.message?.slice(0, 200) });
     } finally {
         setNotepadExtractInProgress(false);
+        setActiveStatusTask(null);
     }
 }
 
@@ -1955,6 +1969,7 @@ jQuery(async function () {
                 extractEpoch,
                 swipeIdAtStart,
                 trigger: 'manual_debug_button',
+                force: true,
             });
         };
         window.addEventListener('dle:notepad-extract-last-message', _manualNotepadExtractHandler);
@@ -2007,22 +2022,45 @@ jQuery(async function () {
                 }
             } catch (err) { console.warn('[DLE] AI Notebook render-handler failed:', err?.message); }
 
+            // --- AI Notepad extraction on render (covers cases where GENERATION_ENDED is delayed or missed) ---
+            try {
+                if (settings.aiNotepadEnabled && settings.aiNotepadMode === 'extract') {
+                    if (message && !message.is_user && message.mes && !message.extra?.deeplore_ai_notes) {
+                        const renderEpoch = chatEpoch;
+                        runAiNotepadExtractForMessage({
+                            message,
+                            msgIndex: messageId,
+                            extractEpoch: renderEpoch,
+                            swipeIdAtStart: message.swipe_id,
+                            trigger: 'auto_render',
+                        });
+                    }
+                }
+            } catch (err) { console.warn('[DLE] AI Notebook render-auto extract failed:', err?.message); }
+
 
             // --- Session Scribe auto-trigger ---
             try {
                 if (settings.enabled && settings.scribeEnabled && settings.scribeInterval > 0) {
                     const newMessages = chat.length - lastScribeChatLength;
                     if (newMessages >= settings.scribeInterval && !scribeInProgress) {
+                        if (settings.debugMode) console.debug('[DLE] Session Scribe: fired');
+                        setActiveStatusTask({ kind: 'scribe', label: 'Session Scribe: writing summary' });
                         // Surface failures via dedup'd toast — silent fire-and-forget would
                         // hide background-scribe breakage from users until they noticed missing notes.
-                        runScribe().catch(err => {
-                            console.warn('[DLE] Scribe auto-trigger failed:', err?.message);
-                            dedupWarning(
-                                `Session Scribe auto-run failed: ${err?.message || 'unknown error'}.`,
-                                'scribe_auto_trigger_fail',
-                                { hint: 'Background scribe failure — manual /dle-scribe still works.' },
-                            );
-                        });
+                        runScribe()
+                            .then(() => {
+                                if (settings.debugMode) console.debug('[DLE] Session Scribe: finished');
+                            })
+                            .catch(err => {
+                                console.warn('[DLE] Scribe auto-trigger failed:', err?.message);
+                                dedupWarning(
+                                    `Session Scribe auto-run failed: ${err?.message || 'unknown error'}.`,
+                                    'scribe_auto_trigger_fail',
+                                    { hint: 'Background scribe failure — manual /dle-scribe still works.' },
+                                );
+                            })
+                            .finally(() => setActiveStatusTask(null));
                     }
                 }
             } catch (err) { console.warn('[DLE] Scribe render-handler failed:', err?.message); }
@@ -2033,9 +2071,12 @@ jQuery(async function () {
                     setAutoSuggestMessageCount(autoSuggestMessageCount + 1);
                     if (autoSuggestMessageCount >= settings.autoSuggestInterval) {
                         setAutoSuggestMessageCount(0);
+                        if (settings.debugMode) console.debug('[DLE] Auto Lorebook: fired');
+                        setActiveStatusTask({ kind: 'autoSuggest', label: 'Auto Lorebook: drafting entries' });
                         (async () => {
                             try {
                                 const suggestions = await runAutoSuggest();
+                                if (settings.debugMode) console.debug('[DLE] Auto Lorebook: finished (%d suggestion%s)', suggestions?.length || 0, (suggestions?.length || 0) === 1 ? '' : 's');
                                 if (suggestions && suggestions.length > 0) await showSuggestionPopup(suggestions);
                             } catch (err) {
                                 console.warn('[DLE] Auto-suggest auto-trigger failed:', err?.message);
@@ -2045,6 +2086,8 @@ jQuery(async function () {
                                     'autosuggest_auto_trigger_fail',
                                     { hint: 'Background auto-lorebook failure — manual /dle-newlore still works.' },
                                 );
+                            } finally {
+                                setActiveStatusTask(null);
                             }
                         })();
                     }

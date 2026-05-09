@@ -1419,13 +1419,66 @@ test('extractAiResponseClient: object with name field', () => {
     assertEqual(result[0].name, 'Alice', 'should have name field');
 });
 
-test('extractAiResponseClient: invalid JSON object (not array)', () => {
-    assertEqual(extractAiResponseClient('{"title":"Alice"}'), null, 'object not array → null');
+test('extractAiResponseClient: object with title falls back to extracted title', () => {
+    assertEqual(extractAiResponseClient('{"title":"Alice"}'), ['Alice'], 'object title should be extracted via fallback');
 });
 
 test('extractAiResponseClient: escaped quotes in strings', () => {
     const result = extractAiResponseClient('[{"title":"Alice\\"s Entry","confidence":"high","reason":"test"}]');
     assert(Array.isArray(result), 'should handle escaped quotes');
+});
+
+test('extractAiResponseClient: Google AI Studio inspect-style with mixed quote fragments', () => {
+    const response = [
+        'Google AI Studio response: {',
+        '  candidates: [',
+        '    {',
+        '      content: {',
+        '        parts: [',
+        '          {',
+        '            text: \" {\\n\" +',
+        '              \"  \\\"selected\\\": [\\n\" +',
+        '              \"    {\\\"title\\\":\\\"The Dreamscape Labyrinth\\\",\\\"confidence\\\":\\\"high\\\",\\\"reason\\\":\\\"room context\\\"},\\n\" +',
+        '              `    {\\\"title\\\":\\\"Characters - Charlotte Claymore\\\",\\\"confidence\\\":\\\"high\\\",\\\"reason\\\":\\\"includes apostrophe \'note\'\\\"}\\n` +',
+        '              \"  ]\\n\" +',
+        '              \"}\\n\" +',
+        '              \"```\"',
+        '          }',
+        '        ]',
+        '      }',
+        '    }',
+        '  ]',
+        '}',
+    ].join('\n');
+
+    const result = extractAiResponseClient(response);
+    assert(Array.isArray(result), 'should parse mixed-quote inspect-style response');
+    assertEqual(result.length, 2, 'should extract two selected entries');
+    assertEqual(result[0].title, 'The Dreamscape Labyrinth', 'should preserve first selected title');
+    assertEqual(result[1].title, 'Characters - Charlotte Claymore', 'should preserve second selected title');
+});
+
+test('extractAiResponseClient: lenient parse handles trailing commas', () => {
+    const malformed = `{"selected":[{"title":"Alpha","confidence":"high","reason":"x",},],}`;
+    const result = extractAiResponseClient(malformed);
+    assert(Array.isArray(result), 'should parse malformed JSON with trailing commas');
+    assertEqual(result.length, 1, 'should extract one entry');
+    assertEqual(result[0].title, 'Alpha', 'should preserve title');
+});
+
+test('extractAiResponseClient: lenient parse handles bare keys and single quotes', () => {
+    const malformed = `{ selected: [ { title: 'Beta', confidence: 'medium', reason: 'y' } ] }`;
+    const result = extractAiResponseClient(malformed);
+    assert(Array.isArray(result), 'should parse JS-like object literals');
+    assertEqual(result.length, 1, 'should extract one entry');
+    assertEqual(result[0].title, 'Beta', 'should preserve title');
+});
+
+test('extractAiResponseClient: title-only fallback from malformed output', () => {
+    const malformed = 'Model picks: { title: "Gamma", confidence: high, reason: "z" } and { title: "Delta", confidence: low }';
+    const result = extractAiResponseClient(malformed);
+    assert(Array.isArray(result), 'should fallback to title extraction');
+    assertEqual(result, ['Gamma', 'Delta'], 'should return extracted titles when JSON is malformed');
 });
 
 // ============================================================================
@@ -3481,6 +3534,64 @@ test('BUG-049: cmrsResultToText extracts text from responseContent.parts', () =>
     };
     const normalized = cmrsResultToText(result);
     assert(normalized.text.includes('ResponseContent Path'), 'should extract non-thought text from responseContent.parts');
+});
+
+test('BUG-049: cmrsResultToText extracts text from nested response candidates envelope', () => {
+    const result = {
+        content: {},
+        response: {
+            candidates: [
+                {
+                    content: {
+                        parts: [
+                            { text: '{"selected":[{"title":"Nested Candidates Path","confidence":"high","reason":"nested under response"}]}' },
+                        ],
+                    },
+                },
+            ],
+        },
+    };
+    const normalized = cmrsResultToText(result);
+    assert(normalized.text.includes('Nested Candidates Path'), 'should extract text from nested response.candidates envelope');
+});
+
+test('BUG-049: cmrsResultToText extracts text from nested generic parts array', () => {
+    const result = {
+        content: {},
+        payload: {
+            envelope: {
+                parts: [
+                    { thought: true, text: 'ignore this reasoning' },
+                    { text: '{"selected":[{"title":"Nested Parts Path","confidence":"medium","reason":"nested parts"}]}' },
+                ],
+            },
+        },
+    };
+    const normalized = cmrsResultToText(result);
+    assert(normalized.text.includes('Nested Parts Path'), 'should extract text from nested generic parts arrays');
+});
+
+test('BUG-049: cmrsResultToText extracts text from reasoning envelope when content is empty object', () => {
+    const result = {
+        content: {},
+        reasoning: {
+            googlePayload: {
+                candidates: [
+                    {
+                        content: {
+                            parts: [
+                                {
+                                    text: '{"selected":[{"title":"Reasoning Envelope Path","confidence":"high","reason":"in reasoning wrapper"}]}',
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        },
+    };
+    const normalized = cmrsResultToText(result);
+    assert(normalized.text.includes('Reasoning Envelope Path'), 'should extract text from reasoning-wrapped candidates envelope');
 });
 
 // ============================================================================

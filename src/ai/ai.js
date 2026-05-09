@@ -141,29 +141,54 @@ export async function callViaProfile(systemPrompt, userMessage, maxTokens, timeo
         if (disableThinkingOnClaude && isClaudeModel) {
             overridePayload.reasoning_effort = 'auto';
         }
-        const result = await Promise.race([
-            ConnectionManagerRequestService.sendRequest(
-                resolvedProfileId,
-                messages,
-                maxTokens,
-                {
-                    stream: false,
-                    signal: controller.signal,
-                    extractData: true,
-                    includePreset: false,
-                    includeInstruct: false,
-                },
-                overridePayload,
-            ),
-            timeoutPromise,
-        ]);
+        const sendProfileRequest = async (extractData, includeSchema) => {
+            const payload = { ...overridePayload };
+            if (!includeSchema) delete payload.json_schema;
+            return Promise.race([
+                ConnectionManagerRequestService.sendRequest(
+                    resolvedProfileId,
+                    messages,
+                    maxTokens,
+                    {
+                        stream: false,
+                        signal: controller.signal,
+                        extractData,
+                        includePreset: false,
+                        includeInstruct: false,
+                    },
+                    payload,
+                ),
+                timeoutPromise,
+            ]);
+        };
+
+        let result = await sendProfileRequest(true, !!(jsonSchema && !isClaudeModel));
         settled = true;
 
         // ST's custom-request.js replaces result.content with JSON.parse(...) when
         // data.json_schema is set (chat-completions + extractData). cmrsResultToText
         // re-stringifies so the string-based contract holds for extractAiResponseClient
         // and the debug-preview slice downstream. Issue #24.
-        return cmrsResultToText(result);
+        let normalized = cmrsResultToText(result);
+
+        // Some providers (observed on Gemini via CMRS) can return empty object content
+        // when strict schema extraction is enabled even though model text exists.
+        // Retry once without schema and without extractData to recover raw text.
+        const schemaEnabled = !!(jsonSchema && !isClaudeModel);
+        const contentIsEmptyObject = !!(result?.content
+            && typeof result.content === 'object'
+            && !Array.isArray(result.content)
+            && Object.keys(result.content).length === 0);
+        const looksEmpty = !normalized.text || normalized.text.trim() === '{}' || normalized.text.trim() === '';
+        if (schemaEnabled && contentIsEmptyObject && looksEmpty) {
+            if (settings.debugMode) {
+                console.warn('[DLE] callViaProfile: empty schema-extracted content, retrying without schema');
+            }
+            result = await sendProfileRequest(false, false);
+            normalized = cmrsResultToText(result);
+        }
+
+        return normalized;
     } catch (err) {
         const profileLabel = resolvedProfileId ? ` [profile: ${resolvedProfileId}]` : '';
         const modelLabel = resolvedModel ? ` [model: ${resolvedModel}]` : '';

@@ -52,31 +52,66 @@ export function stripObsidianSyntax(text) {
  * @returns {{text: string, usage: {input_tokens: number, output_tokens: number}}}
  */
 export function cmrsResultToText(result) {
+    function readTextParts(parts) {
+        if (!Array.isArray(parts)) return '';
+        const textParts = parts
+            .filter(p => p?.thought !== true)
+            .map(p => (typeof p?.text === 'string' ? p.text : ''))
+            .filter(Boolean);
+        return textParts.length > 0 ? textParts.join('\n') : '';
+    }
+
     function extractStructuredText(source) {
         if (!source || typeof source !== 'object') return '';
 
-        if (Array.isArray(source.candidates)) {
-            const parts = source.candidates
-                .flatMap(c => (Array.isArray(c?.content?.parts) ? c.content.parts : []))
-                .map(p => (typeof p?.text === 'string' ? p.text : ''))
-                .filter(Boolean);
-            if (parts.length > 0) return parts.join('\n');
+        const queue = [source];
+        const visited = new Set();
+        let scanned = 0;
+        const MAX_NODES = 250;
+        const fallbackStrings = [];
+
+        while (queue.length > 0 && scanned < MAX_NODES) {
+            const node = queue.shift();
+            if (!node || typeof node !== 'object') continue;
+            if (visited.has(node)) continue;
+            visited.add(node);
+            scanned++;
+
+            if (Array.isArray(node.candidates)) {
+                const joined = node.candidates
+                    .map(c => readTextParts(c?.content?.parts))
+                    .filter(Boolean)
+                    .join('\n');
+                if (joined) return joined;
+            }
+
+            const responseParts = readTextParts(node.responseContent?.parts);
+            if (responseParts) return responseParts;
+
+            const contentParts = readTextParts(node.content?.parts);
+            if (contentParts) return contentParts;
+
+            const genericParts = readTextParts(node.parts);
+            if (genericParts) return genericParts;
+
+            for (const value of Object.values(node)) {
+                if (!value) continue;
+                if (typeof value === 'object') {
+                    queue.push(value);
+                    continue;
+                }
+                if (typeof value === 'string') {
+                    if (/"selected"\s*:|\btitle\s*[:=]|\bcandidates\s*:|Google AI Studio response|`{3,}\s*json|^\s*[\[{]/i.test(value)) {
+                        fallbackStrings.push(value);
+                    }
+                }
+            }
         }
 
-        if (Array.isArray(source.responseContent?.parts)) {
-            const parts = source.responseContent.parts
-                .filter(p => p?.thought !== true)
-                .map(p => (typeof p?.text === 'string' ? p.text : ''))
-                .filter(Boolean);
-            if (parts.length > 0) return parts.join('\n');
-        }
-
-        if (Array.isArray(source.content?.parts)) {
-            const parts = source.content.parts
-                .filter(p => p?.thought !== true)
-                .map(p => (typeof p?.text === 'string' ? p.text : ''))
-                .filter(Boolean);
-            if (parts.length > 0) return parts.join('\n');
+        if (fallbackStrings.length > 0) {
+            // Prefer the richest candidate-like payload; inspect-style wrappers are usually longest.
+            fallbackStrings.sort((a, b) => b.length - a.length);
+            return fallbackStrings[0];
         }
 
         return '';
@@ -92,6 +127,8 @@ export function cmrsResultToText(result) {
         rawKeys: result && typeof result === 'object' ? Object.keys(result) : [],
         contentType: rawContent === null ? 'null' : Array.isArray(rawContent) ? 'array' : typeof rawContent,
         contentKeys: rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent) ? Object.keys(rawContent) : [],
+        reasoningType: result?.reasoning === null ? 'null' : Array.isArray(result?.reasoning) ? 'array' : typeof result?.reasoning,
+        reasoningKeys: result?.reasoning && typeof result.reasoning === 'object' && !Array.isArray(result.reasoning) ? Object.keys(result.reasoning) : [],
         extractedTextSource: typeof rawContent === 'string'
             ? 'content-string'
             : (extractedText ? 'structured-envelope' : (rawContent == null ? 'empty' : 'json-stringify-content')),
@@ -160,22 +197,95 @@ export function extractAiResponseClient(text) {
             return null;
         }
 
-        const textExprMatch = value.match(/text:\s*((?:'(?:\\.|[^'])*'\s*\+\s*)*'(?:\\.|[^'])*')/);
-        if (!textExprMatch) return null;
-
-        const fragments = [...textExprMatch[1].matchAll(/'((?:\\.|[^'])*)'/g)].map((match) => match[1]);
-        if (fragments.length === 0) return null;
-
-        try {
-            return fragments.map((fragment) => {
-                const normalized = fragment
-                    .replace(/\\`/g, '`')
-                    .replace(/"/g, '\\"');
+        function decodeJsStringFragment(fragment, quote) {
+            const normalized = fragment
+                .replace(/\r/g, '\\r')
+                .replace(/\n/g, '\\n')
+                .replace(/"/g, '\\"')
+                .replace(quote === '\'' ? /\\'/g : /$^/, quote === '\'' ? '\'' : '')
+                .replace(quote === '`' ? /\\`/g : /$^/, quote === '`' ? '`' : '')
+                .replace(quote === '"' ? /\\"/g : /$^/, quote === '"' ? '"' : '');
+            try {
                 return JSON.parse(`"${normalized}"`);
-            }).join('');
-        } catch {
-            return null;
+            } catch {
+                return fragment
+                    .replace(/\\n/g, '\n')
+                    .replace(/\\r/g, '\r')
+                    .replace(/\\t/g, '\t')
+                    .replace(/\\'/g, '\'')
+                    .replace(/\\"/g, '"')
+                    .replace(/\\`/g, '`')
+                    .replace(/\\\\/g, '\\');
+            }
         }
+
+        function parseConcatenatedStringExpression(source, startIndex) {
+            let i = startIndex;
+            const out = [];
+            const len = source.length;
+
+            const skipWs = () => {
+                while (i < len && /\s/.test(source[i])) i++;
+            };
+
+            skipWs();
+            while (i < len) {
+                const quote = source[i];
+                if (quote !== '\'' && quote !== '"' && quote !== '`') break;
+                i++;
+
+                let frag = '';
+                while (i < len) {
+                    const ch = source[i];
+                    if (ch === '\\') {
+                        if (i + 1 < len) {
+                            frag += ch + source[i + 1];
+                            i += 2;
+                            continue;
+                        }
+                        frag += ch;
+                        i++;
+                        continue;
+                    }
+                    if (ch === quote) {
+                        i++;
+                        break;
+                    }
+                    frag += ch;
+                    i++;
+                }
+
+                out.push(decodeJsStringFragment(frag, quote));
+                skipWs();
+                if (source[i] === '+') {
+                    i++;
+                    skipWs();
+                    continue;
+                }
+                break;
+            }
+
+            return out.length > 0 ? out.join('') : null;
+        }
+
+        const textExprMatch = value.match(/text:\s*((?:'(?:\\.|[^'])*'\s*\+\s*)*'(?:\\.|[^'])*')/);
+        if (textExprMatch) {
+            const fragments = [...textExprMatch[1].matchAll(/'((?:\\.|[^'])*)'/g)].map((match) => match[1]);
+            if (fragments.length > 0) {
+                try {
+                    return fragments.map((fragment) => {
+                        const normalized = fragment
+                            .replace(/\\`/g, '`')
+                            .replace(/"/g, '\\"');
+                        return JSON.parse(`"${normalized}"`);
+                    }).join('');
+                } catch { /* noop: fallback below */ }
+            }
+        }
+
+        const textIdx = value.indexOf('text:');
+        if (textIdx === -1) return null;
+        return parseConcatenatedStringExpression(value, textIdx + 5);
     }
 
     function unwrapResultArray(val) {
@@ -192,6 +302,90 @@ export function extractAiResponseClient(text) {
 
     function parseCandidateValue(value) {
         if (!value) return null;
+
+        function tryParseWithRepairs(rawText) {
+            if (typeof rawText !== 'string') return null;
+
+            const variants = new Set();
+            const enqueue = (s) => {
+                if (typeof s !== 'string') return;
+                const t = s.trim();
+                if (t) variants.add(t);
+            };
+
+            const normalizeQuotes = (s) => s
+                .replace(/[\u2018\u2019]/g, '\'')
+                .replace(/[\u201C\u201D]/g, '"');
+
+            const stripJsonComments = (s) => s
+                .replace(/\/\*[\s\S]*?\*\//g, '')
+                .replace(/(^|\s+)\/\/.*$/gm, '$1');
+
+            const stripTrailingCommas = (s) => s.replace(/,\s*([}\]])/g, '$1');
+
+            const quoteBareKeys = (s) => s.replace(/([,{]\s*)([A-Za-z_][A-Za-z0-9_\-]*)(\s*:)/g, '$1"$2"$3');
+
+            const convertSingleQuotedStrings = (s) => s.replace(/'((?:\\.|[^'\\])*)'/g, (_, inner) => {
+                const escaped = inner
+                    .replace(/\\'/g, '\'')
+                    .replace(/\\"/g, '"')
+                    .replace(/"/g, '\\"');
+                return `"${escaped}"`;
+            });
+
+            const convertBacktickStrings = (s) => s.replace(/`((?:\\.|[^`\\])*)`/g, (_, inner) => {
+                const escaped = inner
+                    .replace(/\\`/g, '`')
+                    .replace(/\\"/g, '"')
+                    .replace(/"/g, '\\"');
+                return `"${escaped}"`;
+            });
+
+            enqueue(rawText);
+            const normalized = normalizeQuotes(rawText);
+            enqueue(normalized);
+
+            for (const base of [rawText, normalized]) {
+                enqueue(stripTrailingCommas(base));
+                enqueue(stripJsonComments(base));
+
+                const noComments = stripJsonComments(base);
+                const noTrailing = stripTrailingCommas(noComments);
+                enqueue(noTrailing);
+                enqueue(quoteBareKeys(noTrailing));
+                enqueue(convertSingleQuotedStrings(noTrailing));
+                enqueue(convertBacktickStrings(noTrailing));
+                enqueue(convertSingleQuotedStrings(quoteBareKeys(noTrailing)));
+                enqueue(convertBacktickStrings(convertSingleQuotedStrings(quoteBareKeys(noTrailing))));
+            }
+
+            for (const candidate of variants) {
+                try {
+                    const parsed = JSON.parse(candidate);
+                    const normalizedParsed = parseCandidateValue(parsed);
+                    if (normalizedParsed) return normalizedParsed;
+                } catch { /* noop */ }
+            }
+
+            return null;
+        }
+
+        function extractTitleHints(rawText) {
+            if (typeof rawText !== 'string') return null;
+            const hints = [];
+            const seen = new Set();
+            const titleRegex = /["'`]?title["'`]?\s*:\s*["'`]([^"'`\n\r]+)["'`]/gi;
+            let match;
+            while ((match = titleRegex.exec(rawText)) !== null) {
+                const title = (match[1] || '').trim();
+                if (!title) continue;
+                const key = title.toLowerCase();
+                if (seen.has(key)) continue;
+                seen.add(key);
+                hints.push(title);
+            }
+            return hints.length > 0 ? hints : null;
+        }
 
         if (typeof value === 'object') {
             if (isValidResultArray(value)) return value;
@@ -220,6 +414,9 @@ export function extractAiResponseClient(text) {
             const normalized = parseCandidateValue(parsed);
             if (normalized) return normalized;
         } catch { /* noop */ }
+
+        const repaired = tryParseWithRepairs(sanitizedText);
+        if (repaired) return repaired;
 
         const fenceMatch = sanitizedText.match(/`{3,}(?:json)?\s*([\s\S]*?)`{3,}/i);
         if (fenceMatch) {
@@ -270,7 +467,13 @@ export function extractAiResponseClient(text) {
                 const normalized = parseCandidateValue(parsed);
                 if (normalized) return normalized;
             } catch { /* noop */ }
+
+            const repairedCandidate = tryParseWithRepairs(candidate);
+            if (repairedCandidate) return repairedCandidate;
         }
+
+        const titleHints = extractTitleHints(sanitizedText);
+        if (titleHints) return titleHints;
 
         return null;
     }

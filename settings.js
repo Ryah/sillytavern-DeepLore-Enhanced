@@ -114,6 +114,8 @@ export const defaultSettings = {
     aiNotepadModel: '',
     aiNotepadMaxTokens: 1024,
     aiNotepadTimeout: 30000,
+    aiNotepadStorageMaxTokens: 2048,
+    aiNotepadFilterDateTimeOnly: true,
     // AI Search
     aiSearchEnabled: false,
     aiSearchConnectionMode: 'profile',
@@ -332,6 +334,7 @@ export const settingsConstraints = {
     reviewResponseTokens: { min: 0, max: 100000 },
     aiNotepadMaxTokens: { min: 256, max: 8192 },
     aiNotepadTimeout: { min: 5000, max: 999999 },
+    aiNotepadStorageMaxTokens: { min: 256, max: 16384 },
     aiSearchMaxTokens: { min: 64, max: 4096 },
     aiSearchTimeout: { min: 1000, max: 999999 },
     aiSearchScanDepth: { min: 1, max: 100 },

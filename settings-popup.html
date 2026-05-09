@@ -911,6 +911,28 @@
                                 <span>View AI Notepad</span>
                             </div>
                         </div>
+                        <div class="flex-container"
+                            title="Maximum size of stored AI Notepad notes. Oldest lines are culled first when exceeded.">
+                            <div class="flex1">
+                                <label for="dle-sp-ai-notepad-storage-max-tokens"><small>AI Notepad Storage Token
+                                        Cap</small></label>
+                                <input id="dle-sp-ai-notepad-storage-max-tokens" type="number" class="text_pole"
+                                    min="256" max="16384" />
+                                <span class="dle-text-xs dle-muted">Recommended: 1024-2048 for lightweight chats,
+                                    3072-4096 for long-running sessions.</span>
+                            </div>
+                        </div>
+                        <label class="checkbox_label" for="dle-sp-ai-notepad-filter-datetime"
+                            title="When enabled, lines that appear to be only timestamps/dates are discarded from AI Notepad storage.">
+                            <input id="dle-sp-ai-notepad-filter-datetime" type="checkbox" class="checkbox">
+                            <span>Filter date/time-only lines</span>
+                        </label>
+                        <div id="dle-sp-ai-notepad-latest-block" class="dle-text-xs dle-muted" style="display: none;">
+                            <label><small>Latest Generated AI Notepad Entries</small></label>
+                            <div id="dle-sp-ai-notepad-latest-list" class="dle-preview dle-preview--short"></div>
+                            <span class="dle-text-xs dle-muted">Shown only for the most recent AI generation in this
+                                chat.</span>
+                        </div>
                         <span class="dle-text-xs dle-muted">Injection position: configured in the <a href="#"
                                 class="dle-goto-tab-link" data-goto-tab="injection">Injection tab</a>.</span>
                         <div id="dle-sp-ai-notepad-tag-options">

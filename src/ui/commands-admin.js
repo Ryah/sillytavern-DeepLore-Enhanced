@@ -82,6 +82,8 @@ export function registerAdminCommands() {
             const subcommand = (value || '').trim().toLowerCase();
             if (subcommand === 'clear') {
                 chat_metadata.deeplore_ai_notepad = '';
+                chat_metadata.deeplore_ai_notepad_pins = [];
+                chat_metadata.deeplore_ai_notepad_last_added = [];
                 saveMetadataDebounced();
                 toastr.success('AI Notepad cleared for this chat.', 'DeepLore Enhanced');
                 return '';

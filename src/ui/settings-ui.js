@@ -2,6 +2,7 @@
 import {
     saveSettingsDebounced,
     chat,
+    chat_metadata,
 } from '../../../../../../script.js';
 import { ConnectionManagerRequestService } from '../../../../shared.js';
 import { escapeHtml } from '../../../../../utils.js';
@@ -1247,11 +1248,41 @@ function loadPopupSettings($container) {
     $c(`input[name="dle-sp-ai-notepad-mode"][value="${aiNbMode}"]`).prop('checked', true);
     $c('#dle-sp-ai-notepad-prompt').val(settings.aiNotepadPrompt || '');
     $c('#dle-sp-ai-notepad-extract-prompt').val(settings.aiNotepadExtractPrompt || '');
+    $c('#dle-sp-ai-notepad-storage-max-tokens').val(settings.aiNotepadStorageMaxTokens || 2048);
+    $c('#dle-sp-ai-notepad-filter-datetime').prop('checked', settings.aiNotepadFilterDateTimeOnly !== false);
     $c('#dle-sp-ai-notepad-mode-tag-desc').toggle(aiNbMode === 'tag');
     $c('#dle-sp-ai-notepad-mode-extract-desc').toggle(aiNbMode === 'extract');
     $c('#dle-sp-ai-notepad-tag-options').toggle(aiNbMode === 'tag');
     $c('#dle-sp-ai-notepad-extract-options').toggle(aiNbMode === 'extract');
     $c('.dle-conn-accordion[data-tool="aiNotepad"]').toggle(aiNbMode !== 'tag');
+    const latestEntries = Array.isArray(chat_metadata?.deeplore_ai_notepad_last_added)
+        ? chat_metadata.deeplore_ai_notepad_last_added.filter(Boolean)
+        : [];
+    const pinnedEntries = Array.isArray(chat_metadata?.deeplore_ai_notepad_pins)
+        ? new Set(chat_metadata.deeplore_ai_notepad_pins.filter(v => typeof v === 'string' && v.trim()))
+        : new Set();
+    const normalizeNotepadEntry = (line) => String(line || '')
+        .replace(/^\s*[-*+•]\s+/, '')
+        .replace(/^\s*\[[ xX]\]\s+/, '')
+        .replace(/^\s*\d+[.)]\s+/, '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    $c('#dle-sp-ai-notepad-latest-block').toggle(latestEntries.length > 0);
+    $c('#dle-sp-ai-notepad-latest-list').html(
+        latestEntries.length > 0
+            ? latestEntries.map(line => {
+                const normalized = normalizeNotepadEntry(line);
+                const isPinned = normalized && pinnedEntries.has(normalized);
+                const marker = isPinned
+                    ? '<i class="fa-solid fa-thumbtack" aria-hidden="true" title="Pinned entry"></i> '
+                    : '';
+                return `<div>${marker}- ${escapeHtml(String(line))}</div>`;
+            }).join('')
+            : '',
+    );
 
     // ── Features — Scribe ──
     $c('#dle-sp-scribe-enabled').prop('checked', settings.scribeEnabled);
@@ -1885,6 +1916,8 @@ function bindPopupEvents($container) {
     });
     $c('#dle-sp-ai-notepad-prompt').on('input', function () { settings.aiNotepadPrompt = $(this).val(); saveSettingsDebounced(); });
     $c('#dle-sp-ai-notepad-extract-prompt').on('input', function () { settings.aiNotepadExtractPrompt = $(this).val(); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-notepad-storage-max-tokens').on('input', function () { settings.aiNotepadStorageMaxTokens = numVal($(this).val(), 2048); saveSettingsDebounced(); });
+    $c('#dle-sp-ai-notepad-filter-datetime').on('change', function () { settings.aiNotepadFilterDateTimeOnly = $(this).prop('checked'); saveSettingsDebounced(); });
     $c('input[name="dle-sp-ai-notepad-mode"]').on('change', function () {
         settings.aiNotepadMode = $(this).val(); saveSettingsDebounced();
         const isTag = settings.aiNotepadMode === 'tag';
@@ -2021,6 +2054,7 @@ function bindPopupEvents($container) {
         'dle-sp-scribe-timeout': 'scribeTimeout', 'dle-sp-scribe-scan-depth': 'scribeScanDepth',
         'dle-sp-new-chat-threshold': 'newChatThreshold', 'dle-sp-sync-interval': 'syncPollingInterval',
         'dle-sp-reinjection-cooldown': 'reinjectionCooldown', 'dle-sp-strip-lookback': 'stripLookbackDepth',
+        'dle-sp-ai-notepad-storage-max-tokens': 'aiNotepadStorageMaxTokens',
         'dle-sp-autosuggest-interval': 'autoSuggestInterval', 'dle-sp-autosuggest-max-tokens': 'autoSuggestMaxTokens', 'dle-sp-autosuggest-timeout': 'autoSuggestTimeout',
         'dle-sp-decay-boost-threshold': 'decayBoostThreshold', 'dle-sp-decay-penalty-threshold': 'decayPenaltyThreshold',
         'dle-sp-graph-repulsion': 'graphRepulsion',

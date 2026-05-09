@@ -137,6 +137,31 @@ export async function showAiNotepadPopup() {
     // BUG-AUDIT-DP04: snapshot epoch at open — discard edits if chat changed during edit.
     const epochAtOpen = chatEpoch;
     const currentNotes = chat_metadata?.deeplore_ai_notepad || '';
+    const initialPinned = Array.isArray(chat_metadata?.deeplore_ai_notepad_pins)
+        ? chat_metadata.deeplore_ai_notepad_pins.filter(v => typeof v === 'string' && v.trim())
+        : [];
+
+    const normalizeEntry = (line) => {
+        if (!line) return '';
+        return String(line)
+            .replace(/^\s*[-*+•]\s+/, '')
+            .replace(/^\s*\[[ xX]\]\s+/, '')
+            .replace(/^\s*\d+[.)]\s+/, '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
+    const splitLines = (text) => String(text || '').split('\n').map(line => line.trim()).filter(Boolean);
+    const collectPresentPinKeys = (text, pinSet) => {
+        const present = new Set();
+        for (const line of splitLines(text)) {
+            const key = normalizeEntry(line);
+            if (key && pinSet.has(key)) present.add(key);
+        }
+        return [...present];
+    };
 
     const container = document.createElement('div');
     container.classList.add('dle-popup');
@@ -145,9 +170,14 @@ export async function showAiNotepadPopup() {
         <p class="dle-muted dle-text-sm">Session notes written by the AI using &lt;dle-notes&gt; tags. These are stripped from visible chat and reinjected into future messages.</p>
         <textarea id="dle-ai-notepad-textarea" class="text_pole dle-w-full" rows="15" placeholder="No AI notes yet for this chat.">${escapeHtml(currentNotes)}</textarea>
         <span id="dle-ai-notepad-token-count" class="dle-text-xs dle-faint"></span>
+        <div style="margin-top: 10px;">
+            <label><small>Pinned Entries (exempt from culling/token cap)</small></label>
+            <div id="dle-ai-notepad-pin-list" class="dle-preview dle-preview--short"></div>
+        </div>
     `;
 
     let capturedValue = currentNotes;
+    const pinnedKeys = new Set(initialPinned);
     const result = await callGenericPopup(container, POPUP_TYPE.CONFIRM, '', {
         wide: true,
         large: true,
@@ -157,15 +187,52 @@ export async function showAiNotepadPopup() {
         onOpen: async () => {
             const textarea = document.getElementById('dle-ai-notepad-textarea');
             const countEl = document.getElementById('dle-ai-notepad-token-count');
+            const pinListEl = document.getElementById('dle-ai-notepad-pin-list');
             if (textarea && countEl) {
+                const renderPinList = () => {
+                    if (!pinListEl) return;
+                    const lines = splitLines(textarea.value);
+                    if (lines.length === 0) {
+                        pinListEl.innerHTML = '<div class="dle-text-xs dle-muted"><em>No entries yet.</em></div>';
+                        return;
+                    }
+
+                    const seen = new Set();
+                    const rows = [];
+                    for (const line of lines) {
+                        const key = normalizeEntry(line);
+                        if (!key || seen.has(key)) continue;
+                        seen.add(key);
+                        const checked = pinnedKeys.has(key) ? 'checked' : '';
+                        rows.push(`
+                            <label class="checkbox_label" style="display: flex; gap: 8px; align-items: flex-start; margin: 2px 0;">
+                                <input type="checkbox" class="checkbox dle-ai-notepad-pin-toggle" data-pin-key="${escapeHtml(key)}" ${checked}>
+                                <span>${escapeHtml(line)}</span>
+                            </label>
+                        `);
+                    }
+                    pinListEl.innerHTML = rows.join('') || '<div class="dle-text-xs dle-muted"><em>No valid entries to pin.</em></div>';
+                };
+
                 const updateCount = async () => {
                     try {
                         capturedValue = textarea.value;
                         const tokens = await getTokenCountAsync(textarea.value);
                         countEl.textContent = `~${tokens} tokens`;
                     } catch { countEl.textContent = ''; }
+                    renderPinList();
                 };
+
                 textarea.addEventListener('input', updateCount);
+                pinListEl?.addEventListener('change', (evt) => {
+                    const target = evt.target;
+                    if (!(target instanceof HTMLInputElement)) return;
+                    if (!target.classList.contains('dle-ai-notepad-pin-toggle')) return;
+                    const key = target.getAttribute('data-pin-key') || '';
+                    if (!key) return;
+                    if (target.checked) pinnedKeys.add(key);
+                    else pinnedKeys.delete(key);
+                });
                 await updateCount();
             }
         },
@@ -177,6 +244,7 @@ export async function showAiNotepadPopup() {
             return;
         }
         chat_metadata.deeplore_ai_notepad = capturedValue;
+        chat_metadata.deeplore_ai_notepad_pins = collectPresentPinKeys(capturedValue, pinnedKeys);
         saveMetadataDebounced();
     }
 }

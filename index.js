@@ -175,11 +175,214 @@ const VISIBLE_NOTES_PATTERNS = [
 // BUG-AUDIT-H08: 64KB soft cap on deeplore_ai_notepad — prevents unbounded growth across
 // long sessions. Excess is trimmed from the oldest end at the nearest paragraph boundary.
 const AI_NOTEPAD_MAX_CHARS = 65536;
-function capNotepad(text) {
-    if (!text || text.length <= AI_NOTEPAD_MAX_CHARS) return text;
-    const trimmed = text.slice(text.length - AI_NOTEPAD_MAX_CHARS);
-    const boundary = trimmed.indexOf('\n\n');
-    return boundary !== -1 ? trimmed.slice(boundary + 2) : trimmed;
+// Soft token cap for stored AI Notepad state. Uses the same coarse estimator used as a
+// fallback elsewhere in DLE (length/4), so it stays deterministic and dependency-free.
+const AI_NOTEPAD_MAX_TOKENS_DEFAULT = 2048;
+const AI_NOTEPAD_MAX_TOKENS_MIN = 256;
+const AI_NOTEPAD_MAX_TOKENS_MAX = 16384;
+const AI_NOTEPAD_MIN_NORMALIZED_LEN = 3;
+
+function estimateTokensFromText(text) {
+    if (!text) return 0;
+    return Math.ceil(text.length / 4.0);
+}
+
+function normalizeNotepadLine(line) {
+    if (!line) return '';
+    // Normalize bullets/checklists to compare semantic duplicates across styles.
+    const stripped = line
+        .replace(/^\s*[-*+•]\s+/, '')
+        .replace(/^\s*\[[ xX]\]\s+/, '')
+        .replace(/^\s*\d+[.)]\s+/, '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return stripped;
+}
+
+function getAiNotepadDateTimeFilterEnabled() {
+    return getSettings().aiNotepadFilterDateTimeOnly !== false;
+}
+
+function isLikelyDateTimeOnlyLine(line) {
+    if (!line) return false;
+    const raw = line.trim();
+    if (!raw) return false;
+
+    const text = raw
+        .replace(/^\s*[-*+•]\s+/, '')
+        .replace(/^\s*\[[ xX]\]\s+/, '')
+        .replace(/^\s*\d+[.)]\s+/, '')
+        .replace(/^\s*(?:date|time|timestamp)\s*[:\-]\s*/i, '')
+        .trim();
+
+    const rxDateIso = /^\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ t]\d{1,2}:\d{2}(?::\d{2})?(?:\s?(?:am|pm))?(?:\s?(?:utc|gmt|z|[+-]\d{2}:?\d{2}))?)?$/i;
+    const rxDateUs = /^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?(?:am|pm))?)?$/i;
+    const rxTimeOnly = /^\d{1,2}:\d{2}(?::\d{2})?(?:\s?(?:am|pm))?(?:\s?(?:utc|gmt|z|[+-]\d{2}:?\d{2}))?$/i;
+    const rxNamedDate = /^(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?(?:,)?\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+\d{1,2}(?:,\s*\d{4})?(?:\s+\d{1,2}:\d{2}(?::\d{2})?(?:\s?(?:am|pm))?)?$/i;
+
+    if (rxDateIso.test(text) || rxDateUs.test(text) || rxTimeOnly.test(text) || rxNamedDate.test(text)) {
+        return true;
+    }
+
+    // Catch short metadata-y stamps like "2026-05-08 21:16 UTC" or "Fri 21:16".
+    if (text.length <= 40) {
+        const hasDigit = /\d/.test(text);
+        const hasClockOrDateSep = /[:/\-]/.test(text);
+        const hasDateWord = /\b(?:am|pm|utc|gmt|mon|tue|wed|thu|fri|sat|sun|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i.test(text);
+        if (hasDigit && hasClockOrDateSep && hasDateWord) return true;
+    }
+
+    return false;
+}
+
+function splitNotepadLines(text) {
+    if (!text) return [];
+    return String(text)
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+}
+
+function getAiNotepadPinnedKeySet() {
+    const raw = chat_metadata?.deeplore_ai_notepad_pins;
+    if (!Array.isArray(raw)) return new Set();
+    const set = new Set();
+    for (const key of raw) {
+        if (typeof key !== 'string') continue;
+        const normalized = key.trim();
+        if (normalized) set.add(normalized);
+    }
+    return set;
+}
+
+function collectPinnedKeysForText(text, pinnedKeys) {
+    if (!(pinnedKeys instanceof Set) || pinnedKeys.size === 0) return [];
+    const kept = [];
+    const seen = new Set();
+    for (const line of splitNotepadLines(text)) {
+        const normalized = normalizeNotepadLine(line);
+        if (!normalized || seen.has(normalized)) continue;
+        if (pinnedKeys.has(normalized)) {
+            kept.push(normalized);
+            seen.add(normalized);
+        }
+    }
+    return kept;
+}
+
+function collectLatestGeneratedEntries(incomingText, finalText) {
+    const finalByNormalized = new Map();
+    for (const line of splitNotepadLines(finalText)) {
+        const normalized = normalizeNotepadLine(line);
+        if (normalized) finalByNormalized.set(normalized, line);
+    }
+
+    const newestFirst = [];
+    const seen = new Set();
+    for (const line of splitNotepadLines(incomingText).reverse()) {
+        const normalized = normalizeNotepadLine(line);
+        if (!normalized || normalized.length < AI_NOTEPAD_MIN_NORMALIZED_LEN) continue;
+        if (getAiNotepadDateTimeFilterEnabled() && isLikelyDateTimeOnlyLine(line)) continue;
+        if (seen.has(normalized)) continue;
+        seen.add(normalized);
+        if (!finalByNormalized.has(normalized)) continue;
+        newestFirst.push(finalByNormalized.get(normalized));
+    }
+    return newestFirst.reverse();
+}
+
+function syncAiNotepadPinsWithStoredText() {
+    const pinSet = getAiNotepadPinnedKeySet();
+    if (pinSet.size === 0) {
+        chat_metadata.deeplore_ai_notepad_pins = [];
+        return;
+    }
+    chat_metadata.deeplore_ai_notepad_pins = collectPinnedKeysForText(chat_metadata?.deeplore_ai_notepad || '', pinSet);
+}
+
+function dedupAndFilterNotepad(existingText, incomingText) {
+    const kept = [];
+    const seen = new Set();
+
+    const pushLine = (line) => {
+        if (!line) return;
+        if (getAiNotepadDateTimeFilterEnabled() && isLikelyDateTimeOnlyLine(line)) return;
+        const normalized = normalizeNotepadLine(line);
+        if (!normalized || normalized.length < AI_NOTEPAD_MIN_NORMALIZED_LEN) return;
+        if (seen.has(normalized)) return;
+        seen.add(normalized);
+        kept.push(line);
+    };
+
+    // Newest-wins dedup: scan from end so later lines override earlier duplicates.
+    const allLines = [
+        ...splitNotepadLines(existingText),
+        ...splitNotepadLines(incomingText),
+    ];
+    for (let i = allLines.length - 1; i >= 0; i--) pushLine(allLines[i]);
+    kept.reverse();
+    return kept.join('\n');
+}
+
+function getAiNotepadMaxTokens() {
+    const n = Number(getSettings().aiNotepadStorageMaxTokens);
+    if (!Number.isFinite(n)) return AI_NOTEPAD_MAX_TOKENS_DEFAULT;
+    return Math.max(AI_NOTEPAD_MAX_TOKENS_MIN, Math.min(AI_NOTEPAD_MAX_TOKENS_MAX, Math.trunc(n)));
+}
+
+function capNotepad(text, pinnedKeys = new Set()) {
+    if (!text) return text;
+    let entries = splitNotepadLines(text).map(line => {
+        const normalized = normalizeNotepadLine(line);
+        return { line, normalized, pinned: !!(normalized && pinnedKeys.has(normalized)) };
+    });
+    if (entries.length === 0) return '';
+    const tokenCap = getAiNotepadMaxTokens();
+    const unpinnedTokenEstimate = () => estimateTokensFromText(entries.filter(e => !e.pinned).map(e => e.line).join('\n'));
+
+    // Cull oldest non-pinned entries first until the estimated token budget is satisfied.
+    while (entries.length > 1 && unpinnedTokenEstimate() > tokenCap) {
+        const dropIdx = entries.findIndex(e => !e.pinned);
+        if (dropIdx === -1) break;
+        entries.splice(dropIdx, 1);
+    }
+
+    let capped = entries.map(e => e.line).join('\n');
+    if (capped.length <= AI_NOTEPAD_MAX_CHARS) return capped;
+
+    // Hard character backstop for non-pinned entries.
+    while (entries.length > 1 && capped.length > AI_NOTEPAD_MAX_CHARS) {
+        const dropIdx = entries.findIndex(e => !e.pinned);
+        if (dropIdx === -1) break;
+        entries.splice(dropIdx, 1);
+        capped = entries.map(e => e.line).join('\n');
+    }
+    return capped;
+}
+
+function appendToAiNotepad(existingText, incomingText, pinnedKeys = new Set()) {
+    if (!incomingText?.trim()) {
+        const capped = capNotepad(existingText || '', pinnedKeys);
+        return { text: capped, latestGenerated: [] };
+    }
+    const deduped = dedupAndFilterNotepad(existingText || '', incomingText);
+    const capped = capNotepad(deduped, pinnedKeys);
+    return {
+        text: capped,
+        latestGenerated: collectLatestGeneratedEntries(incomingText, capped),
+    };
+}
+
+function applyAiNotepadAppend(incomingText) {
+    const existing = chat_metadata?.deeplore_ai_notepad || '';
+    const pinSet = getAiNotepadPinnedKeySet();
+    const { text, latestGenerated } = appendToAiNotepad(existing, incomingText, pinSet);
+    chat_metadata.deeplore_ai_notepad = text;
+    chat_metadata.deeplore_ai_notepad_pins = collectPinnedKeysForText(text, pinSet);
+    chat_metadata.deeplore_ai_notepad_last_added = latestGenerated.slice(-20);
 }
 
 // ============================================================================
@@ -1587,8 +1790,7 @@ jQuery(async function () {
                     lastMessage.mes = cleanedMessage;
                     lastMessage.extra = lastMessage.extra || {};
                     lastMessage.extra.deeplore_ai_notes = notes;
-                    const existing = chat_metadata.deeplore_ai_notepad || '';
-                    chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + notes).trim());
+                    applyAiNotepadAppend(notes);
                     saveMetadataDebounced();
                     pushEvent('ai_notepad', { action: 'tag_extracted', noteLength: notes.length });
                     if (settings.debugMode) console.debug('[DLE] Notepad: extracted %d chars from tags', notes.length);
@@ -1643,8 +1845,7 @@ jQuery(async function () {
                         if (responseText && responseText !== 'NOTHING_TO_NOTE') {
                             currentMsg.extra = currentMsg.extra || {};
                             currentMsg.extra.deeplore_ai_notes = responseText;
-                            const existing = chat_metadata.deeplore_ai_notepad || '';
-                            chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + responseText).trim());
+                            applyAiNotepadAppend(responseText);
                             saveMetadataDebounced();
                             pushEvent('ai_notepad', { action: 'extract_completed', noteLength: responseText?.length || 0 });
                             if (getSettings().debugMode) console.debug('[DLE] Notepad: AI extracted %d chars', responseText.length);
@@ -1699,8 +1900,7 @@ jQuery(async function () {
                             message.extra = message.extra || {};
                             if (!message.extra.deeplore_ai_notes) {
                                 message.extra.deeplore_ai_notes = notes;
-                                const existing = chat_metadata.deeplore_ai_notepad || '';
-                                chat_metadata.deeplore_ai_notepad = capNotepad((existing + '\n' + notes).trim());
+                                applyAiNotepadAppend(notes);
                             }
                             saveMetadataDebounced();
                             const mesBlock = document.querySelector(`#chat .mes[mesid="${messageId}"] .mes_text`);
@@ -1794,6 +1994,7 @@ jQuery(async function () {
                     if (nIdx !== -1) updated = acc.slice(0, nIdx) + acc.slice(nIdx + notes.length);
                 }
                 chat_metadata.deeplore_ai_notepad = updated.replace(/\n{3,}/g, '\n\n').trim();
+                syncAiNotepadPinsWithStoredText();
                 delete message.extra.deeplore_ai_notes;
             }
 
@@ -1851,6 +2052,7 @@ jQuery(async function () {
                 }
                 if (updated !== acc && chat_metadata) {
                     chat_metadata.deeplore_ai_notepad = updated.replace(/\n{3,}/g, '\n\n').trim();
+                    syncAiNotepadPinsWithStoredText();
                     dirty = true;
                 }
                 delete message.extra.deeplore_ai_notes;
@@ -1980,6 +2182,7 @@ jQuery(async function () {
                         if (nIdx !== -1) updated = acc.slice(0, nIdx) + acc.slice(nIdx + notes.length);
                     }
                     chat_metadata.deeplore_ai_notepad = updated.replace(/\n{3,}/g, '\n\n').trim();
+                    syncAiNotepadPinsWithStoredText();
                 }
                 delete message.extra.deeplore_ai_notes;
                 saveMetadataDebounced();
